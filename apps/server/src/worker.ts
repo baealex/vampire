@@ -1,4 +1,4 @@
-import { execFile as execFileCb, spawn, type ChildProcess } from 'node:child_process';
+import { execFile as execFileCb, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { PrismaClient, Job, Project } from '@prisma/client';
+import { getProvider } from './providers/registry.js';
 
 const execFileAsync = promisify(execFileCb);
 
@@ -98,12 +99,14 @@ export function runWorker({ job, project, prisma, followUp }: WorkerParams): Wor
 
   const workerPromise = (async (): Promise<WorkerResult> => {
     try {
-      const { issueNo, type } = job;
+      const { issueNo, type, description } = job;
       const { baseBranch, path: projectRoot, prompt: extraPrompt } = project;
+      const provider = getProvider(project.provider || 'claude');
       const isFollowUp = !!followUp;
+      const isDirect = issueNo == null;
 
       log('========================================');
-      log(`  Claude Worker — Issue #${issueNo}${isFollowUp ? ' (Follow-up)' : ''}`);
+      log(`  Vampire — ${isDirect ? `Direct #${job.id}` : `Issue #${issueNo}`}${isFollowUp ? ' (Follow-up)' : ''}`);
       log(`  ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`);
       log('========================================');
       log('');
@@ -114,12 +117,23 @@ export function runWorker({ job, project, prisma, followUp }: WorkerParams): Wor
 
       if (isFollowUp) {
         branchName = followUp.branch;
-        issueTitle = job.issueTitle || `${type} #${issueNo}`;
+        issueTitle = job.issueTitle || (isDirect ? `${type} #${job.id}` : `${type} #${issueNo}`);
         issueBody = '';
 
         log('[1/5] Follow-up on existing branch...');
         log(`  Branch: ${branchName}`);
         log(`  Feedback: ${followUp.message.slice(0, 100)}${followUp.message.length > 100 ? '...' : ''}`);
+        log('');
+      } else if (isDirect) {
+        log('[1/5] Direct mode — using provided description...');
+
+        issueTitle = job.issueTitle || `${type} #${job.id}`;
+        issueBody = description || '';
+        branchName = `${type}/${job.id}`;
+
+        log(`  Title:  ${issueTitle}`);
+        log(`  Type:   ${type}`);
+        log(`  Branch: ${branchName}`);
         log('');
       } else {
         log(`[1/5] Reading issue #${issueNo}...`);
@@ -156,7 +170,7 @@ export function runWorker({ job, project, prisma, followUp }: WorkerParams): Wor
 
       const remoteUrl = await exec('git', ['remote', 'get-url', 'origin'], { cwd: projectRoot });
 
-      cloneDir = join(tmpdir(), `claude-worker-${issueNo}-${Date.now()}`);
+      cloneDir = join(tmpdir(), isDirect ? `vampire-direct-${job.id}-${Date.now()}` : `vampire-${issueNo}-${Date.now()}`);
 
       if (isFollowUp) {
         await exec('git', [
@@ -196,17 +210,18 @@ export function runWorker({ job, project, prisma, followUp }: WorkerParams): Wor
 
       if (await isCancelled(prisma, job.id)) throw new Error('cancelled');
 
-      // ─── 4. Run Claude Code ───
-      log('[4/5] Running Claude Code...');
+      // ─── 4. Run agent ───
+      log('[4/5] Running agent...');
       log('────────────────────────────────────────');
 
       let prompt: string;
 
       if (isFollowUp) {
-        prompt = `GitHub Issue #${issueNo}: ${issueTitle}
+        const taskRef = isDirect ? `Task: ${issueTitle}` : `GitHub Issue #${issueNo}: ${issueTitle}`;
+        prompt = `${taskRef}
 
 ── Previous work ──
-Code was previously modified for this issue and pushed to branch ${branchName}.
+Code was previously modified for this ${isDirect ? 'task' : 'issue'} and pushed to branch ${branchName}.
 ${followUp.previousDiff ? `\nPrevious changes (diff):\n${followUp.previousDiff.slice(0, 3000)}\n` : ''}
 
 ── Feedback / Change request ──
@@ -216,6 +231,15 @@ ${followUp.message}
 Apply the feedback above by modifying the code.
 You must build on top of the existing changes on this branch.
 Do not just analyze — you must actually edit files.`;
+      } else if (isDirect) {
+        prompt = `Task: ${issueTitle}
+
+${issueBody}
+
+── Instructions ──
+You must write code and modify files to complete the task above.
+Do not just analyze or explain — actually create or edit files.
+If the task is ambiguous, use your best judgment to implement a solution.`;
       } else {
         prompt = `GitHub Issue #${issueNo}: ${issueTitle}
 
@@ -242,6 +266,19 @@ Keep the template structure and replace placeholders with details about this wor
 
 ---PR_BODY_START---
 ${prTpl}
+---PR_BODY_END---`;
+      } else if (isDirect) {
+        prompt += `\n\nAfter all code changes are complete, output the PR body in this format:
+
+Between \`---PR_BODY_START---\` and \`---PR_BODY_END---\`, write the PR body.
+Include what changed and how to verify.
+
+---PR_BODY_START---
+## Changes
+(describe changes)
+
+## How to verify
+(verification steps)
 ---PR_BODY_END---`;
       } else {
         prompt += `\n\nAfter all code changes are complete, output the PR body in this format:
@@ -274,18 +311,19 @@ Resolves #${issueNo}
           log(`[4/5] Retry #${attempt - 1} — analyzing previous failure and retrying...`);
           log('────────────────────────────────────────');
 
-          currentPrompt = `GitHub Issue #${issueNo}: ${issueTitle}
+          const retryTaskRef = isDirect ? `Task: ${issueTitle}` : `GitHub Issue #${issueNo}: ${issueTitle}`;
+          currentPrompt = `${retryTaskRef}
 
 ${issueBody}
 
 ── Previous attempt result ──
 The previous attempt did not produce any file changes.
 
-Previous Claude response:
+Previous agent response:
 ${claudeOutput}
 
 ── Retry instructions ──
-Analyze why the previous attempt failed, then try a different approach to resolve the issue.
+Analyze why the previous attempt failed, then try a different approach to ${isDirect ? 'complete the task' : 'resolve the issue'}.
 You MUST modify files. Do not just analyze — actually change the code.
 If the problem is complex, take a step-by-step approach.`;
 
@@ -294,91 +332,31 @@ If the problem is complex, take a step-by-step approach.`;
           }
         }
 
-        // Run Claude with stream-json for real-time visibility
-        claudeOutput = await new Promise<string>((resolve, reject) => {
-          let finalResult = '';
-          let lineBuf = '';
-          const child = spawn('claude', [
-            '-p', '--dangerously-skip-permissions',
-            '--output-format', 'stream-json', '--verbose',
-            currentPrompt,
-          ], {
-            cwd: cloneDir!,
-            env: { ...process.env, HOME: process.env.HOME },
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
-
-          childProcess = child;
-
-          const processLine = (line: string) => {
-            if (!line.trim()) return;
-            try {
-              const event = JSON.parse(line);
-              if (event.type === 'assistant' && event.message?.content) {
-                for (const block of event.message.content) {
-                  if (block.type === 'tool_use') {
-                    const name = block.name;
-                    const input = block.input || {};
-                    if (name === 'Read') {
-                      log(`▸ Reading: ${input.file_path || ''}`);
-                    } else if (name === 'Edit') {
-                      log(`▸ Editing: ${input.file_path || ''}`);
-                    } else if (name === 'Write') {
-                      log(`▸ Writing: ${input.file_path || ''}`);
-                    } else if (name === 'Bash') {
-                      const cmd = input.command || '';
-                      log(`▸ Running: ${cmd.length > 120 ? cmd.slice(0, 120) + '...' : cmd}`);
-                    } else if (name === 'Grep') {
-                      log(`▸ Searching: "${input.pattern || ''}" in ${input.path || '.'}`);
-                    } else if (name === 'Glob') {
-                      log(`▸ Finding files: ${input.pattern || ''}`);
-                    } else {
-                      log(`▸ ${name}: ${JSON.stringify(input).slice(0, 100)}`);
-                    }
-                  } else if (block.type === 'text' && block.text) {
-                    finalResult += block.text;
-                    log(block.text.replace(/\n$/, ''));
-                  }
-                }
-              } else if (event.type === 'result') {
-                if (event.result) {
-                  finalResult = event.result;
-                }
-              }
-            } catch (_) {
-              // Not valid JSON, ignore
-            }
-          };
-
-          child.stdout!.on('data', (chunk: Buffer) => {
-            lineBuf += chunk.toString();
-            const lines = lineBuf.split('\n');
-            lineBuf = lines.pop() || '';
-            for (const line of lines) {
-              processLine(line);
-            }
-          });
-
-          child.stderr!.on('data', (chunk: Buffer) => {
-            const text = chunk.toString().trim();
-            if (text) log(text);
-          });
-
-          child.on('close', (code) => {
-            childProcess = null;
-            if (lineBuf.trim()) processLine(lineBuf);
-            if (code !== 0) {
-              reject(new Error(`Claude exited with code ${code}`));
-            } else {
-              resolve(finalResult);
-            }
-          });
-
-          child.on('error', (err) => {
-            childProcess = null;
-            reject(err);
-          });
+        // Run agent via provider
+        const handle = provider.runAgent({
+          prompt: currentPrompt,
+          cwd: cloneDir!,
+          callbacks: {
+            onToolUse(name, input) {
+              if (name === 'Read') log(`▸ Reading: ${input.file_path || ''}`);
+              else if (name === 'Edit') log(`▸ Editing: ${input.file_path || ''}`);
+              else if (name === 'Write') log(`▸ Writing: ${input.file_path || ''}`);
+              else if (name === 'Bash') {
+                const cmd = input.command || '';
+                log(`▸ Running: ${cmd.length > 120 ? cmd.slice(0, 120) + '...' : cmd}`);
+              } else if (name === 'Grep') log(`▸ Searching: "${input.pattern || ''}" in ${input.path || '.'}`);
+              else if (name === 'Glob') log(`▸ Finding files: ${input.pattern || ''}`);
+              else log(`▸ ${name}: ${JSON.stringify(input).slice(0, 100)}`);
+            },
+            onText(text) {
+              log(text.replace(/\n$/, ''));
+            },
+          },
         });
+
+        childProcess = handle.child;
+        claudeOutput = await handle.result;
+        childProcess = null;
 
         log('');
         log('────────────────────────────────────────');
@@ -399,13 +377,15 @@ If the problem is complex, take a step-by-step approach.`;
         if (attempt > MAX_RETRY) {
           log('');
           log(`No changes detected after ${MAX_RETRY} retries.`);
-          try {
-            await exec('gh', [
-              'issue', 'comment', String(issueNo),
-              '--body', `Claude Worker: Attempted ${MAX_RETRY} times but could not produce changes. Please make the issue description more specific.`,
-              '--repo', remoteUrl,
-            ], { cwd: cloneDir });
-          } catch (_) {}
+          if (!isDirect) {
+            try {
+              await exec('gh', [
+                'issue', 'comment', String(issueNo),
+                '--body', `Vampire: Attempted ${MAX_RETRY} times but could not produce changes. Please make the issue description more specific.`,
+                '--repo', remoteUrl,
+              ], { cwd: cloneDir });
+            } catch (_) {}
+          }
           throw new Error('no changes after retries');
         }
 
@@ -425,7 +405,9 @@ If the problem is complex, take a step-by-step approach.`;
 
       await exec('git', ['add', '-A'], { cwd: cloneDir });
 
-      const commitMsg = `${type}: ${issueTitle} (#${issueNo})\n\nCo-Authored-By: Claude <noreply@anthropic.com>`;
+      const commitMsg = isDirect
+        ? `${type}: ${issueTitle}\n\nCo-Authored-By: ${provider.info.coAuthor}`
+        : `${type}: ${issueTitle} (#${issueNo})\n\nCo-Authored-By: ${provider.info.coAuthor}`;
       await exec('git', ['commit', '--no-verify', '-m', commitMsg], { cwd: cloneDir });
 
       await exec('git', [
@@ -440,15 +422,19 @@ If the problem is complex, take a step-by-step approach.`;
       const prBodyMatch = claudeOutput.match(/---PR_BODY_START---\n([\s\S]*?)\n---PR_BODY_END---/);
       let prBody = prBodyMatch?.[1]?.trim() || null;
       if (!prBody) {
-        prBody = `Resolves #${issueNo}\n\n_Auto-generated by Claude Worker_`;
+        prBody = isDirect
+          ? `_Auto-generated by Vampire_`
+          : `Resolves #${issueNo}\n\n_Auto-generated by Vampire_`;
       }
 
-      const prTitle = `${type}: ${issueTitle} (#${issueNo})`;
+      const prTitle = isDirect
+        ? `${type}: ${issueTitle}`
+        : `${type}: ${issueTitle} (#${issueNo})`;
 
       log('');
       log('========================================');
       log('  DONE');
-      log(`  Issue:  #${issueNo}`);
+      log(`  ${isDirect ? `Task: ${issueTitle}` : `Issue:  #${issueNo}`}`);
       log(`  Branch: ${branchName}`);
       log('  Create a PR from the web UI.');
       log('========================================');

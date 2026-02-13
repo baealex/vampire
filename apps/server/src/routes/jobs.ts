@@ -23,9 +23,18 @@ export async function jobRoutes(app: FastifyInstance) {
     if (!project) return reply.code(404).send({ error: 'Not found' });
 
     const { type, mode } = req.body as { type?: string; mode?: string; issueTitle?: string; issueBody?: string; issueNo?: number };
-    let issueNum: number;
+    let issueNum: number | null = null;
+    let jobTitle = '';
+    let jobDescription = '';
 
-    if (mode === 'create') {
+    if (mode === 'direct') {
+      const { issueTitle, issueBody } = req.body as { issueTitle?: string; issueBody?: string };
+      if (!issueTitle || !issueTitle.trim()) {
+        return reply.code(400).send({ error: 'Title is required.' });
+      }
+      jobTitle = issueTitle.trim();
+      jobDescription = issueBody?.trim() || '';
+    } else if (mode === 'create') {
       const { issueTitle, issueBody } = req.body as { issueTitle?: string; issueBody?: string };
       if (!issueTitle || !issueTitle.trim()) {
         return reply.code(400).send({ error: 'Issue title is required.' });
@@ -35,6 +44,7 @@ export async function jobRoutes(app: FastifyInstance) {
       } catch (e: any) {
         return reply.code(500).send({ error: 'Failed to create issue: ' + e.message });
       }
+      jobTitle = issueTitle;
     } else {
       issueNum = Number((req.body as any).issueNo);
       if (!issueNum || issueNum <= 0 || !Number.isInteger(issueNum)) {
@@ -42,20 +52,21 @@ export async function jobRoutes(app: FastifyInstance) {
       }
     }
 
-    const existingRunning = await prisma.job.findFirst({
-      where: { projectId: project.id, issueNo: issueNum, status: 'running' },
-    });
-    if (existingRunning) {
-      return { job: existingRunning };
+    if (issueNum != null) {
+      const existingRunning = await prisma.job.findFirst({
+        where: { projectId: project.id, issueNo: issueNum, status: 'running' },
+      });
+      if (existingRunning) {
+        return { job: existingRunning };
+      }
     }
-
-    const issueTitle = mode === 'create' ? (req.body as any).issueTitle || '' : '';
 
     const job = await prisma.job.create({
       data: {
         projectId: project.id,
         issueNo: issueNum,
-        issueTitle,
+        issueTitle: jobTitle,
+        description: jobDescription,
         type: type || 'feat',
         status: 'running',
       },
@@ -70,6 +81,7 @@ export async function jobRoutes(app: FastifyInstance) {
   app.post('/api/jobs/:jobId/cancel', async (req, reply) => {
     const job = await prisma.job.findUnique({
       where: { id: Number((req.params as any).jobId) },
+      include: { project: true },
     });
     if (!job) return reply.code(404).send({ error: 'Not found' });
     if (job.status !== 'running') {
@@ -81,6 +93,7 @@ export async function jobRoutes(app: FastifyInstance) {
     const updated = await prisma.job.update({
       where: { id: job.id },
       data: { status: 'cancelled' },
+      include: { project: true },
     });
 
     return { job: updated };
@@ -101,6 +114,8 @@ export async function jobRoutes(app: FastifyInstance) {
       data: {
         projectId: oldJob.projectId,
         issueNo: oldJob.issueNo,
+        issueTitle: oldJob.issueTitle,
+        description: oldJob.description,
         type: oldJob.type,
         status: 'running',
       },
@@ -148,6 +163,7 @@ export async function jobRoutes(app: FastifyInstance) {
         projectId: oldJob.projectId,
         issueNo: oldJob.issueNo,
         issueTitle: oldJob.issueTitle,
+        description: oldJob.description,
         type: oldJob.type,
         status: 'running',
       },
@@ -191,6 +207,7 @@ export async function jobRoutes(app: FastifyInstance) {
       const updated = await prisma.job.update({
         where: { id: job.id },
         data: { prUrl, prBody, prTitle },
+        include: { project: true },
       });
 
       return { job: updated };

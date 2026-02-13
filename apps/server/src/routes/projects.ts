@@ -27,7 +27,7 @@ export async function projectRoutes(app: FastifyInstance) {
 
   // Create project
   app.post('/api/projects', async (req, reply) => {
-    const { name, path, baseBranch } = req.body as { name?: string; path?: string; baseBranch?: string };
+    const { name, path, baseBranch, provider } = req.body as { name?: string; path?: string; baseBranch?: string; provider?: string };
 
     const errors: string[] = [];
     if (!name || !name.trim()) errors.push('Project name is required.');
@@ -46,7 +46,7 @@ export async function projectRoutes(app: FastifyInstance) {
     }
 
     const project = await prisma.project.create({
-      data: { name: name!.trim(), path: path!.trim(), baseBranch: baseBranch || 'main' },
+      data: { name: name!.trim(), path: path!.trim(), baseBranch: baseBranch || 'main', provider: provider || 'claude' },
     });
     return reply.code(201).send({ project });
   });
@@ -54,9 +54,13 @@ export async function projectRoutes(app: FastifyInstance) {
   // Update project prompt
   app.patch('/api/projects/:id', async (req, _reply) => {
     const id = Number((req.params as any).id);
+    const body = req.body as { prompt?: string; provider?: string };
+    const data: Record<string, string> = {};
+    if (body.prompt !== undefined) data.prompt = body.prompt;
+    if (body.provider !== undefined) data.provider = body.provider;
     const project = await prisma.project.update({
       where: { id },
-      data: { prompt: (req.body as any).prompt || '' },
+      data,
     });
     return { project };
   });
