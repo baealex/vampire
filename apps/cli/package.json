@@ -1,0 +1,39 @@
+{
+  "name": "vampire",
+  "version": "1.0.0",
+  "description": "AI agent that sucks up your GitHub issues and bleeds out pull requests",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baealex/claude-worker.git",
+    "directory": "apps/cli"
+  },
+  "keywords": ["ai", "agent", "github", "cli", "claude", "automation"],
+  "bin": {
+    "vampire": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "dist-client/",
+    "prisma/"
+  ],
+  "scripts": {
+    "build": "tsup && cp ../../prisma/schema.prisma prisma/schema.prisma",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "commander": "^13.0.0",
+    "prisma": "^6.0.0",
+    "fastify": "^5.0.0",
+    "@fastify/static": "^8.0.0"
+  },
+  "devDependencies": {
+    "@vampire/server": "workspace:*",
+    "@types/node": "^25.2.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.3"
+  }
+}
