@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:../dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model Project {
@@ -13,6 +13,7 @@ model Project {
   path       String   @unique
   baseBranch String   @default("main")
   prompt         String   @default("")  // 프로젝트별 추가 프롬프트 (커밋 컨벤션, 린트 규칙 등)
+  provider       String   @default("claude")
   createdAt      DateTime @default(now())
   jobs       Job[]
 }
@@ -21,9 +22,10 @@ model Job {
   id        Int      @id @default(autoincrement())
   projectId Int
   project   Project  @relation(fields: [projectId], references: [id])
-  issueNo    Int
-  issueTitle String   @default("")
-  type       String
+  issueNo     Int?
+  issueTitle  String   @default("")
+  description String   @default("")
+  type        String
   status     String   @default("pending")
   branch    String?
   prUrl     String?
