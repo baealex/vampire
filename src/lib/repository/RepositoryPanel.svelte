@@ -188,7 +188,7 @@
 </aside>
 
 <style>
-	.repository-panel { position: absolute; z-index: 10; top: 0; right: 0; display: flex; flex-direction: column; width: min(22rem, calc(100% - 3rem)); height: 100%; min-width: 0; min-height: 0; overflow: hidden; transform: translateX(100%); border-left: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-panel); color: var(--color-text); pointer-events: none; transition: transform 180ms ease; }
+	.repository-panel { position: absolute; z-index: 10; top: 0; right: 0; display: flex; flex-direction: column; width: min(22rem, calc(100% - 3rem)); height: 100%; min-width: 0; min-height: 0; overflow: hidden; transform: translateX(100%); border-left: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-repository-panel); color: var(--color-text); pointer-events: none; transition: transform 180ms ease; }
 	.repository-panel.open { transform: translateX(0); pointer-events: auto; }
 	.repository-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 4rem; padding: 0.75rem 0.8rem 0.75rem 1rem; border-bottom: 1px solid var(--color-border); }
 	.repository-title { display: grid; min-width: 0; gap: 0.15rem; }
