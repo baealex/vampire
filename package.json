@@ -11,10 +11,13 @@
     "bin",
     "build",
     "scripts/config.mjs",
+    "scripts/repository-status.mjs",
     "scripts/serve.mjs",
     "scripts/terminal.mjs",
     "scripts/websocket.mjs",
+    "src/lib/server/repository.mjs",
     "src/lib/server/session-cookie.mjs",
+    "src/lib/server/session-state.mjs",
     "README.md",
     "LICENSE",
     "SECURITY.md"

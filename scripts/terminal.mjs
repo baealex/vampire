@@ -1,8 +1,6 @@
 import { execFile as execFileCallback, spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { findSessionConnection } from '../src/lib/server/session-state.mjs';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -16,21 +14,6 @@ const INITIAL_REDRAW_MINIMUM_MS = 500;
 const INITIAL_REDRAW_QUIET_MS = 160;
 const INITIAL_REDRAW_MAXIMUM_MS = 1_500;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
-
-function registryPath() {
-	const directory = process.env.VAMPIRE_STATE_DIR?.trim() || join(homedir(), '.vampire');
-	return join(resolve(directory), 'sessions.json');
-}
-
-async function managedSession(id) {
-	try {
-		const parsed = JSON.parse(await readFile(registryPath(), 'utf8'));
-		const session = parsed?.sessions?.find((candidate) => candidate?.id === id);
-		return typeof session?.tmuxSession === 'string' ? session : undefined;
-	} catch {
-		return undefined;
-	}
-}
 
 async function activePane(tmuxSession) {
 	const { stdout } = await execFile('tmux', ['display-message', '-p', '-t', tmuxSession, '#{pane_id}']);
@@ -84,12 +67,13 @@ function message(socket, payload) {
 }
 
 export async function attachTerminal(socket, sessionId, initialSize, options = {}) {
-	const session = await managedSession(sessionId);
-	if (!session) throw new Error('Unknown Vampire session.');
+	const connection = await findSessionConnection(sessionId);
+	if (!connection) throw new Error('Unknown Vampire session.');
+	const { tmuxSession } = connection;
 
-	const paneId = await activePane(session.tmuxSession);
+	const paneId = await activePane(tmuxSession);
 	const attachFlags = options.ignoreSize ? ['-f', 'ignore-size'] : [];
-	const control = spawn('tmux', ['-C', 'attach-session', ...attachFlags, '-t', session.tmuxSession], {
+	const control = spawn('tmux', ['-C', 'attach-session', ...attachFlags, '-t', tmuxSession], {
 		stdio: ['pipe', 'pipe', 'pipe']
 	});
 	control.stderr.resume();
@@ -339,7 +323,7 @@ export async function attachTerminal(socket, sessionId, initialSize, options = {
 				acknowledgeSnapshot();
 			} else if (input?.type === 'input' && typeof input.data === 'string') {
 				inputQueue = inputQueue
-					.then(() => sendInput(session.tmuxSession, input.data))
+					.then(() => sendInput(tmuxSession, input.data))
 					.catch((error) => message(socket, {
 						type: 'error',
 						message: error instanceof Error ? error.message : 'Terminal input failed.'

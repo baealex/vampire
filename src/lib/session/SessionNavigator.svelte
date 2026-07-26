@@ -15,7 +15,7 @@
 		latestSessionOutputAt,
 		projectName,
 		sessionActivityHint,
-		sessionIsActive,
+		sessionActivityState,
 		sessionProcess,
 		sessionProcessHint
 	} from './view';
@@ -25,6 +25,7 @@
 		displayedSessions,
 		activeSessionId,
 		activeOutputSessionId,
+		unreadSessionIds,
 		authenticationRequired,
 		hasOpenSession,
 		mobileOpen,
@@ -49,6 +50,7 @@
 		displayedSessions: ManagedSession[];
 		activeSessionId?: string;
 		activeOutputSessionId?: string;
+		unreadSessionIds: Set<string>;
 		authenticationRequired: boolean;
 		hasOpenSession: boolean;
 		mobileOpen: boolean;
@@ -168,6 +170,8 @@
 		{:else}
 			<div class="sessions">
 				{#each displayedSessions as session (session.id)}
+					{@const hasUnreadOutput = unreadSessionIds.has(session.id)}
+					{@const activityState = sessionActivityState(session, activeOutputSessionId, hasUnreadOutput)}
 					<div
 						class="session-row-shell"
 						class:active={activeSessionId === session.id}
@@ -189,11 +193,17 @@
 							oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 							onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 							aria-current={activeSessionId === session.id ? 'true' : undefined}
-							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${sessionProcess(session).label}; ${sessionActivityHint(session, activeOutputSessionId)}${session.note ? '; has a note' : ''})`}
+							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${sessionProcess(session).label}; ${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
 						>
 							<span class="row-leading" aria-hidden="true">
 								{#if sessionOrderMode === 'manual'}<span class="drag-handle"><GripVertical size={14} strokeWidth={1.8} /></span>{/if}
-								<span class="status-dot" class:missing={session.state === 'missing'} class:active={sessionIsActive(session, activeOutputSessionId)} title={sessionActivityHint(session, activeOutputSessionId)}></span>
+								<span
+									class="status-dot"
+									class:live={activityState === 'live'}
+									class:review={activityState === 'review'}
+									class:missing={activityState === 'missing'}
+									title={sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}
+								></span>
 							</span>
 							<span class="session-summary">
 								<span class="session-title">
@@ -204,6 +214,9 @@
 									<span class="session-program" class:agent={sessionProcess(session).kind === 'agent'} class:command={sessionProcess(session).kind === 'command'} title={sessionProcessHint(session)}>{sessionProcess(session).label}</span>
 									<span class="session-context-divider" aria-hidden="true">·</span>
 									<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Last terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session))}</time>
+									{#if activityState === 'review'}
+										<span class="review-hint" title="New terminal output needs review" aria-hidden="true">Review</span>
+									{/if}
 								</span>
 							</span>
 						</button>
@@ -274,9 +287,10 @@
 	.session-actions-trigger:hover, .session-actions-trigger:focus-visible { background: #332d2f; color: var(--color-text); }
 	.row-leading { display: inline-flex; align-items: center; gap: 0.3rem; }
 	.drag-handle { display: grid; place-items: center; color: #6f6769; line-height: 1; }
-	.status-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--color-success); }
-	.status-dot.active { background: #e39a43; box-shadow: 0 0 0 0.2rem rgb(227 154 67 / 0.1); }
-	.status-dot.missing { background: var(--color-text-tertiary); }
+	.status-dot { width: 0.58rem; height: 0.58rem; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 0.16rem rgb(116 201 149 / 0.06); }
+	.status-dot.live { background: #e39a43; box-shadow: 0 0 0 0.2rem rgb(227 154 67 / 0.1); animation: activity-pulse 1.4s ease-out infinite; }
+	.status-dot.review { background: #6ea8fe; box-shadow: 0 0 0 0.2rem rgb(110 168 254 / 0.12); }
+	.status-dot.missing { background: #625b5d; box-shadow: none; }
 	.session-summary { display: grid; min-width: 0; gap: 0.28rem; }
 	.session-title { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
 	.session-title strong { overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
@@ -287,6 +301,7 @@
 	.session-program.command { color: #e7b06a; }
 	.session-context-divider { color: #655e60; }
 	.session-context time { flex: 0 0 auto; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
+	.review-hint { flex: 0 0 auto; padding: 0.08rem 0.34rem; border: 1px solid #315986; border-radius: 999px; background: #17283c; color: #9bc4ff; font-size: 0.64rem; font-weight: var(--weight-medium); letter-spacing: 0.02em; line-height: 1.25; }
 	.empty-state { display: grid; justify-items: start; padding: clamp(1.5rem, 6vw, 3rem) 1.35rem 2rem; border-top: 1px solid var(--color-border); }
 	.empty-state__icon { margin-bottom: 1.1rem; color: var(--color-accent); }
 	.empty-state h2 { margin: 0; font-size: var(--text-heading); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
@@ -316,6 +331,7 @@
 	.panel-message { margin: 0 1.35rem 1.35rem; }
 
 	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes activity-pulse { 0%, 45% { box-shadow: 0 0 0 0.18rem rgb(227 154 67 / 0.12); } 100% { box-shadow: 0 0 0 0.42rem transparent; } }
 
 	@media (min-width: 64rem) {
 		.session-column { display: flex; flex-direction: column; gap: 0; min-width: 0; height: 100%; overflow: hidden; border-right: 1px solid var(--color-border); background: #131112; }
@@ -330,15 +346,20 @@
 	}
 
 	@media (max-width: 63.999rem) {
+		.session-column { position: fixed; z-index: 40; inset: 0 auto 0 0; display: flex; flex-direction: column; align-items: stretch; gap: 0; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); overflow-y: auto; transform: translateX(-100%); border-right: 1px solid var(--color-border-strong); background: #131112; box-shadow: 1.25rem 0 2.5rem rgb(0 0 0 / 0.34); pointer-events: none; transition: transform 180ms ease, visibility 0s linear 180ms; visibility: hidden; }
+		.session-column.mobile-open { transform: translateX(0); pointer-events: auto; transition: transform 180ms ease; visibility: visible; }
+		.session-panel, .new-session-panel { width: 100%; border: 0; border-radius: 0; background: transparent; }
+		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+		.sessions, .empty-state { min-height: 0; overflow-y: auto; }
+		.sessions { flex: 1 1 0; }
+		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; max-height: 60%; overflow-y: auto; border-top: 1px solid var(--color-border); background: #131112; }
+		.section-header { padding: 1rem; }
+		.session-order-toolbar { padding-inline: 1rem; }
+		.session-row { padding-inline: 1rem; padding-right: 3.55rem; }
 		.navigator-close { display: grid; }
-		.session-column.mobile-open { position: fixed; z-index: 30; inset: 0; align-content: start; width: 100%; height: 100dvh; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); overflow-y: auto; background: var(--color-canvas); }
 	}
 
 	@media (max-width: 46rem) {
-		.session-column { display: flex; flex-direction: column; align-items: stretch; }
-		.session-panel, .new-session-panel { flex: 0 0 auto; }
-		.session-panel { order: 1; }
-		.new-session-panel { order: 2; }
 		.section-header { padding-inline: 1rem; }
 		.session-row { padding-left: 1rem; }
 	}
@@ -348,7 +369,8 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.new-session-chevron { transition: none; }
+		.new-session-chevron, .session-column { transition: none; }
+		.status-dot.live { animation: none; }
 		.icon-button.spinning :global(svg) { animation-duration: 1.6s; }
 	}
 </style>

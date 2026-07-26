@@ -2,8 +2,11 @@
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
 	import Minus from '@lucide/svelte/icons/minus';
+	import MemoryStick from '@lucide/svelte/icons/memory-stick';
+	import Microchip from '@lucide/svelte/icons/microchip';
 	import Plus from '@lucide/svelte/icons/plus';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
+	import type { SystemMetrics } from '$lib/system-metrics';
 
 	let {
 		projectName,
@@ -13,6 +16,7 @@
 		fontSize,
 		minimumFontSize,
 		maximumFontSize,
+		systemMetrics,
 		close,
 		repositoryOpen,
 		changeCount,
@@ -28,6 +32,7 @@
 		fontSize: number;
 		minimumFontSize: number;
 		maximumFontSize: number;
+		systemMetrics?: SystemMetrics;
 		close: () => void;
 		repositoryOpen: boolean;
 		changeCount: number;
@@ -36,6 +41,11 @@
 		decreaseFontSize: () => void;
 		increaseFontSize: () => void;
 	} = $props();
+
+	function formatMemory(bytes: number): string {
+		const gigabytes = bytes / 1024 ** 3;
+		return `${gigabytes >= 10 ? Math.round(gigabytes) : gigabytes.toFixed(1)} GB`;
+	}
 </script>
 
 <header class="terminal-header">
@@ -48,6 +58,24 @@
 		<span title={cwd}>{cwd}</span>
 	</div>
 	<div class="terminal-controls">
+		{#if systemMetrics}
+			<div
+				class="system-metrics"
+				role="group"
+				aria-label={`Server resources: CPU ${systemMetrics.cpuUsage} percent; RAM ${systemMetrics.memoryUsage} percent, ${formatMemory(systemMetrics.memoryUsedBytes)} of ${formatMemory(systemMetrics.memoryTotalBytes)} used.`}
+			>
+				<span class="system-metric" title={`CPU ${systemMetrics.cpuUsage}%`}>
+					<Microchip size={14} strokeWidth={1.8} aria-hidden="true" />
+					<b>CPU</b>
+					<output>{systemMetrics.cpuUsage}%</output>
+				</span>
+				<span class="system-metric" title={`RAM ${formatMemory(systemMetrics.memoryUsedBytes)} of ${formatMemory(systemMetrics.memoryTotalBytes)} (${systemMetrics.memoryUsage}%)`}>
+					<MemoryStick size={14} strokeWidth={1.8} aria-hidden="true" />
+					<b>RAM</b>
+					<output>{systemMetrics.memoryUsage}%</output>
+				</span>
+			</div>
+		{/if}
 		<button
 			type="button"
 			class="repository-button"
@@ -100,7 +128,13 @@
 	.terminal-identity strong, .terminal-identity span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.terminal-identity strong { font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
 	.terminal-identity span { color: #8e8688; font-family: ui-monospace, monospace; font-size: var(--text-caption); line-height: var(--leading-tight); }
-	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; min-width: 0; }
+	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; min-width: max-content; }
+	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid #393334; border-radius: 0.42rem; background: #191617; color: #c8c0c2; font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+	.system-metric { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 1.9rem; padding: 0 0.42rem; white-space: nowrap; }
+	.system-metric + .system-metric { border-left: 1px solid #332e2f; }
+	.system-metric :global(svg) { color: #8e8688; }
+	.system-metric b { font-weight: var(--weight-medium); }
+	.system-metric output { color: #eee8e9; font: inherit; }
 	.note-button, .repository-button { position: relative; display: grid; place-items: center; width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: 0.5rem; background: transparent; color: #8e8688; cursor: pointer; }
 	.note-button:hover, .note-button.active, .repository-button:hover, .repository-button.active { border-color: #393334; background: #252122; color: #eee8e9; }
 	.note-button.has-note { color: #e7b06a; }
@@ -118,9 +152,15 @@
 		.terminal-identity { justify-items: start; }
 	}
 
+	@media (max-width: 63.999rem) {
+		.terminal-header { gap: 0.5rem; }
+		.back-button { width: 2.65rem; padding: 0; justify-content: center; }
+		.back-button span, .terminal-identity span { display: none; }
+		.terminal-identity { justify-items: start; }
+	}
+
 	@media (max-width: 32rem) {
 		.terminal-header { grid-template-columns: 2.65rem minmax(0, 1fr) auto; }
-		.back-button { width: 2.65rem; padding: 0; justify-content: center; }
-		.back-button span, .font-size-control { display: none; }
+		.font-size-control, .system-metric b { display: none; }
 	}
 </style>

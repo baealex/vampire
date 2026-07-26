@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { env } from '$env/dynamic/private';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
+import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
 
-const STATE_VERSION = 1;
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
 
 interface StoredSession {
@@ -47,11 +45,6 @@ export class SessionMutationError extends Error {
 	}
 }
 
-function statePath(): string {
-	const stateDirectory = env.VAMPIRE_STATE_DIR?.trim() || join(homedir(), '.vampire');
-	return join(resolve(stateDirectory), 'sessions.json');
-}
-
 function isStoredSession(value: unknown): value is StoredSession {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
 	const session = value as Record<string, unknown>;
@@ -65,15 +58,14 @@ function isStoredSession(value: unknown): value is StoredSession {
 
 async function readState(): Promise<StateFile> {
 	try {
-		const contents = await readFile(statePath(), 'utf8');
-		const parsed: unknown = JSON.parse(contents);
+		const parsed: unknown = await readSessionStateFile();
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid state file');
 		const state = parsed as { version?: unknown; sessions?: unknown };
-		if (state.version !== STATE_VERSION || !Array.isArray(state.sessions) || !state.sessions.every(isStoredSession)) {
+		if (state.version !== SESSION_STATE_VERSION || !Array.isArray(state.sessions) || !state.sessions.every(isStoredSession)) {
 			throw new Error('invalid state file');
 		}
 		return {
-			version: STATE_VERSION,
+			version: SESSION_STATE_VERSION,
 			sessions: state.sessions.map(({ id, tmuxSession, cwd, createdAt, lastActiveAt, note }) => ({
 				id,
 				tmuxSession,
@@ -84,13 +76,13 @@ async function readState(): Promise<StateFile> {
 			}))
 		};
 	} catch (cause) {
-		if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return { version: STATE_VERSION, sessions: [] };
+		if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return { version: SESSION_STATE_VERSION, sessions: [] };
 		throw new Error('Vampire session registry is unreadable; refusing to overwrite it.');
 	}
 }
 
 async function writeState(state: StateFile): Promise<void> {
-	const file = statePath();
+	const file = sessionStatePath();
 	await mkdir(dirname(file), { recursive: true, mode: 0o700 });
 	const temporaryFile = `${file}.${randomUUID()}.tmp`;
 	await writeFile(temporaryFile, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });

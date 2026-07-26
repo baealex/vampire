@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '../src/lib/server/session-cookie.mjs';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.mjs';
 import { attachTerminal } from './terminal.mjs';
 
 const MAX_CONNECTIONS = 32;
@@ -138,6 +139,7 @@ export function installTerminalWebSocket(server) {
 			if (state.attachments.size === 0) sessionAttachmentStates.delete(context.sessionId);
 		};
 		socket.once('close', releaseAttachment);
+		void observeRepositoryStatus(socket, context.sessionId).catch(() => undefined);
 
 		void attachTerminal(socket, context.sessionId, context.initialSize, {
 			ignoreSize: true,
@@ -167,6 +169,7 @@ export function installTerminalWebSocket(server) {
 	return () => {
 		clearInterval(heartbeat);
 		server.off('upgrade', handleUpgrade);
+		closeRepositoryStatusObservers();
 		for (const socket of terminalSockets.clients) socket.terminate();
 		terminalSockets.close();
 	};

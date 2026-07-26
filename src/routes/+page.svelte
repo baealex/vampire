@@ -6,270 +6,82 @@
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import TmuxSetupNotice from '$lib/TmuxSetupNotice.svelte';
+	import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
 	import SessionActionsDialog from '$lib/session/SessionActionsDialog.svelte';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
-	import type { ManagedSession, SessionOrderMode } from '$lib/session/types';
-	import { maxTimestamp, projectName, sortSessions } from '$lib/session/view';
-	import type { TmuxStatus } from '$lib/tmux-status';
+	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
+	import type { ManagedSession, MobilePanel } from '$lib/session/types';
+	import { projectName } from '$lib/session/view';
 
-	export let initialSessionId: string | undefined = undefined;
+	let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
 
-	let authenticationRequired = true;
-	let authenticated = false;
-	let checking = true;
-	let loading = false;
-	let token = '';
-	let loginError = '';
-	let errorMessage = '';
-	let sessions: ManagedSession[] = [];
-	let cwd = '';
-	let starting = false;
-	let startError = '';
-	let newSessionOpen = false;
-	let sessionsLoaded = false;
-	let activeSession: ManagedSession | undefined;
-	let sessionsRequestVersion = 0;
-	let requestedSessionId = initialSessionId;
-	let sessionAction: 'restart' | 'close' | 'remove' | undefined;
-	let sessionActionError = '';
-	let sessionOrderMode: SessionOrderMode = 'recent';
-	let manualSessionOrder: string[] = [];
-	let activeOutputSessionId: string | undefined;
-	let sessionShortcutModifier = 'Ctrl';
-	let useMetaSessionShortcuts = false;
-	let transportSecure = true;
-	let tmuxStatus: TmuxStatus | undefined;
-	let mobileSessionsOpen = !initialSessionId;
-	let sessionActionsSession: ManagedSession | undefined;
+	let mobilePanel = $state<MobilePanel | undefined>(undefined);
+	let sessionActionsSession = $state<ManagedSession | undefined>(undefined);
+	let sessionShortcutModifier = $state('Ctrl');
 	let sessionActionsTrigger: HTMLElement | undefined;
-	const activityRequestTimers = new Map<string, number>();
-	let displayedSessions: ManagedSession[] = [];
+	let useMetaSessionShortcuts = false;
 
-	$: displayedSessions = sortSessions(sessions, sessionOrderMode, manualSessionOrder);
+	const connection = new WorkspaceConnectionState();
+	const workspace: SessionWorkspaceState = new SessionWorkspaceState({
+		navigate: (path) => pushState(path, {}),
+		onUnauthorized: () => connection.markUnauthenticated(),
+		isSessionObserved: (sessionId) => terminalIsObserved(sessionId)
+	});
 
-	async function request<T>(path: string, init?: RequestInit): Promise<T> {
-		const response = await fetch(path, init);
-		if (!response.ok) {
-			const body = await response.json().catch(() => ({}));
-			throw new Error(typeof body.message === 'string' ? body.message : 'Request failed');
-		}
-		return response.json() as Promise<T>;
+	function terminalIsObserved(sessionId: string): boolean {
+		return workspace.requestedSessionId === sessionId
+			&& document.visibilityState === 'visible'
+			&& mobilePanel === undefined;
 	}
 
-	async function refreshSessions(options: { quiet?: boolean } = {}) {
-		const requestVersion = ++sessionsRequestVersion;
-		if (!options.quiet) loading = true;
-		errorMessage = '';
-		try {
-			const data = await request<{ sessions: ManagedSession[] }>('/api/sessions');
-			if (requestVersion !== sessionsRequestVersion) return;
-			const localActivity = new Map(sessions.map((session) => [session.id, session.lastActiveAt]));
-			const localOutput = new Map(sessions.map((session) => [session.id, session.lastOutputAt]));
-			sessions = data.sessions.map((session) => ({
-				...session,
-				lastActiveAt: Math.max(session.lastActiveAt, localActivity.get(session.id) ?? 0),
-				lastOutputAt: maxTimestamp(session.lastOutputAt, localOutput.get(session.id) ?? null)
-			}));
-			syncManualSessionOrder();
-			if (requestedSessionId) {
-				activeSession = sessions.find((session) => session.id === requestedSessionId);
-			} else if (activeSession) {
-				activeSession = sessions.find((session) => session.id === activeSession?.id) ?? activeSession;
-			}
-			if (!sessionsLoaded) {
-				newSessionOpen = sessions.length === 0;
-				sessionsLoaded = true;
-			}
-		} catch (error) {
-			if (requestVersion !== sessionsRequestVersion) return;
-			if (error instanceof Error && error.message === 'Unauthorized') {
-				authenticated = false;
-			} else {
-				errorMessage = error instanceof Error ? error.message : 'Unable to load sessions';
-			}
-		} finally {
-			if (!options.quiet) loading = false;
+	function markActiveSessionObserved() {
+		if (workspace.requestedSessionId && terminalIsObserved(workspace.requestedSessionId)) {
+			workspace.markSessionObserved(workspace.requestedSessionId);
 		}
 	}
 
-	async function unlock() {
-		loginError = '';
-		try {
-			await request<{ ok: boolean }>('/api/login', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ token })
-			});
-			token = '';
-			authenticated = true;
-			await refreshSessions();
-		} catch (error) {
-			loginError = error instanceof Error && error.message === 'Unauthorized'
-				? 'That access token did not work.'
-				: error instanceof Error ? error.message : 'Unable to connect';
-		}
+	function setMobilePanel(panel: MobilePanel | undefined) {
+		mobilePanel = panel;
+		if (panel === undefined) markActiveSessionObserved();
+	}
+
+	function unlock() {
+		return connection.unlock((options) => workspace.refresh(options));
 	}
 
 	async function logout() {
-		try {
-			await request<{ ok: boolean }>('/api/login', { method: 'DELETE' });
-		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Unable to sign out';
-			return;
-		}
-		authenticated = false;
-		activeSession = undefined;
-		requestedSessionId = undefined;
-		sessions = [];
+		if (!await connection.logout()) return;
+		workspace.reset();
+		mobilePanel = 'sessions';
 		pushState('/', {});
-	}
-
-	async function createSession() {
-		if (tmuxStatus && !tmuxStatus.available) {
-			startError = 'Install tmux on the server computer before starting a session.';
-			return;
-		}
-		starting = true;
-		startError = '';
-		try {
-			const data = await request<{ session: ManagedSession }>('/api/sessions', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ cwd })
-			});
-			sessionsRequestVersion += 1;
-			cwd = '';
-			newSessionOpen = false;
-			sessions = [data.session, ...sessions.filter((session) => session.id !== data.session.id)];
-			manualSessionOrder = [data.session.id, ...manualSessionOrder.filter((id) => id !== data.session.id)];
-			persistManualSessionOrder();
-			openSession(data.session);
-			void refreshSessions({ quiet: true });
-		} catch (error) {
-			startError = error instanceof Error ? error.message : 'Unable to start the shell';
-		} finally {
-			starting = false;
-		}
-	}
-
-	async function updateSessionNote(sessionId: string, note: string) {
-		const data = await request<{ note: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`, {
-			method: 'PUT',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ note })
-		});
-		sessions = sessions.map((session) => session.id === sessionId ? { ...session, note: data.note } : session);
-		if (activeSession?.id === sessionId) activeSession = { ...activeSession, note: data.note };
-	}
-
-	function persistManualSessionOrder() {
-		window.localStorage.setItem('vampire:session-order', JSON.stringify(manualSessionOrder));
-	}
-
-	function syncManualSessionOrder() {
-		const sessionIds = new Set(sessions.map((session) => session.id));
-		const nextOrder = [
-			...manualSessionOrder.filter((id) => sessionIds.has(id)),
-			...sessions.map((session) => session.id).filter((id) => !manualSessionOrder.includes(id))
-		];
-		if (nextOrder.join('\0') === manualSessionOrder.join('\0')) return;
-		manualSessionOrder = nextOrder;
-		persistManualSessionOrder();
-	}
-
-	function setSessionOrderMode(mode: SessionOrderMode) {
-		sessionOrderMode = mode;
-		window.localStorage.setItem('vampire:session-order-mode', mode);
-		if (mode === 'manual') syncManualSessionOrder();
-	}
-
-	function reorderSession(draggedId: string, targetId: string, position: 'before' | 'after') {
-		if (draggedId === targetId) return;
-		const order = displayedSessions.map((session) => session.id).filter((id) => id !== draggedId);
-		const targetIndex = order.indexOf(targetId);
-		if (targetIndex < 0) return;
-		order.splice(targetIndex + (position === 'after' ? 1 : 0), 0, draggedId);
-		manualSessionOrder = order;
-		persistManualSessionOrder();
-	}
-
-	function recordSessionInput(sessionId: string, timestamp: number) {
-		sessions = sessions.map((session) => session.id === sessionId ? { ...session, lastActiveAt: timestamp } : session);
-		if (activeSession?.id === sessionId) activeSession = { ...activeSession, lastActiveAt: timestamp };
-
-		const existingTimer = activityRequestTimers.get(sessionId);
-		if (existingTimer) window.clearTimeout(existingTimer);
-		activityRequestTimers.set(sessionId, window.setTimeout(() => {
-			activityRequestTimers.delete(sessionId);
-			void request<{ lastActiveAt: number }>(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'PATCH' })
-				.then(({ lastActiveAt }) => {
-					sessions = sessions.map((session) => session.id === sessionId
-						? { ...session, lastActiveAt: Math.max(session.lastActiveAt, lastActiveAt) }
-						: session);
-				})
-				.catch(() => undefined);
-		}, 600));
-	}
-
-	function recordSessionOutput(sessionId: string, active: boolean, timestamp?: number) {
-		if (active) {
-			activeOutputSessionId = sessionId;
-			const outputAt = timestamp ?? Date.now();
-			sessions = sessions.map((session) => session.id === sessionId
-				? { ...session, lastOutputAt: maxTimestamp(session.lastOutputAt, outputAt) }
-				: session);
-			if (activeSession?.id === sessionId) {
-				activeSession = { ...activeSession, lastOutputAt: maxTimestamp(activeSession.lastOutputAt, outputAt) };
-			}
-		}
-		else if (activeOutputSessionId === sessionId) activeOutputSessionId = undefined;
 	}
 
 	function openSession(session: ManagedSession) {
-		mobileSessionsOpen = false;
-		if (activeSession?.id === session.id && requestedSessionId === session.id) return;
-		requestedSessionId = session.id;
-		activeSession = session;
-		sessionActionError = '';
-		pushState(`/sessions/${encodeURIComponent(session.id)}`, {});
+		setMobilePanel(undefined);
+		workspace.openSession(session);
 	}
 
-	function handleSessionShortcut(event: KeyboardEvent) {
-		const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
-		if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || !digitMatch) return;
-		const primaryModifier = useMetaSessionShortcuts ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-		const fallbackModifier = event.altKey && !event.metaKey && !event.ctrlKey;
-		if (!primaryModifier && !fallbackModifier) return;
-
-		const digit = digitMatch[1];
-		const index = digit === '0' ? 9 : Number(digit) - 1;
-		const targetSession = displayedSessions[index];
-		if (!targetSession) return;
-		event.preventDefault();
-		event.stopPropagation();
-		openSession(targetSession);
+	async function createSession() {
+		if (await workspace.createSession(connection.tmuxStatus?.available)) setMobilePanel(undefined);
 	}
 
 	function clearActiveSession() {
-		requestedSessionId = undefined;
-		activeSession = undefined;
-		mobileSessionsOpen = true;
-		sessionActionError = '';
-		pushState('/', {});
+		mobilePanel = 'sessions';
+		workspace.clearActiveSession();
 	}
 
 	function openSessionNavigator() {
-		mobileSessionsOpen = true;
+		mobilePanel = 'sessions';
 	}
 
 	function closeSessionNavigator() {
-		if (activeSession || requestedSessionId) mobileSessionsOpen = false;
+		if (workspace.hasOpenSession) setMobilePanel(undefined);
 	}
 
 	function openSessionActions(session: ManagedSession, trigger: HTMLElement) {
+		workspace.sessionActionError = '';
 		sessionActionsSession = session;
-		sessionActionError = '';
 		sessionActionsTrigger = trigger;
 	}
 
@@ -280,192 +92,141 @@
 		if (restoreFocus) void tick().then(() => trigger?.focus());
 	}
 
+	function syncSessionFromLocation(pathname = location.pathname) {
+		workspace.syncLocation(pathname);
+		mobilePanel = workspace.requestedSessionId ? undefined : 'sessions';
+		markActiveSessionObserved();
+	}
+
+	async function restartSession(session: ManagedSession) {
+		await workspace.restartSession(session);
+	}
+
+	async function closeSession(session: ManagedSession) {
+		const wasActive = workspace.requestedSessionId === session.id;
+		if (await workspace.closeSession(session)) {
+			closeSessionActions(false);
+			if (wasActive) mobilePanel = 'sessions';
+		}
+	}
+
+	async function removeSession(session: ManagedSession) {
+		const wasActive = workspace.requestedSessionId === session.id;
+		if (await workspace.removeSession(session)) {
+			closeSessionActions(false);
+			if (wasActive) mobilePanel = 'sessions';
+		}
+	}
+
+	function handleSessionShortcut(event: KeyboardEvent) {
+		const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
+		if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || !digitMatch) return;
+		const primaryModifier = useMetaSessionShortcuts
+			? event.metaKey && !event.ctrlKey
+			: event.ctrlKey && !event.metaKey;
+		const fallbackModifier = event.altKey && !event.metaKey && !event.ctrlKey;
+		if (!primaryModifier && !fallbackModifier) return;
+
+		const digit = digitMatch[1];
+		const index = digit === '0' ? 9 : Number(digit) - 1;
+		const targetSession = workspace.displayedSessions[index];
+		if (!targetSession) return;
+		event.preventDefault();
+		event.stopPropagation();
+		openSession(targetSession);
+	}
+
 	function handleOverlayKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		if (sessionActionsSession) {
 			event.preventDefault();
 			closeSessionActions();
-		} else if (mobileSessionsOpen && (activeSession || requestedSessionId)) {
+		} else if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
 			event.preventDefault();
 			closeSessionNavigator();
 		}
 	}
 
-	function syncSessionFromLocation() {
-		const match = /^\/sessions\/([^/]+)\/?$/.exec(location.pathname);
-		requestedSessionId = match ? decodeURIComponent(match[1]) : undefined;
-		activeSession = requestedSessionId
-			? sessions.find((session) => session.id === requestedSessionId)
-			: undefined;
-		mobileSessionsOpen = !requestedSessionId;
-		sessionActionError = '';
-	}
-
-	async function restartSession(session: ManagedSession) {
-		sessionAction = 'restart';
-		sessionActionError = '';
-		try {
-			const data = await request<{ session: ManagedSession }>(`/api/sessions/${encodeURIComponent(session.id)}`, {
-				method: 'POST'
-			});
-			sessionsRequestVersion += 1;
-			sessions = sessions.map((item) => item.id === data.session.id ? data.session : item);
-			activeSession = data.session;
-			void refreshSessions({ quiet: true });
-		} catch (error) {
-			sessionActionError = error instanceof Error ? error.message : 'Unable to restart the session';
-		} finally {
-			sessionAction = undefined;
-		}
-	}
-
-	async function closeSession(session: ManagedSession) {
-		sessionAction = 'close';
-		sessionActionError = '';
-		try {
-			await request<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}/close`, { method: 'POST' });
-			sessionsRequestVersion += 1;
-			sessions = sessions.map((item) => item.id === session.id
-				? { ...item, state: 'missing', lastOutputAt: null, attachedClients: 0, foregroundProcess: null }
-				: item);
-			if (activeOutputSessionId === session.id) activeOutputSessionId = undefined;
-			closeSessionActions(false);
-			if (activeSession?.id === session.id || requestedSessionId === session.id) clearActiveSession();
-			void refreshSessions({ quiet: true });
-		} catch (error) {
-			sessionActionError = error instanceof Error ? error.message : 'Unable to close the session';
-		} finally {
-			sessionAction = undefined;
-		}
-	}
-
-	async function removeSession(session: ManagedSession) {
-		sessionAction = 'remove';
-		sessionActionError = '';
-		try {
-			await request<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}`, { method: 'DELETE' });
-			sessionsRequestVersion += 1;
-			sessions = sessions.filter((item) => item.id !== session.id);
-			manualSessionOrder = manualSessionOrder.filter((id) => id !== session.id);
-			persistManualSessionOrder();
-			closeSessionActions(false);
-			if (activeSession?.id === session.id || requestedSessionId === session.id) clearActiveSession();
-		} catch (error) {
-			sessionActionError = error instanceof Error ? error.message : 'Unable to remove the workspace';
-		} finally {
-			sessionAction = undefined;
-		}
-	}
-
 	onMount(() => {
-		let disposed = false;
-		transportSecure = location.protocol === 'https:' || ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+		const initialSessionPath = initialSessionId ? `/sessions/${encodeURIComponent(initialSessionId)}` : '/';
+		syncSessionFromLocation(location.pathname || initialSessionPath);
 		useMetaSessionShortcuts = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 		sessionShortcutModifier = useMetaSessionShortcuts ? '⌘' : 'Ctrl+';
-		const savedOrderMode = window.localStorage.getItem('vampire:session-order-mode');
-		if (savedOrderMode === 'recent' || savedOrderMode === 'manual') sessionOrderMode = savedOrderMode;
-		try {
-			const savedOrder: unknown = JSON.parse(window.localStorage.getItem('vampire:session-order') ?? '[]');
-			if (Array.isArray(savedOrder) && savedOrder.every((id) => typeof id === 'string')) manualSessionOrder = savedOrder;
-		} catch {
-			manualSessionOrder = [];
-		}
-
-		void (async () => {
-			try {
-				const status = await request<{ authenticationRequired: boolean; authenticated: boolean; tmux: TmuxStatus }>('/api/status');
-				if (disposed) return;
-				authenticationRequired = status.authenticationRequired;
-				authenticated = status.authenticated;
-				tmuxStatus = status.tmux;
-				if (authenticated) await refreshSessions();
-			} catch (error) {
-				errorMessage = error instanceof Error ? error.message : 'Unable to connect to Vampire';
-			} finally {
-				if (!disposed) checking = false;
-			}
-		})();
-
-		const refreshWhenVisible = () => {
-			if (!document.hidden && authenticated) void refreshSessions({ quiet: true });
-		};
-		const interval = window.setInterval(refreshWhenVisible, 2_000);
-		document.addEventListener('visibilitychange', refreshWhenVisible);
-		window.addEventListener('popstate', syncSessionFromLocation);
+		workspace.restoreBrowserPreferences(window.localStorage);
+		const stopConnection = connection.start({
+			refreshSessions: (options) => workspace.refresh(options),
+			onVisible: markActiveSessionObserved
+		});
+		const handlePopState = () => syncSessionFromLocation();
+		window.addEventListener('popstate', handlePopState);
 		window.addEventListener('keydown', handleSessionShortcut, { capture: true });
 		window.addEventListener('keydown', handleOverlayKeydown, { capture: true });
-		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined);
 
 		return () => {
-			disposed = true;
-			window.clearInterval(interval);
-			for (const timer of activityRequestTimers.values()) window.clearTimeout(timer);
-			activityRequestTimers.clear();
-			document.removeEventListener('visibilitychange', refreshWhenVisible);
-			window.removeEventListener('popstate', syncSessionFromLocation);
+			stopConnection();
+			workspace.dispose();
+			window.removeEventListener('popstate', handlePopState);
 			window.removeEventListener('keydown', handleSessionShortcut, { capture: true });
 			window.removeEventListener('keydown', handleOverlayKeydown, { capture: true });
 		};
 	});
 </script>
 
-	<svelte:head>
+<svelte:head>
 	<meta name="description" content="A self-hosted browser workspace for persistent tmux sessions." />
 </svelte:head>
 
-<main class:terminal-open={Boolean(activeSession || requestedSessionId)} class:tmux-missing={tmuxStatus?.available === false}>
-	{#if checking}
+<main class:terminal-open={workspace.hasOpenSession} class:tmux-missing={connection.tmuxStatus?.available === false}>
+	{#if connection.checking}
 		<section class="loading-state" aria-live="polite">
 			<span class="spinner" aria-hidden="true"></span>
 			Connecting…
 		</section>
-	{:else if authenticationRequired && !authenticated}
-		{#if tmuxStatus && !tmuxStatus.available}<TmuxSetupNotice status={tmuxStatus} />{/if}
+	{:else if connection.authenticationRequired && !connection.authenticated}
+		{#if connection.tmuxStatus && !connection.tmuxStatus.available}<TmuxSetupNotice status={connection.tmuxStatus} />{/if}
 		<section class="login-panel" aria-labelledby="login-title">
 			<p class="section-label">Private server</p>
 			<h1 id="login-title">Connect to Vampire</h1>
 			<p class="supporting">Enter the access token configured on this computer.</p>
-			{#if !transportSecure}<p class="transport-warning" role="alert">This connection is not encrypted. Use HTTPS before entering a token.</p>{/if}
+			{#if !connection.transportSecure}<p class="transport-warning" role="alert">This connection is not encrypted. Use HTTPS before entering a token.</p>{/if}
 			<form onsubmit={(event) => { event.preventDefault(); void unlock(); }}>
 				<label for="token">Access token</label>
-				<input id="token" type="password" bind:value={token} autocomplete="current-password" required />
+				<input id="token" type="password" bind:value={connection.token} autocomplete="current-password" required />
 				<button class="primary-button">Continue</button>
-				{#if loginError}<p class="error" role="alert">{loginError}</p>{/if}
+				{#if connection.loginError}<p class="error" role="alert">{connection.loginError}</p>{/if}
 			</form>
 		</section>
 	{:else}
-		{#if tmuxStatus && !tmuxStatus.available}<TmuxSetupNotice status={tmuxStatus} />{/if}
-		<div
-			class="dashboard"
-			class:terminal-open={Boolean(activeSession || requestedSessionId)}
-		>
+		{#if connection.tmuxStatus && !connection.tmuxStatus.available}<TmuxSetupNotice status={connection.tmuxStatus} />{/if}
+		<div class="dashboard" class:terminal-open={workspace.hasOpenSession}>
 			<SessionNavigator
-				{sessions}
-				{displayedSessions}
-				activeSessionId={activeSession?.id}
-				{activeOutputSessionId}
-				{authenticationRequired}
-				hasOpenSession={Boolean(activeSession || requestedSessionId)}
-				mobileOpen={mobileSessionsOpen}
-				{loading}
-				{errorMessage}
-				{sessionOrderMode}
-				bind:newSessionOpen
-				bind:cwd
-				{starting}
-				{startError}
-				tmuxAvailable={tmuxStatus?.available}
-				onRefresh={() => void refreshSessions()}
+				sessions={workspace.sessions}
+				displayedSessions={workspace.displayedSessions}
+				activeSessionId={workspace.activeSession?.id}
+				activeOutputSessionId={workspace.activeOutputSessionId}
+				unreadSessionIds={workspace.unreadSessionIds}
+				authenticationRequired={connection.authenticationRequired}
+				hasOpenSession={workspace.hasOpenSession}
+				mobileOpen={mobilePanel === 'sessions'}
+				loading={workspace.loading}
+				errorMessage={workspace.errorMessage || connection.errorMessage}
+				sessionOrderMode={workspace.sessionOrderMode}
+				bind:newSessionOpen={workspace.newSessionOpen}
+				bind:cwd={workspace.cwd}
+				starting={workspace.starting}
+				startError={workspace.startError}
+				tmuxAvailable={connection.tmuxStatus?.available}
+				onRefresh={() => void workspace.refresh()}
 				onLogout={() => void logout()}
 				onClose={closeSessionNavigator}
-				onOrderModeChange={setSessionOrderMode}
-				onReorder={reorderSession}
+				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
+				onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
 				onOpen={openSession}
 				onOpenActions={openSessionActions}
 				onCreate={() => void createSession()}
 			/>
 
-			{#if activeSession?.state === 'missing'}
+			{#if workspace.activeSession?.state === 'missing'}
 				<section class="unavailable-sheet" aria-labelledby="ended-session-title">
 					<header class="unavailable-header">
 						<button class="detail-back" onclick={openSessionNavigator} aria-label="Open workspaces">
@@ -473,8 +234,8 @@
 							<span>Workspaces</span>
 						</button>
 						<div class="unavailable-identity">
-							<strong>{projectName(activeSession.cwd)}</strong>
-							<span title={activeSession.cwd}>{activeSession.cwd}</span>
+							<strong>{projectName(workspace.activeSession.cwd)}</strong>
+							<span title={workspace.activeSession.cwd}>{workspace.activeSession.cwd}</span>
 						</div>
 						<span class="ended-badge">Ended</span>
 					</header>
@@ -483,29 +244,32 @@
 						<p class="section-label">tmux session unavailable</p>
 						<h2 id="ended-session-title">This shell has ended</h2>
 						<p>The process is no longer running. You can open a fresh shell in the same project or remove this workspace from the list.</p>
-						<code>{activeSession.cwd}</code>
+						<code>{workspace.activeSession.cwd}</code>
 						<div class="unavailable-actions">
-							<button class="primary-button" onclick={() => void restartSession(activeSession!)} disabled={Boolean(sessionAction)}>
-								{sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
+							<button class="primary-button" onclick={() => void restartSession(workspace.activeSession!)} disabled={Boolean(workspace.sessionAction)}>
+								{workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
 							</button>
-							<button class="remove-button" onclick={() => void removeSession(activeSession!)} disabled={Boolean(sessionAction)}>
-								{sessionAction === 'remove' ? 'Removing…' : 'Remove workspace'}
+							<button class="remove-button" onclick={() => void removeSession(workspace.activeSession!)} disabled={Boolean(workspace.sessionAction)}>
+								{workspace.sessionAction === 'remove' ? 'Removing…' : 'Remove workspace'}
 							</button>
 						</div>
-						{#if sessionActionError}<p class="error" role="alert">{sessionActionError}</p>{/if}
+						{#if workspace.sessionActionError}<p class="error" role="alert">{workspace.sessionActionError}</p>{/if}
 					</div>
 				</section>
-			{:else if activeSession}
-				{#key activeSession.id}
+			{:else if workspace.activeSession}
+				{#key workspace.activeSession.id}
 					<WorkspaceWorkbench
-						session={activeSession}
+						session={workspace.activeSession}
 						close={openSessionNavigator}
-						onUpdateNote={updateSessionNote}
-						onInputActivity={recordSessionInput}
-						onOutputActivity={recordSessionOutput}
+						onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
+						onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
+						onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
+						{mobilePanel}
+						onMobilePanelChange={setMobilePanel}
+						systemMetrics={connection.systemMetrics}
 					/>
 				{/key}
-			{:else if requestedSessionId && sessionsLoaded}
+			{:else if workspace.requestedSessionId && workspace.sessionsLoaded}
 				<section class="unavailable-sheet" aria-labelledby="missing-session-title">
 					<header class="unavailable-header">
 						<button class="detail-back" onclick={openSessionNavigator} aria-label="Open workspaces">
@@ -533,8 +297,8 @@
 		{#if sessionActionsSession}
 			<SessionActionsDialog
 				session={sessionActionsSession}
-				action={sessionAction}
-				errorMessage={sessionActionError}
+				action={workspace.sessionAction}
+				errorMessage={workspace.sessionActionError}
 				close={() => closeSessionActions()}
 				closeSession={closeSession}
 				remove={removeSession}
@@ -544,11 +308,7 @@
 </main>
 
 <style>
-	main {
-		width: 100%;
-		min-height: 100dvh;
-	}
-
+	main { width: 100%; min-height: 100dvh; }
 	.dashboard { min-width: 0; min-height: 100dvh; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); }
 	.login-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 	.login-panel h1 { margin: 0.15rem 0 0; font-size: var(--text-display); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
@@ -569,7 +329,6 @@
 	.error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-ui); }
 	.loading-state { display: flex; align-items: center; justify-content: center; gap: 0.7rem; min-height: 100dvh; color: var(--color-text-secondary); }
 	.spinner { width: 1rem; height: 1rem; border: 2px solid var(--color-border-strong); border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-
 	.unavailable-sheet { position: fixed; z-index: 20; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; background: #0d0c0d; color: var(--color-text); }
 	.unavailable-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; min-width: 0; padding: max(0.65rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0.65rem max(0.75rem, env(safe-area-inset-left)); border-bottom: 1px solid #2d292a; background: #131112; }
 	.detail-back { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.65rem; padding: 0 0.65rem 0 0.45rem; border: 1px solid #393334; border-radius: 0.55rem; background: #1c191a; color: var(--color-text); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
@@ -591,9 +350,7 @@
 	.remove-button:disabled { cursor: wait; opacity: 0.6; }
 	.unavailable-body .error { margin-top: 0.9rem; }
 	.empty-workbench { display: none; }
-
 	@keyframes spin { to { transform: rotate(360deg); } }
-
 	@media (min-width: 64rem) {
 		main { height: 100dvh; overflow: hidden; }
 		main.tmux-missing { display: grid; grid-template-rows: auto minmax(0, 1fr); }
@@ -606,15 +363,11 @@
 		.empty-workbench .empty-workbench__shortcut { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.9rem; color: #5f5759; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); }
 		.unavailable-sheet { position: relative; z-index: 1; inset: auto; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }
 	}
-
 	@media (max-width: 32rem) {
 		.unavailable-header { grid-template-columns: 2.65rem minmax(0, 1fr) auto; }
 		.detail-back { width: 2.65rem; padding: 0; justify-content: center; }
 		.detail-back span { display: none; }
 		input { font-size: 1rem; }
 	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.spinner { animation-duration: 1.6s; }
-	}
+	@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
 </style>
