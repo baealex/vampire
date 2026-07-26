@@ -1,45 +1,23 @@
 @layer settings, generic, elements;
 
-@layer settings {
-	:root {
-		color-scheme: dark;
-		font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-		font-synthesis: none;
-		--color-canvas: #0f0e0f;
-		--color-surface: #171516;
-		--color-surface-raised: #1d1a1b;
-		--color-border: #332e2f;
-		--color-border-strong: #51484a;
-		--color-text: #f5f0f1;
-		--color-text-secondary: #aaa1a3;
-		--color-text-tertiary: #7e7678;
-		--color-accent: #e45b67;
-		--color-accent-hover: #ef707b;
-		--color-accent-ink: #22090c;
-		--color-danger: #ff929b;
-		--color-success: #74c995;
-		--text-caption: 0.75rem;
-		--text-label: 0.8125rem;
-		--text-body: 0.875rem;
-		--text-title: 1rem;
-		--text-heading: 1.125rem;
-		--text-display: 1.5rem;
-		--weight-medium: 600;
-		--weight-strong: 700;
-		--leading-tight: 1.25;
-		--leading-ui: 1.4;
-		--leading-body: 1.55;
-		--radius-sm: 0.55rem;
-		--radius-md: 0.8rem;
-		--radius-lg: 1rem;
-	}
-}
-
 @layer generic {
 	*,
 	*::before,
 	*::after {
 		box-sizing: border-box;
+	}
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation-duration: 160ms;
+	animation-timing-function: ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation-duration: 0s;
 	}
 }
 
