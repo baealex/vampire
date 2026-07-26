@@ -67,8 +67,9 @@
 		applyTerminalFontSize(nextSize);
 	}
 
-	function handleTerminalPointerDown() {
+	function handleTerminalPointerDown(event: PointerEvent) {
 		activateTerminal();
+		if (event.pointerType === 'touch') return;
 		focusTerminal();
 		if (window.matchMedia('(min-width: 64rem)').matches) directInputFocused = true;
 	}
@@ -279,7 +280,12 @@
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.visualViewport?.addEventListener('resize', updateViewport);
 		window.visualViewport?.addEventListener('scroll', updateViewport);
-		removeTouchScroll = installTerminalTouchScroll(terminalElement, () => terminal);
+		removeTouchScroll = installTerminalTouchScroll(terminalElement, () => terminal, {
+			onTap: () => {
+				activate();
+				terminal?.focus();
+			}
+		});
 		focusTerminal = () => terminal?.focus();
 
 		void (async () => {
