@@ -23,11 +23,29 @@ export function sessionIsActive(session: ManagedSession, activeOutputSessionId?:
 	);
 }
 
-export function sessionActivityHint(session: ManagedSession, activeOutputSessionId?: string): string {
-	if (session.state === 'missing') return 'Gray: tmux session unavailable';
-	return sessionIsActive(session, activeOutputSessionId)
-		? 'Orange: recent terminal output; this is not a task-status signal'
-		: 'Green: no recent terminal output';
+export type SessionActivityState = 'live' | 'review' | 'idle' | 'missing';
+
+export function sessionActivityState(
+	session: ManagedSession,
+	activeOutputSessionId?: string,
+	hasUnreadOutput = false
+): SessionActivityState {
+	if (session.state === 'missing') return 'missing';
+	if (sessionIsActive(session, activeOutputSessionId)) return 'live';
+	if (hasUnreadOutput) return 'review';
+	return 'idle';
+}
+
+export function sessionActivityHint(
+	session: ManagedSession,
+	activeOutputSessionId?: string,
+	hasUnreadOutput = false
+): string {
+	if (session.state === 'missing') return 'tmux session unavailable';
+	const state = sessionActivityState(session, activeOutputSessionId, hasUnreadOutput);
+	if (state === 'live') return 'Recent terminal output';
+	if (state === 'review') return 'Terminal output has not been viewed yet';
+	return 'No unreviewed terminal output';
 }
 
 export function maxTimestamp(left: number | null, right: number | null): number | null {

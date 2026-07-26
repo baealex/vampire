@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Terminal from '$lib/Terminal.svelte';
-	import type { ManagedSession } from '$lib/session/types';
+	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName as getProjectName } from '$lib/session/view';
+	import type { SystemMetrics } from '$lib/system-metrics';
 	import RepositoryPanel from './RepositoryPanel.svelte';
 	import RepositoryViewer from './RepositoryViewer.svelte';
 	import type { RepositorySelection, RepositorySnapshot } from './types';
@@ -12,13 +13,19 @@
 		close,
 		onUpdateNote,
 		onInputActivity,
-		onOutputActivity
+		onOutputActivity,
+		systemMetrics,
+		mobilePanel,
+		onMobilePanelChange = () => undefined
 	}: {
 		session: ManagedSession;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
 		onInputActivity: (sessionId: string, timestamp: number) => void;
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
+		systemMetrics?: SystemMetrics;
+		mobilePanel?: MobilePanel;
+		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
 	} = $props();
 
 	let snapshot = $state<RepositorySnapshot>();
@@ -26,11 +33,12 @@
 	let repositoryError = $state('');
 	let repositoryRefreshToken = $state(0);
 	let selection = $state<RepositorySelection>();
-	let repositoryOpen = $state(false);
+	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	let refreshInFlight = false;
 	const name = $derived(getProjectName(session.cwd));
-	const changeCount = $derived(snapshot?.changes.length ?? 0);
+	let changeCount = $state(0);
+	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
 
 	async function refreshRepository(showLoading = false) {
 		if (refreshInFlight || document.hidden) return;
@@ -47,6 +55,7 @@
 				throw new Error(message);
 			}
 			snapshot = await response.json() as RepositorySnapshot;
+			changeCount = snapshot.changes.length;
 			repositoryError = '';
 			repositoryRefreshToken += 1;
 		} catch (error) {
@@ -62,25 +71,44 @@
 			closeRepository();
 			return;
 		}
-		repositoryOpen = true;
+		if (desktop) desktopRepositoryOpen = true;
+		else onMobilePanelChange('repository');
 	}
 
 	function closeRepository() {
-		repositoryOpen = false;
+		if (desktop) desktopRepositoryOpen = false;
+		else onMobilePanelChange(undefined);
 		selection = undefined;
+	}
+
+	function openSessionNavigator() {
+		closeRepository();
+		close();
 	}
 
 	function selectRepositoryItem(nextSelection: RepositorySelection) {
 		selection = nextSelection;
-		if (!desktop) repositoryOpen = false;
+		if (!desktop) onMobilePanelChange(undefined);
 	}
+
+	$effect(() => {
+		if (!repositoryOpen) return;
+		const refreshWhenVisible = () => {
+			if (!document.hidden) void refreshRepository();
+		};
+		void refreshRepository();
+		document.addEventListener('visibilitychange', refreshWhenVisible);
+		const interval = window.setInterval(refreshWhenVisible, 2_000);
+
+		return () => {
+			document.removeEventListener('visibilitychange', refreshWhenVisible);
+			window.clearInterval(interval);
+		};
+	});
 
 	onMount(() => {
 		const desktopQuery = window.matchMedia('(min-width: 64rem)');
 		const syncDesktop = () => desktop = desktopQuery.matches;
-		const refreshWhenVisible = () => {
-			if (!document.hidden) void refreshRepository();
-		};
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
 			if (repositoryOpen) {
@@ -93,16 +121,11 @@
 		};
 		syncDesktop();
 		desktopQuery.addEventListener('change', syncDesktop);
-		document.addEventListener('visibilitychange', refreshWhenVisible);
 		window.addEventListener('keydown', closeOverlay, { capture: true });
-		const interval = window.setInterval(refreshWhenVisible, 2_000);
-		void refreshRepository();
 
 		return () => {
 			desktopQuery.removeEventListener('change', syncDesktop);
-			document.removeEventListener('visibilitychange', refreshWhenVisible);
 			window.removeEventListener('keydown', closeOverlay, { capture: true });
-			window.clearInterval(interval);
 		};
 	});
 </script>
@@ -111,12 +134,14 @@
 	<div class="workspace-primary">
 		<Terminal
 			{session}
-			{close}
+			close={openSessionNavigator}
 			{onUpdateNote}
 			{onInputActivity}
 			{onOutputActivity}
+			{systemMetrics}
 			{repositoryOpen}
 			{changeCount}
+			onRepositoryStatus={(nextChangeCount) => changeCount = nextChangeCount}
 			onToggleRepository={toggleRepository}
 		>
 			{#if selection}

@@ -5,6 +5,8 @@
 	import ShellOpening from '$lib/terminal/ShellOpening.svelte';
 	import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
 	import TerminalInputDock from '$lib/terminal/TerminalInputDock.svelte';
+	import { installTerminalTouchScroll } from '$lib/terminal/touch-scroll';
+	import type { SystemMetrics } from '$lib/system-metrics';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
@@ -15,7 +17,9 @@
 		onOutputActivity = () => undefined,
 		repositoryOpen = false,
 		changeCount = 0,
+		onRepositoryStatus = () => undefined,
 		onToggleRepository = () => undefined,
+		systemMetrics,
 		children
 	}: {
 		session: ManagedSession;
@@ -25,7 +29,9 @@
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		repositoryOpen?: boolean;
 		changeCount?: number;
+		onRepositoryStatus?: (changeCount: number) => void;
 		onToggleRepository?: () => void;
+		systemMetrics?: SystemMetrics;
 		children?: Snippet;
 	} = $props();
 
@@ -139,59 +145,7 @@
 		let lastInputNotice = 0;
 		let lastActivationNotice = 0;
 		let lastSentSize = '';
-		let touchPointerId: number | undefined;
-		let touchLastY = 0;
-		let touchRowHeight = 0;
-		let touchScrollRemainder = 0;
-		let touchScrolling = false;
-
-		const isTerminalScrollbar = (target: EventTarget | null) =>
-			target instanceof Element && Boolean(target.closest('.xterm-scrollable-element .scrollbar'));
-
-		const resetTouchScroll = () => {
-			touchPointerId = undefined;
-			touchLastY = 0;
-			touchRowHeight = 0;
-			touchScrollRemainder = 0;
-			touchScrolling = false;
-		};
-
-		const getTerminalRowHeight = () => {
-			if (!terminal || terminal.rows <= 0) return 0;
-			const screen = terminal.element?.querySelector<HTMLElement>('.xterm-screen');
-			const height = screen?.getBoundingClientRect().height || terminalElement.clientHeight;
-			return height / terminal.rows;
-		};
-
-		const handleTouchPointerDown = (event: PointerEvent) => {
-			if (event.pointerType !== 'touch' || !event.isPrimary || isTerminalScrollbar(event.target)) return;
-			touchPointerId = event.pointerId;
-			touchLastY = event.clientY;
-			touchRowHeight = getTerminalRowHeight();
-			touchScrollRemainder = 0;
-		};
-
-		const handleTouchPointerMove = (event: PointerEvent) => {
-			if (event.pointerType !== 'touch' || !event.isPrimary || event.pointerId !== touchPointerId || !terminal) return;
-			if (touchRowHeight <= 0) touchRowHeight = getTerminalRowHeight();
-			if (touchRowHeight <= 0) return;
-			touchScrollRemainder += touchLastY - event.clientY;
-			touchLastY = event.clientY;
-			const lines = Math.trunc(touchScrollRemainder / touchRowHeight);
-			if (lines === 0) return;
-			if (!touchScrolling) {
-				touchScrolling = true;
-				terminalElement.setPointerCapture(event.pointerId);
-				terminal.clearSelection();
-			}
-			touchScrollRemainder -= lines * touchRowHeight;
-			terminal.scrollLines(lines);
-			event.preventDefault();
-		};
-
-		const handleTouchPointerEnd = (event: PointerEvent) => {
-			if (event.pointerId === touchPointerId) resetTouchScroll();
-		};
+		let removeTouchScroll: () => void = () => undefined;
 
 		const setOutputActive = (active: boolean, timestamp?: number) => {
 			if (active && timestamp !== undefined) onOutputActivity(session.id, true, timestamp);
@@ -320,11 +274,7 @@
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.visualViewport?.addEventListener('resize', updateViewport);
 		window.visualViewport?.addEventListener('scroll', updateViewport);
-		terminalElement.addEventListener('pointerdown', handleTouchPointerDown);
-		terminalElement.addEventListener('pointermove', handleTouchPointerMove);
-		terminalElement.addEventListener('pointerup', handleTouchPointerEnd);
-		terminalElement.addEventListener('pointercancel', handleTouchPointerEnd);
-		terminalElement.addEventListener('lostpointercapture', handleTouchPointerEnd);
+		removeTouchScroll = installTerminalTouchScroll(terminalElement, () => terminal);
 		focusTerminal = () => terminal?.focus();
 
 		void (async () => {
@@ -391,7 +341,7 @@
 					return;
 				}
 				if (!payload || typeof payload !== 'object') return;
-				const message = payload as { type?: unknown; data?: unknown; message?: unknown; activity?: unknown };
+				const message = payload as { type?: unknown; data?: unknown; message?: unknown; activity?: unknown; changeCount?: unknown };
 				if (message.type === 'snapshot' && typeof message.data === 'string') {
 					if (!terminal) return;
 					screenReady = false;
@@ -426,6 +376,13 @@
 					if (message.activity !== false) markOutputActivity();
 					if (terminalReady) writeTerminalOutput(message.data);
 					else pendingTerminalOutput.push(message.data);
+				} else if (
+					message.type === 'repository-status'
+					&& typeof message.changeCount === 'number'
+					&& Number.isInteger(message.changeCount)
+					&& message.changeCount >= 0
+				) {
+					onRepositoryStatus(message.changeCount);
 				} else if (message.type === 'error' && typeof message.message === 'string') {
 					terminalError = message.message;
 				}
@@ -454,12 +411,7 @@
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			window.visualViewport?.removeEventListener('resize', updateViewport);
 			window.visualViewport?.removeEventListener('scroll', updateViewport);
-			terminalElement.removeEventListener('pointerdown', handleTouchPointerDown);
-			terminalElement.removeEventListener('pointermove', handleTouchPointerMove);
-			terminalElement.removeEventListener('pointerup', handleTouchPointerEnd);
-			terminalElement.removeEventListener('pointercancel', handleTouchPointerEnd);
-			terminalElement.removeEventListener('lostpointercapture', handleTouchPointerEnd);
-			resetTouchScroll();
+			removeTouchScroll();
 			if (outputActivityTimer) clearTimeout(outputActivityTimer);
 			if (resizeTimer) clearTimeout(resizeTimer);
 			if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
@@ -499,6 +451,7 @@
 			fontSize={terminalFontSize}
 			{minimumFontSize}
 			{maximumFontSize}
+			{systemMetrics}
 			{close}
 			{repositoryOpen}
 			{changeCount}

@@ -17,3 +17,5 @@ export type ManagedSession = {
 };
 
 export type SessionOrderMode = 'recent' | 'manual';
+
+export type MobilePanel = 'sessions' | 'repository';

@@ -264,6 +264,24 @@ export async function readRepositorySnapshot(cwd) {
 	};
 }
 
+/** @param {string} cwd */
+export async function readRepositorySummary(cwd) {
+	const root = await workspaceRoot(cwd);
+	const gitRepository = await isGitRepository(root);
+	if (!gitRepository) return { isGitRepository: false, changeCount: 0 };
+	const changes = await readGitChanges(root);
+	return { isGitRepository: true, changeCount: changes.length };
+}
+
+/** @param {string} cwd */
+export async function readRepositoryWatchPaths(cwd) {
+	const root = await workspaceRoot(cwd);
+	if (!await isGitRepository(root)) return { root, gitDirectory: undefined };
+	const { stdout } = await runGit(root, ['rev-parse', '--absolute-git-dir']);
+	const gitDirectory = stdout.trim();
+	return { root, gitDirectory: gitDirectory || undefined };
+}
+
 /**
  * @param {string} cwd
  * @param {string} path

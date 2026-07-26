@@ -29,6 +29,7 @@ const shutdown = () => {
 		}
 		process.exit();
 	});
+	server.closeAllConnections();
 };
 
 process.once('SIGINT', shutdown);
