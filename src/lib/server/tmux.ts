@@ -4,6 +4,40 @@ import type { TmuxStatus } from '$lib/tmux-status';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
+const VAMPIRE_SERVER_ENVIRONMENT_KEYS = [
+	'VAMPIRE_ADAPTER_BODY_SIZE_LIMIT',
+	'VAMPIRE_ADAPTER_ORIGIN',
+	'VAMPIRE_HOST',
+	'VAMPIRE_PORT',
+	'VAMPIRE_STATE_DIR',
+	'VAMPIRE_TOKEN'
+];
+
+export function tmuxSessionLaunch(
+	name: string,
+	cwd: string,
+	sourceEnvironment: NodeJS.ProcessEnv = process.env
+): { arguments: string[]; environment: NodeJS.ProcessEnv } {
+	const serverEnvironmentKeys = [...new Set([
+		...VAMPIRE_SERVER_ENVIRONMENT_KEYS,
+		...Object.keys(sourceEnvironment).filter((key) => key.startsWith('VAMPIRE_'))
+	])].sort();
+	const environment = { ...sourceEnvironment };
+	for (const key of serverEnvironmentKeys) delete environment[key];
+
+	return {
+		arguments: [
+			...serverEnvironmentKeys.flatMap((key) => ['set-environment', '-gr', key, ';']),
+			'new-session',
+			'-d',
+			'-s',
+			name,
+			'-c',
+			cwd
+		],
+		environment
+	};
+}
 
 function tmuxInstallGuide(): TmuxStatus['install'] {
 	if (process.platform === 'darwin') {
@@ -185,14 +219,8 @@ function classifyProcess(
 }
 
 export async function createTmuxSession(name: string, cwd: string): Promise<void> {
-	await execFile('tmux', [
-		'new-session',
-		'-d',
-		'-s',
-		name,
-		'-c',
-		cwd
-	]);
+	const launch = tmuxSessionLaunch(name, cwd);
+	await execFile('tmux', launch.arguments, { env: launch.environment });
 }
 
 export async function sendTmuxInput(name: string, data: string): Promise<void> {
