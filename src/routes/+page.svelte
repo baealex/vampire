@@ -43,6 +43,7 @@
 	}
 
 	function setMobilePanel(panel: MobilePanel | undefined) {
+		if (mobilePanel === undefined && panel !== undefined) markActiveSessionObserved();
 		mobilePanel = panel;
 		if (panel === undefined) markActiveSessionObserved();
 	}
@@ -59,8 +60,8 @@
 	}
 
 	function openSession(session: ManagedSession) {
-		setMobilePanel(undefined);
 		workspace.openSession(session);
+		setMobilePanel(undefined);
 	}
 
 	async function createSession() {
@@ -159,9 +160,15 @@
 			onVisible: markActiveSessionObserved
 		});
 		const handlePopState = () => syncSessionFromLocation();
+		const handleVisibilityChange = () => {
+			if (document.hidden && workspace.requestedSessionId && mobilePanel === undefined) {
+				workspace.markSessionObserved(workspace.requestedSessionId);
+			}
+		};
 		window.addEventListener('popstate', handlePopState);
 		window.addEventListener('keydown', handleSessionShortcut, { capture: true });
 		window.addEventListener('keydown', handleOverlayKeydown, { capture: true });
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		return () => {
 			stopConnection();
@@ -169,6 +176,7 @@
 			window.removeEventListener('popstate', handlePopState);
 			window.removeEventListener('keydown', handleSessionShortcut, { capture: true });
 			window.removeEventListener('keydown', handleOverlayKeydown, { capture: true });
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	});
 </script>

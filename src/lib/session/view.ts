@@ -16,11 +16,26 @@ export function sessionProcessHint(session: ManagedSession): string {
 	return 'Shell is waiting for input';
 }
 
-export function sessionIsActive(session: ManagedSession, activeOutputSessionId?: string): boolean {
+export function sessionIsActive(
+	session: ManagedSession,
+	activeOutputSessionId?: string,
+	hasUnreadOutput = false
+): boolean {
 	return session.state === 'running' && (
 		activeOutputSessionId === session.id
-		|| (session.lastOutputAt !== null && Date.now() - session.lastOutputAt < 4_000)
+		|| (hasUnreadOutput && session.lastOutputAt !== null && Date.now() - session.lastOutputAt < 4_000)
 	);
+}
+
+export function sessionOutputBecameUnread(
+	previousOutputAt: number | null,
+	nextOutputAt: number | null,
+	observedThrough: number,
+	isObserved: boolean
+): boolean {
+	const previous = previousOutputAt ?? 0;
+	const next = nextOutputAt ?? 0;
+	return !isObserved && next > previous && next > observedThrough;
 }
 
 export type SessionActivityState = 'live' | 'review' | 'idle' | 'missing';
@@ -31,7 +46,7 @@ export function sessionActivityState(
 	hasUnreadOutput = false
 ): SessionActivityState {
 	if (session.state === 'missing') return 'missing';
-	if (sessionIsActive(session, activeOutputSessionId)) return 'live';
+	if (sessionIsActive(session, activeOutputSessionId, hasUnreadOutput)) return 'live';
 	if (hasUnreadOutput) return 'review';
 	return 'idle';
 }
