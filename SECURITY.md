@@ -4,7 +4,7 @@ Vampire exposes shell sessions over the network. Treat every authenticated brows
 
 ## Supported versions
 
-Until the project publishes versioned releases, security fixes are made on the latest revision of the default branch. Reproduce a report against that revision when practical.
+Security fixes target the latest published release and the default branch. Reproduce a report against the latest release when practical.
 
 ## Reporting a vulnerability
 
