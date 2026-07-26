@@ -348,7 +348,7 @@
 	}
 
 	@media (max-width: 63.999rem) {
-		.session-column { position: fixed; z-index: 40; inset: 0 auto 0 0; display: flex; flex-direction: column; align-items: stretch; gap: 0; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); overflow-y: auto; transform: translateX(-100%); border-right: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-panel); pointer-events: none; transition: transform 180ms ease, visibility 0s linear 180ms; visibility: hidden; }
+		.session-column { position: fixed; z-index: 40; inset: 0 auto 0 0; display: flex; flex-direction: column; align-items: stretch; gap: 0; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); overflow-y: auto; transform: translateX(-100%); border-right: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-navigation-panel); pointer-events: none; transition: transform 180ms ease, visibility 0s linear 180ms; visibility: hidden; }
 		.session-column.mobile-open { transform: translateX(0); pointer-events: auto; transition: transform 180ms ease; visibility: visible; }
 		.session-panel, .new-session-panel { width: 100%; border: 0; border-radius: 0; background: transparent; }
 		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
