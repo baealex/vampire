@@ -64,18 +64,18 @@
 		left: 0;
 		width: 100%;
 		height: 50%;
-		background: #0d0c0d;
+		background: var(--color-terminal-background);
 		transition: transform 260ms cubic-bezier(0.76, 0, 0.24, 1);
 	}
 
 	.shell-opening__veil--top {
 		top: 0;
-		box-shadow: 0 1px rgb(228 91 103 / 0.1);
+		box-shadow: 0 1px var(--color-visual-accent-border);
 	}
 
 	.shell-opening__veil--bottom {
 		bottom: 0;
-		box-shadow: 0 -1px rgb(228 91 103 / 0.1);
+		box-shadow: 0 -1px var(--color-visual-accent-border);
 	}
 
 	.shell-opening.is-ready .shell-opening__veil--top {
@@ -122,9 +122,9 @@
 	.shell-opening__rib {
 		position: absolute;
 		inset: 0;
-		border: 1px solid rgb(228 91 103 / 0.34);
+		border: 1px solid var(--color-visual-accent-border-strong);
 		border-radius: 0.32rem;
-		box-shadow: inset 0 0 1.25rem rgb(228 91 103 / 0.035);
+		box-shadow: inset 0 0 1.25rem var(--color-visual-accent-soft);
 		opacity: 0;
 		animation: shell-rib-flight 1.8s linear infinite;
 		animation-delay: var(--rib-delay);
@@ -138,7 +138,7 @@
 		width: 0.38rem;
 		height: 1.1rem;
 		background: var(--color-accent);
-		box-shadow: 0 0 1rem rgb(228 91 103 / 0.28);
+		box-shadow: 0 0 1rem var(--color-visual-accent-border);
 		transform: translate(-50%, -50%);
 		animation: shell-cursor-pulse 900ms steps(1, end) infinite;
 	}
@@ -166,7 +166,7 @@
 	.shell-opening__caret {
 		width: 0.38rem;
 		height: 0.85rem;
-		background: rgb(228 91 103 / 0.72);
+		background: var(--color-visual-accent-solid);
 		animation: shell-cursor-pulse 900ms steps(1, end) infinite;
 	}
 

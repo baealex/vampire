@@ -6,6 +6,7 @@
 	import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
 	import TerminalInputDock from '$lib/terminal/TerminalInputDock.svelte';
 	import { installTerminalTouchScroll } from '$lib/terminal/touch-scroll';
+	import { terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import '@xterm/xterm/css/xterm.css';
 
@@ -262,6 +263,9 @@
 		const handleVisibilityChange = () => {
 			if (document.visibilityState === 'visible') activate();
 		};
+		const handleThemeChange = () => {
+			if (terminal) terminal.options.theme = terminalTheme();
+		};
 
 		updateViewport();
 		openingDelay = setTimeout(() => {
@@ -271,6 +275,7 @@
 		window.addEventListener('paste', handleClipboardPaste, true);
 		window.addEventListener('focus', activate);
 		window.addEventListener('resize', updateViewport);
+		window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.visualViewport?.addEventListener('resize', updateViewport);
 		window.visualViewport?.addEventListener('scroll', updateViewport);
@@ -292,7 +297,7 @@
 				fontSize: terminalFontSize,
 				lineHeight: 1.2,
 				fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-				theme: { background: '#0d0c0d', foreground: '#eee8e9', cursor: '#e45b67', selectionBackground: '#65333a' },
+				theme: terminalTheme(),
 				scrollback: 10_000
 			});
 			const fit = new FitAddon();
@@ -408,6 +413,7 @@
 			window.removeEventListener('paste', handleClipboardPaste, true);
 			window.removeEventListener('focus', activate);
 			window.removeEventListener('resize', updateViewport);
+			window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			window.visualViewport?.removeEventListener('resize', updateViewport);
 			window.visualViewport?.removeEventListener('scroll', updateViewport);
@@ -519,22 +525,23 @@
 </section>
 
 <style>
-	.terminal-sheet { position: fixed; z-index: 20; top: var(--terminal-viewport-top, 0); left: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: var(--terminal-viewport-height, 100dvh); min-width: 0; overflow: hidden; background: #0d0c0d; color: #eee8e9; }
+	.terminal-sheet { position: fixed; z-index: 20; top: var(--terminal-viewport-top, 0); left: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: var(--terminal-viewport-height, 100dvh); min-width: 0; overflow: hidden; background: var(--color-terminal-background); color: var(--color-terminal-foreground); }
 	.terminal-topbar { position: relative; z-index: 7; min-width: 0; }
 	.terminal-body { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal-frame { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: 0.35rem; touch-action: none; }
-	.terminal.direct-input { box-shadow: inset 0 0 0 1px rgb(228 91 103 / 0.38); }
+	.terminal.direct-input { box-shadow: inset 0 0 0 1px var(--color-visual-accent-glow); }
 	.terminal :global(.xterm) { height: 100%; padding: 0.25rem; opacity: 0; touch-action: none; transition: opacity 140ms ease-out; }
 	.terminal.screen-ready :global(.xterm) { opacity: 1; }
-	.terminal :global(.xterm-viewport) { overflow-y: scroll; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: none; }
+	.terminal :global(.xterm-viewport) { overflow-y: scroll; overscroll-behavior: contain; background: var(--color-terminal-background); -webkit-overflow-scrolling: touch; touch-action: none; }
+	.terminal :global(.composition-view) { background: var(--color-terminal-background); color: var(--color-terminal-foreground); }
 	.terminal :global(.xterm-scrollable-element) { height: 100%; touch-action: none; }
 	.terminal-error, .image-paste-notice { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin: 0; padding: 0.45rem 0.75rem; font-size: var(--text-label); line-height: var(--leading-ui); text-align: center; }
-	.terminal-error { background: #32171b; color: #ffadb4; }
-	.terminal-error button { min-height: 1.9rem; padding: 0 0.65rem; border: 1px solid #744047; border-radius: 0.4rem; background: #451f25; color: #ffd4d7; font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
-	.image-paste-notice { border-top: 1px solid #3b3234; background: #1c2921; color: #a7d7b7; }
-	.image-paste-notice.uploading { background: #272218; color: #e7b06a; }
-	.image-paste-notice.error { background: #32171b; color: #ffadb4; }
+	.terminal-error { background: var(--color-danger-surface-strong); color: var(--color-danger-text); }
+	.terminal-error button { min-height: 1.9rem; padding: 0 0.65rem; border: 1px solid var(--color-danger-border-strong); border-radius: 0.4rem; background: var(--color-danger-surface); color: var(--color-danger-text-strong); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
+	.image-paste-notice { border-top: 1px solid var(--color-border); background: var(--color-success-surface); color: var(--color-success-text); }
+	.image-paste-notice.uploading { background: var(--color-warning-surface); color: var(--color-command); }
+	.image-paste-notice.error { background: var(--color-danger-surface-strong); color: var(--color-danger-text); }
 
 	@media (min-width: 64rem) {
 		.terminal-sheet { position: relative; z-index: 1; top: auto; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }

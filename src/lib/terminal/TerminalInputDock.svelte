@@ -150,25 +150,25 @@
 </div>
 
 <style>
-	.input-dock { min-width: 0; border-top: 1px solid #2d292a; background: #131112; box-shadow: 0 -0.5rem 1.5rem rgb(0 0 0 / 0.16); }
+	.input-dock { min-width: 0; border-top: 1px solid var(--color-border-subtle); background: var(--color-panel); box-shadow: var(--shadow-terminal-dock); }
 	.touch-toolbar { display: flex; gap: 0.3rem; min-width: 0; overflow-x: auto; padding: 0.45rem max(0.45rem, env(safe-area-inset-right)) 0.25rem max(0.45rem, env(safe-area-inset-left)); scrollbar-width: none; }
 	.touch-toolbar::-webkit-scrollbar { display: none; }
-	.touch-toolbar button { flex: 0 0 2.45rem; min-width: 2.45rem; min-height: 2.35rem; padding: 0 0.2rem; border: 1px solid #393334; border-radius: 0.5rem; background: #1c191a; color: #eee8e9; font: inherit; font-size: var(--text-caption); font-weight: var(--weight-medium); cursor: pointer; touch-action: manipulation; }
-	.touch-toolbar button:hover:not(:disabled) { background: #282324; }
-	.touch-toolbar button:disabled { color: #5e5658; cursor: default; }
+	.touch-toolbar button { flex: 0 0 2.45rem; min-width: 2.45rem; min-height: 2.35rem; padding: 0 0.2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: var(--color-control-background); color: var(--color-text); font: inherit; font-size: var(--text-caption); font-weight: var(--weight-medium); cursor: pointer; touch-action: manipulation; }
+	.touch-toolbar button:hover:not(:disabled) { background: var(--color-surface-hover); }
+	.touch-toolbar button:disabled { color: var(--color-text-disabled); cursor: default; }
 	.touch-toolbar .wide-key { flex-basis: 3.4rem; min-width: 3.4rem; }
-	.toolbar-divider { flex: 0 0 1px; align-self: stretch; margin: 0 0.15rem; background: #393334; }
-	.composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem 2.5rem; align-items: end; gap: 0.2rem; min-width: 0; margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-left)); padding: 0.22rem; border: 1px solid #40393b; border-radius: 0.78rem; background: #1c191a; }
-	.composer:focus-within { border-color: #a54a53; box-shadow: 0 0 0 0.2rem rgb(228 91 103 / 0.12); }
+	.toolbar-divider { flex: 0 0 1px; align-self: stretch; margin: 0 0.15rem; background: var(--color-border); }
+	.composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem 2.5rem; align-items: end; gap: 0.2rem; min-width: 0; margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-left)); padding: 0.22rem; border: 1px solid var(--color-border); border-radius: 0.78rem; background: var(--color-control-background); }
+	.composer:focus-within { border-color: var(--color-accent); box-shadow: var(--shadow-accent-focus); }
 	.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-	.composer textarea { width: 100%; min-width: 0; min-height: 2.5rem; max-height: 8rem; padding: 0.58rem 0.62rem; overflow-y: auto; resize: none; border: 0; border-radius: 0.55rem; outline: none; background: transparent; color: #eee8e9; font: inherit; font-size: 1rem; line-height: var(--leading-ui); }
-	.composer textarea::placeholder { color: #756d6f; }
+	.composer textarea { width: 100%; min-width: 0; min-height: 2.5rem; max-height: 8rem; padding: 0.58rem 0.62rem; overflow-y: auto; resize: none; border: 0; border-radius: 0.55rem; outline: none; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; line-height: var(--leading-ui); }
+	.composer textarea::placeholder { color: var(--color-field-placeholder); }
 	.composer button { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; padding: 0; border: 0; border-radius: 0.58rem; cursor: pointer; touch-action: manipulation; }
-	.image-button { background: transparent; color: #aaa2a4; }
-	.image-button:hover:not(:disabled) { background: #2b2627; color: #f3edef; }
-	.send-button { background: #e45b67; color: #19090b; }
-	.send-button:hover:not(:disabled) { background: #ef707b; }
-	.composer button:disabled { background: transparent; color: #625b5d; cursor: default; }
+	.image-button { background: transparent; color: var(--color-text-secondary); }
+	.image-button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
+	.send-button { background: var(--color-accent); color: var(--color-accent-ink); }
+	.send-button:hover:not(:disabled) { background: var(--color-accent-hover); }
+	.composer button:disabled { background: transparent; color: var(--color-text-disabled); cursor: default; }
 
 	@media (min-width: 64rem) {
 		.touch-toolbar { display: none; }
