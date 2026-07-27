@@ -1,5 +1,5 @@
 export type SessionProcess = {
-	kind: 'shell' | 'agent' | 'command';
+	kind: 'shell' | 'command';
 	label: string;
 };
 
