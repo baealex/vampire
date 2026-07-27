@@ -175,7 +175,7 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			state: 'running',
 			lastOutputAt: stored.createdAt,
 			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'Shell' }
+			foregroundProcess: { kind: 'shell', label: 'shell' }
 		};
 	});
 }
@@ -214,7 +214,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			state: 'running',
 			lastOutputAt: restarted.createdAt,
 			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'Shell' }
+			foregroundProcess: { kind: 'shell', label: 'shell' }
 		};
 	});
 }

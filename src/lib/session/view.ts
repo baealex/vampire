@@ -1,17 +1,40 @@
 import type { ManagedSession, SessionOrderMode, SessionProcess } from './types';
 
+const SESSION_PROCESS_COLORS = [
+	'var(--color-agent)',
+	'var(--color-command)',
+	'var(--color-success)',
+	'var(--color-info)',
+	'var(--color-note)',
+	'var(--color-folder)',
+	'var(--color-image)',
+	'var(--color-renamed)',
+	'var(--terminal-cyan)',
+	'var(--terminal-magenta)',
+	'var(--terminal-bright-red)',
+	'var(--terminal-bright-yellow)'
+] as const;
+
 export function projectName(path: string): string {
 	return path.replace(/\/+$/, '').split('/').pop() || path;
 }
 
 export function sessionProcess(session: ManagedSession): SessionProcess {
-	return session.foregroundProcess ?? { kind: 'shell', label: 'Shell' };
+	const process = session.foregroundProcess ?? { kind: 'shell', label: 'shell' };
+	return { ...process, label: process.label.toLowerCase() };
+}
+
+export function sessionProcessColor(label: string): string {
+	let hash = 0;
+	for (const character of label.toLowerCase()) {
+		hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+	}
+	return SESSION_PROCESS_COLORS[hash % SESSION_PROCESS_COLORS.length];
 }
 
 export function sessionProcessHint(session: ManagedSession): string {
 	if (session.state === 'missing') return 'tmux session unavailable';
 	const process = sessionProcess(session);
-	if (process.kind === 'agent') return `${process.label} process detected in the foreground pane`;
 	if (process.kind === 'command') return `Foreground command: ${process.label}`;
 	return 'Shell is waiting for input';
 }

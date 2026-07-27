@@ -17,6 +17,7 @@
 		projectName,
 		sessionActivityHint,
 		sessionActivityState,
+		sessionProcessColor,
 		sessionProcess,
 		sessionProcessHint
 	} from './view';
@@ -174,6 +175,7 @@
 				{#each displayedSessions as session (session.id)}
 					{@const hasUnreadOutput = unreadSessionIds.has(session.id)}
 					{@const activityState = sessionActivityState(session, activeOutputSessionId, hasUnreadOutput)}
+					{@const process = sessionProcess(session)}
 					<div
 						class="session-row-shell"
 						class:active={activeSessionId === session.id}
@@ -195,7 +197,7 @@
 							oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 							onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 							aria-current={activeSessionId === session.id ? 'true' : undefined}
-							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${sessionProcess(session).label}; ${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
+							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process.label}; ${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
 						>
 							<span class="row-leading" aria-hidden="true">
 								{#if sessionOrderMode === 'manual'}<span class="drag-handle"><GripVertical size={14} strokeWidth={1.8} /></span>{/if}
@@ -213,7 +215,7 @@
 									{#if session.note}<span class="session-note-indicator" title={session.note} aria-hidden="true"><StickyNote size={12} strokeWidth={1.8} /></span>{/if}
 								</span>
 								<span class="session-context">
-									<span class="session-program" class:agent={sessionProcess(session).kind === 'agent'} class:command={sessionProcess(session).kind === 'command'} title={sessionProcessHint(session)}>{sessionProcess(session).label}</span>
+									<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process.label)}`} title={sessionProcessHint(session)}>{process.label}</span>
 									<span class="session-context-divider" aria-hidden="true">·</span>
 									<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Last terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session))}</time>
 									{#if activityState === 'review'}
@@ -298,9 +300,7 @@
 	.session-title strong { overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.session-note-indicator { display: grid; flex: 0 0 auto; place-items: center; color: var(--color-note); }
 	.session-context { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
-	.session-program { flex: 0 0 auto; color: var(--color-text-secondary); font-weight: var(--weight-medium); }
-	.session-program.agent { color: var(--color-agent); }
-	.session-program.command { color: var(--color-command); }
+	.session-program { flex: 0 0 auto; color: var(--session-program-color, var(--color-text-secondary)); font-weight: var(--weight-medium); }
 	.session-context-divider { color: var(--color-text-disabled); }
 	.session-context time { flex: 0 0 auto; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
 	.review-hint { flex: 0 0 auto; padding: 0.08rem 0.34rem; border: 1px solid var(--color-info-border); border-radius: 999px; background: var(--color-info-surface); color: var(--color-info-text); font-size: 0.64rem; font-weight: var(--weight-medium); letter-spacing: 0.02em; line-height: 1.25; }

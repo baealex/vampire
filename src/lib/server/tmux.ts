@@ -98,7 +98,7 @@ export interface TmuxSession {
 	foregroundProcess: TmuxProcessHint | null;
 }
 
-export type TmuxProcessKind = 'shell' | 'agent' | 'command';
+export type TmuxProcessKind = 'shell' | 'command';
 
 export interface TmuxProcessHint {
 	kind: TmuxProcessKind;
@@ -114,34 +114,6 @@ interface ProcessRecord {
 }
 
 const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell', 'pwsh', 'sh', 'tcsh', 'zsh']);
-const COMMAND_LAUNCHERS = new Set([
-	'bun',
-	'bunx',
-	'cargo',
-	'deno',
-	'go',
-	'java',
-	'node',
-	'nodejs',
-	'npx',
-	'npm',
-	'perl',
-	'php',
-	'pipx',
-	'pnpm',
-	'poetry',
-	'python',
-	'python3',
-	'ruby',
-	'ts-node',
-	'tsx',
-	'uv',
-	'uvx',
-	'yarn',
-	'yarnpkg'
-]);
-const LAUNCHER_WORDS_TO_SKIP = new Set(['command', 'dlx', 'exec', 'run', 'script', 'start', 'x']);
-const LAUNCHER_OPTIONS_WITH_VALUE = new Set(['--cwd', '--import', '--loader', '--package', '--prefix', '--require', '-c', '-r']);
 
 function parseProcessTable(output: string): Map<number, ProcessRecord> {
 	const processes = new Map<number, ProcessRecord>();
@@ -155,44 +127,9 @@ function parseProcessTable(output: string): Map<number, ProcessRecord> {
 	return processes;
 }
 
-function matchesTool(value: string, tool: 'codex' | 'claude'): boolean {
-	return new RegExp(`(?:^|[^a-z])${tool}(?:$|[^a-z])`, 'i').test(value);
-}
-
 function executableName(command: string): string {
 	const executable = command.trim().split(/\s+/, 1)[0] ?? '';
-	return executable.split('/').pop()?.replace(/^-/, '') || '';
-}
-
-function cleanCommandToken(token: string): string {
-	return token.replace(/^[('"`]+|[)'"`,;]+$/g, '');
-}
-
-function invokedCommandLabel(command: string, fallback: string): string {
-	const executable = executableName(command);
-	if (COMMAND_LAUNCHERS.has(executable.toLowerCase())) {
-		const tokens = command.trim().split(/\s+/).slice(1).map(cleanCommandToken);
-		let skipNext = false;
-		for (const token of tokens) {
-			if (!token) continue;
-			if (skipNext) {
-				skipNext = false;
-				continue;
-			}
-			const lowerToken = token.toLowerCase();
-			if (LAUNCHER_OPTIONS_WITH_VALUE.has(lowerToken)) {
-				skipNext = true;
-				continue;
-			}
-			if (token.startsWith('-') || LAUNCHER_WORDS_TO_SKIP.has(lowerToken)) continue;
-
-			const candidate = token.split('/').pop() ?? token;
-			const label = candidate.replace(/\.(?:cjs|cts|go|jar|java|js|mjs|mts|php|py|rb|rs|ts)$/i, '');
-			if (label) return label;
-		}
-	}
-
-	return executable || executableName(fallback) || 'Process';
+	return executable.split('/').pop()?.replace(/^-/, '').toLowerCase() || '';
 }
 
 function classifyProcess(
@@ -204,18 +141,11 @@ function classifyProcess(
 	if (!currentCommand && !title && panePid <= 0) return null;
 	const paneProcess = processes.get(panePid);
 	const foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
-	const candidates = [foregroundProcess?.command, paneProcess?.command, currentCommand, title]
-		.filter((value): value is string => Boolean(value));
-	const combined = candidates.join(' ');
-
-	if (matchesTool(combined, 'codex')) return { kind: 'agent', label: 'Codex' };
-	if (matchesTool(combined, 'claude')) return { kind: 'agent', label: 'Claude' };
-
-	const command = invokedCommandLabel(foregroundProcess?.command || currentCommand, currentCommand);
+	const command = executableName(foregroundProcess?.command || currentCommand || title) || 'process';
 	if (SHELL_COMMANDS.has(command.toLowerCase())) {
-		return { kind: 'shell', label: 'Shell' };
+		return { kind: 'shell', label: command };
 	}
-	return { kind: 'command', label: command || 'Process' };
+	return { kind: 'command', label: command };
 }
 
 export async function createTmuxSession(name: string, cwd: string): Promise<void> {
