@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import type { Handle } from '@sveltejs/kit';
+import { originsMatch } from '$lib/server/origin.mjs';
 
 function configuredOrigin(): string | undefined {
 	const value = env.VAMPIRE_ADAPTER_ORIGIN?.trim();
@@ -20,7 +21,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method)) {
 		const origin = event.request.headers.get('origin');
 		const expectedOrigin = adapterOrigin ?? event.url.origin;
-		if (origin && origin !== expectedOrigin) {
+		if (origin && !originsMatch(origin, expectedOrigin)) {
 			return new Response('Forbidden', { status: 403 });
 		}
 	}
