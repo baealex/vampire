@@ -1,6 +1,6 @@
 import type { ManagedSession, SessionOrderMode, SessionProcess } from './types';
 
-export const SESSION_ACTIVITY_WINDOW_MS = 4_000;
+export const SESSION_ACTIVITY_WINDOW_MS = 10_000;
 
 const SESSION_PROCESS_COLORS = [
 	'var(--color-agent)',

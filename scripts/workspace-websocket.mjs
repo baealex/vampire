@@ -6,7 +6,7 @@ import { getSystemMetrics } from '../src/lib/server/system-metrics.mjs';
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const SESSION_REFRESH_INTERVAL_MS = 2_000;
+const SESSION_REFRESH_INTERVAL_MS = 5_000;
 const SYSTEM_METRICS_INTERVAL_MS = 10_000;
 const SESSION_FIELDS = [
 	'tmuxSession',
