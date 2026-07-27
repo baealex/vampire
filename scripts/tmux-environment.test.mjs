@@ -53,11 +53,13 @@ test('labels sessions with the lower-case executable at the front of the command
 	const sessions = tmux.parseTmuxSessions([
 		'vampire-npm\t1\t2\t0\tnpm i\t0\t',
 		'vampire-codex\t1\t2\t0\tCodex --project /tmp/project\t0\t',
+		'vampire-node-codex\t1\t2\t0\tnode /Users/example/.nvm/bin/codex --yolo\t0\t',
 		'vampire-shell\t1\t2\t0\tzsh\t0\t'
 	].join('\n'));
 
 	assert.deepEqual(sessions.map((session) => session.foregroundProcess), [
 		{ kind: 'command', label: 'npm' },
+		{ kind: 'command', label: 'codex' },
 		{ kind: 'command', label: 'codex' },
 		{ kind: 'shell', label: 'zsh' }
 	]);

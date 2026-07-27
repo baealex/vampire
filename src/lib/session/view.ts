@@ -24,7 +24,10 @@ export function sessionProcess(session: ManagedSession): SessionProcess {
 	return { ...process, label: process.label.toLowerCase() };
 }
 
-export function sessionProcessColor(label: string): string {
+export function sessionProcessColor(process: SessionProcess): string {
+	if (process.kind === 'shell') return 'var(--color-text-secondary)';
+
+	const { label } = process;
 	let hash = 0;
 	for (const character of label.toLowerCase()) {
 		hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
