@@ -17,10 +17,10 @@ I wanted to keep using agents in the terminal, but make it easier to leave sever
 You need Node.js 22 or newer and tmux on macOS, Linux, or WSL2.
 
 ```sh
-npx vampire
+VAMPIRE_ADAPTER_ORIGIN="http://127.0.0.1:7677" npx vampire
 ```
 
-Open `http://127.0.0.1:7677`, add an absolute project directory, then start the CLI you already use:
+Open the same origin shown in `VAMPIRE_ADAPTER_ORIGIN` (`http://127.0.0.1:7677` in this example), add an absolute project directory, then start the CLI you already use:
 
 ```sh
 codex
@@ -111,7 +111,7 @@ The proxy must preserve the external `Host` header and support WebSocket upgrade
 | `VAMPIRE_PORT` | `7677` | Node server port |
 | `VAMPIRE_TOKEN` | unset | Enables token login and non-loopback binding |
 | `VAMPIRE_STATE_DIR` | `~/.vampire` | Stores the session registry and workspace notes |
-| `VAMPIRE_ADAPTER_ORIGIN` | unset | Public HTTPS origin used behind a reverse proxy |
+| `VAMPIRE_ADAPTER_ORIGIN` | unset | Browser origin accepted by the server. Set the exact local HTTP origin for direct use, or the public HTTPS origin behind a reverse proxy. |
 
 Project files, commands, terminal history, and running processes stay on your machine. Repository reads are restricted to the workspace directory, and the viewer rejects path traversal, escaping symlinks, oversized files, and unsupported binary previews.
 
