@@ -1,6 +1,7 @@
 import { createServer } from 'vite';
 import { runtimeConfig } from './config.mjs';
 import { installTerminalWebSocket } from './websocket.mjs';
+import { installWorkspaceWebSocket } from './workspace-websocket.mjs';
 
 const config = runtimeConfig();
 const vite = await createServer({
@@ -13,6 +14,7 @@ const vite = await createServer({
 
 if (!vite.httpServer) throw new Error('Vite did not create an HTTP server.');
 const closeTerminalSockets = installTerminalWebSocket(vite.httpServer);
+const closeWorkspaceSockets = installWorkspaceWebSocket(vite.httpServer);
 
 await vite.listen();
 vite.printUrls();
@@ -23,6 +25,7 @@ const shutdown = () => {
 	if (closing) return;
 	closing = true;
 	closeTerminalSockets();
+	closeWorkspaceSockets();
 	void vite.close().finally(() => process.exit());
 };
 

@@ -49,7 +49,7 @@
 	}
 
 	function unlock() {
-		return connection.unlock((options) => workspace.refresh(options));
+		return connection.unlock();
 	}
 
 	async function logout() {
@@ -157,7 +157,13 @@
 		workspace.restoreBrowserPreferences(window.localStorage);
 		const stopConnection = connection.start({
 			refreshSessions: (options) => workspace.refresh(options),
-			onVisible: markActiveSessionObserved
+			onVisible: markActiveSessionObserved,
+			onSessionEvent: (event) => {
+				if (event.type === 'sessions-snapshot') workspace.applySessionSnapshot(event.sessions);
+				else if (event.type === 'session-added') workspace.applySessionAdded(event.session);
+				else if (event.type === 'session-updated') workspace.applySessionUpdated(event.id, event.changes);
+				else workspace.applySessionRemoved(event.id);
+			}
 		});
 		const handlePopState = () => syncSessionFromLocation();
 		const handleVisibilityChange = () => {

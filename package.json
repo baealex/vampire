@@ -15,6 +15,8 @@
     "scripts/serve.mjs",
     "scripts/terminal.mjs",
     "scripts/websocket.mjs",
+    "scripts/workspace-websocket.mjs",
+    "src/lib/server/session-snapshot.mjs",
     "src/lib/server/repository.mjs",
     "src/lib/server/session-cookie.mjs",
     "src/lib/server/session-state.mjs",

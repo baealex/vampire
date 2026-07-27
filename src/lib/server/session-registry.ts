@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
+import { listManagedSessions as readManagedSessions } from './session-snapshot.mjs';
 import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
@@ -121,18 +122,7 @@ async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function listManagedSessions(): Promise<ManagedSession[]> {
-	const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);
-	const byName = new Map(tmuxSessions.map((session) => [session.name, session]));
-	return state.sessions.map((session) => {
-		const tmux = byName.get(session.tmuxSession);
-		return {
-			...session,
-			state: tmux ? 'running' : 'missing',
-			lastOutputAt: tmux?.lastOutputAt ?? null,
-			attachedClients: tmux?.attachedClients ?? 0,
-			foregroundProcess: tmux?.foregroundProcess ?? null
-		};
-	});
+	return readManagedSessions();
 }
 
 export async function findManagedSession(id: string): Promise<ManagedSession | undefined> {

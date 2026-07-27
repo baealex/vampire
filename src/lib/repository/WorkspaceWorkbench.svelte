@@ -36,12 +36,17 @@
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	let refreshInFlight = false;
+	let refreshQueued = false;
 	const name = $derived(getProjectName(session.cwd));
 	let changeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
 
 	async function refreshRepository(showLoading = false) {
-		if (refreshInFlight || document.hidden) return;
+		if (refreshInFlight) {
+			refreshQueued = true;
+			return;
+		}
+		if (document.hidden) return;
 		refreshInFlight = true;
 		const shouldShowLoading = showLoading || !snapshot;
 		if (shouldShowLoading) repositoryLoading = true;
@@ -63,6 +68,10 @@
 		} finally {
 			if (shouldShowLoading) repositoryLoading = false;
 			refreshInFlight = false;
+			if (refreshQueued) {
+				refreshQueued = false;
+				if (repositoryOpen && !document.hidden) void refreshRepository();
+			}
 		}
 	}
 
@@ -91,6 +100,11 @@
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
+	function handleRepositoryStatus(nextChangeCount: number) {
+		changeCount = nextChangeCount;
+		if (repositoryOpen) void refreshRepository();
+	}
+
 	$effect(() => {
 		if (!repositoryOpen) return;
 		const refreshWhenVisible = () => {
@@ -98,11 +112,9 @@
 		};
 		void refreshRepository();
 		document.addEventListener('visibilitychange', refreshWhenVisible);
-		const interval = window.setInterval(refreshWhenVisible, 2_000);
 
 		return () => {
 			document.removeEventListener('visibilitychange', refreshWhenVisible);
-			window.clearInterval(interval);
 		};
 	});
 
@@ -141,7 +153,7 @@
 			{systemMetrics}
 			{repositoryOpen}
 			{changeCount}
-			onRepositoryStatus={(nextChangeCount) => changeCount = nextChangeCount}
+			onRepositoryStatus={handleRepositoryStatus}
 			onToggleRepository={toggleRepository}
 		>
 			{#if selection}

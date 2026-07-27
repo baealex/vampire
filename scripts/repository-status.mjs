@@ -144,7 +144,7 @@ class RepositoryStatusMonitor {
 				|| summary.isGitRepository !== this.#summary.isGitRepository
 				|| summary.changeCount !== this.#summary.changeCount;
 			this.#summary = summary;
-			if (changed) {
+			if (changed || this.#sockets.size > 0) {
 				for (const socket of this.#sockets) send(socket, { type: 'repository-status', ...summary });
 			}
 		} catch {
