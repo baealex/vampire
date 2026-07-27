@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { runtimeConfig } from './config.mjs';
+import { ensureAdapterOrigin, runtimeConfig } from './config.mjs';
 import { installTerminalWebSocket } from './websocket.mjs';
 import { installWorkspaceWebSocket } from './workspace-websocket.mjs';
 
@@ -9,6 +9,7 @@ if (!process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT?.trim()) {
 }
 
 const config = runtimeConfig();
+ensureAdapterOrigin(config);
 const { handler } = await import('../build/handler.js');
 const server = createServer(handler);
 const closeTerminalSockets = installTerminalWebSocket(server);
