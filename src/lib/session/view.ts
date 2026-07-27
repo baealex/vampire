@@ -71,8 +71,8 @@ export function sessionOutputBecameUnread(
 export type SessionActivityState = 'live' | 'review' | 'idle' | 'missing';
 
 const SESSION_ACTIVITY_PRIORITY: Record<SessionActivityState, number> = {
-	review: 0,
-	live: 1,
+	live: 0,
+	review: 1,
 	idle: 2,
 	missing: 3
 };
