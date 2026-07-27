@@ -1,146 +1,119 @@
 # Vampire
 
-**Run coding agents in their original CLI, keep them alive in tmux, and check in from any browser.**
+**Keep your coding agents running in tmux. Continue the same conversation from a desktop or mobile browser.**
 
-![Vampire showing several workspaces, a Git diff, and the repository drawer](docs/images/vampire-desktop.png)
+<table>
+  <tr>
+    <td width="78%" valign="top">
+      <img src="docs/images/vampire-desktop.png" alt="Vampire desktop workspace with an agent conversation" />
+    </td>
+    <td width="22%" valign="top">
+      <img src="docs/images/vampire-mobile.png" alt="Vampire mobile workspace with an agent conversation" />
+    </td>
+  </tr>
+</table>
 
-Vampire is a small, self-hosted workspace for Codex, Claude Code, and ordinary project shells. Your tools keep their own configuration and authentication, tmux keeps them running, and Vampire gives you a browser UI for checking and controlling them from a laptop or phone.
-
-## Why this exists
-
-The tools I tried wanted to manage the agent too. They added a hosted relay, hooks, environment variables, a notification service, or their own agent runtime. I didn't want any of that.
-
-I wanted to keep using agents in the terminal, but make it easier to leave several jobs running and check them from another screen. Vampire handles the tmux sessions and browser UI. It leaves the agent alone.
+Vampire is a small, self-hosted browser UI for Codex, Claude Code, and ordinary shell sessions. The CLI, credentials, and project files stay on your machine.
 
 ## Quick start
 
-You need Node.js 22 or newer and tmux on macOS, Linux, or WSL2.
+### 1. Install prerequisites
 
-```sh
+You need Node.js 22+ and tmux.
+
+macOS (Homebrew):
+
+```bash
+brew install tmux
+```
+
+Debian, Ubuntu, or WSL2:
+
+```bash
+sudo apt update
+sudo apt install tmux
+```
+
+Fedora:
+
+```bash
+sudo dnf install tmux
+```
+
+Arch:
+
+```bash
+sudo pacman -S tmux
+```
+
+### 2. Start Vampire
+
+```bash
 npx vampire
 ```
 
-Open the local URL printed by Vampire (`http://127.0.0.1:7677` by default), add an absolute project directory, then start the CLI you already use:
+Open the printed URL, choose a project directory, and create a workspace.
 
-```sh
+### 3. Start your CLI
+
+Inside a workspace, run the agent or shell you already use:
+
+```bash
 codex
 # or
 claude
 ```
 
-Without `VAMPIRE_TOKEN`, Vampire stays local-only and shows no login screen. For remote access, set a token and place Vampire behind HTTPS, a VPN, or a private tunnel:
-
-```sh
-VAMPIRE_TOKEN="$(openssl rand -base64 32)" vampire
-```
+The process keeps running in tmux when you close the browser. Reopen the workspace from any device to continue.
 
 ## What you get
 
-- **Persistent workspaces.** Each workspace is a real tmux session. Closing the browser or restarting Vampire does not stop it.
-- **Workspace list.** See the foreground process, recent activity, notes, and projects in one place. Workspaces can be ordered manually.
-- **Git changes.** The terminal header shows the changed-file count. The read-only repository drawer shows diffs and previews text or image files.
-- **Mobile terminal.** Use Escape, Ctrl-C, Tab, Enter, arrow keys, image input, and font controls without a hardware keyboard. A tap interacts with the terminal; a drag scrolls.
-- **Dark and light themes.** Use the system theme or switch it yourself.
-- **The original CLI.** Codex and Claude Code keep their own credentials and configuration. Vampire does not rewrite prompts or make model calls.
+- Persistent tmux sessions for Codex, Claude Code, and any CLI.
+- The same workspace from a desktop or mobile browser.
+- Activity states for sessions that are live, under review, or idle.
+- Notes and process labels in the workspace list.
+- Git diffs, image previews, text editing, and inline file/folder creation.
+- Light and dark themes with a mobile-friendly terminal.
 
-Workspace status is based on terminal output:
+| State | Meaning |
+| --- | --- |
+| Live | Terminal output is active. |
+| Review | New terminal output needs review. |
+| Idle | No process is currently active. |
 
-| 🟡 Live | 🔵 Review | 🟢 Idle |
-| --- | --- | --- |
-| Terminal output is active | New output has not been viewed | Checked and quiet |
+## Remote access
 
-Activity states come from ordinary terminal output, not hooks or agent callbacks. They describe output, not the agent's intent, so Vampire does not guess whether an agent is finished or waiting for input.
+Vampire is local-only by default. If you need to access it from another device, set a token and put it behind HTTPS or a private network:
 
-## How it works
-
-```mermaid
-flowchart LR
-    Browser["Browser<br/>laptop or phone"]
-    Provider["Model provider"]
-
-    subgraph Machine["Your machine"]
-        direction LR
-        Vampire["Vampire<br/>browser connection"]
-        Tmux["tmux<br/>process lifetime"]
-        CLI["Codex · Claude Code<br/>or any CLI"]
-        Vampire <-->|"ordinary terminal I/O"| Tmux
-        Tmux -->|"keeps alive"| CLI
-    end
-
-    Browser <-->|"terminal input and output"| Vampire
-    CLI <-->|"own credentials and config"| Provider
+```bash
+VAMPIRE_TOKEN="$(openssl rand -base64 32)" npx vampire
 ```
 
-Vampire creates a plain tmux session in the project directory. You start the CLI yourself. tmux keeps the process alive; Vampire handles the browser connection and session list.
-
-## Mobile
-
-Open the same Vampire URL on a phone to review workspaces, scroll through output, and send the next instruction without reaching for a laptop.
-
-<p align="center">
-  <img src="docs/images/vampire-mobile.png" width="320" alt="Vampire's mobile terminal and instruction composer">
-</p>
-
-## Remote access and security
-
-Vampire is a remote shell interface. Anyone who can authenticate can act with the operating-system permissions of the Vampire process. It is intended for one trusted person or a small trusted environment, not as a multi-tenant isolation boundary.
-
-Keep Vampire bound to `127.0.0.1` and expose it through a same-host HTTPS reverse proxy or private network. It refuses non-loopback binding unless `VAMPIRE_TOKEN` is configured.
-
-```sh
-VAMPIRE_TOKEN="your-long-random-token" \
-VAMPIRE_ADAPTER_ORIGIN="https://vampire.example.com" \
-vampire
-```
-
-Minimal Caddy configuration:
-
-```caddyfile
-vampire.example.com {
-	reverse_proxy 127.0.0.1:7677
-}
-```
-
-The proxy must preserve the external `Host` header and support WebSocket upgrades. Read [SECURITY.md](SECURITY.md) before exposing Vampire outside your machine.
+Do not expose an unauthenticated instance to the public internet. See [SECURITY.md](SECURITY.md) for the threat model and reverse-proxy guidance.
 
 ## Configuration
 
-| Variable | Default | Purpose |
+| Variable | Purpose | Default |
 | --- | --- | --- |
-| `VAMPIRE_HOST` | `127.0.0.1` | Node server address |
-| `VAMPIRE_PORT` | `7677` | Node server port |
-| `VAMPIRE_TOKEN` | unset | Enables token login and non-loopback binding |
-| `VAMPIRE_STATE_DIR` | `~/.vampire` | Stores the session registry and workspace notes |
-| `VAMPIRE_ADAPTER_ORIGIN` | unset | Browser origin accepted by the server. Local HTTP loopback access is detected automatically; set the public HTTPS origin when using a reverse proxy. |
+| `VAMPIRE_HOST` | Bind address | `127.0.0.1` |
+| `VAMPIRE_PORT` | HTTP port | `7677` |
+| `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
+| `VAMPIRE_STATE_DIR` | Session registry and workspace notes | `~/.vampire` |
+| `VAMPIRE_ADAPTER_ORIGIN` | Allowed browser origin for an adapter | unset |
 
-Project files, commands, terminal history, and running processes stay on your machine. Repository reads are restricted to the workspace directory, and the viewer rejects path traversal, escaping symlinks, oversized files, and unsupported binary previews.
-
-## Run from source
-
-```sh
-corepack enable
-pnpm install --frozen-lockfile
-pnpm dev
-```
-
-For a production build:
-
-```sh
-pnpm build
-VAMPIRE_TOKEN="$(openssl rand -base64 32)" pnpm start
-```
+Project files, commands, terminal history, and running processes stay on your machine. Repository access is restricted to the workspace directory.
 
 ## Development
 
-```sh
-pnpm check    # Svelte and TypeScript diagnostics
-pnpm test     # diagnostics, Node tests, and production build
+```bash
+pnpm install
+pnpm dev
+pnpm check
+pnpm test
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
-
-Vampire is an early, pre-1.0 release for trusted personal use and small private environments. Configuration, storage, and APIs may change before 1.0.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.
 
 ## License
 
-[MIT](LICENSE)
+MIT
