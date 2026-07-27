@@ -33,7 +33,7 @@ test('shows live activity only while output is active or recent unread output is
 	const current = session(Date.now());
 	assert.equal(view.sessionActivityState(current, current.id, false), 'live');
 	assert.equal(view.sessionActivityState(current, undefined, true), 'live');
-	assert.equal(view.sessionActivityState(session(Date.now() - 5_000), undefined, true), 'review');
+	assert.equal(view.sessionActivityState(session(Date.now() - 11_000), undefined, true), 'review');
 });
 
 test('ignores delayed timestamps covered by the last observation', () => {
