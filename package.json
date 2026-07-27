@@ -16,6 +16,7 @@
     "scripts/terminal.mjs",
     "scripts/websocket.mjs",
     "scripts/workspace-websocket.mjs",
+    "src/lib/server/system-metrics.mjs",
     "src/lib/server/session-snapshot.mjs",
     "src/lib/server/session-note.mjs",
     "src/lib/server/repository.mjs",

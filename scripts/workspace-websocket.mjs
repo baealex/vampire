@@ -1,13 +1,13 @@
-import { cpus, freemem, totalmem } from 'node:os';
 import { WebSocketServer } from 'ws';
 import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '../src/lib/server/session-cookie.mjs';
 import { listManagedSessions } from '../src/lib/server/session-snapshot.mjs';
+import { getSystemMetrics } from '../src/lib/server/system-metrics.mjs';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const SESSION_REFRESH_INTERVAL_MS = 2_000;
-const SYSTEM_METRICS_INTERVAL_MS = 5_000;
+const SYSTEM_METRICS_INTERVAL_MS = 10_000;
 const SESSION_FIELDS = [
 	'tmuxSession',
 	'cwd',
@@ -20,38 +20,6 @@ const SESSION_FIELDS = [
 	'foregroundProcess'
 ];
 
-let previousCpuSample = readCpuSample();
-let previousSampleTime = Date.now();
-let cachedMetrics;
-
-function readCpuSample() {
-	return cpus().reduce((sample, cpu) => {
-		const { idle, user, nice, sys, irq } = cpu.times;
-		sample.idle += idle;
-		sample.total += idle + user + nice + sys + irq;
-		return sample;
-	}, { idle: 0, total: 0 });
-}
-
-function getSystemMetrics() {
-	const now = Date.now();
-	if (cachedMetrics && now - previousSampleTime < 1_000) return cachedMetrics;
-	const currentCpuSample = readCpuSample();
-	const totalElapsed = currentCpuSample.total - previousCpuSample.total;
-	const idleElapsed = currentCpuSample.idle - previousCpuSample.idle;
-	const memoryTotalBytes = totalmem();
-	const memoryUsedBytes = memoryTotalBytes - freemem();
-	previousCpuSample = currentCpuSample;
-	previousSampleTime = now;
-	cachedMetrics = {
-		cpuUsage: totalElapsed > 0 ? Math.min(100, Math.max(0, Math.round((1 - idleElapsed / totalElapsed) * 100))) : 0,
-		memoryUsage: memoryTotalBytes > 0 ? Math.min(100, Math.max(0, Math.round((memoryUsedBytes / memoryTotalBytes) * 100))) : 0,
-		memoryUsedBytes,
-		memoryTotalBytes
-	};
-	return cachedMetrics;
-}
-
 function send(socket, payload) {
 	if (socket.readyState === 1) socket.send(JSON.stringify(payload));
 }
@@ -63,6 +31,13 @@ function rejectUpgrade(socket, status, reason) {
 
 function equalForegroundProcess(left, right) {
 	return left?.kind === right?.kind && left?.label === right?.label;
+}
+
+function systemMetricsChanged(previous, next) {
+	return !previous
+		|| previous.cpuUsage !== next.cpuUsage
+		|| previous.memoryUsage !== next.memoryUsage
+		|| previous.memoryTotalBytes !== next.memoryTotalBytes;
 }
 
 function sessionChanges(previous, next) {
@@ -82,14 +57,21 @@ class WorkspaceStatusHub {
 	#refreshPromise;
 	#refreshTimer;
 	#metricsTimer;
+	#metrics;
 
 	async subscribe(socket) {
 		try {
 			await this.#refresh();
 			if (socket.readyState !== 1) return;
+			const previousMetrics = this.#metrics;
+			const metrics = getSystemMetrics();
+			this.#metrics = metrics;
 			send(socket, { type: 'sessions-snapshot', sessions: [...this.#sessions.values()] });
-			send(socket, { type: 'system-metrics', metrics: getSystemMetrics() });
+			send(socket, { type: 'system-metrics', metrics });
 			this.#clients.add(socket);
+			if (previousMetrics && systemMetricsChanged(previousMetrics, metrics)) {
+				this.#broadcast({ type: 'system-metrics', metrics }, socket);
+			}
 			socket.once('close', () => this.unsubscribe(socket));
 			this.#startPolling();
 		} catch {
@@ -106,6 +88,7 @@ class WorkspaceStatusHub {
 		this.#refreshTimer = undefined;
 		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
+		this.#metrics = undefined;
 	}
 
 	close() {
@@ -114,6 +97,7 @@ class WorkspaceStatusHub {
 		this.#refreshTimer = undefined;
 		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
+		this.#metrics = undefined;
 		for (const socket of this.#clients) socket.close(1001, 'server shutting down');
 		this.#clients.clear();
 	}
@@ -122,7 +106,12 @@ class WorkspaceStatusHub {
 		if (this.#refreshTimer !== undefined) return;
 		this.#refreshTimer = setInterval(() => void this.#refresh().catch(() => undefined), SESSION_REFRESH_INTERVAL_MS);
 		this.#refreshTimer.unref();
-		this.#metricsTimer = setInterval(() => this.#broadcast({ type: 'system-metrics', metrics: getSystemMetrics() }), SYSTEM_METRICS_INTERVAL_MS);
+		this.#metricsTimer = setInterval(() => {
+			const metrics = getSystemMetrics();
+			if (!systemMetricsChanged(this.#metrics, metrics)) return;
+			this.#metrics = metrics;
+			this.#broadcast({ type: 'system-metrics', metrics });
+		}, SYSTEM_METRICS_INTERVAL_MS);
 		this.#metricsTimer.unref();
 	}
 
@@ -154,8 +143,10 @@ class WorkspaceStatusHub {
 		}
 	}
 
-	#broadcast(payload) {
-		for (const socket of this.#clients) send(socket, payload);
+	#broadcast(payload, excludedSocket) {
+		for (const socket of this.#clients) {
+			if (socket !== excludedSocket) send(socket, payload);
+		}
 	}
 }
 

@@ -59,7 +59,10 @@ export class WorkspaceConnectionState {
 		const refreshWhenVisible = () => {
 			if (document.hidden || !this.authenticated) return;
 			options.onVisible?.();
-			void this.refreshSystemMetrics();
+			const socketState = this.#workspaceSocket?.readyState;
+			if (socketState !== WebSocket.OPEN && socketState !== WebSocket.CONNECTING) {
+				void this.refreshSystemMetrics();
+			}
 			this.#startWorkspaceStream(options, runVersion);
 		};
 		document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -90,7 +93,6 @@ export class WorkspaceConnectionState {
 			this.authenticated = true;
 			this.#authenticationVersion += 1;
 			if (this.#connectionOptions) this.#startWorkspaceStream(this.#connectionOptions, this.#runVersion);
-			await this.refreshSystemMetrics();
 		} catch (error) {
 			this.loginError = isUnauthorized(error)
 				? 'That access token did not work.'
@@ -224,6 +226,7 @@ export class WorkspaceConnectionState {
 
 	#startWorkspaceFallback(options: ConnectionStartOptions, runVersion: number) {
 		if (this.#workspaceFallbackTimer !== undefined) return;
+		void this.refreshSystemMetrics();
 		this.#workspaceFallbackTimer = window.setInterval(() => {
 			if (runVersion !== this.#runVersion || document.hidden || !this.authenticated) return;
 			void options.refreshSessions({ quiet: true });
