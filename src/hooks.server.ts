@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import type { Handle } from '@sveltejs/kit';
-import { originsMatch } from '$lib/server/origin.mjs';
+
+const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
 
 function configuredOrigin(): string | undefined {
 	const value = env.VAMPIRE_ADAPTER_ORIGIN?.trim();
@@ -20,8 +21,9 @@ const adapterOrigin = configuredOrigin();
 export const handle: Handle = async ({ event, resolve }) => {
 	if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method)) {
 		const origin = event.request.headers.get('origin');
-		const expectedOrigin = adapterOrigin ?? event.url.origin;
-		if (origin && !originsMatch(origin, expectedOrigin)) {
+		const hostname = event.url.hostname.replace(/^\[|\]$/g, '');
+		const expectedOrigin = adapterOrigin ?? (loopbackHosts.has(hostname) ? `http://${event.url.host}` : event.url.origin);
+		if (origin && origin !== expectedOrigin) {
 			return new Response('Forbidden', { status: 403 });
 		}
 	}
