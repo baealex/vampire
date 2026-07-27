@@ -136,7 +136,7 @@
 		--color-visual-pixel-green: #556e5d;
 		--color-backdrop: rgb(4 3 4 / 0.76);
 		--shadow-navigation-panel: -1.25rem 0 2.5rem rgb(0 0 0 / 0.34);
-		--shadow-repository-panel: -1.25rem 0 2.5rem rgb(0 0 0 / 0.34);
+		--shadow-repository-panel: none;
 		--shadow-dialog: 0 1.5rem 4rem rgb(0 0 0 / 0.45);
 		--shadow-popover: 0 1.25rem 3.5rem rgb(0 0 0 / 0.5);
 		--shadow-document: 0 1.2rem 3rem rgb(0 0 0 / 0.42), inset 0 0 1.8rem rgb(228 91 103 / 0.025);
