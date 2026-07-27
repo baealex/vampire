@@ -1,10 +1,9 @@
 import { createServer } from 'vite';
-import { ensureAdapterOrigin, runtimeConfig } from './config.mjs';
+import { runtimeConfig } from './config.mjs';
 import { installTerminalWebSocket } from './websocket.mjs';
 import { installWorkspaceWebSocket } from './workspace-websocket.mjs';
 
 const config = runtimeConfig();
-ensureAdapterOrigin(config);
 const vite = await createServer({
 	server: {
 		host: config.host,

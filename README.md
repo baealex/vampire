@@ -111,7 +111,7 @@ The proxy must preserve the external `Host` header and support WebSocket upgrade
 | `VAMPIRE_PORT` | `7677` | Node server port |
 | `VAMPIRE_TOKEN` | unset | Enables token login and non-loopback binding |
 | `VAMPIRE_STATE_DIR` | `~/.vampire` | Stores the session registry and workspace notes |
-| `VAMPIRE_ADAPTER_ORIGIN` | local HTTP origin derived from `VAMPIRE_HOST` and `VAMPIRE_PORT` | Browser origin accepted by the server. Local loopback runs fill this in automatically; set the public HTTPS origin when using a reverse proxy. |
+| `VAMPIRE_ADAPTER_ORIGIN` | unset | Browser origin accepted by the server. Local HTTP loopback access is detected automatically; set the public HTTPS origin when using a reverse proxy. |
 
 Project files, commands, terminal history, and running processes stay on your machine. Repository reads are restricted to the workspace directory, and the viewer rejects path traversal, escaping symlinks, oversized files, and unsupported binary previews.
 
