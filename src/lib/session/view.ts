@@ -68,6 +68,17 @@ export function sessionOutputBecameUnread(
 
 export type SessionActivityState = 'live' | 'review' | 'idle' | 'missing';
 
+const SESSION_ACTIVITY_PRIORITY: Record<SessionActivityState, number> = {
+	review: 0,
+	live: 1,
+	idle: 2,
+	missing: 3
+};
+
+export function sessionActivityPriority(state: SessionActivityState): number {
+	return SESSION_ACTIVITY_PRIORITY[state];
+}
+
 export function sessionActivityState(
 	session: ManagedSession,
 	activeOutputSessionId?: string,
@@ -104,11 +115,15 @@ export function latestSessionOutputAt(session: ManagedSession): number {
 export function sortSessions(
 	sessions: ManagedSession[],
 	mode: SessionOrderMode,
-	manualOrder: string[]
+	manualOrder: string[],
+	activityOrder: string[] = []
 ): ManagedSession[] {
-	if (mode === 'recent') {
+	if (mode === 'activity') {
+		const position = new Map(activityOrder.map((id, index) => [id, index]));
 		return [...sessions].sort((left, right) =>
-			latestSessionOutputAt(right) - latestSessionOutputAt(left) || right.createdAt - left.createdAt
+			(position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+			|| left.createdAt - right.createdAt
+			|| left.id.localeCompare(right.id)
 		);
 	}
 

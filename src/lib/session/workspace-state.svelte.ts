@@ -1,5 +1,12 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
-import { maxTimestamp, sessionOutputBecameUnread, sortSessions } from './view';
+import {
+	maxTimestamp,
+	sessionActivityPriority,
+	sessionActivityState,
+	sessionOutputBecameUnread,
+	sortSessions
+} from './view';
+import type { SessionActivityState } from './view';
 import type { ManagedSession, SessionOrderMode } from './types';
 
 type RefreshOptions = { quiet?: boolean };
@@ -27,12 +34,18 @@ export class SessionWorkspaceState {
 	errorMessage = $state('');
 	sessionAction = $state<'restart' | 'close' | 'remove' | undefined>(undefined);
 	sessionActionError = $state('');
-	sessionOrderMode = $state<SessionOrderMode>('recent');
+	sessionOrderMode = $state<SessionOrderMode>('activity');
 	manualSessionOrder = $state<string[]>([]);
+	activityOrder = $state<string[]>([]);
 	activeOutputSessionId = $state<string | undefined>(undefined);
 	unreadSessionIds = $state<Set<string>>(new Set());
 
-	displayedSessions = $derived(sortSessions(this.sessions, this.sessionOrderMode, this.manualSessionOrder));
+	displayedSessions = $derived(sortSessions(
+		this.sessions,
+		this.sessionOrderMode,
+		this.manualSessionOrder,
+		this.activityOrder
+	));
 	activeSession = $derived(
 		this.requestedSessionId
 			? this.sessions.find((session) => session.id === this.requestedSessionId)
@@ -47,6 +60,7 @@ export class SessionWorkspaceState {
 	#observedOutputThrough = new Map<string, number>();
 	#outputActivityTimers = new Map<string, number>();
 	#pendingOutputActivity = new Map<string, number>();
+	#activityStates = new Map<string, SessionActivityState>();
 	#refreshPromise: Promise<void> | undefined;
 	#refreshQueued = false;
 	#sessionsVersion = 0;
@@ -99,15 +113,17 @@ export class SessionWorkspaceState {
 			lastOutputAt: maxTimestamp(changes.lastOutputAt ?? previous.lastOutputAt, previous.lastOutputAt)
 		};
 		if ('notePreview' in changes && changes.notePreview !== previous.notePreview) this.#sessionNotes.delete(sessionId);
-		if (this.sessionsLoaded && sessionOutputBecameUnread(
+		const outputBecameUnread = this.sessionsLoaded && sessionOutputBecameUnread(
 			previousOutputAt,
 			next.lastOutputAt,
 			this.#observedOutputThrough.get(sessionId) ?? 0,
 			this.options.isSessionObserved(sessionId)
-		)) {
+		);
+		if (outputBecameUnread) {
 			this.markSessionUnread(sessionId);
 		}
 		this.sessions = this.sessions.map((session) => session.id === sessionId ? next : session);
+		if (outputBecameUnread || previous.state !== next.state) this.moveSessionToActivityGroup(sessionId);
 		this.syncManualSessionOrder();
 	}
 
@@ -121,6 +137,7 @@ export class SessionWorkspaceState {
 		this.#observedOutputThrough.delete(sessionId);
 		if (this.activeOutputSessionId === sessionId) this.activeOutputSessionId = undefined;
 		this.pruneUnreadSessions();
+		this.removeSessionActivity(sessionId);
 		this.syncManualSessionOrder();
 	}
 
@@ -154,8 +171,10 @@ export class SessionWorkspaceState {
 		});
 
 		if (this.sessionsLoaded) {
+			const activityChanges = new Set<string>();
 			for (const session of nextSessions) {
-				const previousOutputAt = previousSessions.get(session.id)?.lastOutputAt ?? null;
+				const previous = previousSessions.get(session.id);
+				const previousOutputAt = previous?.lastOutputAt ?? null;
 				if (sessionOutputBecameUnread(
 					previousOutputAt,
 					session.lastOutputAt,
@@ -163,12 +182,18 @@ export class SessionWorkspaceState {
 					this.options.isSessionObserved(session.id)
 				)) {
 					this.markSessionUnread(session.id);
+					activityChanges.add(session.id);
 				}
+				if (previous && previous.state !== session.state) activityChanges.add(session.id);
 			}
+			this.sessions = nextSessions;
+			this.pruneUnreadSessions();
+			this.syncSessionActivities(activityChanges);
+		} else {
+			this.sessions = nextSessions;
+			this.pruneUnreadSessions();
+			this.syncSessionActivities(new Set());
 		}
-
-		this.sessions = nextSessions;
-		this.pruneUnreadSessions();
 		this.syncManualSessionOrder();
 		if (!this.sessionsLoaded) {
 			this.newSessionOpen = this.sessions.length === 0;
@@ -193,6 +218,7 @@ export class SessionWorkspaceState {
 			this.cwd = '';
 			this.newSessionOpen = false;
 			this.sessions = [data.session, ...this.sessions.filter((session) => session.id !== data.session.id)];
+			this.moveSessionToActivityGroup(data.session.id);
 			this.manualSessionOrder = [data.session.id, ...this.manualSessionOrder.filter((id) => id !== data.session.id)];
 			this.persistManualSessionOrder();
 			this.openSession(data.session);
@@ -237,7 +263,11 @@ export class SessionWorkspaceState {
 
 	restoreBrowserPreferences(storage: Storage) {
 		const savedOrderMode = storage.getItem(SESSION_ORDER_MODE_KEY);
-		if (savedOrderMode === 'recent' || savedOrderMode === 'manual') this.sessionOrderMode = savedOrderMode;
+		if (savedOrderMode === 'activity' || savedOrderMode === 'manual') this.sessionOrderMode = savedOrderMode;
+		else if (savedOrderMode === 'recent') {
+			this.sessionOrderMode = 'activity';
+			storage.setItem(SESSION_ORDER_MODE_KEY, 'activity');
+		}
 		try {
 			const savedOrder: unknown = JSON.parse(storage.getItem(SESSION_ORDER_KEY) ?? '[]');
 			if (Array.isArray(savedOrder) && savedOrder.every((id) => typeof id === 'string')) {
@@ -284,7 +314,10 @@ export class SessionWorkspaceState {
 		if (active) {
 			this.activeOutputSessionId = sessionId;
 			if (observed) this.markSessionObserved(sessionId, timestamp);
-			else this.markSessionUnread(sessionId);
+			else {
+				this.markSessionUnread(sessionId);
+				this.moveSessionToActivityGroup(sessionId);
+			}
 			this.recordOutputActivity(sessionId, timestamp ?? Date.now());
 		} else if (this.activeOutputSessionId === sessionId) {
 			this.flushOutputActivity(sessionId);
@@ -297,10 +330,11 @@ export class SessionWorkspaceState {
 			sessionId,
 			Math.max(timestamp, this.#observedOutputThrough.get(sessionId) ?? 0)
 		);
-		if (!this.unreadSessionIds.has(sessionId)) return;
-		const nextUnreadSessionIds = new Set(this.unreadSessionIds);
-		nextUnreadSessionIds.delete(sessionId);
-		this.unreadSessionIds = nextUnreadSessionIds;
+		if (this.unreadSessionIds.has(sessionId)) {
+			const nextUnreadSessionIds = new Set(this.unreadSessionIds);
+			nextUnreadSessionIds.delete(sessionId);
+			this.unreadSessionIds = nextUnreadSessionIds;
+		}
 	}
 
 	openSession(session: ManagedSession) {
@@ -354,6 +388,7 @@ export class SessionWorkspaceState {
 			});
 			this.invalidateSessions();
 			this.sessions = this.sessions.map((item) => item.id === data.session.id ? data.session : item);
+			this.moveSessionToActivityGroup(data.session.id);
 			void this.refresh({ quiet: true });
 			return true;
 		} catch (error) {
@@ -376,6 +411,7 @@ export class SessionWorkspaceState {
 			this.clearOutputActivity(session.id);
 			this.markSessionObserved(session.id);
 			if (this.activeOutputSessionId === session.id) this.activeOutputSessionId = undefined;
+			this.moveSessionToActivityGroup(session.id);
 			if (this.requestedSessionId === session.id) this.clearActiveSession();
 			void this.refresh({ quiet: true });
 			return true;
@@ -394,6 +430,7 @@ export class SessionWorkspaceState {
 			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}`, { method: 'DELETE' });
 			this.invalidateSessions();
 			this.sessions = this.sessions.filter((item) => item.id !== session.id);
+			this.removeSessionActivity(session.id);
 			this.manualSessionOrder = this.manualSessionOrder.filter((id) => id !== session.id);
 			this.clearOutputActivity(session.id);
 			this.markSessionObserved(session.id);
@@ -414,10 +451,12 @@ export class SessionWorkspaceState {
 		this.clearAllInputActivity();
 		this.clearAllOutputActivity();
 		this.sessions = [];
+		this.activityOrder = [];
 		this.requestedSessionId = undefined;
 		this.activeOutputSessionId = undefined;
 		this.unreadSessionIds = new Set();
 		this.#observedOutputThrough.clear();
+		this.#activityStates.clear();
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();
 		this.sessionsLoaded = false;
@@ -431,6 +470,8 @@ export class SessionWorkspaceState {
 		this.clearAllOutputActivity();
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();
+		this.activityOrder = [];
+		this.#activityStates.clear();
 	}
 
 	private invalidateSessions() {
@@ -479,6 +520,68 @@ export class SessionWorkspaceState {
 	private markSessionUnread(sessionId: string) {
 		if (this.unreadSessionIds.has(sessionId)) return;
 		this.unreadSessionIds = new Set(this.unreadSessionIds).add(sessionId);
+	}
+
+	private moveSessionToActivityGroup(sessionId: string) {
+		const session = this.sessions.find((item) => item.id === sessionId);
+		if (!session) return;
+		const nextState = sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(sessionId));
+		const previousState = this.#activityStates.get(sessionId);
+		this.#activityStates.set(sessionId, nextState);
+		if (previousState === nextState && this.activityOrder.includes(sessionId)) return;
+
+		const nextOrder = this.activityOrder.filter((id) => id !== sessionId);
+		const nextPriority = sessionActivityPriority(nextState);
+		const insertAt = nextOrder.findIndex((id) =>
+			sessionActivityPriority(this.#activityStates.get(id) ?? 'idle') > nextPriority
+		);
+		nextOrder.splice(insertAt < 0 ? nextOrder.length : insertAt, 0, sessionId);
+		this.activityOrder = nextOrder;
+	}
+
+	private syncSessionActivities(activityChanges: Set<string>) {
+		const sessionIds = new Set(this.sessions.map((session) => session.id));
+		for (const sessionId of this.#activityStates.keys()) {
+			if (!sessionIds.has(sessionId)) this.#activityStates.delete(sessionId);
+		}
+		const nextOrder = this.activityOrder.filter((sessionId) => sessionIds.has(sessionId));
+		if (nextOrder.length !== this.activityOrder.length) this.activityOrder = nextOrder;
+
+		if (this.activityOrder.length === 0) {
+			this.#activityStates.clear();
+			const states = new Map(this.sessions.map((session) => [
+				session.id,
+				sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
+			]));
+			for (const [sessionId, state] of states) this.#activityStates.set(sessionId, state);
+			this.activityOrder = [...this.sessions]
+				.sort((left, right) =>
+					sessionActivityPriority(states.get(left.id) ?? 'idle')
+					- sessionActivityPriority(states.get(right.id) ?? 'idle')
+				)
+				.map((session) => session.id);
+			return;
+		}
+
+		for (const session of this.sessions) {
+			if (!this.#activityStates.has(session.id)) {
+				this.#activityStates.set(
+					session.id,
+					sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
+				);
+			}
+		}
+		for (const sessionId of activityChanges) this.moveSessionToActivityGroup(sessionId);
+		for (const session of this.sessions) {
+			if (!this.activityOrder.includes(session.id)) this.moveSessionToActivityGroup(session.id);
+		}
+	}
+
+	private removeSessionActivity(sessionId: string) {
+		this.#activityStates.delete(sessionId);
+		if (this.activityOrder.includes(sessionId)) {
+			this.activityOrder = this.activityOrder.filter((id) => id !== sessionId);
+		}
 	}
 
 	private pruneUnreadSessions() {

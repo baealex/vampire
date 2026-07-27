@@ -16,6 +16,6 @@ export type ManagedSession = {
 	foregroundProcess: SessionProcess | null;
 };
 
-export type SessionOrderMode = 'recent' | 'manual';
+export type SessionOrderMode = 'activity' | 'manual';
 
 export type MobilePanel = 'sessions' | 'repository';
