@@ -155,10 +155,10 @@
 
 		<div class="session-order-toolbar">
 			<div class="session-order-control" role="group" aria-label="Workspace order">
-				<button type="button" class:active={sessionOrderMode === 'recent'} onclick={() => onOrderModeChange('recent')} aria-pressed={sessionOrderMode === 'recent'}>Recent</button>
+				<button type="button" class:active={sessionOrderMode === 'activity'} onclick={() => onOrderModeChange('activity')} aria-pressed={sessionOrderMode === 'activity'}>Activity</button>
 				<button type="button" class:active={sessionOrderMode === 'manual'} onclick={() => onOrderModeChange('manual')} aria-pressed={sessionOrderMode === 'manual'}>Manual</button>
 			</div>
-			<span class="session-order-help">{sessionOrderMode === 'recent' ? 'Latest output' : 'Drag to arrange'}</span>
+			<span class="session-order-help">{sessionOrderMode === 'activity' ? 'Status groups, stable order' : 'Drag to arrange'}</span>
 		</div>
 
 		{#if errorMessage}

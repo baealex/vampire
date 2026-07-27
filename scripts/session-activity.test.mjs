@@ -11,15 +11,15 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const view = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 
-function session(lastOutputAt) {
+function session(lastOutputAt, id = 'workspace-1', state = 'running') {
 	return {
-		id: 'workspace-1',
+		id,
 		cwd: '/tmp/workspace-1',
 		createdAt: 1,
 		lastActiveAt: 1,
 		lastOutputAt,
 		notePreview: '',
-		state: 'running',
+		state,
 		attachedClients: 0,
 		foregroundProcess: null
 	};
@@ -45,4 +45,23 @@ test('ignores delayed timestamps covered by the last observation', () => {
 test('does not invent a shell label for a missing session', () => {
 	assert.equal(view.sessionProcess({ ...session(null), state: 'missing' }), null);
 	assert.deepEqual(view.sessionProcess(session(null)), { kind: 'shell', label: 'shell' });
+});
+
+test('groups activity states without reordering sessions inside a state', () => {
+	const sessions = [
+		session(1_000, 'idle-a'),
+		session(2_000, 'review-a'),
+		session(3_000, 'live-a'),
+		session(4_000, 'idle-b')
+	];
+	assert.deepEqual(
+		view.sortSessions(sessions, 'activity', [], ['review-a', 'live-a', 'idle-a', 'idle-b'])
+			.map(({ id }) => id),
+		['review-a', 'live-a', 'idle-a', 'idle-b']
+	);
+	assert.deepEqual(
+		view.sortSessions(sessions, 'activity', [], ['idle-a', 'review-a', 'live-a', 'idle-b'])
+			.map(({ id }) => id),
+		['idle-a', 'review-a', 'live-a', 'idle-b']
+	);
 });
