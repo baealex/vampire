@@ -216,7 +216,7 @@
 								</span>
 								{#if session.note}<span class="session-note-preview" title={session.note}>{session.note}</span>{/if}
 								<span class="session-context">
-									<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process.label)}`} title={sessionProcessHint(session)}>{process.label}</span>
+									<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process)}`} title={sessionProcessHint(session)}>{process.label}</span>
 									<span class="session-context-divider" aria-hidden="true">·</span>
 									<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Last terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session))}</time>
 									{#if activityState === 'review'}
