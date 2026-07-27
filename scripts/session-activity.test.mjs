@@ -36,6 +36,14 @@ test('shows live activity only while output is active or recent unread output is
 	assert.equal(view.sessionActivityState(session(Date.now() - 11_000), undefined, true), 'review');
 });
 
+test('places live sessions above review sessions', () => {
+	const states = ['live', 'review', 'idle', 'missing'];
+	assert.deepEqual(
+		states.sort((left, right) => view.sessionActivityPriority(left) - view.sessionActivityPriority(right)),
+		['live', 'review', 'idle', 'missing']
+	);
+});
+
 test('ignores delayed timestamps covered by the last observation', () => {
 	assert.equal(view.sessionOutputBecameUnread(1_000, 2_000, 2_500, false), false);
 	assert.equal(view.sessionOutputBecameUnread(1_000, 3_000, 2_500, false), true);

@@ -7,7 +7,6 @@ import {
 	sessionOutputBecameUnread,
 	sortSessions
 } from './view';
-import type { SessionActivityState } from './view';
 import type { ManagedSession, SessionOrderMode } from './types';
 
 type RefreshOptions = { quiet?: boolean };
@@ -64,7 +63,6 @@ export class SessionWorkspaceState {
 	#activeOutputTimers = new Map<string, number>();
 	#pendingOutputActivity = new Map<string, number>();
 	#observedActiveSessionIds = new Set<string>();
-	#activityStates = new Map<string, SessionActivityState>();
 	#refreshPromise: Promise<void> | undefined;
 	#refreshQueued = false;
 	#sessionsVersion = 0;
@@ -175,7 +173,6 @@ export class SessionWorkspaceState {
 		});
 
 		if (this.sessionsLoaded) {
-			const activityChanges = new Set<string>();
 			for (const session of nextSessions) {
 				const previous = previousSessions.get(session.id);
 				const previousOutputAt = previous?.lastOutputAt ?? null;
@@ -186,17 +183,15 @@ export class SessionWorkspaceState {
 					this.options.isSessionObserved(session.id)
 				)) {
 					this.markSessionUnread(session.id);
-					activityChanges.add(session.id);
 				}
-				if (previous && previous.state !== session.state) activityChanges.add(session.id);
 			}
 			this.sessions = nextSessions;
 			this.pruneUnreadSessions();
-			this.syncSessionActivities(activityChanges);
+			this.rebuildActivityOrder();
 		} else {
 			this.sessions = nextSessions;
 			this.pruneUnreadSessions();
-			this.syncSessionActivities(new Set());
+			this.rebuildActivityOrder();
 		}
 		this.syncManualSessionOrder();
 		if (!this.sessionsLoaded) {
@@ -347,6 +342,7 @@ export class SessionWorkspaceState {
 			return;
 		}
 		if (hasUnreadOutput) this.markSessionRead(sessionId);
+		this.rebuildActivityOrder();
 	}
 
 	openSession(session: ManagedSession) {
@@ -468,7 +464,6 @@ export class SessionWorkspaceState {
 		this.activeOutputSessionId = undefined;
 		this.unreadSessionIds = new Set();
 		this.#observedOutputThrough.clear();
-		this.#activityStates.clear();
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();
 		this.sessionsLoaded = false;
@@ -483,7 +478,6 @@ export class SessionWorkspaceState {
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();
 		this.activityOrder = [];
-		this.#activityStates.clear();
 	}
 
 	private invalidateSessions() {
@@ -550,66 +544,36 @@ export class SessionWorkspaceState {
 			this.#activeOutputTimers.delete(sessionId);
 			if (this.activeOutputSessionId === sessionId) this.activeOutputSessionId = undefined;
 			if (this.#observedActiveSessionIds.delete(sessionId)) this.markSessionRead(sessionId);
+			this.rebuildActivityOrder();
 		}, delay));
 	}
 
 	private moveSessionToActivityGroup(sessionId: string) {
-		const session = this.sessions.find((item) => item.id === sessionId);
-		if (!session) return;
-		const nextState = sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(sessionId));
-		const previousState = this.#activityStates.get(sessionId);
-		this.#activityStates.set(sessionId, nextState);
-		if (previousState === nextState && this.activityOrder.includes(sessionId)) return;
-
-		const nextOrder = this.activityOrder.filter((id) => id !== sessionId);
-		const nextPriority = sessionActivityPriority(nextState);
-		const insertAt = nextOrder.findIndex((id) =>
-			sessionActivityPriority(this.#activityStates.get(id) ?? 'idle') > nextPriority
-		);
-		nextOrder.splice(insertAt < 0 ? nextOrder.length : insertAt, 0, sessionId);
-		this.activityOrder = nextOrder;
+		if (!this.sessions.some((session) => session.id === sessionId)) return;
+		this.rebuildActivityOrder();
 	}
 
-	private syncSessionActivities(activityChanges: Set<string>) {
-		const sessionIds = new Set(this.sessions.map((session) => session.id));
-		for (const sessionId of this.#activityStates.keys()) {
-			if (!sessionIds.has(sessionId)) this.#activityStates.delete(sessionId);
-		}
-		const nextOrder = this.activityOrder.filter((sessionId) => sessionIds.has(sessionId));
-		if (nextOrder.length !== this.activityOrder.length) this.activityOrder = nextOrder;
-
-		if (this.activityOrder.length === 0) {
-			this.#activityStates.clear();
-			const states = new Map(this.sessions.map((session) => [
-				session.id,
-				sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
-			]));
-			for (const [sessionId, state] of states) this.#activityStates.set(sessionId, state);
-			this.activityOrder = [...this.sessions]
-				.sort((left, right) =>
-					sessionActivityPriority(states.get(left.id) ?? 'idle')
-					- sessionActivityPriority(states.get(right.id) ?? 'idle')
-				)
-				.map((session) => session.id);
-			return;
-		}
-
-		for (const session of this.sessions) {
-			if (!this.#activityStates.has(session.id)) {
-				this.#activityStates.set(
-					session.id,
-					sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
-				);
-			}
-		}
-		for (const sessionId of activityChanges) this.moveSessionToActivityGroup(sessionId);
-		for (const session of this.sessions) {
-			if (!this.activityOrder.includes(session.id)) this.moveSessionToActivityGroup(session.id);
-		}
+	private rebuildActivityOrder() {
+		const currentIds = new Set(this.sessions.map((session) => session.id));
+		const existingOrder = this.activityOrder.filter((sessionId) => currentIds.has(sessionId));
+		const knownIds = new Set(existingOrder);
+		const baseOrder = [
+			...existingOrder,
+			...this.sessions.filter((session) => !knownIds.has(session.id)).map((session) => session.id)
+		];
+		const states = new Map(this.sessions.map((session) => [
+			session.id,
+			sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
+		]));
+		const basePosition = new Map(baseOrder.map((sessionId, index) => [sessionId, index]));
+		this.activityOrder = [...baseOrder].sort((left, right) =>
+			sessionActivityPriority(states.get(left) ?? 'idle')
+			- sessionActivityPriority(states.get(right) ?? 'idle')
+			|| (basePosition.get(left) ?? Number.MAX_SAFE_INTEGER) - (basePosition.get(right) ?? Number.MAX_SAFE_INTEGER)
+		);
 	}
 
 	private removeSessionActivity(sessionId: string) {
-		this.#activityStates.delete(sessionId);
 		if (this.activityOrder.includes(sessionId)) {
 			this.activityOrder = this.activityOrder.filter((id) => id !== sessionId);
 		}
