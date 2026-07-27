@@ -41,3 +41,8 @@ test('ignores delayed timestamps covered by the last observation', () => {
 	assert.equal(view.sessionOutputBecameUnread(1_000, 3_000, 2_500, false), true);
 	assert.equal(view.sessionOutputBecameUnread(1_000, 3_000, 0, true), false);
 });
+
+test('does not invent a shell label for a missing session', () => {
+	assert.equal(view.sessionProcess({ ...session(null), state: 'missing' }), null);
+	assert.deepEqual(view.sessionProcess(session(null)), { kind: 'shell', label: 'shell' });
+});

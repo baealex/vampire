@@ -197,7 +197,7 @@
 							oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 							onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 							aria-current={activeSessionId === session.id ? 'true' : undefined}
-							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process.label}; ${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
+							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
 						>
 							<span class="row-leading" aria-hidden="true">
 								{#if sessionOrderMode === 'manual'}<span class="drag-handle"><GripVertical size={14} strokeWidth={1.8} /></span>{/if}
@@ -216,8 +216,10 @@
 								</span>
 								{#if session.note}<span class="session-note-preview" title={session.note}>{session.note}</span>{/if}
 								<span class="session-context">
-									<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process)}`} title={sessionProcessHint(session)}>{process.label}</span>
-									<span class="session-context-divider" aria-hidden="true">·</span>
+									{#if process}
+										<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process)}`} title={sessionProcessHint(session)}>{process.label}</span>
+										<span class="session-context-divider" aria-hidden="true">·</span>
+									{/if}
 									<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Last terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session))}</time>
 									{#if activityState === 'review'}
 										<span class="review-hint" title="New terminal output needs review" aria-hidden="true">Review</span>
