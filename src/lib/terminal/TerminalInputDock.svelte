@@ -28,18 +28,12 @@
 	let imageInputElement: HTMLInputElement;
 	let composerMessage = $state('');
 
-	function keepComposerFocused(event: PointerEvent) {
+	function preventButtonFocus(event: PointerEvent) {
 		event.preventDefault();
-	}
-
-	function focusComposer() {
-		onComposerFocus();
-		requestAnimationFrame(() => composerElement?.focus());
 	}
 
 	function sendControl(data: string) {
 		send(data);
-		focusComposer();
 	}
 
 	function sendComposerMessage() {
@@ -75,21 +69,21 @@
 
 <div class="input-dock">
 	<div class="touch-toolbar" aria-label="Terminal controls">
-		<button type="button" disabled={!connected} onpointerdown={keepComposerFocused} onclick={() => sendControl('\u001b')}>Esc</button>
-		<button type="button" class="wide-key" disabled={!connected} onpointerdown={keepComposerFocused} onclick={() => sendControl('\u0003')}>Ctrl+C</button>
-		<button type="button" disabled={!connected} onpointerdown={keepComposerFocused} onclick={() => sendControl('\t')}>Tab</button>
-		<button type="button" class="wide-key" disabled={!connected} onpointerdown={keepComposerFocused} onclick={() => sendControl('\r')}>Enter</button>
-		<button type="button" disabled={!connected} aria-label="Arrow up" onpointerdown={keepComposerFocused} onclick={() => sendControl('\u001b[A')}>↑</button>
-		<button type="button" disabled={!connected} aria-label="Arrow down" onpointerdown={keepComposerFocused} onclick={() => sendControl('\u001b[B')}>↓</button>
-		<button type="button" disabled={!connected} aria-label="Arrow left" onpointerdown={keepComposerFocused} onclick={() => sendControl('\u001b[D')}>←</button>
-		<button type="button" disabled={!connected} aria-label="Arrow right" onpointerdown={keepComposerFocused} onclick={() => sendControl('\u001b[C')}>→</button>
+		<button type="button" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b')}>Esc</button>
+		<button type="button" class="wide-key" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\u0003')}>Ctrl+C</button>
+		<button type="button" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\t')}>Tab</button>
+		<button type="button" class="wide-key" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\r')}>Enter</button>
+		<button type="button" disabled={!connected} aria-label="Arrow up" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[A')}>↑</button>
+		<button type="button" disabled={!connected} aria-label="Arrow down" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[B')}>↓</button>
+		<button type="button" disabled={!connected} aria-label="Arrow left" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[D')}>←</button>
+		<button type="button" disabled={!connected} aria-label="Arrow right" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[C')}>→</button>
 		<span class="toolbar-divider" aria-hidden="true"></span>
 		<button
 			type="button"
 			aria-label="Decrease terminal text size"
 			title="Decrease text size"
 			disabled={fontSize <= minimumFontSize}
-			onpointerdown={keepComposerFocused}
+			onpointerdown={preventButtonFocus}
 			onclick={decreaseFontSize}
 		>A−</button>
 		<button
@@ -97,7 +91,7 @@
 			aria-label="Increase terminal text size"
 			title="Increase text size"
 			disabled={fontSize >= maximumFontSize}
-			onpointerdown={keepComposerFocused}
+			onpointerdown={preventButtonFocus}
 			onclick={increaseFontSize}
 		>A+</button>
 	</div>
@@ -138,7 +132,7 @@
 		<button
 			class="send-button"
 			type="button"
-			onpointerdown={keepComposerFocused}
+			onpointerdown={preventButtonFocus}
 			onclick={sendComposerMessage}
 			disabled={!connected || !composerMessage.trim()}
 			aria-label="Send to shell"
