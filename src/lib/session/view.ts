@@ -19,7 +19,8 @@ export function projectName(path: string): string {
 	return path.replace(/\/+$/, '').split('/').pop() || path;
 }
 
-export function sessionProcess(session: ManagedSession): SessionProcess {
+export function sessionProcess(session: ManagedSession): SessionProcess | null {
+	if (session.state === 'missing') return null;
 	const process = session.foregroundProcess ?? { kind: 'shell', label: 'shell' };
 	return { ...process, label: process.label.toLowerCase() };
 }
@@ -38,6 +39,7 @@ export function sessionProcessColor(process: SessionProcess): string {
 export function sessionProcessHint(session: ManagedSession): string {
 	if (session.state === 'missing') return 'tmux session unavailable';
 	const process = sessionProcess(session);
+	if (!process) return 'Shell is waiting for input';
 	if (process.kind === 'command') return `Foreground command: ${process.label}`;
 	return 'Shell is waiting for input';
 }
