@@ -1,10 +1,21 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
 import {
+	findManagedSessionNote,
 	SESSION_NOTE_MAX_LENGTH,
 	SessionMutationError,
 	updateManagedSessionNote
 } from '$lib/server/session-registry';
+
+export const GET: RequestHandler = async (event) => {
+	requireAuthentication(event);
+	const id = event.params.id;
+	if (!id) throw error(400, 'Session ID is required.');
+
+	const note = await findManagedSessionNote(id);
+	if (note === undefined) throw error(404, 'Session was not found.');
+	return json({ note }, { headers: { 'cache-control': 'no-store' } });
+};
 
 export const PUT: RequestHandler = async (event) => {
 	requireAuthentication(event);
@@ -27,7 +38,7 @@ export const PUT: RequestHandler = async (event) => {
 	}
 
 	try {
-		return json({ note: await updateManagedSessionNote(id, note) });
+		return json({ notePreview: await updateManagedSessionNote(id, note) });
 	} catch (cause) {
 		if (cause instanceof SessionMutationError) throw error(404, cause.message);
 		throw error(500, 'Vampire could not save the session note.');
