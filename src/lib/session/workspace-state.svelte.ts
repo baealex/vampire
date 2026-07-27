@@ -1,6 +1,7 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
 import {
 	maxTimestamp,
+	SESSION_ACTIVITY_WINDOW_MS,
 	sessionActivityPriority,
 	sessionActivityState,
 	sessionOutputBecameUnread,
@@ -21,6 +22,7 @@ type SessionWorkspaceStateOptions = {
 const SESSION_ORDER_KEY = 'vampire:session-order';
 const SESSION_ORDER_MODE_KEY = 'vampire:session-order-mode';
 const OUTPUT_ACTIVITY_UPDATE_INTERVAL_MS = 500;
+const OUTPUT_ACTIVITY_SETTLE_MS = 2_500;
 
 export class SessionWorkspaceState {
 	sessions = $state<ManagedSession[]>([]);
@@ -59,7 +61,9 @@ export class SessionWorkspaceState {
 	#lastOutputActivityUpdate = new Map<string, number>();
 	#observedOutputThrough = new Map<string, number>();
 	#outputActivityTimers = new Map<string, number>();
+	#activeOutputTimers = new Map<string, number>();
 	#pendingOutputActivity = new Map<string, number>();
+	#observedActiveSessionIds = new Set<string>();
 	#activityStates = new Map<string, SessionActivityState>();
 	#refreshPromise: Promise<void> | undefined;
 	#refreshQueued = false;
@@ -318,23 +322,31 @@ export class SessionWorkspaceState {
 				this.markSessionUnread(sessionId);
 				this.moveSessionToActivityGroup(sessionId);
 			}
+			this.scheduleActiveOutputExpiry(sessionId, OUTPUT_ACTIVITY_SETTLE_MS);
 			this.recordOutputActivity(sessionId, timestamp ?? Date.now());
 		} else if (this.activeOutputSessionId === sessionId) {
 			this.flushOutputActivity(sessionId);
-			this.activeOutputSessionId = undefined;
 		}
 	}
 
 	markSessionObserved(sessionId: string, timestamp = Date.now()) {
-		this.#observedOutputThrough.set(
-			sessionId,
-			Math.max(timestamp, this.#observedOutputThrough.get(sessionId) ?? 0)
-		);
-		if (this.unreadSessionIds.has(sessionId)) {
-			const nextUnreadSessionIds = new Set(this.unreadSessionIds);
-			nextUnreadSessionIds.delete(sessionId);
-			this.unreadSessionIds = nextUnreadSessionIds;
+		const observedThrough = Math.max(timestamp, this.#observedOutputThrough.get(sessionId) ?? 0);
+		this.#observedOutputThrough.set(sessionId, observedThrough);
+
+		const session = this.sessions.find((item) => item.id === sessionId);
+		const hasUnreadOutput = this.unreadSessionIds.has(sessionId);
+		const activityState = session
+			? sessionActivityState(session, this.activeOutputSessionId, hasUnreadOutput)
+			: undefined;
+		if (activityState === 'live') {
+			this.#observedActiveSessionIds.add(sessionId);
+			const settleDelay = this.activeOutputSessionId === sessionId
+				? OUTPUT_ACTIVITY_SETTLE_MS
+				: Math.max(0, observedThrough + SESSION_ACTIVITY_WINDOW_MS - Date.now());
+			this.scheduleActiveOutputExpiry(sessionId, settleDelay);
+			return;
 		}
+		if (hasUnreadOutput) this.markSessionRead(sessionId);
 	}
 
 	openSession(session: ManagedSession) {
@@ -518,8 +530,27 @@ export class SessionWorkspaceState {
 	}
 
 	private markSessionUnread(sessionId: string) {
+		this.#observedActiveSessionIds.delete(sessionId);
 		if (this.unreadSessionIds.has(sessionId)) return;
 		this.unreadSessionIds = new Set(this.unreadSessionIds).add(sessionId);
+	}
+
+	private markSessionRead(sessionId: string) {
+		this.#observedActiveSessionIds.delete(sessionId);
+		if (!this.unreadSessionIds.has(sessionId)) return;
+		const nextUnreadSessionIds = new Set(this.unreadSessionIds);
+		nextUnreadSessionIds.delete(sessionId);
+		this.unreadSessionIds = nextUnreadSessionIds;
+	}
+
+	private scheduleActiveOutputExpiry(sessionId: string, delay: number) {
+		const existingTimer = this.#activeOutputTimers.get(sessionId);
+		if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+		this.#activeOutputTimers.set(sessionId, window.setTimeout(() => {
+			this.#activeOutputTimers.delete(sessionId);
+			if (this.activeOutputSessionId === sessionId) this.activeOutputSessionId = undefined;
+			if (this.#observedActiveSessionIds.delete(sessionId)) this.markSessionRead(sessionId);
+		}, delay));
 	}
 
 	private moveSessionToActivityGroup(sessionId: string) {
@@ -597,6 +628,11 @@ export class SessionWorkspaceState {
 		const timer = this.#outputActivityTimers.get(sessionId);
 		if (timer !== undefined) window.clearTimeout(timer);
 		this.#outputActivityTimers.delete(sessionId);
+		const activeTimer = this.#activeOutputTimers.get(sessionId);
+		if (activeTimer !== undefined) window.clearTimeout(activeTimer);
+		this.#activeOutputTimers.delete(sessionId);
+		this.#observedActiveSessionIds.delete(sessionId);
+		if (this.activeOutputSessionId === sessionId) this.activeOutputSessionId = undefined;
 		this.#pendingOutputActivity.delete(sessionId);
 		this.#lastOutputActivityUpdate.delete(sessionId);
 	}
@@ -604,6 +640,10 @@ export class SessionWorkspaceState {
 	private clearAllOutputActivity() {
 		for (const timer of this.#outputActivityTimers.values()) window.clearTimeout(timer);
 		this.#outputActivityTimers.clear();
+		for (const timer of this.#activeOutputTimers.values()) window.clearTimeout(timer);
+		this.#activeOutputTimers.clear();
+		this.#observedActiveSessionIds.clear();
+		this.activeOutputSessionId = undefined;
 		this.#pendingOutputActivity.clear();
 		this.#lastOutputActivityUpdate.clear();
 	}

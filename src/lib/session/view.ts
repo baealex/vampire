@@ -1,5 +1,7 @@
 import type { ManagedSession, SessionOrderMode, SessionProcess } from './types';
 
+export const SESSION_ACTIVITY_WINDOW_MS = 4_000;
+
 const SESSION_PROCESS_COLORS = [
 	'var(--color-agent)',
 	'var(--color-command)',
@@ -51,7 +53,7 @@ export function sessionIsActive(
 ): boolean {
 	return session.state === 'running' && (
 		activeOutputSessionId === session.id
-		|| (hasUnreadOutput && session.lastOutputAt !== null && Date.now() - session.lastOutputAt < 4_000)
+		|| (hasUnreadOutput && session.lastOutputAt !== null && Date.now() - session.lastOutputAt < SESSION_ACTIVITY_WINDOW_MS)
 	);
 }
 
