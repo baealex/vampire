@@ -4,9 +4,10 @@
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName as getProjectName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import RepositoryPanel from './RepositoryPanel.svelte';
 	import RepositoryViewer from './RepositoryViewer.svelte';
-	import type { RepositorySelection, RepositorySnapshot } from './types';
+	import type { RepositorySelection, RepositorySnapshot, WorkspaceFile } from './types';
 
 	let {
 		session,
@@ -35,6 +36,10 @@
 	let repositoryError = $state('');
 	let repositoryRefreshToken = $state(0);
 	let selection = $state<RepositorySelection>();
+	let openedFile = $state<WorkspaceFile>();
+	let fileDirty = $state(false);
+	let deleteTarget = $state<{ path: string; kind: 'file' | 'directory' }>();
+	let createdDirectories = $state<string[]>([]);
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	let refreshInFlight = false;
@@ -61,7 +66,11 @@
 					: 'Unable to refresh this repository.';
 				throw new Error(message);
 			}
-			snapshot = await response.json() as RepositorySnapshot;
+			const nextSnapshot = await response.json() as RepositorySnapshot;
+			snapshot = {
+				...nextSnapshot,
+				directories: [...new Set([...(nextSnapshot.directories ?? []), ...createdDirectories])]
+			};
 			changeCount = snapshot.changes.length;
 			repositoryError = '';
 			repositoryRefreshToken += 1;
@@ -87,19 +96,132 @@
 	}
 
 	function closeRepository() {
+		if (!confirmDiscardChanges()) return false;
 		if (desktop) desktopRepositoryOpen = false;
 		else onMobilePanelChange(undefined);
 		selection = undefined;
+		openedFile = undefined;
+		fileDirty = false;
+		return true;
+	}
+
+	function confirmDiscardChanges(): boolean {
+		if (!fileDirty) return true;
+		const discard = window.confirm('Discard unsaved file changes?');
+		if (discard) fileDirty = false;
+		return discard;
 	}
 
 	function openSessionNavigator() {
-		closeRepository();
+		if (repositoryOpen) {
+			if (!closeRepository()) return;
+		} else if (!confirmDiscardChanges()) {
+			return;
+		}
 		close();
 	}
 
 	function selectRepositoryItem(nextSelection: RepositorySelection) {
+		if (!confirmDiscardChanges()) return;
+		openedFile = undefined;
 		selection = nextSelection;
 		if (!desktop) onMobilePanelChange(undefined);
+	}
+
+	function repositoryPath(directory: string, name: string): string {
+		return directory ? `${directory}/${name}` : name;
+	}
+
+	async function readRepositoryError(response: Response, fallback: string): Promise<string> {
+		const body: unknown = await response.json().catch(() => undefined);
+		return body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+			? body.message
+			: fallback;
+	}
+
+	async function createFile(directory: string, name: string) {
+		if (!confirmDiscardChanges()) throw new Error('Finish editing the current file first.');
+		const path = repositoryPath(directory, name);
+		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/file`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ path, content: '' })
+		});
+		if (!response.ok) throw new Error(await readRepositoryError(response, 'The file could not be created.'));
+		const created = await response.json() as WorkspaceFile;
+		openedFile = created;
+		fileDirty = false;
+		selection = { kind: 'file', path: created.path };
+		await refreshRepository();
+		if (!desktop) onMobilePanelChange(undefined);
+	}
+
+	async function createDirectory(directory: string, name: string) {
+		const path = repositoryPath(directory, name);
+		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/directory`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ path })
+		});
+		if (!response.ok) throw new Error(await readRepositoryError(response, 'The folder could not be created.'));
+		const created = await response.json() as { path: string };
+		if (!createdDirectories.includes(created.path)) createdDirectories = [...createdDirectories, created.path];
+		await refreshRepository();
+	}
+
+	function requestDelete(path: string, kind: 'file' | 'directory') {
+		deleteTarget = { path, kind };
+	}
+
+	function pathContainsEntry(path: string, entryPath: string, kind: 'file' | 'directory'): boolean {
+		return kind === 'directory' ? path === entryPath || path.startsWith(`${entryPath}/`) : path === entryPath;
+	}
+
+	function deleteDescription(target: { path: string; kind: 'file' | 'directory' }): string {
+		const selectedPath = selection?.path;
+		const discardsChanges = Boolean(fileDirty && selectedPath && pathContainsEntry(selectedPath, target.path, target.kind));
+		const targetDescription = target.kind === 'directory'
+			? `“${target.path}” and everything inside it will be permanently deleted.`
+			: `“${target.path}” will be permanently deleted.`;
+		return discardsChanges ? `${targetDescription} The open file has unsaved changes that will be discarded.` : targetDescription;
+	}
+
+	async function confirmDelete() {
+		if (!deleteTarget) return;
+		const target = deleteTarget;
+		const selectedPath = selection?.path;
+		const deletingSelected = Boolean(selectedPath && pathContainsEntry(selectedPath, target.path, target.kind));
+
+		const endpoint = target.kind === 'directory' ? 'directory' : 'file';
+		const query = new URLSearchParams({ path: target.path });
+		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/${endpoint}?${query}`, {
+			method: 'DELETE'
+		});
+		if (!response.ok) throw new Error(await readRepositoryError(response, `The ${target.kind === 'directory' ? 'folder' : 'file'} could not be deleted.`));
+
+		if (target.kind === 'directory') {
+			createdDirectories = createdDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
+		}
+		if (deletingSelected) {
+			selection = undefined;
+			openedFile = undefined;
+			fileDirty = false;
+		}
+		await refreshRepository();
+		deleteTarget = undefined;
+	}
+
+	function handleFileSaved(saved: WorkspaceFile) {
+		openedFile = saved;
+		fileDirty = false;
+		void refreshRepository();
+	}
+
+	function closeViewer() {
+		if (!confirmDiscardChanges()) return;
+		selection = undefined;
+		openedFile = undefined;
+		fileDirty = false;
 	}
 
 	function handleRepositoryStatus(nextChangeCount: number) {
@@ -125,12 +247,13 @@
 		const syncDesktop = () => desktop = desktopQuery.matches;
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
+			if (event.target instanceof HTMLElement && event.target.closest('[data-inline-repository-entry]')) return;
 			if (repositoryOpen) {
 				event.preventDefault();
 				closeRepository();
 			} else if (selection) {
 				event.preventDefault();
-				selection = undefined;
+				closeViewer();
 			}
 		};
 		syncDesktop();
@@ -164,7 +287,10 @@
 					sessionId={session.id}
 					{selection}
 					refreshToken={repositoryRefreshToken}
-					onClose={() => selection = undefined}
+					initialFile={openedFile}
+					onClose={closeViewer}
+					onFileSaved={handleFileSaved}
+					onFileDirtyChange={(dirty) => fileDirty = dirty}
 				/>
 			{/if}
 		</Terminal>
@@ -178,9 +304,23 @@
 		selected={selection}
 		open={repositoryOpen}
 		onRefresh={() => void refreshRepository(true)}
+		onCreateFile={createFile}
+		onCreateDirectory={createDirectory}
+		onRequestDelete={requestDelete}
 		onClose={closeRepository}
 		onSelect={selectRepositoryItem}
 	/>
+
+	{#if deleteTarget}
+		<ConfirmDialog
+			title={deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
+			description={deleteDescription(deleteTarget)}
+			confirmLabel={deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
+			busyLabel="Deleting…"
+			close={() => deleteTarget = undefined}
+			onConfirm={confirmDelete}
+		/>
+	{/if}
 </section>
 
 <style>

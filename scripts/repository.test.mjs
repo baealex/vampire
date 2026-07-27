@@ -11,6 +11,9 @@ import {
 	readWorkspaceImage,
 	readWorkspaceImageMetadata,
 	readWorkspaceFile,
+	createWorkspaceDirectory,
+	deleteWorkspaceEntry,
+	writeWorkspaceFile,
 	RepositoryReadError
 } from '../src/lib/server/repository.mjs';
 
@@ -105,8 +108,67 @@ test('reads UTF-8 files but rejects traversal, binary data, and escaping symlink
 		(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
 	);
 	await assert.rejects(
+		() => deleteWorkspaceEntry(directory, 'outside-link', 'file'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+	);
+	await assert.rejects(
 		() => readWorkspaceFile(directory, 'binary.dat'),
 		(error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file'
+	);
+});
+
+test('creates and updates text files without overwriting newer changes', async (t) => {
+	const directory = await createRepository(t);
+	const createdDirectory = await createWorkspaceDirectory(directory, 'logs');
+	assert.equal(createdDirectory.path, 'logs');
+	await assert.rejects(
+		() => createWorkspaceDirectory(directory, 'logs'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+	const created = await writeWorkspaceFile(directory, 'logs/company.log', 'first line\n', { createOnly: true });
+	assert.equal(created.path, 'logs/company.log');
+	assert.equal(created.content, 'first line\n');
+
+	const updated = await writeWorkspaceFile(directory, 'logs/company.log', 'first line\nsecond line\n', {
+		expectedVersion: created.version
+	});
+	assert.equal(updated.content, 'first line\nsecond line\n');
+
+	await assert.rejects(
+		() => writeWorkspaceFile(directory, 'logs/company.log', 'stale\n', { expectedVersion: created.version }),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+	await assert.rejects(
+		() => writeWorkspaceFile(directory, 'logs/company.log', 'duplicate\n', { createOnly: true }),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+
+	const snapshot = await readRepositorySnapshot(directory);
+	assert.ok(snapshot.files.includes('logs/company.log'));
+});
+
+test('deletes files and folders without leaving the workspace', async (t) => {
+	const directory = await createRepository(t);
+	await createWorkspaceDirectory(directory, 'logs');
+	await writeWorkspaceFile(directory, 'logs/company.log', 'first line\n', { createOnly: true });
+	await writeWorkspaceFile(directory, 'logs/today.log', 'today\n', { createOnly: true });
+
+	const deletedFile = await deleteWorkspaceEntry(directory, 'logs/company.log', 'file');
+	assert.equal(deletedFile.path, 'logs/company.log');
+	await assert.rejects(
+		() => readWorkspaceFile(directory, 'logs/company.log'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+	);
+
+	const deletedDirectory = await deleteWorkspaceEntry(directory, 'logs', 'directory');
+	assert.equal(deletedDirectory.path, 'logs');
+	await assert.rejects(
+		() => readWorkspaceFile(directory, 'logs/today.log'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+	);
+	await assert.rejects(
+		() => deleteWorkspaceEntry(directory, '.', 'directory'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
 	);
 });
 

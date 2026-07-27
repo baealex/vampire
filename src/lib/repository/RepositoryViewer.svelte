@@ -1,6 +1,7 @@
 <script lang="ts">
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
+	import RepositoryCodeEditor from './RepositoryCodeEditor.svelte';
 	import { isPreviewableImage, parseDiffLines } from './view';
 	import type { RepositoryDiff, RepositorySelection, WorkspaceFile } from './types';
 
@@ -8,12 +9,18 @@
 		sessionId,
 		selection,
 		refreshToken,
-		onClose
+		initialFile,
+		onClose,
+		onFileSaved = () => undefined,
+		onFileDirtyChange = () => undefined
 	}: {
 		sessionId: string;
 		selection: RepositorySelection;
 		refreshToken: number;
+		initialFile?: WorkspaceFile;
 		onClose: () => void;
+		onFileSaved?: (file: WorkspaceFile) => void;
+		onFileDirtyChange?: (dirty: boolean) => void;
 	} = $props();
 
 	let file = $state<WorkspaceFile>();
@@ -23,6 +30,7 @@
 	let loading = $state(true);
 	let errorMessage = $state('');
 	let lastSelectionKey = '';
+	let fileDirty = $state(false);
 	let parsedSections = $derived(diff?.sections.map((section) => ({
 		...section,
 		lines: parseDiffLines(section.patch)
@@ -42,6 +50,17 @@
 		return response.json() as Promise<T>;
 	}
 
+	function setFileDirty(dirty: boolean) {
+		fileDirty = dirty;
+		onFileDirtyChange?.(dirty);
+	}
+
+	function handleFileSaved(saved: WorkspaceFile) {
+		file = saved;
+		setFileDirty(false);
+		onFileSaved?.(saved);
+	}
+
 	$effect(() => {
 		const requestedRefresh = refreshToken;
 		const requestedSelection = selection;
@@ -55,6 +74,7 @@
 			imageVersion = '';
 			loading = true;
 			errorMessage = '';
+			setFileDirty(false);
 		}
 
 		const controller = new AbortController();
@@ -82,6 +102,13 @@
 					diff = await request<RepositoryDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/repository/${endpoint}?${query}`, controller.signal);
 					file = undefined;
 					imageUrl = '';
+				} else if (!firstLoad && file) {
+					loading = false;
+				} else if (initialFile?.path === requestedSelection.path) {
+					file = initialFile;
+					diff = undefined;
+					imageUrl = '';
+					loading = false;
 				} else {
 					file = await request<WorkspaceFile>(`/api/sessions/${encodeURIComponent(sessionId)}/repository/${endpoint}?${query}`, controller.signal);
 					diff = undefined;
@@ -104,9 +131,14 @@
 	<header class="document-header">
 		<span class="document-kind">{selection.kind === 'diff' ? 'Diff' : 'File'}</span>
 		<strong title={selection.path}>{selection.path}</strong>
-		<button class="mobile-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind}`} title={`Close ${selection.kind}`}>
-			<X size={17} strokeWidth={1.8} aria-hidden="true" />
-		</button>
+		<div class="document-actions">
+			{#if selection.kind === 'file' && file && !imagePreview && fileDirty}
+				<span class="dirty-indicator" role="status">Unsaved</span>
+			{/if}
+			<button class="mobile-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind}`} title={`Close ${selection.kind}`}>
+				<X size={17} strokeWidth={1.8} aria-hidden="true" />
+			</button>
+		</div>
 	</header>
 
 	{#if errorMessage}
@@ -162,9 +194,14 @@
 					{/each}
 				</div>
 			{/if}
-		{:else if selection.kind === 'file' && file}
+		{:else if selection.kind === 'file' && file && !imagePreview}
 			<div class="file-document">
-				<pre><code>{file.content}</code></pre>
+				<RepositoryCodeEditor
+					{sessionId}
+					{file}
+					onSaved={handleFileSaved}
+					onDirtyChange={setFileDirty}
+				/>
 			</div>
 		{:else if !loading}
 			<div class="viewer-state">This content is unavailable.</div>
@@ -177,6 +214,8 @@
 	.document-header { display: grid; flex: 0 0 auto; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; min-width: 0; min-height: 2.65rem; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-panel); }
 	.document-header strong { min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 	.document-kind { color: var(--color-accent-soft-text); font-size: 0.68rem; font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
+	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
+	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
 	.mobile-close { display: none; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.mobile-close:hover { background: var(--color-surface-raised); color: var(--color-text); }
 	.viewer-warning { z-index: 2; margin: 0; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-danger-border); background: var(--color-danger-surface); color: var(--color-danger-text); font-size: var(--text-caption); line-height: var(--leading-ui); }
@@ -185,9 +224,7 @@
 	.viewer-state > div { max-width: 24rem; }
 	.viewer-state strong { color: var(--color-text); font-size: var(--text-body); font-weight: var(--weight-medium); }
 	.viewer-state p { margin: 0.4rem 0 1rem; line-height: var(--leading-body); }
-	.file-document { min-width: 100%; min-height: 100%; width: max-content; padding: 1rem 1.1rem 3rem; }
-	.file-document pre { min-width: 100%; margin: 0; tab-size: 4; }
-	.file-document code { color: var(--color-code-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.8125rem; line-height: 1.55; white-space: pre; }
+	.file-document { width: 100%; height: 100%; min-width: 0; min-height: 100%; overflow: hidden; }
 	.image-document { position: relative; display: grid; min-width: 100%; min-height: 100%; place-items: center; padding: 1.5rem; background-color: var(--color-code-background); background-image: linear-gradient(45deg, var(--color-checkerboard) 25%, transparent 25%), linear-gradient(-45deg, var(--color-checkerboard) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--color-checkerboard) 75%), linear-gradient(-45deg, transparent 75%, var(--color-checkerboard) 75%); background-position: 0 0, 0 0.5rem, 0.5rem -0.5rem, -0.5rem 0; background-size: 1rem 1rem; }
 	.image-document img { display: block; max-width: 100%; max-height: calc(100dvh - 7rem); opacity: 0; object-fit: contain; box-shadow: var(--shadow-image); transition: opacity 140ms ease-out; }
 	.image-document img.is-ready { opacity: 1; }

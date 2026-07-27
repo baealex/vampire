@@ -14,15 +14,16 @@ export function isPreviewableImage(path: string): boolean {
 	return Boolean(extension && PREVIEWABLE_IMAGE_EXTENSIONS.has(extension));
 }
 
-export function buildVisibleFileTree(files: string[], expandedDirectories: string[]): FileTreeRow[] {
+export function buildVisibleFileTree(files: string[], expandedDirectories: string[], directories: string[] = []): FileTreeRow[] {
 	const root: FileTreeNode = { kind: 'directory', name: '', path: '', children: new Map() };
-	for (const path of files) {
+	const directoryPaths = new Set(directories);
+	for (const path of [...directories, ...files]) {
 		const parts = path.split('/').filter(Boolean);
 		let parent = root;
 		for (let index = 0; index < parts.length; index += 1) {
 			const name = parts[index];
 			const nodePath = parts.slice(0, index + 1).join('/');
-			const kind = index === parts.length - 1 ? 'file' : 'directory';
+			const kind = directoryPaths.has(path) || index < parts.length - 1 ? 'directory' : 'file';
 			let child = parent.children.get(name);
 			if (!child) {
 				child = { kind, name, path: nodePath, children: new Map() };
