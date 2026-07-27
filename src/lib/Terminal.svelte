@@ -478,7 +478,6 @@
 				close={() => noteOpen = false}
 				save={async (note) => {
 					await onUpdateNote(session.id, note);
-					noteOpen = false;
 				}}
 			/>
 		{/if}
