@@ -9,7 +9,7 @@ export type ManagedSession = {
 	cwd: string;
 	createdAt: number;
 	lastActiveAt: number;
-	note: string;
+	notePreview: string;
 	lastOutputAt: number | null;
 	state: 'running' | 'missing';
 	attachedClients: number;

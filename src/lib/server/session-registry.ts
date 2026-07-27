@@ -3,6 +3,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
 import { listManagedSessions as readManagedSessions } from './session-snapshot.mjs';
+import { createSessionNotePreview } from './session-note.mjs';
 import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
@@ -21,7 +22,8 @@ interface StateFile {
 	sessions: StoredSession[];
 }
 
-export interface ManagedSession extends StoredSession {
+export interface ManagedSession extends Omit<StoredSession, 'note'> {
+	notePreview: string;
 	state: 'running' | 'missing';
 	lastOutputAt: number | null;
 	attachedClients: number;
@@ -161,7 +163,12 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 		}
 
 		return {
-			...stored,
+			id: stored.id,
+			tmuxSession: stored.tmuxSession,
+			cwd: stored.cwd,
+			createdAt: stored.createdAt,
+			lastActiveAt: stored.lastActiveAt,
+			notePreview: createSessionNotePreview(stored.note),
 			state: 'running',
 			lastOutputAt: stored.createdAt,
 			attachedClients: 0,
@@ -180,7 +187,12 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		const tmux = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
 		if (tmux) {
 			return {
-				...stored,
+				id: stored.id,
+				tmuxSession: stored.tmuxSession,
+				cwd: stored.cwd,
+				createdAt: stored.createdAt,
+				lastActiveAt: stored.lastActiveAt,
+				notePreview: createSessionNotePreview(stored.note),
 				state: 'running',
 				lastOutputAt: tmux.lastOutputAt,
 				attachedClients: tmux.attachedClients,
@@ -200,7 +212,12 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		sessions[index] = restarted;
 		await writeState({ ...state, sessions });
 		return {
-			...restarted,
+			id: restarted.id,
+			tmuxSession: restarted.tmuxSession,
+			cwd: restarted.cwd,
+			createdAt: restarted.createdAt,
+			lastActiveAt: restarted.lastActiveAt,
+			notePreview: createSessionNotePreview(restarted.note),
 			state: 'running',
 			lastOutputAt: restarted.createdAt,
 			attachedClients: 0,
@@ -233,8 +250,13 @@ export async function updateManagedSessionNote(id: string, note: string): Promis
 		const sessions = [...state.sessions];
 		sessions[index] = { ...sessions[index], note: normalizedNote };
 		await writeState({ ...state, sessions });
-		return normalizedNote;
+		return createSessionNotePreview(normalizedNote);
 	});
+}
+
+export async function findManagedSessionNote(id: string): Promise<string | undefined> {
+	const state = await readState();
+	return state.sessions.find((session) => session.id === id)?.note;
 }
 
 export async function closeManagedSession(id: string): Promise<void> {

@@ -41,6 +41,8 @@ export class SessionWorkspaceState {
 	hasOpenSession = $derived(Boolean(this.activeSession || this.requestedSessionId));
 
 	#activityRequestTimers = new Map<string, number>();
+	#sessionNotes = new Map<string, string>();
+	#sessionNoteRequests = new Map<string, Promise<string>>();
 	#lastOutputActivityUpdate = new Map<string, number>();
 	#observedOutputThrough = new Map<string, number>();
 	#outputActivityTimers = new Map<string, number>();
@@ -96,6 +98,7 @@ export class SessionWorkspaceState {
 			lastActiveAt: Math.max(previous.lastActiveAt, changes.lastActiveAt ?? previous.lastActiveAt),
 			lastOutputAt: maxTimestamp(changes.lastOutputAt ?? previous.lastOutputAt, previous.lastOutputAt)
 		};
+		if ('notePreview' in changes && changes.notePreview !== previous.notePreview) this.#sessionNotes.delete(sessionId);
 		if (this.sessionsLoaded && sessionOutputBecameUnread(
 			previousOutputAt,
 			next.lastOutputAt,
@@ -111,6 +114,8 @@ export class SessionWorkspaceState {
 	applySessionRemoved(sessionId: string) {
 		if (!this.sessions.some((session) => session.id === sessionId)) return;
 		this.sessions = this.sessions.filter((session) => session.id !== sessionId);
+		this.#sessionNotes.delete(sessionId);
+		this.#sessionNoteRequests.delete(sessionId);
 		this.clearOutputActivity(sessionId);
 		this.markSessionObserved(sessionId);
 		this.#observedOutputThrough.delete(sessionId);
@@ -140,6 +145,7 @@ export class SessionWorkspaceState {
 		const previousSessions = new Map(this.sessions.map((session) => [session.id, session]));
 		const nextSessions = incomingSessions.map((session) => {
 			const previous = previousSessions.get(session.id);
+			if (previous && previous.notePreview !== session.notePreview) this.#sessionNotes.delete(session.id);
 			return {
 				...session,
 				lastActiveAt: Math.max(session.lastActiveAt, previous?.lastActiveAt ?? 0),
@@ -201,12 +207,32 @@ export class SessionWorkspaceState {
 	}
 
 	async updateSessionNote(sessionId: string, note: string) {
-		const data = await requestJson<{ note: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`, {
+		const normalizedNote = note.trim();
+		const data = await requestJson<{ notePreview: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`, {
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ note })
+			body: JSON.stringify({ note: normalizedNote })
 		});
-		this.sessions = this.sessions.map((session) => session.id === sessionId ? { ...session, note: data.note } : session);
+		this.#sessionNotes.set(sessionId, normalizedNote);
+		this.sessions = this.sessions.map((session) => session.id === sessionId ? { ...session, notePreview: data.notePreview } : session);
+	}
+
+	async loadSessionNote(sessionId: string): Promise<string> {
+		const cached = this.#sessionNotes.get(sessionId);
+		if (cached !== undefined) return cached;
+		const pending = this.#sessionNoteRequests.get(sessionId);
+		if (pending) return pending;
+
+		const request = requestJson<{ note: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`, { cache: 'no-store' })
+			.then(({ note }) => {
+				this.#sessionNotes.set(sessionId, note);
+				return note;
+			})
+			.finally(() => {
+				if (this.#sessionNoteRequests.get(sessionId) === request) this.#sessionNoteRequests.delete(sessionId);
+			});
+		this.#sessionNoteRequests.set(sessionId, request);
+		return request;
 	}
 
 	restoreBrowserPreferences(storage: Storage) {
@@ -392,6 +418,8 @@ export class SessionWorkspaceState {
 		this.activeOutputSessionId = undefined;
 		this.unreadSessionIds = new Set();
 		this.#observedOutputThrough.clear();
+		this.#sessionNotes.clear();
+		this.#sessionNoteRequests.clear();
 		this.sessionsLoaded = false;
 		this.newSessionOpen = false;
 		this.errorMessage = '';
@@ -401,6 +429,8 @@ export class SessionWorkspaceState {
 	dispose() {
 		this.clearAllInputActivity();
 		this.clearAllOutputActivity();
+		this.#sessionNotes.clear();
+		this.#sessionNoteRequests.clear();
 	}
 
 	private invalidateSessions() {

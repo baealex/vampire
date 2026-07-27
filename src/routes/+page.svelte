@@ -282,6 +282,7 @@
 						session={workspace.activeSession}
 						close={openSessionNavigator}
 						onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
+						onLoadNote={(sessionId) => workspace.loadSessionNote(sessionId)}
 						onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
 						onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
 						{mobilePanel}

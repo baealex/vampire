@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readSessionStateFile, SESSION_STATE_VERSION } from './session-state.mjs';
+import { createSessionNotePreview } from './session-note.mjs';
 
 const execFile = promisify(execFileCallback);
 const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell', 'pwsh', 'sh', 'tcsh', 'zsh']);
@@ -10,7 +11,7 @@ const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell
  * @typedef {{ pid: number; ppid: number; pgid: number; tpgid: number; command: string }} ProcessRecord
  * @typedef {{ name: string; createdAt: number | null; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} TmuxSessionSnapshot
  * @typedef {{ kind: 'shell' | 'command'; label: string }} TmuxProcessHint
- * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; note: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} ManagedSessionSnapshot
+ * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} ManagedSessionSnapshot
  */
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -153,8 +154,10 @@ export async function listManagedSessions() {
 	const byName = new Map(tmuxSessions.map((session) => [session.name, session]));
 	return state.sessions.map((session) => {
 		const tmux = byName.get(session.tmuxSession);
+		const { note, ...withoutNote } = session;
 		return {
-			...session,
+			...withoutNote,
+			notePreview: createSessionNotePreview(note),
 			state: tmux ? 'running' : 'missing',
 			lastOutputAt: tmux?.lastOutputAt ?? null,
 			attachedClients: tmux?.attachedClients ?? 0,

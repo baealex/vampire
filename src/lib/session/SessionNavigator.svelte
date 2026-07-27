@@ -197,7 +197,7 @@
 							oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 							onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 							aria-current={activeSessionId === session.id ? 'true' : undefined}
-							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.note ? '; has a note' : ''})`}
+							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.notePreview ? '; has a note' : ''})`}
 						>
 							<span class="row-leading" aria-hidden="true">
 								{#if sessionOrderMode === 'manual'}<span class="drag-handle"><GripVertical size={14} strokeWidth={1.8} /></span>{/if}
@@ -212,9 +212,9 @@
 							<span class="session-summary">
 								<span class="session-title">
 									<strong>{projectName(session.cwd)}</strong>
-									{#if session.note}<span class="session-note-indicator" title={session.note} aria-hidden="true"><StickyNote size={12} strokeWidth={1.8} /></span>{/if}
+									{#if session.notePreview}<span class="session-note-indicator" title={session.notePreview} aria-hidden="true"><StickyNote size={12} strokeWidth={1.8} /></span>{/if}
 								</span>
-								{#if session.note}<span class="session-note-preview" title={session.note}>{session.note}</span>{/if}
+								{#if session.notePreview}<span class="session-note-preview" title={session.notePreview}>{session.notePreview}</span>{/if}
 								<span class="session-context">
 									{#if process}
 										<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process)}`} title={sessionProcessHint(session)}>{process.label}</span>

@@ -14,6 +14,7 @@
 		session,
 		close,
 		onUpdateNote,
+		onLoadNote,
 		onInputActivity = () => undefined,
 		onOutputActivity = () => undefined,
 		repositoryOpen = false,
@@ -26,6 +27,7 @@
 		session: ManagedSession;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
+		onLoadNote: (sessionId: string) => Promise<string>;
 		onInputActivity?: (sessionId: string, timestamp: number) => void;
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		repositoryOpen?: boolean;
@@ -458,7 +460,7 @@
 		<TerminalHeader
 			{projectName}
 			cwd={session.cwd}
-			hasNote={Boolean(session.note)}
+			hasNote={Boolean(session.notePreview)}
 			{noteOpen}
 			fontSize={terminalFontSize}
 			{minimumFontSize}
@@ -474,7 +476,7 @@
 		/>
 		{#if noteOpen}
 			<SessionNoteEditor
-				note={session.note}
+				getNote={() => onLoadNote(session.id)}
 				close={() => noteOpen = false}
 				save={async (note) => {
 					await onUpdateNote(session.id, note);

@@ -12,6 +12,7 @@
 		session,
 		close,
 		onUpdateNote,
+		onLoadNote,
 		onInputActivity,
 		onOutputActivity,
 		systemMetrics,
@@ -21,6 +22,7 @@
 		session: ManagedSession;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
+		onLoadNote: (sessionId: string) => Promise<string>;
 		onInputActivity: (sessionId: string, timestamp: number) => void;
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
 		systemMetrics?: SystemMetrics;
@@ -148,6 +150,7 @@
 			{session}
 			close={openSessionNavigator}
 			{onUpdateNote}
+			{onLoadNote}
 			{onInputActivity}
 			{onOutputActivity}
 			{systemMetrics}

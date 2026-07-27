@@ -18,7 +18,7 @@ function session(lastOutputAt) {
 		createdAt: 1,
 		lastActiveAt: 1,
 		lastOutputAt,
-		note: '',
+		notePreview: '',
 		state: 'running',
 		attachedClients: 0,
 		foregroundProcess: null

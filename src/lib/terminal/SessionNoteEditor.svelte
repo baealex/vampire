@@ -1,34 +1,53 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
 
 	const AUTOSAVE_DELAY_MS = 700;
 
 	let {
-		note,
+		getNote,
 		close,
 		save
 	}: {
-		note: string;
+		getNote: () => Promise<string>;
 		close: () => void;
 		save: (note: string) => Promise<void>;
 	} = $props();
 
 	let draft = $state('');
 	let savedNote = $state('');
+	let noteLoading = $state(true);
+	let noteLoaded = $state(false);
+	let noteLoadError = $state('');
 	let saving = $state(false);
 	let saveError = $state('');
-	let textarea: HTMLTextAreaElement;
+	let textarea = $state<HTMLTextAreaElement | undefined>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 	let savePromise: Promise<void> | undefined;
 	let saveStatus = $derived(
 		saving ? 'Saving…' : saveError ? 'Save failed' : draft === savedNote ? 'Saved' : 'Saving soon…'
 	);
 
+	async function loadNote() {
+		noteLoading = true;
+		noteLoadError = '';
+		try {
+			const note = await getNote();
+			draft = note;
+			savedNote = note;
+			noteLoaded = true;
+			noteLoading = false;
+			await tick();
+			textarea?.focus();
+		} catch (error) {
+			noteLoadError = error instanceof Error ? error.message : 'The note could not be loaded.';
+		} finally {
+			noteLoading = false;
+		}
+	}
+
 	onMount(() => {
-		draft = note;
-		savedNote = note;
-		textarea.focus();
+		void loadNote();
 	});
 
 	function clearSaveTimer() {
@@ -48,6 +67,7 @@
 	}
 
 	async function saveDraft(): Promise<void> {
+		if (!noteLoaded) return;
 		if (savePromise) {
 			await savePromise;
 			if (draft === savedNote) return;
@@ -79,6 +99,10 @@
 
 	async function closeEditor() {
 		clearSaveTimer();
+		if (!noteLoaded) {
+			close();
+			return;
+		}
 		await saveDraft();
 		if (draft !== savedNote) return;
 		close();
@@ -109,19 +133,26 @@
 		</button>
 	</header>
 	<form>
-		<textarea
-			bind:this={textarea}
-			bind:value={draft}
-			oninput={scheduleSave}
-			maxlength="4000"
-			placeholder="What is this workspace for? What changed? What comes next?"
-			aria-label="Workspace note"
-		></textarea>
-		<div class="note-footer">
-			<span>{draft.length.toLocaleString()} / 4,000</span>
-			<span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}>{saveStatus}</span>
-		</div>
-		{#if saveError}<p class="note-error" role="alert">{saveError}</p>{/if}
+		{#if noteLoading}
+			<p class="note-loading" role="status">Loading note…</p>
+		{:else if !noteLoaded}
+			<p class="note-error" role="alert">{noteLoadError}</p>
+			<button type="button" class="retry-button" onclick={() => void loadNote()}>Retry</button>
+		{:else}
+			<textarea
+				bind:this={textarea}
+				bind:value={draft}
+				oninput={scheduleSave}
+				maxlength="4000"
+				placeholder="What is this workspace for? What changed? What comes next?"
+				aria-label="Workspace note"
+			></textarea>
+			<div class="note-footer">
+				<span>{draft.length.toLocaleString()} / 4,000</span>
+				<span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}>{saveStatus}</span>
+			</div>
+			{#if saveError}<p class="note-error" role="alert">{saveError}</p>{/if}
+		{/if}
 	</form>
 </div>
 
@@ -133,6 +164,9 @@
 	.close-button { display: grid; flex: 0 0 auto; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 0; border-radius: 0.42rem; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.close-button:hover { background: var(--color-control-hover); color: var(--color-text); }
 	form { display: grid; gap: 0.65rem; }
+	.note-loading { margin: 0; color: var(--color-text-secondary); font-size: var(--text-body); line-height: var(--leading-body); }
+	.retry-button { justify-self: start; padding: 0.45rem 0.7rem; border: 1px solid var(--color-border); border-radius: 0.45rem; background: var(--color-control-background); color: var(--color-text); font: inherit; cursor: pointer; }
+	.retry-button:hover { background: var(--color-control-hover); }
 	textarea { width: 100%; min-height: 8.5rem; resize: vertical; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: 0.55rem; outline: none; background: var(--color-field-background); color: var(--color-text); font: inherit; font-size: var(--text-body); line-height: var(--leading-body); }
 	textarea::placeholder { color: var(--color-field-placeholder); }
 	textarea:focus { border-color: var(--color-accent); box-shadow: var(--shadow-accent-focus); }

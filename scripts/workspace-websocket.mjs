@@ -13,7 +13,7 @@ const SESSION_FIELDS = [
 	'cwd',
 	'createdAt',
 	'lastActiveAt',
-	'note',
+	'notePreview',
 	'state',
 	'lastOutputAt',
 	'attachedClients',
