@@ -214,6 +214,7 @@
 									<strong>{projectName(session.cwd)}</strong>
 									{#if session.note}<span class="session-note-indicator" title={session.note} aria-hidden="true"><StickyNote size={12} strokeWidth={1.8} /></span>{/if}
 								</span>
+								{#if session.note}<span class="session-note-preview" title={session.note}>{session.note}</span>{/if}
 								<span class="session-context">
 									<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process.label)}`} title={sessionProcessHint(session)}>{process.label}</span>
 									<span class="session-context-divider" aria-hidden="true">·</span>
@@ -299,6 +300,7 @@
 	.session-title { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
 	.session-title strong { overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.session-note-indicator { display: grid; flex: 0 0 auto; place-items: center; color: var(--color-note); }
+	.session-note-preview { display: block; min-width: 0; overflow: hidden; color: var(--color-note); font-size: var(--text-caption); line-height: var(--leading-ui); text-overflow: ellipsis; white-space: nowrap; }
 	.session-context { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
 	.session-program { flex: 0 0 auto; color: var(--session-program-color, var(--color-text-secondary)); font-weight: var(--weight-medium); }
 	.session-context-divider { color: var(--color-text-disabled); }

@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
+
+	const AUTOSAVE_DELAY_MS = 700;
 
 	let {
 		note,
@@ -13,37 +15,87 @@
 	} = $props();
 
 	let draft = $state('');
+	let savedNote = $state('');
 	let saving = $state(false);
 	let saveError = $state('');
 	let textarea: HTMLTextAreaElement;
+	let saveTimer: ReturnType<typeof setTimeout> | undefined;
+	let savePromise: Promise<void> | undefined;
+	let saveStatus = $derived(
+		saving ? 'Saving…' : saveError ? 'Save failed' : draft === savedNote ? 'Saved' : 'Saving soon…'
+	);
 
 	onMount(() => {
 		draft = note;
+		savedNote = note;
 		textarea.focus();
 	});
 
-	async function submit() {
-		if (saving) return;
+	function clearSaveTimer() {
+		if (saveTimer === undefined) return;
+		clearTimeout(saveTimer);
+		saveTimer = undefined;
+	}
+
+	function scheduleSave() {
+		clearSaveTimer();
+		saveError = '';
+		if (draft === savedNote) return;
+		saveTimer = setTimeout(() => {
+			saveTimer = undefined;
+			void saveDraft();
+		}, AUTOSAVE_DELAY_MS);
+	}
+
+	async function saveDraft(): Promise<void> {
+		if (savePromise) {
+			await savePromise;
+			if (draft === savedNote) return;
+		}
+		if (draft === savedNote) return;
+
+		const value = draft;
 		saving = true;
 		saveError = '';
+		const currentSave = (async () => {
+			try {
+				await save(value);
+				savedNote = value;
+			} catch (error) {
+				saveError = error instanceof Error ? error.message : 'The note could not be saved.';
+			}
+		})();
+		savePromise = currentSave;
 		try {
-			await save(draft);
-		} catch (error) {
-			saveError = error instanceof Error ? error.message : 'The note could not be saved.';
+			await currentSave;
 		} finally {
-			saving = false;
+			if (savePromise === currentSave) {
+				savePromise = undefined;
+				saving = false;
+			}
 		}
+		if (draft !== savedNote && !saveError && saveTimer === undefined) scheduleSave();
+	}
+
+	async function closeEditor() {
+		clearSaveTimer();
+		await saveDraft();
+		if (draft !== savedNote) return;
+		close();
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
-			close();
+			void closeEditor();
 		} else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
 			event.preventDefault();
-			void submit();
+			clearSaveTimer();
+			void saveDraft();
 		}
 	}
+
+	onDestroy(clearSaveTimer);
 </script>
 
 <div class="note-editor" role="dialog" aria-labelledby="workspace-note-title" tabindex="-1" onkeydown={handleKeydown}>
@@ -52,24 +104,22 @@
 			<h2 id="workspace-note-title">Workspace note</h2>
 			<p>Keep the intent, decisions, and next step close to this shell.</p>
 		</div>
-		<button type="button" class="close-button" onclick={close} aria-label="Close workspace note">
+		<button type="button" class="close-button" onclick={() => void closeEditor()} aria-label="Close workspace note">
 			<X size={17} strokeWidth={1.9} aria-hidden="true" />
 		</button>
 	</header>
-	<form onsubmit={(event) => { event.preventDefault(); void submit(); }}>
+	<form>
 		<textarea
 			bind:this={textarea}
 			bind:value={draft}
+			oninput={scheduleSave}
 			maxlength="4000"
 			placeholder="What is this workspace for? What changed? What comes next?"
 			aria-label="Workspace note"
 		></textarea>
 		<div class="note-footer">
 			<span>{draft.length.toLocaleString()} / 4,000</span>
-			<div class="note-actions">
-				<button type="button" class="cancel-button" onclick={close}>Cancel</button>
-				<button type="submit" class="save-button" disabled={saving}>{saving ? 'Saving…' : 'Save note'}</button>
-			</div>
+			<span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}>{saveStatus}</span>
 		</div>
 		{#if saveError}<p class="note-error" role="alert">{saveError}</p>{/if}
 	</form>
@@ -88,13 +138,8 @@
 	textarea:focus { border-color: var(--color-accent); box-shadow: var(--shadow-accent-focus); }
 	.note-footer { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 	.note-footer > span { color: var(--color-text-tertiary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
-	.note-actions { display: flex; gap: 0.45rem; }
-	.cancel-button, .save-button { min-height: 2.25rem; padding: 0 0.75rem; border-radius: 0.45rem; font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
-	.cancel-button { border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }
-	.cancel-button:hover { background: var(--color-control-hover); color: var(--color-text); }
-	.save-button { border: 0; background: var(--color-accent); color: var(--color-accent-ink); }
-	.save-button:hover:not(:disabled) { background: var(--color-accent-hover); }
-	.save-button:disabled { cursor: wait; opacity: 0.6; }
+	.note-save-status { color: var(--color-text-tertiary); }
+	.note-save-status.error { color: var(--color-danger-text); }
 	.note-error { margin: 0; color: var(--color-danger-text); font-size: var(--text-label); line-height: var(--leading-ui); }
 
 	@media (max-width: 32rem) {
