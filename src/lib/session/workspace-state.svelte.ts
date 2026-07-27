@@ -3,6 +3,7 @@ import { maxTimestamp, sessionOutputBecameUnread, sortSessions } from './view';
 import type { ManagedSession, SessionOrderMode } from './types';
 
 type RefreshOptions = { quiet?: boolean };
+type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
 type SessionWorkspaceStateOptions = {
 	navigate: (path: string) => void;
@@ -65,6 +66,57 @@ export class SessionWorkspaceState {
 			this.#refreshPromise = undefined;
 			if (!options.quiet) this.loading = false;
 		}
+	}
+
+	applySessionSnapshot(sessions: ManagedSession[]) {
+		this.applySessions(sessions);
+	}
+
+	applySessionAdded(session: ManagedSession) {
+		if (this.sessions.some((item) => item.id === session.id)) {
+			const { id, ...changes } = session;
+			this.applySessionUpdated(id, changes);
+			return;
+		}
+		this.applySessions([...this.sessions, session]);
+	}
+
+	applySessionUpdated(sessionId: string, changes: SessionChanges) {
+		const previous = this.sessions.find((session) => session.id === sessionId);
+		if (!previous) {
+			void this.refresh({ quiet: true });
+			return;
+		}
+
+		const previousOutputAt = previous.lastOutputAt;
+		const next = {
+			...previous,
+			...changes,
+			id: sessionId,
+			lastActiveAt: Math.max(previous.lastActiveAt, changes.lastActiveAt ?? previous.lastActiveAt),
+			lastOutputAt: maxTimestamp(changes.lastOutputAt ?? previous.lastOutputAt, previous.lastOutputAt)
+		};
+		if (this.sessionsLoaded && sessionOutputBecameUnread(
+			previousOutputAt,
+			next.lastOutputAt,
+			this.#observedOutputThrough.get(sessionId) ?? 0,
+			this.options.isSessionObserved(sessionId)
+		)) {
+			this.markSessionUnread(sessionId);
+		}
+		this.sessions = this.sessions.map((session) => session.id === sessionId ? next : session);
+		this.syncManualSessionOrder();
+	}
+
+	applySessionRemoved(sessionId: string) {
+		if (!this.sessions.some((session) => session.id === sessionId)) return;
+		this.sessions = this.sessions.filter((session) => session.id !== sessionId);
+		this.clearOutputActivity(sessionId);
+		this.markSessionObserved(sessionId);
+		this.#observedOutputThrough.delete(sessionId);
+		if (this.activeOutputSessionId === sessionId) this.activeOutputSessionId = undefined;
+		this.pruneUnreadSessions();
+		this.syncManualSessionOrder();
 	}
 
 	async #runRefreshLoop() {

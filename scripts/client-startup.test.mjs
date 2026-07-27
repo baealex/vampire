@@ -11,12 +11,14 @@ test('runs the root page in runes mode for shared reactive state', async () => {
 	assert.doesNotMatch(source, /\bexport\s+let\b/);
 });
 
-test('shows the application after status without waiting for session refresh', async () => {
+test('opens the realtime workspace stream after status without blocking startup', async () => {
 	const source = await readFile(resolve(root, 'src/lib/app/workspace-connection-state.svelte.ts'), 'utf8');
 	const checkingComplete = source.indexOf('this.checking = false');
-	const refreshSessions = source.indexOf('void refreshSessions()');
+	const workspaceStream = source.indexOf('this.#startWorkspaceStream(this.#connectionOptions, runVersion)');
 
 	assert.ok(checkingComplete >= 0, 'connection startup must finish the checking state');
-	assert.ok(refreshSessions >= 0, 'connection startup must refresh sessions after status');
-	assert.ok(checkingComplete < refreshSessions, 'a slow session refresh must not block the startup screen');
+	assert.ok(workspaceStream >= 0, 'connection startup must open the workspace stream after status');
+	assert.ok(checkingComplete < workspaceStream, 'a slow workspace stream must not block the startup screen');
+	assert.match(source, /\/ws\/workspace/);
+	assert.match(source, /sessions-snapshot/);
 });
