@@ -62,3 +62,16 @@ test('labels sessions with the lower-case executable at the front of the command
 		{ kind: 'shell', label: 'zsh' }
 	]);
 });
+
+test('follows a single foreground child without parsing command arguments', () => {
+	const processes = new Map([
+		[10, { pid: 10, ppid: 1, pgid: 10, tpgid: 11, command: '-zsh' }],
+		[11, { pid: 11, ppid: 10, pgid: 11, tpgid: 11, command: 'runtime /path/launcher' }],
+		[12, { pid: 12, ppid: 11, pgid: 12, tpgid: 11, command: '/tools/agent' }],
+		[13, { pid: 13, ppid: 12, pgid: 13, tpgid: 11, command: '/tools/helper-one' }],
+		[14, { pid: 14, ppid: 12, pgid: 14, tpgid: 11, command: '/tools/helper-two' }]
+	]);
+	const [session] = tmux.parseTmuxSessions('workspace\t1\t2\t0\truntime\t10\t', processes);
+
+	assert.deepEqual(session.foregroundProcess, { kind: 'command', label: 'agent' });
+});
