@@ -132,6 +132,19 @@ function executableName(command: string): string {
 	return executable.split('/').pop()?.replace(/^-/, '').toLowerCase() || '';
 }
 
+function foregroundProcessForPane(panePid: number, processes: Map<number, ProcessRecord>): ProcessRecord | undefined {
+	const paneProcess = processes.get(panePid);
+	let foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
+	while (foregroundProcess && !SHELL_COMMANDS.has(executableName(foregroundProcess.command))) {
+		const children = [...processes.values()].filter(
+			(candidate) => candidate.ppid === foregroundProcess?.pid && candidate.tpgid === foregroundProcess?.tpgid
+		);
+		if (children.length !== 1) break;
+		foregroundProcess = children[0];
+	}
+	return foregroundProcess;
+}
+
 function classifyProcess(
 	currentCommand: string,
 	title: string,
@@ -139,8 +152,7 @@ function classifyProcess(
 	processes: Map<number, ProcessRecord>
 ): TmuxProcessHint | null {
 	if (!currentCommand && !title && panePid <= 0) return null;
-	const paneProcess = processes.get(panePid);
-	const foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
+	const foregroundProcess = foregroundProcessForPane(panePid, processes);
 	const command = executableName(foregroundProcess?.command || currentCommand || title) || 'process';
 	if (SHELL_COMMANDS.has(command.toLowerCase())) {
 		return { kind: 'shell', label: command };
@@ -168,8 +180,8 @@ export async function killTmuxSession(name: string): Promise<void> {
 	}
 }
 
-export function parseTmuxSessions(output: string): TmuxSession[] {
-	return parseTmuxSessionsWithProcesses(output, new Map());
+export function parseTmuxSessions(output: string, processes = new Map<number, ProcessRecord>()): TmuxSession[] {
+	return parseTmuxSessionsWithProcesses(output, processes);
 }
 
 function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, ProcessRecord>): TmuxSession[] {

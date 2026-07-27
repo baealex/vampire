@@ -73,11 +73,24 @@ function executableName(command) {
 	return executable.split('/').pop()?.replace(/^-/, '').toLowerCase() || '';
 }
 
+/** @param {number} panePid @param {Map<number, ProcessRecord>} processes */
+function foregroundProcessForPane(panePid, processes) {
+	const paneProcess = processes.get(panePid);
+	let foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
+	while (foregroundProcess && !SHELL_COMMANDS.has(executableName(foregroundProcess.command))) {
+		const children = [...processes.values()].filter(
+			(candidate) => candidate.ppid === foregroundProcess?.pid && candidate.tpgid === foregroundProcess?.tpgid
+		);
+		if (children.length !== 1) break;
+		foregroundProcess = children[0];
+	}
+	return foregroundProcess;
+}
+
 /** @param {string} currentCommand @param {string} title @param {number} panePid @param {Map<number, ProcessRecord>} processes @returns {TmuxProcessHint | null} */
 function classifyProcess(currentCommand, title, panePid, processes) {
 	if (!currentCommand && !title && panePid <= 0) return null;
-	const paneProcess = processes.get(panePid);
-	const foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
+	const foregroundProcess = foregroundProcessForPane(panePid, processes);
 	const command = executableName(foregroundProcess?.command || currentCommand || title) || 'process';
 	if (SHELL_COMMANDS.has(command)) return { kind: 'shell', label: command };
 	return { kind: 'command', label: command };
