@@ -128,14 +128,8 @@ function parseProcessTable(output: string): Map<number, ProcessRecord> {
 }
 
 function executableName(command: string): string {
-	const tokens = command.trim().split(/\s+/);
-	const executable = tokens[0] ?? '';
-	const executableLabel = executable.split('/').pop()?.replace(/^-/, '').toLowerCase() ?? '';
-	const nodeScript = executableLabel === 'node'
-		? tokens.slice(1).find((token) => token.includes('/') || /\.(?:cjs|mjs|js|ts)$/.test(token))
-		: undefined;
-	const label = nodeScript ?? executable;
-	return label.split('/').pop()?.replace(/^-/, '').replace(/\.(?:cjs|mjs|js|ts)$/, '').toLowerCase() || '';
+	const executable = command.trim().split(/\s+/, 1)[0] ?? '';
+	return executable.split('/').pop()?.replace(/^-/, '').toLowerCase() || '';
 }
 
 function classifyProcess(
