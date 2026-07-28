@@ -73,3 +73,16 @@ test('groups activity states without reordering sessions inside a state', () => 
 		['idle-a', 'review-a', 'live-a', 'idle-b']
 	);
 });
+
+test('builds the Latest order from activity groups while preserving the previous order inside each group', () => {
+	const sessions = [
+		session(1_000, 'idle-a'),
+		session(2_000, 'review-a'),
+		session(3_000, 'live-a'),
+		session(4_000, 'idle-b')
+	];
+	assert.deepEqual(
+		view.buildActivityOrder(sessions, ['idle-a', 'review-a', 'live-a', 'idle-b'], 'live-a', new Set(['review-a'])),
+		['live-a', 'review-a', 'idle-a', 'idle-b']
+	);
+});

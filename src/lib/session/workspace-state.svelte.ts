@@ -1,8 +1,9 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
 import {
+	buildActivityOrder,
 	maxTimestamp,
+	reconcileSessionOrder,
 	SESSION_ACTIVITY_WINDOW_MS,
-	sessionActivityPriority,
 	sessionActivityState,
 	sessionOutputBecameUnread,
 	sortSessions
@@ -554,22 +555,11 @@ export class SessionWorkspaceState {
 	}
 
 	private rebuildActivityOrder() {
-		const currentIds = new Set(this.sessions.map((session) => session.id));
-		const existingOrder = this.activityOrder.filter((sessionId) => currentIds.has(sessionId));
-		const knownIds = new Set(existingOrder);
-		const baseOrder = [
-			...existingOrder,
-			...this.sessions.filter((session) => !knownIds.has(session.id)).map((session) => session.id)
-		];
-		const states = new Map(this.sessions.map((session) => [
-			session.id,
-			sessionActivityState(session, this.activeOutputSessionId, this.unreadSessionIds.has(session.id))
-		]));
-		const basePosition = new Map(baseOrder.map((sessionId, index) => [sessionId, index]));
-		this.activityOrder = [...baseOrder].sort((left, right) =>
-			sessionActivityPriority(states.get(left) ?? 'idle')
-			- sessionActivityPriority(states.get(right) ?? 'idle')
-			|| (basePosition.get(left) ?? Number.MAX_SAFE_INTEGER) - (basePosition.get(right) ?? Number.MAX_SAFE_INTEGER)
+		this.activityOrder = buildActivityOrder(
+			this.sessions,
+			this.activityOrder,
+			this.activeOutputSessionId,
+			this.unreadSessionIds
 		);
 	}
 
@@ -622,11 +612,7 @@ export class SessionWorkspaceState {
 	}
 
 	private syncManualSessionOrder() {
-		const sessionIds = new Set(this.sessions.map((session) => session.id));
-		const nextOrder = [
-			...this.manualSessionOrder.filter((id) => sessionIds.has(id)),
-			...this.sessions.map((session) => session.id).filter((id) => !this.manualSessionOrder.includes(id))
-		];
+		const nextOrder = reconcileSessionOrder(this.sessions, this.manualSessionOrder);
 		if (nextOrder.join('\0') === this.manualSessionOrder.join('\0')) return;
 		this.manualSessionOrder = nextOrder;
 		this.persistManualSessionOrder();

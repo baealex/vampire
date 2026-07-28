@@ -3,6 +3,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
 	import RepositoryCodeEditor from './RepositoryCodeEditor.svelte';
+	import { RepositoryClient } from './client';
 	import { isPreviewableImage, parseDiffLines } from './view';
 	import type { RepositoryDiff, RepositorySelection, WorkspaceFile } from './types';
 
@@ -40,18 +41,7 @@
 	})) ?? []);
 	const fileName = $derived(selection.path.split('/').pop() || selection.path);
 	const imagePreview = $derived(selection.kind === 'file' && isPreviewableImage(selection.path));
-
-	async function request<T>(url: string, signal: AbortSignal): Promise<T> {
-		const response = await fetch(url, { signal });
-		if (!response.ok) {
-			const body: unknown = await response.json().catch(() => undefined);
-			const message = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
-				? body.message
-				: 'Unable to read this file.';
-			throw new Error(message);
-		}
-		return response.json() as Promise<T>;
-	}
+	const repositoryApi = $derived(new RepositoryClient(sessionId));
 
 	function setFileDirty(dirty: boolean) {
 		fileDirty = dirty;
@@ -82,14 +72,11 @@
 
 		const controller = new AbortController();
 		void (async () => {
-			const query = new URLSearchParams({ path: requestedSelection.path });
-			const endpoint = requestedSelection.kind === 'diff' ? 'diff' : 'file';
 			let waitingForImage = false;
 			try {
 				if (requestedSelection.kind === 'file' && isPreviewableImage(requestedSelection.path)) {
-					const mediaUrl = `/api/sessions/${encodeURIComponent(sessionId)}/repository/media?${query}`;
-					const response = await fetch(mediaUrl, { method: 'HEAD', signal: controller.signal });
-					if (!response.ok) throw new Error('This image cannot be previewed.');
+					const mediaUrl = repositoryApi.mediaUrl(requestedSelection.path);
+					const response = await repositoryApi.checkMedia(requestedSelection.path, controller.signal);
 					const version = response.headers.get('etag') ?? `${response.headers.get('content-length') ?? ''}:${requestedRefresh}`;
 					if (!imageVersion || version !== imageVersion) {
 						imageVersion = version;
@@ -102,7 +89,7 @@
 					file = undefined;
 					diff = undefined;
 				} else if (requestedSelection.kind === 'diff') {
-					diff = await request<RepositoryDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/repository/${endpoint}?${query}`, controller.signal);
+					diff = await repositoryApi.readDiff(requestedSelection.path, controller.signal);
 					file = undefined;
 					imageUrl = '';
 				} else if (!firstLoad && file) {
@@ -113,7 +100,7 @@
 					imageUrl = '';
 					loading = false;
 				} else {
-					file = await request<WorkspaceFile>(`/api/sessions/${encodeURIComponent(sessionId)}/repository/${endpoint}?${query}`, controller.signal);
+					file = await repositoryApi.readFile(requestedSelection.path, controller.signal);
 					diff = undefined;
 					imageUrl = '';
 				}
