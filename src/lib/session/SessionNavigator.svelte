@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
@@ -275,7 +275,7 @@
 		<button class="new-session-toggle" type="button" onclick={() => newSessionOpen ? newSessionOpen = false : openNewSession()} aria-expanded={newSessionOpen} aria-controls="new-workspace-form">
 			<span class="new-session-toggle__icon" aria-hidden="true"><Plus size={18} strokeWidth={2.3} /></span>
 			<span><strong id="new-workspace-title">New workspace</strong><small>Open a shell in a project</small></span>
-			<span class="new-session-chevron" class:open={newSessionOpen} aria-hidden="true"><ChevronDown size={18} strokeWidth={1.8} /></span>
+			<span class="new-session-chevron" class:open={newSessionOpen} aria-hidden="true"><ChevronUp size={18} strokeWidth={1.8} /></span>
 		</button>
 
 		{#if newSessionOpen}
