@@ -1,5 +1,7 @@
 import type { DiffLine, FileTreeRow, RepositoryChange } from './types';
 
+export type FileChangeKind = 'added' | 'modified';
+
 type FileTreeNode = {
 	kind: 'directory' | 'file';
 	name: string;
@@ -64,6 +66,27 @@ export function changeBadge(change: RepositoryChange): string {
 	if (change.status === '??') return 'U';
 	const status = change.status[1] !== ' ' ? change.status[1] : change.status[0];
 	return status === '?' ? 'U' : status;
+}
+
+export function fileChangeKind(change?: RepositoryChange): FileChangeKind | undefined {
+	if (!change) return undefined;
+	if (change.status === '??' || change.status.includes('A') || change.status.includes('?')) return 'added';
+	return 'modified';
+}
+
+export function buildChangeKindMap(changes: RepositoryChange[]): Map<string, FileChangeKind> {
+	const kinds = new Map<string, FileChangeKind>();
+	for (const change of changes) {
+		const kind = fileChangeKind(change);
+		if (!kind) continue;
+		const parts = change.path.split('/').filter(Boolean);
+		for (let index = 1; index <= parts.length; index += 1) {
+			const path = parts.slice(0, index).join('/');
+			const current = kinds.get(path);
+			if (!current || (current === 'added' && kind === 'modified')) kinds.set(path, kind);
+		}
+	}
+	return kinds;
 }
 
 export function describeChange(change: RepositoryChange): string {

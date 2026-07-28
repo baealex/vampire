@@ -12,7 +12,7 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
-	import { buildVisibleFileTree, changeBadge, describeChange, isPreviewableImage } from './view';
+	import { buildChangeKindMap, buildVisibleFileTree, changeBadge, describeChange, isPreviewableImage } from './view';
 	import type { RepositorySelection, RepositorySnapshot } from './types';
 
 	let {
@@ -55,6 +55,7 @@
 	let loadingDirectories = $state<string[]>([]);
 	let draggingPath = $state('');
 	let treeRows = $derived(buildVisibleFileTree(snapshot?.files ?? [], expandedDirectories, snapshot?.directories ?? []));
+	let changeKinds = $derived(buildChangeKindMap(snapshot?.changes ?? []));
 
 	function beginEntryDrag(event: DragEvent, path: string, kind: 'file' | 'directory') {
 		if (!event.dataTransfer) return;
@@ -302,10 +303,13 @@
 							{#if creationError}<p class="tree-create-error">{creationError}</p>{/if}
 						{/if}
 						{#each treeRows as row (row.path)}
+							{@const changeKind = changeKinds.get(row.path)}
 							<div class="tree-row-shell" class:directory={row.kind === 'directory'} class:dragging={draggingPath === row.path} class:selected={selected?.kind === 'file' && selected.path === row.path}>
 								<button
 									type="button"
 									class="tree-row"
+									class:modified={changeKind === 'modified'}
+									class:added={changeKind === 'added'}
 									draggable={true}
 									ondragstart={(event) => beginEntryDrag(event, row.path, row.kind)}
 									ondragend={endEntryDrag}
@@ -321,12 +325,12 @@
 									<span class="tree-chevron" aria-hidden="true">
 										{#if expandedDirectories.includes(row.path)}<ChevronDown size={14} strokeWidth={1.8} />{:else}<ChevronRight size={14} strokeWidth={1.8} />{/if}
 									</span>
-									<span class="tree-icon" aria-hidden="true">
+									<span class="tree-icon" class:modified={changeKind === 'modified'} class:added={changeKind === 'added'} aria-hidden="true">
 										{#if expandedDirectories.includes(row.path)}<FolderOpen size={15} strokeWidth={1.7} />{:else}<Folder size={15} strokeWidth={1.7} />{/if}
 									</span>
 								{:else}
 									<span class="tree-chevron" aria-hidden="true"></span>
-									<span class="tree-icon file" class:image={isPreviewableImage(row.path)} aria-hidden="true">
+									<span class="tree-icon file" class:image={isPreviewableImage(row.path)} class:modified={changeKind === 'modified'} class:added={changeKind === 'added'} aria-hidden="true">
 										{#if isPreviewableImage(row.path)}<ImageIcon size={15} strokeWidth={1.6} />{:else}<FileText size={15} strokeWidth={1.6} />{/if}
 									</span>
 								{/if}
@@ -459,6 +463,8 @@
 	.tree-icon.file { color: var(--color-text-tertiary); }
 	.tree-icon.file.image { color: var(--color-image); }
 	.tree-name { min-width: 0; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
+	.tree-row.modified, .tree-row.modified:hover, .tree-row-shell.selected .tree-row.modified, .tree-row.modified .tree-icon { color: var(--color-warning); }
+	.tree-row.added, .tree-row.added:hover, .tree-row-shell.selected .tree-row.added, .tree-row.added .tree-icon { color: var(--color-info); }
 	.repository-limit { flex: 0 0 auto; margin: 0; padding: 0.55rem 0.8rem; border-top: 1px solid var(--color-border); color: var(--color-text-tertiary); font-size: 0.68rem; }
 
 	@keyframes spin { to { transform: rotate(360deg); } }
