@@ -4,6 +4,7 @@
 	import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
 	import { onMount } from 'svelte';
 	import { themeState } from '$lib/theme/theme.svelte';
+	import { RepositoryClient } from './client';
 	import type { WorkspaceFile } from './types';
 
 	const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -91,12 +92,7 @@
 		);
 	}
 
-	async function readError(response: Response, fallback: string): Promise<string> {
-		const body: unknown = await response.json().catch(() => undefined);
-		return body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
-			? body.message
-			: fallback;
-	}
+	const repositoryApi = $derived(new RepositoryClient(sessionId));
 
 	async function saveFile() {
 		if (!editorView || saving || !dirty) return;
@@ -111,17 +107,7 @@
 		saveError = '';
 		const versionAtSave = currentVersion;
 		try {
-			const query = new URLSearchParams({ path: file.path });
-			const response = await fetch(
-				`/api/sessions/${encodeURIComponent(sessionId)}/repository/file?${query}`,
-				{
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ content, version: versionAtSave })
-				}
-			);
-			if (!response.ok) throw new Error(await readError(response, 'The file could not be saved.'));
-			const saved = await response.json() as WorkspaceFile;
+			const saved = await repositoryApi.updateFile(file.path, content, versionAtSave);
 			currentVersion = saved.version;
 			savedContent = saved.content;
 			byteSize = textEncoder.encode(content).byteLength;

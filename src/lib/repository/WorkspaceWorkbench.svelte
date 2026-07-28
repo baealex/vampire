@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { RequestError } from '$lib/client/request';
 	import Terminal from '$lib/Terminal.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName as getProjectName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import RepositoryPanel from './RepositoryPanel.svelte';
+	import { RepositoryClient } from './client';
 	import RepositoryViewer from './RepositoryViewer.svelte';
 	import type { RepositoryDirectoryListing, RepositorySelection, RepositorySnapshot, WorkspaceFile } from './types';
 
@@ -42,19 +44,18 @@
 	let loadedDirectories = $state<string[]>([]);
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
-	let refreshInFlight = false;
+	let repositoryOperation: Promise<void> = Promise.resolve();
+	let refreshPromise: Promise<void> | undefined;
 	let refreshQueued = false;
 	const name = $derived(getProjectName(session.cwd));
 	let changeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
+	const repositoryApi = $derived(new RepositoryClient(session.id));
 
-	class RepositoryRequestError extends Error {
-		status: number;
-
-		constructor(status: number, message: string) {
-			super(message);
-			this.status = status;
-		}
+	function enqueueRepositoryOperation<T>(operation: () => Promise<T>): Promise<T> {
+		const next = repositoryOperation.then(() => operation(), () => operation());
+		repositoryOperation = next.then(() => undefined, () => undefined);
+		return next;
 	}
 
 	function mergeDirectoryListing(current: RepositorySnapshot, path: string, listing: RepositoryDirectoryListing): RepositorySnapshot {
@@ -67,65 +68,62 @@
 		};
 	}
 
-	async function fetchRepositoryDirectory(path: string): Promise<RepositoryDirectoryListing> {
-		const query = path ? `?${new URLSearchParams({ path }).toString()}` : '';
-		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/directory${query}`);
-		if (!response.ok) throw new RepositoryRequestError(response.status, await readRepositoryError(response, 'Unable to read this folder.'));
-		return await response.json() as RepositoryDirectoryListing;
+	function fetchRepositoryDirectory(path: string): Promise<RepositoryDirectoryListing> {
+		return repositoryApi.readDirectory(path);
 	}
 
 	async function loadRepositoryDirectory(path: string) {
-		if (loadedDirectories.includes(path)) return;
-		try {
-			const listing = await fetchRepositoryDirectory(path);
-			if (!snapshot) throw new Error('Repository information is unavailable.');
-			snapshot = mergeDirectoryListing(snapshot, path, listing);
-			loadedDirectories = [...loadedDirectories, path];
-		} catch (error) {
-			repositoryError = error instanceof Error ? error.message : 'Unable to read this folder.';
-			throw error;
-		}
+		return enqueueRepositoryOperation(async () => {
+			if (loadedDirectories.includes(path)) return;
+			try {
+				const listing = await fetchRepositoryDirectory(path);
+				if (!snapshot) throw new Error('Repository information is unavailable.');
+				snapshot = mergeDirectoryListing(snapshot, path, listing);
+				loadedDirectories = [...loadedDirectories, path];
+			} catch (error) {
+				repositoryError = error instanceof Error ? error.message : 'Unable to read this folder.';
+				throw error;
+			}
+		});
 	}
 
 	async function refreshRepository(showLoading = false) {
-		if (refreshInFlight) {
+		if (refreshPromise) {
 			refreshQueued = true;
 			return;
 		}
 		if (document.hidden) return;
-		refreshInFlight = true;
-		const shouldShowLoading = showLoading || !snapshot;
-		if (shouldShowLoading) repositoryLoading = true;
-		try {
-			const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository`);
-			if (!response.ok) {
-				const body: unknown = await response.json().catch(() => undefined);
-				const message = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
-					? body.message
-					: 'Unable to refresh this repository.';
-				throw new Error(message);
-			}
-			let nextSnapshot = await response.json() as RepositorySnapshot;
-			const activeDirectories: string[] = [];
-			for (const path of loadedDirectories) {
-				try {
-					nextSnapshot = mergeDirectoryListing(nextSnapshot, path, await fetchRepositoryDirectory(path));
-					activeDirectories.push(path);
-				} catch (error) {
-					if (error instanceof RepositoryRequestError && error.status === 404) continue;
-					throw error;
+		const run = enqueueRepositoryOperation(async () => {
+			const shouldShowLoading = showLoading || !snapshot;
+			if (shouldShowLoading) repositoryLoading = true;
+			try {
+				let nextSnapshot = await repositoryApi.readSnapshot();
+				const activeDirectories: string[] = [];
+				for (const path of loadedDirectories) {
+					try {
+						nextSnapshot = mergeDirectoryListing(nextSnapshot, path, await fetchRepositoryDirectory(path));
+						activeDirectories.push(path);
+					} catch (error) {
+						if (error instanceof RequestError && error.status === 404) continue;
+						throw error;
+					}
 				}
+				loadedDirectories = activeDirectories;
+				snapshot = nextSnapshot;
+				changeCount = nextSnapshot.changes.length;
+				repositoryError = '';
+				repositoryRefreshToken += 1;
+			} catch (error) {
+				repositoryError = error instanceof Error ? error.message : 'Unable to refresh this repository.';
+			} finally {
+				if (shouldShowLoading) repositoryLoading = false;
 			}
-			loadedDirectories = activeDirectories;
-			snapshot = nextSnapshot;
-			changeCount = snapshot.changes.length;
-			repositoryError = '';
-			repositoryRefreshToken += 1;
-		} catch (error) {
-			repositoryError = error instanceof Error ? error.message : 'Unable to refresh this repository.';
+		});
+		refreshPromise = run;
+		try {
+			await run;
 		} finally {
-			if (shouldShowLoading) repositoryLoading = false;
-			refreshInFlight = false;
+			if (refreshPromise === run) refreshPromise = undefined;
 			if (refreshQueued) {
 				refreshQueued = false;
 				if (repositoryOpen && !document.hidden) void refreshRepository();
@@ -186,38 +184,22 @@
 		return directory ? `${directory}/${name}` : name;
 	}
 
-	async function readRepositoryError(response: Response, fallback: string): Promise<string> {
-		const body: unknown = await response.json().catch(() => undefined);
-		return body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
-			? body.message
-			: fallback;
-	}
-
 	async function createFile(directory: string, name: string) {
 		if (!confirmDiscardChanges()) throw new Error('Finish editing the current file first.');
 		const path = repositoryPath(directory, name);
-		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/file`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ path, content: '' })
+		await enqueueRepositoryOperation(async () => {
+			const created = await repositoryApi.createFile(path);
+			openedFile = created;
+			fileDirty = false;
+			selection = { kind: 'file', path: created.path };
 		});
-		if (!response.ok) throw new Error(await readRepositoryError(response, 'The file could not be created.'));
-		const created = await response.json() as WorkspaceFile;
-		openedFile = created;
-		fileDirty = false;
-		selection = { kind: 'file', path: created.path };
 		await refreshRepository();
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
 	async function createDirectory(directory: string, name: string) {
 		const path = repositoryPath(directory, name);
-		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/directory`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ path })
-		});
-		if (!response.ok) throw new Error(await readRepositoryError(response, 'The folder could not be created.'));
+		await enqueueRepositoryOperation(() => repositoryApi.createDirectory(path));
 		await refreshRepository();
 	}
 
@@ -244,21 +226,17 @@
 		const selectedPath = selection?.path;
 		const deletingSelected = Boolean(selectedPath && pathContainsEntry(selectedPath, target.path, target.kind));
 
-		const endpoint = target.kind === 'directory' ? 'directory' : 'file';
-		const query = new URLSearchParams({ path: target.path });
-		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/${endpoint}?${query}`, {
-			method: 'DELETE'
+		await enqueueRepositoryOperation(async () => {
+			await repositoryApi.deleteEntry(target.path, target.kind);
+			if (target.kind === 'directory') {
+				loadedDirectories = loadedDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
+			}
+			if (deletingSelected) {
+				selection = undefined;
+				openedFile = undefined;
+				fileDirty = false;
+			}
 		});
-		if (!response.ok) throw new Error(await readRepositoryError(response, `The ${target.kind === 'directory' ? 'folder' : 'file'} could not be deleted.`));
-
-		if (target.kind === 'directory') {
-			loadedDirectories = loadedDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
-		}
-		if (deletingSelected) {
-			selection = undefined;
-			openedFile = undefined;
-			fileDirty = false;
-		}
 		await refreshRepository();
 		deleteTarget = undefined;
 	}

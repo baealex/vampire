@@ -81,6 +81,39 @@ export function sessionActivityPriority(state: SessionActivityState): number {
 	return SESSION_ACTIVITY_PRIORITY[state];
 }
 
+export function buildActivityOrder(
+	sessions: ManagedSession[],
+	previousOrder: string[],
+	activeOutputSessionId?: string,
+	unreadSessionIds: ReadonlySet<string> = new Set()
+): string[] {
+	const currentIds = new Set(sessions.map((session) => session.id));
+	const existingOrder = previousOrder.filter((sessionId) => currentIds.has(sessionId));
+	const knownIds = new Set(existingOrder);
+	const baseOrder = [
+		...existingOrder,
+		...sessions.filter((session) => !knownIds.has(session.id)).map((session) => session.id)
+	];
+	const states = new Map(sessions.map((session) => [
+		session.id,
+		sessionActivityState(session, activeOutputSessionId, unreadSessionIds.has(session.id))
+	]));
+	const basePosition = new Map(baseOrder.map((sessionId, index) => [sessionId, index]));
+	return [...baseOrder].sort((left, right) =>
+		sessionActivityPriority(states.get(left) ?? 'idle')
+		- sessionActivityPriority(states.get(right) ?? 'idle')
+		|| (basePosition.get(left) ?? Number.MAX_SAFE_INTEGER) - (basePosition.get(right) ?? Number.MAX_SAFE_INTEGER)
+	);
+}
+
+export function reconcileSessionOrder(sessions: ManagedSession[], manualOrder: string[]): string[] {
+	const sessionIds = new Set(sessions.map((session) => session.id));
+	return [
+		...manualOrder.filter((id) => sessionIds.has(id)),
+		...sessions.map((session) => session.id).filter((id) => !manualOrder.includes(id))
+	];
+}
+
 export function sessionActivityState(
 	session: ManagedSession,
 	activeOutputSessionId?: string,
