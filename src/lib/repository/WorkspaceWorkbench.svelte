@@ -41,12 +41,14 @@
 	let openedFile = $state<WorkspaceFile>();
 	let fileDirty = $state(false);
 	let deleteTarget = $state<{ path: string; kind: 'file' | 'directory' }>();
+	let discardChangesPrompt = $state(false);
 	let loadedDirectories = $state<string[]>([]);
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	let repositoryOperation: Promise<void> = Promise.resolve();
 	let refreshPromise: Promise<void> | undefined;
 	let refreshQueued = false;
+	let discardChangesResolver: ((discard: boolean) => void) | undefined;
 	const name = $derived(getProjectName(session.cwd));
 	let changeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
@@ -140,41 +142,54 @@
 		else onMobilePanelChange('repository');
 	}
 
-	function closeRepository() {
-		if (!confirmDiscardChanges()) return false;
+	async function closeRepository() {
+		if (!await confirmDiscardChanges()) return false;
+		closeRepositoryNow();
+		return true;
+	}
+
+	function closeRepositoryNow() {
 		if (desktop) desktopRepositoryOpen = false;
 		else onMobilePanelChange(undefined);
 		selection = undefined;
 		openedFile = undefined;
 		fileDirty = false;
-		return true;
 	}
 
-	function confirmDiscardChanges(): boolean {
-		if (!fileDirty) return true;
-		const discard = window.confirm('Discard unsaved file changes?');
+	function confirmDiscardChanges(): Promise<boolean> {
+		if (!fileDirty) return Promise.resolve(true);
+		discardChangesPrompt = true;
+		return new Promise((resolve) => {
+			discardChangesResolver = resolve;
+		});
+	}
+
+	function resolveDiscardChanges(discard: boolean) {
+		const resolve = discardChangesResolver;
+		discardChangesResolver = undefined;
+		discardChangesPrompt = false;
 		if (discard) fileDirty = false;
-		return discard;
+		resolve?.(discard);
 	}
 
-	function openSessionNavigator() {
+	async function openSessionNavigator() {
 		if (repositoryOpen) {
-			if (!closeRepository()) return;
-		} else if (!confirmDiscardChanges()) {
+			if (!await closeRepository()) return;
+		} else if (!await confirmDiscardChanges()) {
 			return;
 		}
 		close();
 	}
 
-	function selectRepositoryItem(nextSelection: RepositorySelection) {
-		if (!confirmDiscardChanges()) return;
+	async function selectRepositoryItem(nextSelection: RepositorySelection) {
+		if (!await confirmDiscardChanges()) return;
 		openedFile = undefined;
 		selection = nextSelection;
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
-	function editRepositoryFile(path: string) {
-		if (!confirmDiscardChanges()) return;
+	async function editRepositoryFile(path: string) {
+		if (!await confirmDiscardChanges()) return;
 		openedFile = undefined;
 		selection = { kind: 'file', path };
 		if (!desktop) onMobilePanelChange(undefined);
@@ -185,7 +200,7 @@
 	}
 
 	async function createFile(directory: string, name: string) {
-		if (!confirmDiscardChanges()) throw new Error('Finish editing the current file first.');
+		if (!await confirmDiscardChanges()) throw new Error('Finish editing the current file first.');
 		const path = repositoryPath(directory, name);
 		await enqueueRepositoryOperation(async () => {
 			const created = await repositoryApi.createFile(path);
@@ -247,8 +262,8 @@
 		void refreshRepository();
 	}
 
-	function closeViewer() {
-		if (!confirmDiscardChanges()) return;
+	async function closeViewer() {
+		if (!await confirmDiscardChanges()) return;
 		selection = undefined;
 		openedFile = undefined;
 		fileDirty = false;
@@ -277,6 +292,7 @@
 		const syncDesktop = () => desktop = desktopQuery.matches;
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
+			if (document.querySelector('[data-dialog-content]')) return;
 			if (event.target instanceof HTMLElement && event.target.closest('[data-inline-repository-entry]')) return;
 			if (repositoryOpen) {
 				event.preventDefault();
@@ -321,7 +337,7 @@
 						onClose={closeViewer}
 						onEditFile={editRepositoryFile}
 						onFileSaved={handleFileSaved}
-					onFileDirtyChange={(dirty) => fileDirty = dirty}
+						onFileDirtyChange={(dirty) => fileDirty = dirty}
 				/>
 			{/if}
 		</Terminal>
@@ -342,6 +358,17 @@
 		onClose={closeRepository}
 		onSelect={selectRepositoryItem}
 	/>
+
+	{#if discardChangesPrompt}
+		<ConfirmDialog
+			title="Discard unsaved changes?"
+			description="Your edits to the open file have not been saved. Discard them and continue?"
+			confirmLabel="Discard changes"
+			busyLabel="Discarding…"
+			close={() => resolveDiscardChanges(false)}
+			onConfirm={async () => resolveDiscardChanges(true)}
+		/>
+	{/if}
 
 	{#if deleteTarget}
 		<ConfirmDialog

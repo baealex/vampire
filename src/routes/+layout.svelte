@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import '$lib/theme/tokens.css';
+	import '$lib/ui/dialog.css';
 	import { themeState } from '$lib/theme/theme.svelte';
 	import '../app.css';
 
