@@ -135,7 +135,7 @@
 			{#if selection.kind === 'file' && file && !imagePreview && fileDirty}
 				<span class="dirty-indicator" role="status">Unsaved</span>
 			{/if}
-			<button class="mobile-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind}`} title={`Close ${selection.kind}`}>
+			<button class="viewer-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind} and return to terminal`} title={`Close ${selection.kind} and return to terminal`}>
 				<X size={17} strokeWidth={1.8} aria-hidden="true" />
 			</button>
 		</div>
@@ -216,8 +216,8 @@
 	.document-kind { color: var(--color-accent-soft-text); font-size: 0.68rem; font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
 	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
 	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
-	.mobile-close { display: none; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
-	.mobile-close:hover { background: var(--color-surface-raised); color: var(--color-text); }
+	.viewer-close { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+	.viewer-close:hover { background: var(--color-surface-raised); color: var(--color-text); }
 	.viewer-warning { z-index: 2; margin: 0; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-danger-border); background: var(--color-danger-surface); color: var(--color-danger-text); font-size: var(--text-caption); line-height: var(--leading-ui); }
 	.viewer-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 	.viewer-state { display: grid; min-height: 100%; place-items: center; padding: 2rem 1rem; color: var(--color-text-secondary); font-size: var(--text-label); text-align: center; }
@@ -242,10 +242,6 @@
 	.line-number { padding: 0 0.55rem; border-right: 1px solid var(--color-border-subtle); color: var(--color-text-disabled); text-align: right; user-select: none; }
 	.diff-line.addition .line-number { color: var(--color-diff-add-line); }
 	.diff-line.deletion .line-number { color: var(--color-diff-delete-line); }
-
-	@media (max-width: 63.999rem) {
-		.mobile-close { display: grid; }
-	}
 
 	@media (max-width: 40rem) {
 		.document-header { gap: 0.5rem; padding: 0.28rem 0.45rem 0.28rem 0.65rem; }
