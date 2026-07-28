@@ -11,6 +11,7 @@
 	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import { WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
 	import { buildVisibleFileTree, changeBadge, describeChange, isPreviewableImage } from './view';
 	import type { RepositorySelection, RepositorySnapshot } from './types';
 
@@ -52,7 +53,21 @@
 	let creationInput = $state<HTMLInputElement>();
 	let creating = $state(false);
 	let loadingDirectories = $state<string[]>([]);
+	let draggingPath = $state('');
 	let treeRows = $derived(buildVisibleFileTree(snapshot?.files ?? [], expandedDirectories, snapshot?.directories ?? []));
+
+	function beginEntryDrag(event: DragEvent, path: string, kind: 'file' | 'directory') {
+		if (!event.dataTransfer) return;
+		const entry = { path, kind };
+		event.dataTransfer.effectAllowed = 'copy';
+		event.dataTransfer.setData(WORKSPACE_ENTRY_DRAG_TYPE, JSON.stringify(entry));
+		event.dataTransfer.setData('text/plain', workspaceEntryDragText(entry));
+		draggingPath = path;
+	}
+
+	function endEntryDrag() {
+		draggingPath = '';
+	}
 
 	async function toggleDirectory(path: string) {
 		if (expandedDirectories.includes(path)) {
@@ -287,10 +302,13 @@
 							{#if creationError}<p class="tree-create-error">{creationError}</p>{/if}
 						{/if}
 						{#each treeRows as row (row.path)}
-							<div class="tree-row-shell" class:directory={row.kind === 'directory'} class:selected={selected?.kind === 'file' && selected.path === row.path}>
-							<button
-								type="button"
-								class="tree-row"
+							<div class="tree-row-shell" class:directory={row.kind === 'directory'} class:dragging={draggingPath === row.path} class:selected={selected?.kind === 'file' && selected.path === row.path}>
+								<button
+									type="button"
+									class="tree-row"
+									draggable={true}
+									ondragstart={(event) => beginEntryDrag(event, row.path, row.kind)}
+									ondragend={endEntryDrag}
 								onclick={() => row.kind === 'directory' ? void toggleDirectory(row.path) : selectFile(row.path)}
 								aria-busy={row.kind === 'directory' && loadingDirectories.includes(row.path)}
 								aria-expanded={row.kind === 'directory' ? expandedDirectories.includes(row.path) : undefined}
@@ -416,7 +434,10 @@
 	.tree-row-shell { display: flex; align-items: center; min-width: 0; min-height: 2rem; border-bottom: 1px solid transparent; }
 	.tree-row-shell:hover, .tree-row-shell.selected { background: var(--color-surface-raised); }
 	.tree-row-shell.selected { background: var(--color-surface-active); }
+	.tree-row-shell.dragging { opacity: 0.45; }
 	.tree-row { display: flex; flex: 1 1 auto; align-items: center; width: 0; min-width: 0; min-height: 2rem; padding: 0 0.2rem 0 0.65rem; border: 0; background: transparent; color: var(--color-text-secondary); text-align: left; cursor: pointer; }
+	.tree-row[draggable="true"] { cursor: grab; }
+	.tree-row-shell.dragging .tree-row { cursor: grabbing; }
 	.tree-row:hover, .tree-row-shell.selected .tree-row { color: var(--color-text); }
 	.tree-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.05rem; padding-right: 0.35rem; }
 	.tree-actions button { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; padding: 0; border: 0; border-radius: 0.35rem; background: transparent; color: var(--color-text-tertiary); cursor: pointer; }

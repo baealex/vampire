@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Send from '@lucide/svelte/icons/send';
 	import ImagePlus from '@lucide/svelte/icons/image-plus';
+	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
 
 	let {
 		connected,
@@ -27,6 +28,7 @@
 	let composerElement: HTMLTextAreaElement;
 	let imageInputElement: HTMLInputElement;
 	let composerMessage = $state('');
+	let composerDropActive = $state(false);
 
 	function preventButtonFocus(event: PointerEvent) {
 		event.preventDefault();
@@ -50,6 +52,40 @@
 		if (!composerElement) return;
 		composerElement.style.height = 'auto';
 		composerElement.style.height = `${Math.min(composerElement.scrollHeight, 128)}px`;
+	}
+
+	function hasWorkspaceEntry(event: DragEvent): boolean {
+		return Array.from(event.dataTransfer?.types ?? []).includes(WORKSPACE_ENTRY_DRAG_TYPE);
+	}
+
+	function handleComposerDragOver(event: DragEvent) {
+		if (!connected || !event.dataTransfer || !hasWorkspaceEntry(event)) return;
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'copy';
+		composerDropActive = true;
+	}
+
+	function handleComposerDragLeave() {
+		composerDropActive = false;
+	}
+
+	function handleComposerDrop(event: DragEvent) {
+		composerDropActive = false;
+		if (!connected) return;
+		const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
+		const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
+		if (!entry) return;
+		event.preventDefault();
+		const insertion = workspaceEntryDragText(entry);
+		const start = composerElement.selectionStart ?? composerMessage.length;
+		const end = composerElement.selectionEnd ?? start;
+		composerMessage = `${composerMessage.slice(0, start)}${insertion}${composerMessage.slice(end)}`;
+		const caretPosition = start + insertion.length;
+		requestAnimationFrame(() => {
+			composerElement?.focus();
+			composerElement?.setSelectionRange(caretPosition, caretPosition);
+			resizeComposer();
+		});
 	}
 
 	function handleComposerKeydown(event: KeyboardEvent) {
@@ -95,7 +131,16 @@
 			onclick={increaseFontSize}
 		>A+</button>
 	</div>
-	<div class="composer">
+	<div
+		class="composer"
+		class:drop-target={composerDropActive}
+		role="group"
+		aria-label="Terminal input"
+		ondragenter={handleComposerDragOver}
+		ondragover={handleComposerDragOver}
+		ondragleave={handleComposerDragLeave}
+		ondrop={handleComposerDrop}
+	>
 		<label class="visually-hidden" for="shell-message">Send text to the shell</label>
 		<input
 			class="visually-hidden"
@@ -154,6 +199,7 @@
 	.toolbar-divider { flex: 0 0 1px; align-self: stretch; margin: 0 0.15rem; background: var(--color-border); }
 	.composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem 2.5rem; align-items: end; gap: 0.2rem; min-width: 0; margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-left)); padding: 0.22rem; border: 1px solid var(--color-border); border-radius: 0.78rem; background: var(--color-control-background); }
 	.composer:focus-within { border-color: var(--color-accent); box-shadow: var(--shadow-accent-focus); }
+	.composer.drop-target { border-color: var(--color-accent); background: var(--color-surface-active); box-shadow: var(--shadow-accent-focus); }
 	.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 	.composer textarea { width: 100%; min-width: 0; min-height: 2.5rem; max-height: 8rem; padding: 0.58rem 0.62rem; overflow-y: auto; resize: none; border: 0; border-radius: 0.55rem; outline: none; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; line-height: var(--leading-ui); }
 	.composer textarea::placeholder { color: var(--color-field-placeholder); }

@@ -7,6 +7,7 @@
 	import TerminalInputDock from '$lib/terminal/TerminalInputDock.svelte';
 	import { installTerminalTouchScroll } from '$lib/terminal/touch-scroll';
 	import { terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
+	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import '@xterm/xterm/css/xterm.css';
 
@@ -51,6 +52,7 @@
 	let noteOpen = $state(false);
 	let imagePasteKind = $state<'uploading' | 'success' | 'error' | ''>('');
 	let imagePasteMessage = $state('');
+	let terminalDropActive = $state(false);
 	let imagePasteNoticeTimer: ReturnType<typeof setTimeout> | undefined;
 	let imagePasteRequestId = 0;
 	let sendTerminalInput: (data: string) => void = () => undefined;
@@ -74,6 +76,32 @@
 		if (event.pointerType === 'touch') return;
 		focusTerminal();
 		if (window.matchMedia('(min-width: 64rem)').matches) directInputFocused = true;
+	}
+
+	function hasWorkspaceEntry(event: DragEvent): boolean {
+		return Array.from(event.dataTransfer?.types ?? []).includes(WORKSPACE_ENTRY_DRAG_TYPE);
+	}
+
+	function handleTerminalDragOver(event: DragEvent) {
+		if (!connected || !event.dataTransfer || !hasWorkspaceEntry(event)) return;
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'copy';
+		terminalDropActive = true;
+	}
+
+	function handleTerminalDragLeave() {
+		terminalDropActive = false;
+	}
+
+	function handleTerminalDrop(event: DragEvent) {
+		terminalDropActive = false;
+		if (!connected) return;
+		const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
+		const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
+		if (!entry) return;
+		event.preventDefault();
+		focusTerminal();
+		sendTerminalInput(workspaceEntryDragText(entry));
 	}
 
 	function setImagePasteNotice(kind: typeof imagePasteKind, message: string, duration = 5_000) {
@@ -488,11 +516,16 @@
 	<div class="terminal-body">
 		<div class="terminal-frame">
 			<div
-				class="terminal"
-				class:direct-input={directInputFocused}
+					class="terminal"
+					class:path-drop-target={terminalDropActive}
+					class:direct-input={directInputFocused}
 				class:screen-ready={screenReady}
 				bind:this={terminalElement}
-				onpointerdown={handleTerminalPointerDown}
+					onpointerdown={handleTerminalPointerDown}
+					ondragenter={handleTerminalDragOver}
+					ondragover={handleTerminalDragOver}
+					ondragleave={handleTerminalDragLeave}
+					ondrop={handleTerminalDrop}
 				onfocusin={() => {
 					activateTerminal();
 					if (window.matchMedia('(min-width: 64rem)').matches) directInputFocused = true;
@@ -537,6 +570,7 @@
 	.terminal-body { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal-frame { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: 0.35rem; touch-action: none; }
+	.terminal.path-drop-target { box-shadow: inset 0 0 0 2px var(--color-accent); }
 	.terminal.direct-input { box-shadow: inset 0 0 0 1px var(--color-visual-accent-glow); }
 	.terminal :global(.xterm) { height: 100%; padding: 0.25rem; opacity: 0; touch-action: none; transition: opacity 140ms ease-out; }
 	.terminal.screen-ready :global(.xterm) { opacity: 1; }
