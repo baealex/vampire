@@ -2,7 +2,6 @@
 	import { tick } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
-	import GripVertical from '@lucide/svelte/icons/grip-vertical';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
@@ -155,10 +154,30 @@
 
 		<div class="session-order-toolbar">
 			<div class="session-order-control" role="group" aria-label="Workspace order">
-				<button type="button" class:active={sessionOrderMode === 'activity'} onclick={() => onOrderModeChange('activity')} aria-pressed={sessionOrderMode === 'activity'}>Activity</button>
-				<button type="button" class:active={sessionOrderMode === 'manual'} onclick={() => onOrderModeChange('manual')} aria-pressed={sessionOrderMode === 'manual'}>Manual</button>
+				<button
+					type="button"
+					class:active={sessionOrderMode === 'activity'}
+					onclick={() => onOrderModeChange('activity')}
+					aria-pressed={sessionOrderMode === 'activity'}
+					aria-label="Sort workspaces by latest activity"
+					title="Latest activity first"
+				>
+					Latest
+				</button>
+				<button
+					type="button"
+					class:active={sessionOrderMode === 'manual'}
+					onclick={() => onOrderModeChange('manual')}
+					aria-pressed={sessionOrderMode === 'manual'}
+					aria-label="Arrange workspaces manually"
+					title="Drag rows to reorder"
+				>
+					Manual
+				</button>
 			</div>
-			<span class="session-order-help">{sessionOrderMode === 'activity' ? 'Status groups, stable order' : 'Drag to arrange'}</span>
+			<span class="session-order-help" role="status">
+				{sessionOrderMode === 'activity' ? 'Latest activity first' : 'Drag rows to reorder'}
+			</span>
 		</div>
 
 		{#if errorMessage}
@@ -200,7 +219,6 @@
 							aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activeOutputSessionId, hasUnreadOutput)}${session.notePreview ? '; has a note' : ''})`}
 						>
 							<span class="row-leading" aria-hidden="true">
-								{#if sessionOrderMode === 'manual'}<span class="drag-handle"><GripVertical size={14} strokeWidth={1.8} /></span>{/if}
 								<span
 									class="status-dot"
 									class:live={activityState === 'live'}
@@ -267,13 +285,13 @@
 	.session-panel-title { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
 	.section-actions { display: flex; align-items: center; gap: 0.5rem; }
 	.session-count { display: grid; place-items: center; min-width: 1.7rem; height: 1.7rem; border-radius: 999px; background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
-	.session-order-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.55rem; padding: 0.15rem 1.35rem 0.75rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
+	.session-order-toolbar { display: flex; align-items: center; gap: 0.55rem; min-width: 0; padding: 0.15rem 1.35rem 0.75rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
 	.session-order-control { display: inline-flex; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-sunken); }
 	.session-order-control button { min-height: 1.8rem; padding: 0 0.55rem; border: 0; border-right: 1px solid var(--color-border); background: transparent; color: var(--color-text-tertiary); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
 	.session-order-control button:last-child { border-right: 0; }
 	.session-order-control button:hover { color: var(--color-text); }
 	.session-order-control button.active { background: var(--color-surface-selected); color: var(--color-text); }
-	.session-order-help { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+	.session-order-help { min-width: 0; margin-left: auto; overflow: hidden; color: var(--color-text-tertiary); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 	.icon-button { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.icon-button:hover { background: var(--color-surface-raised); color: var(--color-text); }
 	.icon-button:disabled { cursor: wait; opacity: 0.55; }
@@ -293,7 +311,6 @@
 	.session-actions-trigger { position: absolute; z-index: 3; top: 50%; right: 0.65rem; display: grid; place-items: center; width: 2.45rem; height: 2.45rem; padding: 0; transform: translateY(-50%); border: 0; border-radius: 0.5rem; background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
 	.session-actions-trigger:hover, .session-actions-trigger:focus-visible { background: var(--color-surface-raised); color: var(--color-text); }
 	.row-leading { display: inline-flex; align-items: center; gap: 0.3rem; }
-	.drag-handle { display: grid; place-items: center; color: var(--color-text-tertiary); line-height: 1; }
 	.status-dot { width: 0.58rem; height: 0.58rem; border-radius: 50%; background: var(--color-success); box-shadow: var(--shadow-status-idle); }
 	.status-dot.live { background: var(--color-warning); box-shadow: var(--shadow-status-live); animation: activity-pulse 1.4s ease-out infinite; }
 	.status-dot.review { background: var(--color-info); box-shadow: var(--shadow-status-review); }
