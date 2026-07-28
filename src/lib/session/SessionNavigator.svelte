@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
-	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import X from '@lucide/svelte/icons/x';
+	import SessionActionsMenu from './SessionActionsMenu.svelte';
 	import ThemeToggle from '$lib/theme/ThemeToggle.svelte';
 	import type { ManagedSession, SessionOrderMode } from './types';
 	import {
@@ -44,7 +44,9 @@
 		onOrderModeChange,
 		onReorder,
 		onOpen,
-		onOpenActions,
+		sessionAction,
+		onCloseSession,
+		onRemoveSession,
 		onCreate
 	}: {
 		sessions: ManagedSession[];
@@ -69,7 +71,9 @@
 		onOrderModeChange: (mode: SessionOrderMode) => void;
 		onReorder: (draggedId: string, targetId: string, position: 'before' | 'after') => void;
 		onOpen: (session: ManagedSession) => void;
-		onOpenActions: (session: ManagedSession, trigger: HTMLElement) => void;
+		sessionAction?: 'restart' | 'close' | 'remove';
+		onCloseSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
+		onRemoveSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onCreate: () => void;
 	} = $props();
 
@@ -77,6 +81,7 @@
 	let draggedSessionId = $state<string>();
 	let dragOverSessionId = $state<string>();
 	let dropPosition = $state<'before' | 'after'>('before');
+	let openActionSessionId = $state<string>();
 
 	$effect(() => {
 		if (newSessionOpen) void tick().then(() => cwdInput?.focus());
@@ -123,7 +128,12 @@
 
 	function handleSessionContextMenu(event: MouseEvent, session: ManagedSession) {
 		event.preventDefault();
-		onOpenActions(session, event.currentTarget as HTMLElement);
+		openActionSessionId = session.id;
+	}
+
+	function handleSessionActionsOpen(sessionId: string, open: boolean) {
+		if (open) openActionSessionId = sessionId;
+		else if (openActionSessionId === sessionId) openActionSessionId = undefined;
 	}
 </script>
 
@@ -245,9 +255,16 @@
 								</span>
 							</span>
 						</button>
-						<button class="session-actions-trigger" type="button" onclick={(event) => onOpenActions(session, event.currentTarget)} aria-label={`Workspace actions for ${projectName(session.cwd)}`} title="Workspace actions">
-							<Ellipsis size={18} strokeWidth={1.9} aria-hidden="true" />
-						</button>
+						<div class="session-actions-menu">
+							<SessionActionsMenu
+								session={session}
+								open={openActionSessionId === session.id}
+								onOpenChange={(open) => handleSessionActionsOpen(session.id, open)}
+								action={sessionAction}
+								closeSession={onCloseSession}
+								remove={onRemoveSession}
+							/>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -302,14 +319,14 @@
 	.session-row-shell:last-child { border-bottom: 0; }
 	.session-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.75rem; width: 100%; min-width: 0; min-height: 4.5rem; padding: 0.85rem 3.8rem 0.85rem 1.35rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.session-row:hover { background: var(--color-surface-raised); }
+	.session-row-shell.active .session-row:hover { background: var(--color-surface-active-hover); }
 	.session-row-shell.active { background: var(--color-surface-active); box-shadow: inset 0.18rem 0 var(--color-accent); }
 	.session-row-shell[draggable="true"] { cursor: grab; }
 	.session-row-shell.dragging { opacity: 0.42; cursor: grabbing; }
 	.session-row-shell.dropBefore::before, .session-row-shell.dropAfter::after { position: absolute; z-index: 4; right: 0.65rem; left: 0.65rem; height: 2px; border-radius: 2px; background: var(--color-accent); content: ""; }
 	.session-row-shell.dropBefore::before { top: 0; }
 	.session-row-shell.dropAfter::after { bottom: -1px; }
-	.session-actions-trigger { position: absolute; z-index: 3; top: 50%; right: 0.65rem; display: grid; place-items: center; width: 2.45rem; height: 2.45rem; padding: 0; transform: translateY(-50%); border: 0; border-radius: 0.5rem; background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
-	.session-actions-trigger:hover, .session-actions-trigger:focus-visible { background: var(--color-surface-raised); color: var(--color-text); }
+	.session-actions-menu { position: absolute; z-index: 3; top: 50%; right: 0.65rem; transform: translateY(-50%); }
 	.row-leading { display: inline-flex; align-items: center; gap: 0.3rem; }
 	.status-dot { width: 0.58rem; height: 0.58rem; border-radius: 50%; background: var(--color-success); box-shadow: var(--shadow-status-idle); }
 	.status-dot.live { background: var(--color-warning); box-shadow: var(--shadow-status-live); animation: activity-pulse 1.4s ease-out infinite; }

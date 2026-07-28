@@ -292,7 +292,7 @@
 		const syncDesktop = () => desktop = desktopQuery.matches;
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
-			if (document.querySelector('[data-dialog-content]')) return;
+			if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
 			if (event.target instanceof HTMLElement && event.target.closest('[data-inline-repository-entry]')) return;
 			if (repositoryOpen) {
 				event.preventDefault();

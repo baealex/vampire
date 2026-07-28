@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import '$lib/theme/tokens.css';
 	import '$lib/ui/dialog.css';
+	import '$lib/ui/menu.css';
 	import { themeState } from '$lib/theme/theme.svelte';
 	import '../app.css';
 
