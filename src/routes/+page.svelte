@@ -123,6 +123,7 @@
 	function handleSessionShortcut(event: KeyboardEvent) {
 		const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
 		if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || !digitMatch) return;
+		if (document.querySelector('[data-dialog-content]')) return;
 		const primaryModifier = useMetaSessionShortcuts
 			? event.metaKey && !event.ctrlKey
 			: event.ctrlKey && !event.metaKey;
@@ -140,10 +141,8 @@
 
 	function handleOverlayKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
-		if (sessionActionsSession) {
-			event.preventDefault();
-			closeSessionActions();
-		} else if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
+		if (document.querySelector('[data-dialog-content]')) return;
+		if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
 			event.preventDefault();
 			closeSessionNavigator();
 		}
