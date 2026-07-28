@@ -22,6 +22,7 @@
 		selected,
 		open,
 		onRefresh,
+		onLoadDirectory,
 		onCreateFile,
 		onCreateDirectory,
 		onRequestDelete,
@@ -35,6 +36,7 @@
 		selected?: RepositorySelection;
 		open: boolean;
 		onRefresh: () => void;
+		onLoadDirectory: (path: string) => Promise<void>;
 		onCreateFile: (directory: string, name: string) => Promise<void>;
 		onCreateDirectory: (directory: string, name: string) => Promise<void>;
 		onRequestDelete: (path: string, kind: 'file' | 'directory') => void;
@@ -49,12 +51,24 @@
 	let creationError = $state('');
 	let creationInput = $state<HTMLInputElement>();
 	let creating = $state(false);
+	let loadingDirectories = $state<string[]>([]);
 	let treeRows = $derived(buildVisibleFileTree(snapshot?.files ?? [], expandedDirectories, snapshot?.directories ?? []));
 
-	function toggleDirectory(path: string) {
-		expandedDirectories = expandedDirectories.includes(path)
-			? expandedDirectories.filter((directory) => directory !== path)
-			: [...expandedDirectories, path];
+	async function toggleDirectory(path: string) {
+		if (expandedDirectories.includes(path)) {
+			expandedDirectories = expandedDirectories.filter((directory) => directory !== path);
+			return;
+		}
+		if (loadingDirectories.includes(path)) return;
+		loadingDirectories = [...loadingDirectories, path];
+		try {
+			await onLoadDirectory(path);
+			expandedDirectories = [...expandedDirectories, path];
+		} catch {
+			// The parent workbench exposes the request error in the repository panel.
+		} finally {
+			loadingDirectories = loadingDirectories.filter((directory) => directory !== path);
+		}
 	}
 
 	function beginCreation(kind: 'file' | 'directory', parent: string) {
@@ -277,7 +291,8 @@
 							<button
 								type="button"
 								class="tree-row"
-								onclick={() => row.kind === 'directory' ? toggleDirectory(row.path) : selectFile(row.path)}
+								onclick={() => row.kind === 'directory' ? void toggleDirectory(row.path) : selectFile(row.path)}
+								aria-busy={row.kind === 'directory' && loadingDirectories.includes(row.path)}
 								aria-expanded={row.kind === 'directory' ? expandedDirectories.includes(row.path) : undefined}
 								aria-label={row.kind === 'directory' ? `${expandedDirectories.includes(row.path) ? 'Collapse' : 'Expand'} ${row.path}` : `Open ${row.path}`}
 							>
@@ -313,7 +328,7 @@
 									onclick={(event) => { event.stopPropagation(); onRequestDelete(row.path, row.kind); }}
 									aria-label={`Delete ${row.kind === 'directory' ? 'folder' : 'file'} ${row.path}`}
 									title={`Delete ${row.kind === 'directory' ? 'folder' : 'file'}`}
-								>
+							>
 									<Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
 								</button>
 								</div>
@@ -351,7 +366,7 @@
 	</div>
 
 	{#if snapshot?.truncated}
-		<p class="repository-limit">Only the first {snapshot.files.length.toLocaleString('en-US')} files are shown.</p>
+		<p class="repository-limit">Some folders contain more entries than shown.</p>
 	{/if}
 </aside>
 

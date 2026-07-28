@@ -7,7 +7,7 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import RepositoryPanel from './RepositoryPanel.svelte';
 	import RepositoryViewer from './RepositoryViewer.svelte';
-	import type { RepositorySelection, RepositorySnapshot, WorkspaceFile } from './types';
+	import type { RepositoryDirectoryListing, RepositorySelection, RepositorySnapshot, WorkspaceFile } from './types';
 
 	let {
 		session,
@@ -39,7 +39,7 @@
 	let openedFile = $state<WorkspaceFile>();
 	let fileDirty = $state(false);
 	let deleteTarget = $state<{ path: string; kind: 'file' | 'directory' }>();
-	let createdDirectories = $state<string[]>([]);
+	let loadedDirectories = $state<string[]>([]);
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	let refreshInFlight = false;
@@ -47,6 +47,45 @@
 	const name = $derived(getProjectName(session.cwd));
 	let changeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
+
+	class RepositoryRequestError extends Error {
+		status: number;
+
+		constructor(status: number, message: string) {
+			super(message);
+			this.status = status;
+		}
+	}
+
+	function mergeDirectoryListing(current: RepositorySnapshot, path: string, listing: RepositoryDirectoryListing): RepositorySnapshot {
+		const prefix = path ? `${path}/` : '';
+		return {
+			...current,
+			files: [...current.files.filter((entry) => !entry.startsWith(prefix)), ...listing.files],
+			directories: [...current.directories.filter((entry) => !entry.startsWith(prefix)), ...listing.directories],
+			truncated: path ? current.truncated || listing.truncated : listing.truncated
+		};
+	}
+
+	async function fetchRepositoryDirectory(path: string): Promise<RepositoryDirectoryListing> {
+		const query = path ? `?${new URLSearchParams({ path }).toString()}` : '';
+		const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/repository/directory${query}`);
+		if (!response.ok) throw new RepositoryRequestError(response.status, await readRepositoryError(response, 'Unable to read this folder.'));
+		return await response.json() as RepositoryDirectoryListing;
+	}
+
+	async function loadRepositoryDirectory(path: string) {
+		if (loadedDirectories.includes(path)) return;
+		try {
+			const listing = await fetchRepositoryDirectory(path);
+			if (!snapshot) throw new Error('Repository information is unavailable.');
+			snapshot = mergeDirectoryListing(snapshot, path, listing);
+			loadedDirectories = [...loadedDirectories, path];
+		} catch (error) {
+			repositoryError = error instanceof Error ? error.message : 'Unable to read this folder.';
+			throw error;
+		}
+	}
 
 	async function refreshRepository(showLoading = false) {
 		if (refreshInFlight) {
@@ -66,11 +105,19 @@
 					: 'Unable to refresh this repository.';
 				throw new Error(message);
 			}
-			const nextSnapshot = await response.json() as RepositorySnapshot;
-			snapshot = {
-				...nextSnapshot,
-				directories: [...new Set([...(nextSnapshot.directories ?? []), ...createdDirectories])]
-			};
+			let nextSnapshot = await response.json() as RepositorySnapshot;
+			const activeDirectories: string[] = [];
+			for (const path of loadedDirectories) {
+				try {
+					nextSnapshot = mergeDirectoryListing(nextSnapshot, path, await fetchRepositoryDirectory(path));
+					activeDirectories.push(path);
+				} catch (error) {
+					if (error instanceof RepositoryRequestError && error.status === 404) continue;
+					throw error;
+				}
+			}
+			loadedDirectories = activeDirectories;
+			snapshot = nextSnapshot;
 			changeCount = snapshot.changes.length;
 			repositoryError = '';
 			repositoryRefreshToken += 1;
@@ -164,8 +211,6 @@
 			body: JSON.stringify({ path })
 		});
 		if (!response.ok) throw new Error(await readRepositoryError(response, 'The folder could not be created.'));
-		const created = await response.json() as { path: string };
-		if (!createdDirectories.includes(created.path)) createdDirectories = [...createdDirectories, created.path];
 		await refreshRepository();
 	}
 
@@ -200,7 +245,7 @@
 		if (!response.ok) throw new Error(await readRepositoryError(response, `The ${target.kind === 'directory' ? 'folder' : 'file'} could not be deleted.`));
 
 		if (target.kind === 'directory') {
-			createdDirectories = createdDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
+			loadedDirectories = loadedDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
 		}
 		if (deletingSelected) {
 			selection = undefined;
@@ -304,6 +349,7 @@
 		selected={selection}
 		open={repositoryOpen}
 		onRefresh={() => void refreshRepository(true)}
+		onLoadDirectory={loadRepositoryDirectory}
 		onCreateFile={createFile}
 		onCreateDirectory={createDirectory}
 		onRequestDelete={requestDelete}
