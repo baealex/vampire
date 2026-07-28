@@ -28,6 +28,7 @@
 		--color-surface-overlay: #191617;
 		--color-surface-sunken: #100f0f;
 		--color-surface-active: #211b1d;
+		--color-surface-active-hover: #2b2224;
 		--color-surface-hover: #282324;
 		--color-surface-selected: #252122;
 		--color-border: #332e2f;
@@ -166,6 +167,7 @@
 		--color-surface-overlay: #ffffff;
 		--color-surface-sunken: #f6f2f3;
 		--color-surface-active: #fbeaed;
+		--color-surface-active-hover: #fff3f5;
 		--color-surface-hover: #eee7e9;
 		--color-surface-selected: #f4ecee;
 		--color-border: #ddd3d5;

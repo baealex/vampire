@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { pushState } from '$app/navigation';
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import Keyboard from '@lucide/svelte/icons/keyboard';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
@@ -8,7 +8,6 @@
 	import TmuxSetupNotice from '$lib/TmuxSetupNotice.svelte';
 	import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
-	import SessionActionsDialog from '$lib/session/SessionActionsDialog.svelte';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
 	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
@@ -18,9 +17,7 @@
 	let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
 
 	let mobilePanel = $state<MobilePanel | undefined>(undefined);
-	let sessionActionsSession = $state<ManagedSession | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
-	let sessionActionsTrigger: HTMLElement | undefined;
 	let useMetaSessionShortcuts = false;
 
 	const connection = new WorkspaceConnectionState();
@@ -81,19 +78,6 @@
 		if (workspace.hasOpenSession) setMobilePanel(undefined);
 	}
 
-	function openSessionActions(session: ManagedSession, trigger: HTMLElement) {
-		workspace.sessionActionError = '';
-		sessionActionsSession = session;
-		sessionActionsTrigger = trigger;
-	}
-
-	function closeSessionActions(restoreFocus = true) {
-		const trigger = sessionActionsTrigger;
-		sessionActionsSession = undefined;
-		sessionActionsTrigger = undefined;
-		if (restoreFocus) void tick().then(() => trigger?.focus());
-	}
-
 	function syncSessionFromLocation(pathname = location.pathname) {
 		workspace.syncLocation(pathname);
 		mobilePanel = workspace.requestedSessionId ? undefined : 'sessions';
@@ -104,26 +88,24 @@
 		await workspace.restartSession(session);
 	}
 
-	async function closeSession(session: ManagedSession) {
+	async function closeSession(session: ManagedSession): Promise<{ ok: boolean; error?: string }> {
 		const wasActive = workspace.requestedSessionId === session.id;
-		if (await workspace.closeSession(session)) {
-			closeSessionActions(false);
-			if (wasActive) mobilePanel = 'sessions';
-		}
+		if (!await workspace.closeSession(session)) return { ok: false, error: workspace.sessionActionError };
+		if (wasActive) mobilePanel = 'sessions';
+		return { ok: true };
 	}
 
-	async function removeSession(session: ManagedSession) {
+	async function removeSession(session: ManagedSession): Promise<{ ok: boolean; error?: string }> {
 		const wasActive = workspace.requestedSessionId === session.id;
-		if (await workspace.removeSession(session)) {
-			closeSessionActions(false);
-			if (wasActive) mobilePanel = 'sessions';
-		}
+		if (!await workspace.removeSession(session)) return { ok: false, error: workspace.sessionActionError };
+		if (wasActive) mobilePanel = 'sessions';
+		return { ok: true };
 	}
 
 	function handleSessionShortcut(event: KeyboardEvent) {
 		const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
 		if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || !digitMatch) return;
-		if (document.querySelector('[data-dialog-content]')) return;
+		if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
 		const primaryModifier = useMetaSessionShortcuts
 			? event.metaKey && !event.ctrlKey
 			: event.ctrlKey && !event.metaKey;
@@ -141,7 +123,7 @@
 
 	function handleOverlayKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
-		if (document.querySelector('[data-dialog-content]')) return;
+		if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
 		if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
 			event.preventDefault();
 			closeSessionNavigator();
@@ -241,7 +223,9 @@
 				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
 				onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
 				onOpen={openSession}
-				onOpenActions={openSessionActions}
+				sessionAction={workspace.sessionAction}
+				onCloseSession={closeSession}
+				onRemoveSession={removeSession}
 				onCreate={() => void createSession()}
 			/>
 
@@ -313,17 +297,6 @@
 				</section>
 			{/if}
 		</div>
-
-		{#if sessionActionsSession}
-			<SessionActionsDialog
-				session={sessionActionsSession}
-				action={workspace.sessionAction}
-				errorMessage={workspace.sessionActionError}
-				close={() => closeSessionActions()}
-				closeSession={closeSession}
-				remove={removeSession}
-			/>
-		{/if}
 	{/if}
 </main>
 
