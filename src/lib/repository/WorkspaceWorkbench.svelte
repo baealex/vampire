@@ -175,6 +175,13 @@
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
+	function editRepositoryFile(path: string) {
+		if (!confirmDiscardChanges()) return;
+		openedFile = undefined;
+		selection = { kind: 'file', path };
+		if (!desktop) onMobilePanelChange(undefined);
+	}
+
 	function repositoryPath(directory: string, name: string): string {
 		return directory ? `${directory}/${name}` : name;
 	}
@@ -328,13 +335,14 @@
 			onToggleRepository={toggleRepository}
 		>
 			{#if selection}
-				<RepositoryViewer
-					sessionId={session.id}
-					{selection}
-					refreshToken={repositoryRefreshToken}
-					initialFile={openedFile}
-					onClose={closeViewer}
-					onFileSaved={handleFileSaved}
+					<RepositoryViewer
+						sessionId={session.id}
+						{selection}
+						refreshToken={repositoryRefreshToken}
+						initialFile={openedFile}
+						onClose={closeViewer}
+						onEditFile={editRepositoryFile}
+						onFileSaved={handleFileSaved}
 					onFileDirtyChange={(dirty) => fileDirty = dirty}
 				/>
 			{/if}

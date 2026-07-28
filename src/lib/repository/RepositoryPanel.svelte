@@ -56,6 +56,8 @@
 	let draggingPath = $state('');
 	let treeRows = $derived(buildVisibleFileTree(snapshot?.files ?? [], expandedDirectories, snapshot?.directories ?? []));
 	let changeKinds = $derived(buildChangeKindMap(snapshot?.changes ?? []));
+	let revealRequestPath = '';
+	let revealRequestId = 0;
 
 	function beginEntryDrag(event: DragEvent, path: string, kind: 'file' | 'directory') {
 		if (!event.dataTransfer) return;
@@ -151,6 +153,35 @@
 		cancelCreation();
 		onSelect({ kind: 'diff', path });
 	}
+
+	async function revealFilePath(path: string, requestId: number) {
+		const parts = path.split('/').filter(Boolean);
+		let directory = '';
+		for (let index = 0; index < parts.length - 1; index += 1) {
+			if (requestId !== revealRequestId) return;
+			directory = directory ? `${directory}/${parts[index]}` : parts[index];
+			try {
+				await onLoadDirectory(directory);
+			} catch {
+				return;
+			}
+			if (requestId !== revealRequestId) return;
+			if (!expandedDirectories.includes(directory)) expandedDirectories = [...expandedDirectories, directory];
+		}
+	}
+
+	$effect(() => {
+		const targetPath = selected?.kind === 'file' ? selected.path : '';
+		if (!targetPath) {
+			revealRequestPath = '';
+			return;
+		}
+		activeTab = 'files';
+		if (targetPath === revealRequestPath) return;
+		revealRequestPath = targetPath;
+		const requestId = ++revealRequestId;
+		void revealFilePath(targetPath, requestId);
+	});
 
 	$effect(() => {
 		if (!inlineCreation) return;

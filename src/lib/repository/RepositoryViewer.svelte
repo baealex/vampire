@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FilePenLine from '@lucide/svelte/icons/file-pen-line';
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
 	import RepositoryCodeEditor from './RepositoryCodeEditor.svelte';
@@ -11,6 +12,7 @@
 		refreshToken,
 		initialFile,
 		onClose,
+		onEditFile = () => undefined,
 		onFileSaved = () => undefined,
 		onFileDirtyChange = () => undefined
 	}: {
@@ -19,6 +21,7 @@
 		refreshToken: number;
 		initialFile?: WorkspaceFile;
 		onClose: () => void;
+		onEditFile?: (path: string) => void;
 		onFileSaved?: (file: WorkspaceFile) => void;
 		onFileDirtyChange?: (dirty: boolean) => void;
 	} = $props();
@@ -135,6 +138,12 @@
 			{#if selection.kind === 'file' && file && !imagePreview && fileDirty}
 				<span class="dirty-indicator" role="status">Unsaved</span>
 			{/if}
+			{#if selection.kind === 'diff'}
+				<button class="edit-file" type="button" onclick={() => onEditFile(selection.path)} aria-label={`Edit ${selection.path}`} title={`Edit ${selection.path}`}>
+					<FilePenLine size={15} strokeWidth={1.8} aria-hidden="true" />
+					<span>Edit file</span>
+				</button>
+			{/if}
 			<button class="viewer-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind} and return to terminal`} title={`Close ${selection.kind} and return to terminal`}>
 				<X size={17} strokeWidth={1.8} aria-hidden="true" />
 			</button>
@@ -216,6 +225,8 @@
 	.document-kind { color: var(--color-accent-soft-text); font-size: 0.68rem; font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
 	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
 	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
+	.edit-file { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 2.25rem; padding: 0 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-control-background); color: var(--color-text-secondary); font: inherit; font-size: var(--text-caption); cursor: pointer; }
+	.edit-file:hover { background: var(--color-control-hover); color: var(--color-text); }
 	.viewer-close { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.viewer-close:hover { background: var(--color-surface-raised); color: var(--color-text); }
 	.viewer-warning { z-index: 2; margin: 0; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-danger-border); background: var(--color-danger-surface); color: var(--color-danger-text); font-size: var(--text-caption); line-height: var(--leading-ui); }
