@@ -7,8 +7,14 @@ export type RepositoryChange = {
 export type RepositorySnapshot = {
 	isGitRepository: boolean;
 	files: string[];
-	directories?: string[];
+	directories: string[];
 	changes: RepositoryChange[];
+	truncated: boolean;
+};
+
+export type RepositoryDirectoryListing = {
+	files: string[];
+	directories: string[];
 	truncated: boolean;
 };
 

@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, readdir, realpath, stat, lstat, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 /** @typedef {'conflict' | 'invalid-path' | 'not-found' | 'not-git' | 'too-large' | 'unsupported-file' | 'command-failed'} RepositoryReadErrorReason */
@@ -12,21 +12,11 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_FILE_COUNT = 8_000;
+const MAX_DIRECTORY_ENTRY_COUNT = 8_000;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
-const MAX_FALLBACK_DEPTH = 32;
-const FALLBACK_IGNORED_DIRECTORIES = new Set([
-	'.git',
-	'.svelte-kit',
-	'.next',
-	'build',
-	'coverage',
-	'dist',
-	'node_modules',
-	'target'
-]);
+const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git']);
 
 export class RepositoryReadError extends Error {
 	/** @type {RepositoryReadErrorReason} */
@@ -167,100 +157,95 @@ async function readGitChanges(cwd) {
 
 /**
  * @param {string} cwd
- * @param {RepositoryChange[]} changes
+ * @param {string} path
  */
-async function readGitFiles(cwd, changes) {
-	const { stdout } = await runGit(cwd, [
-		'ls-files',
-		'--cached',
-		'--others',
-		'--exclude-standard',
-		'-z',
-		'--',
-		'.'
-	]);
-	const deleted = new Set(
-		changes
-			.filter((change) => change.status[0] === 'D' || change.status[1] === 'D')
-			.map((change) => change.path)
-	);
-	const allFiles = stdout.split('\0').filter((path) => path && !deleted.has(path));
-	return {
-		files: allFiles.slice(0, MAX_FILE_COUNT).sort((left, right) => left.localeCompare(right, 'en')),
-		truncated: allFiles.length > MAX_FILE_COUNT
-	};
-}
-
-/** @param {string} cwd */
-async function readFallbackFiles(cwd) {
-	/** @type {string[]} */
-	const files = [];
-	let truncated = false;
-
-	/**
-	 * @param {string} directory
-	 * @param {string} relativeDirectory
-	 * @param {number} depth
-	 */
-	async function visit(directory, relativeDirectory, depth) {
-		if (truncated || depth > MAX_FALLBACK_DEPTH) {
-			truncated = true;
-			return;
-		}
-
-		let entries;
-		try {
-			entries = await readdir(directory, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		entries.sort((left, right) => {
-			if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1;
-			return left.name.localeCompare(right.name, 'en');
-		});
-
-		for (const entry of entries) {
-			if (files.length >= MAX_FILE_COUNT) {
-				truncated = true;
-				return;
-			}
-			if (entry.isSymbolicLink()) continue;
-			const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
-			if (entry.isDirectory()) {
-				if (!FALLBACK_IGNORED_DIRECTORIES.has(entry.name)) {
-					await visit(join(directory, entry.name), relativePath, depth + 1);
-				}
-			} else if (entry.isFile()) {
-				files.push(relativePath);
-			}
-		}
+async function resolveReadableDirectory(cwd, path) {
+	const root = await workspaceRoot(cwd);
+	const normalizedPath = path === '' ? '' : normalizeRelativePath(path);
+	const lexicalTarget = resolve(root, normalizedPath || '.');
+	if (!staysInside(root, lexicalTarget)) {
+		throw repositoryError('invalid-path', 'Directory path must stay inside the workspace.');
 	}
 
-	await visit(cwd, '', 0);
-	return { files: files.sort((left, right) => left.localeCompare(right, 'en')), truncated };
+	let target;
+	try {
+		target = await realpath(lexicalTarget);
+	} catch {
+		throw repositoryError('not-found', 'Directory is no longer available.');
+	}
+	if (!staysInside(root, target)) {
+		throw repositoryError('invalid-path', 'Linked directories outside the workspace cannot be opened.');
+	}
+
+	let details;
+	try {
+		details = await stat(target);
+	} catch {
+		throw repositoryError('not-found', 'Directory is no longer available.');
+	}
+	if (!details.isDirectory()) throw repositoryError('unsupported-file', 'Only directories can be opened.');
+	return { normalizedPath, target };
+}
+
+/**
+ * Read only the immediate children of a workspace directory.
+ * @param {string} cwd
+ * @param {string} [path]
+ */
+export async function readWorkspaceDirectory(cwd, path = '') {
+	const { normalizedPath, target } = await resolveReadableDirectory(cwd, path);
+	let entries;
+	try {
+		entries = await readdir(target, { withFileTypes: true });
+	} catch {
+		throw repositoryError('command-failed', 'The directory could not be read.');
+	}
+	entries.sort((left, right) => {
+		if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1;
+		return left.name.localeCompare(right.name, 'en');
+	});
+
+	/** @type {string[]} */
+	const files = [];
+	/** @type {string[]} */
+	const directories = [];
+	let truncated = false;
+	for (const entry of entries) {
+		if (entry.isSymbolicLink() || IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;
+		if (files.length + directories.length >= MAX_DIRECTORY_ENTRY_COUNT) {
+			truncated = true;
+			break;
+		}
+		const entryPath = normalizedPath ? `${normalizedPath}/${entry.name}` : entry.name;
+		if (entry.isDirectory()) directories.push(entryPath);
+		else if (entry.isFile()) files.push(entryPath);
+	}
+
+	return { files, directories, truncated };
 }
 
 /** @param {string} cwd */
 export async function readRepositorySnapshot(cwd) {
 	const root = await workspaceRoot(cwd);
 	const gitRepository = await isGitRepository(root);
+	const directory = await readWorkspaceDirectory(root);
 	if (!gitRepository) {
-		const fallback = await readFallbackFiles(root);
 		return {
 			isGitRepository: false,
-			files: fallback.files,
+			files: directory.files,
+			directories: directory.directories,
 			changes: [],
-			truncated: fallback.truncated
+			truncated: directory.truncated
 		};
 	}
 
 	const changes = await readGitChanges(root);
-	const files = await readGitFiles(root, changes);
 	return {
 		isGitRepository: true,
-		files: files.files,
+		files: directory.files,
+		directories: directory.directories,
 		changes,
-		truncated: files.truncated
+		truncated: directory.truncated
 	};
 }
 

@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
 	readRepositoryDiff,
 	readRepositorySnapshot,
+	readWorkspaceDirectory,
 	readWorkspaceImage,
 	readWorkspaceImageMetadata,
 	readWorkspaceFile,
@@ -37,22 +38,30 @@ async function createRepository(t) {
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	await git(directory, 'init', '--quiet');
 	await mkdir(join(directory, 'src'));
-	await writeFile(join(directory, '.gitignore'), 'ignored.log\n');
+	await writeFile(join(directory, '.gitignore'), 'ignored.log\n.env\nbuild/\nnode_modules/\n');
 	await writeFile(join(directory, 'src', 'app.js'), 'const value = 1;\n');
 	await git(directory, 'add', '.');
 	await git(directory, 'commit', '--quiet', '-m', 'initial');
 	return directory;
 }
 
-test('lists relevant workspace files and reflects structure changes', async (t) => {
+test('lists workspace files including Git-ignored entries and reflects structure changes', async (t) => {
 	const directory = await createRepository(t);
+	await mkdir(join(directory, 'build'));
+	await mkdir(join(directory, 'node_modules'));
+	await writeFile(join(directory, 'build', 'output.js'), 'generated\n');
+	await writeFile(join(directory, 'node_modules', 'package.js'), 'dependency\n');
 	await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\n');
 	await writeFile(join(directory, 'notes.md'), '# Notes\n');
 	await writeFile(join(directory, 'ignored.log'), 'hidden\n');
+	await writeFile(join(directory, '.env'), 'SECRET=value\n');
 
 	const first = await readRepositorySnapshot(directory);
 	assert.equal(first.isGitRepository, true);
-	assert.deepEqual(first.files, ['.gitignore', 'notes.md', 'src/app.js']);
+	assert.deepEqual(first.files, ['.env', '.gitignore', 'ignored.log', 'notes.md']);
+	assert.deepEqual(first.directories, ['build', 'node_modules', 'src']);
+	assert.deepEqual((await readWorkspaceDirectory(directory, 'src')).files, ['src/app.js']);
+	assert.deepEqual((await readWorkspaceDirectory(directory, 'node_modules')).files, ['node_modules/package.js']);
 	assert.deepEqual(first.changes.map(({ path, status }) => ({ path, status })), [
 		{ path: 'notes.md', status: '??' },
 		{ path: 'src/app.js', status: ' M' }
@@ -61,7 +70,8 @@ test('lists relevant workspace files and reflects structure changes', async (t) 
 	await writeFile(join(directory, 'src', 'new.js'), 'export {};\n');
 	await rm(join(directory, 'notes.md'));
 	const second = await readRepositorySnapshot(directory);
-	assert.deepEqual(second.files, ['.gitignore', 'src/app.js', 'src/new.js']);
+	assert.deepEqual(second.files, ['.env', '.gitignore', 'ignored.log']);
+	assert.deepEqual((await readWorkspaceDirectory(directory, 'src')).files, ['src/app.js', 'src/new.js']);
 	assert.deepEqual(second.changes.map(({ path, status }) => ({ path, status })), [
 		{ path: 'src/app.js', status: ' M' },
 		{ path: 'src/new.js', status: '??' }
@@ -144,7 +154,8 @@ test('creates and updates text files without overwriting newer changes', async (
 	);
 
 	const snapshot = await readRepositorySnapshot(directory);
-	assert.ok(snapshot.files.includes('logs/company.log'));
+	assert.ok(snapshot.directories.includes('logs'));
+	assert.ok((await readWorkspaceDirectory(directory, 'logs')).files.includes('logs/company.log'));
 });
 
 test('deletes files and folders without leaving the workspace', async (t) => {
