@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
 import { listManagedSessions as readManagedSessions } from './session-snapshot.mjs';
 import { createSessionNotePreview } from './session-note.mjs';
 import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
+import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.mjs';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
 
@@ -93,16 +94,19 @@ async function writeState(state: StateFile): Promise<void> {
 }
 
 async function validateCwd(cwd: string): Promise<string> {
-	if (!cwd.startsWith('/')) {
-		throw new SessionLaunchError('invalid-cwd', 'Working directory must be an absolute path.');
-	}
-
 	try {
-		const directory = resolve(cwd);
-		const { stat } = await import('node:fs/promises');
-		if (!(await stat(directory)).isDirectory()) throw new Error('not a directory');
-		return directory;
-	} catch {
+		return await resolveAllowedWorkspaceDirectory(cwd);
+	} catch (cause) {
+		if (cause instanceof WorkspaceRootError) throw new SessionLaunchError('invalid-cwd', cause.message);
+		throw new SessionLaunchError('invalid-cwd', 'Working directory does not exist or is not a permitted workspace.');
+	}
+}
+
+async function validateExistingCwd(cwd: string): Promise<string> {
+	try {
+		return await resolveExistingWorkspaceDirectory(cwd);
+	} catch (cause) {
+		if (cause instanceof WorkspaceRootError) throw new SessionLaunchError('invalid-cwd', cause.message);
 		throw new SessionLaunchError('invalid-cwd', 'Working directory does not exist or is not a directory.');
 	}
 }
@@ -200,7 +204,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			};
 		}
 
-		const cwd = await validateCwd(stored.cwd);
+		const cwd = await validateExistingCwd(stored.cwd);
 		try {
 			await createTmuxSession(stored.tmuxSession, cwd);
 		} catch {
