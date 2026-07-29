@@ -53,7 +53,7 @@ try {
 }
 
 async function installPackage(source, directory) {
-	const attempts = source.endsWith('.tgz') ? 1 : 12;
+	const attempts = source.endsWith('.tgz') ? 1 : 60;
 	let lastError;
 
 	for (let attempt = 1; attempt <= attempts; attempt += 1) {
