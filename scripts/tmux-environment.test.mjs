@@ -75,3 +75,13 @@ test('follows a single foreground child without parsing command arguments', () =
 
 	assert.deepEqual(session.foregroundProcess, { kind: 'command', label: 'agent' });
 });
+
+test('parses the lightweight tmux output activity snapshot', () => {
+	assert.deepEqual(tmux.parseTmuxSessionActivity([
+		'vampire-one\t1712345678',
+		'vampire-two\t1712345680'
+	].join('\n')), [
+		{ name: 'vampire-one', lastOutputAt: 1_712_345_678_000 },
+		{ name: 'vampire-two', lastOutputAt: 1_712_345_680_000 }
+	]);
+});

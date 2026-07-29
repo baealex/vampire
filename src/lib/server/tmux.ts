@@ -98,6 +98,11 @@ export interface TmuxSession {
 	foregroundProcess: TmuxProcessHint | null;
 }
 
+export interface TmuxSessionActivity {
+	name: string;
+	lastOutputAt: number | null;
+}
+
 export type TmuxProcessKind = 'shell' | 'command';
 
 export interface TmuxProcessHint {
@@ -184,6 +189,22 @@ export function parseTmuxSessions(output: string, processes = new Map<number, Pr
 	return parseTmuxSessionsWithProcesses(output, processes);
 }
 
+export function parseTmuxSessionActivity(output: string): TmuxSessionActivity[] {
+	return output
+		.trim()
+		.split('\n')
+		.filter(Boolean)
+		.flatMap((line) => {
+			const [name, lastOutputAt] = line.split('\t');
+			if (!name) return [];
+			const timestamp = Number(lastOutputAt);
+			return [{
+				name,
+				lastOutputAt: Number.isFinite(timestamp) ? timestamp * 1_000 : null
+			}];
+		});
+}
+
 function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, ProcessRecord>): TmuxSession[] {
 	return output
 		.trim()
@@ -225,6 +246,21 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 				.catch(() => new Map<number, ProcessRecord>())
 		]);
 		return parseTmuxSessionsWithProcesses(stdout, processTable);
+	} catch (error) {
+		const details = error as NodeJS.ErrnoException & { stderr?: string };
+		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /no server running/i.test(details.stderr ?? ''))) return [];
+		throw error;
+	}
+}
+
+export async function listTmuxSessionActivity(): Promise<TmuxSessionActivity[]> {
+	try {
+		const { stdout } = await execFile('tmux', [
+			'list-sessions',
+			'-F',
+			'#{session_name}\t#{window_activity}'
+		]);
+		return parseTmuxSessionActivity(stdout);
 	} catch (error) {
 		const details = error as NodeJS.ErrnoException & { stderr?: string };
 		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /no server running/i.test(details.stderr ?? ''))) return [];

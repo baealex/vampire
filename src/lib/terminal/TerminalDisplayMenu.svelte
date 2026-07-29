@@ -63,6 +63,6 @@
 </div>
 
 <style>
-	:global(.terminal-display-trigger) { width: 2.35rem; height: 2.35rem; border: 1px solid transparent; border-radius: 0.5rem; }
+	:global(.terminal-display-trigger) { width: 2.35rem; height: 2.35rem; border: 1px solid transparent; border-radius: var(--radius-control); }
 	:global(.terminal-display-trigger:hover), :global(.terminal-display-trigger:focus-visible), :global(.terminal-display-trigger[data-state='open']) { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
 </style>

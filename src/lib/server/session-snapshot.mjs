@@ -10,6 +10,7 @@ const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell
  * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; note: string }} StoredSession
  * @typedef {{ pid: number; ppid: number; pgid: number; tpgid: number; command: string }} ProcessRecord
  * @typedef {{ name: string; createdAt: number | null; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} TmuxSessionSnapshot
+ * @typedef {{ name: string; lastOutputAt: number | null }} TmuxSessionActivity
  * @typedef {{ kind: 'shell' | 'command'; label: string }} TmuxProcessHint
  * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} ManagedSessionSnapshot
  */
@@ -126,6 +127,23 @@ function parseTmuxSessions(output, processes) {
 		});
 }
 
+/** @param {string} output @returns {TmuxSessionActivity[]} */
+export function parseTmuxSessionActivity(output) {
+	return output
+		.trim()
+		.split('\n')
+		.filter(Boolean)
+		.flatMap((line) => {
+			const [name, lastOutputAt] = line.split('\t');
+			if (!name) return [];
+			const timestamp = Number(lastOutputAt);
+			return [{
+				name,
+				lastOutputAt: Number.isFinite(timestamp) ? timestamp * 1_000 : null
+			}];
+		});
+}
+
 /** @returns {Promise<TmuxSessionSnapshot[]>} */
 async function listTmuxSessions() {
 	try {
@@ -140,6 +158,23 @@ async function listTmuxSessions() {
 				.catch(() => new Map())
 		]);
 		return parseTmuxSessions(stdout, processTable);
+	} catch (error) {
+		const details = /** @type {NodeJS.ErrnoException & { stderr?: string }} */ (error);
+		if (details.code === 'ENOENT' || /(?:tmux|command) (?:not found|not recognized)/i.test(`${details.message ?? ''} ${details.stderr ?? ''}`)) return [];
+		if (Number(details.code) === 1 && /no server running/i.test(details.stderr ?? '')) return [];
+		throw error;
+	}
+}
+
+/** @returns {Promise<TmuxSessionActivity[]>} */
+export async function listTmuxSessionActivity() {
+	try {
+		const { stdout } = await execFile('tmux', [
+			'list-sessions',
+			'-F',
+			'#{session_name}\t#{window_activity}'
+		]);
+		return parseTmuxSessionActivity(stdout);
 	} catch (error) {
 		const details = /** @type {NodeJS.ErrnoException & { stderr?: string }} */ (error);
 		if (details.code === 'ENOENT' || /(?:tmux|command) (?:not found|not recognized)/i.test(`${details.message ?? ''} ${details.stderr ?? ''}`)) return [];

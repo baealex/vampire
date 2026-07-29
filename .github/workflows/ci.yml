@@ -39,5 +39,14 @@ jobs:
       - name: Verify
         run: pnpm test
 
+      - name: Install browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Verify browser flows
+        run: pnpm test:e2e
+
       - name: Check npm package contents
         run: pnpm pack --dry-run

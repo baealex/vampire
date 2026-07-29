@@ -79,7 +79,7 @@
 		position: absolute;
 		inset: -0.6rem;
 		border: 1px solid var(--color-visual-accent-border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-control);
 		opacity: 0;
 		animation: document-frame-flight 1.45s linear infinite;
 		animation-delay: var(--frame-delay);

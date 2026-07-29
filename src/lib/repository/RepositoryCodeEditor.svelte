@@ -185,7 +185,7 @@
 	<div bind:this={editorHost} class="editor-host"></div>
 	<footer class="editor-status">
 		<span>{formatBytes(byteSize)} / 5 MB</span>
-		<span class:error={Boolean(saveError)} role={saveError ? 'alert' : 'status'}>{saveStatus}</span>
+		<span class:error={Boolean(saveError)} role="status">{saveStatus}</span>
 		<button type="button" class="save-button" onclick={() => void saveFile()} disabled={!dirty || saving}>
 			{saving ? 'Saving…' : 'Save'}
 		</button>
@@ -200,7 +200,7 @@
 	.editor-host { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; touch-action: auto; }
 	.editor-host :global(.cm-editor) { height: 100%; }
 	.editor-host :global(.cm-content), .editor-host :global(.cm-line) { user-select: text; -webkit-user-select: text; }
-	.editor-status { display: flex; flex: 0 0 auto; align-items: center; gap: 0.8rem; min-height: 2.25rem; padding: 0.25rem 0.7rem; border-top: 1px solid var(--color-border-subtle); color: var(--color-text-tertiary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+	.editor-status { display: flex; flex: 0 0 auto; align-items: center; gap: 0.8rem; min-height: var(--control-height-sm); padding: 0.25rem 0.7rem; border-top: 1px solid var(--color-border-subtle); color: var(--color-text-tertiary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 	.editor-status > span:nth-child(2) { margin-left: auto; }
 	.editor-status .error { color: var(--color-danger-text); }
 	.save-button { min-height: 1.8rem; padding: 0 0.6rem; border: 1px solid var(--color-accent); border-radius: 0.38rem; background: var(--color-accent); color: var(--color-accent-ink); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }

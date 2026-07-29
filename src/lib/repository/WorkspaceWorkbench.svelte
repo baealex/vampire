@@ -1,15 +1,16 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { RequestError } from '$lib/client/request';
+	import { onMount, untrack } from 'svelte';
 	import Terminal from '$lib/Terminal.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName as getProjectName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import { DESKTOP_MEDIA_QUERY } from '$lib/ui/layout';
+	import { isUiOverlayOpen } from '$lib/ui/overlay';
 	import RepositoryPanel from './RepositoryPanel.svelte';
-	import { RepositoryClient } from './client';
 	import RepositoryViewer from './RepositoryViewer.svelte';
-	import type { RepositoryDirectoryListing, RepositorySelection, RepositorySnapshot, WorkspaceFile } from './types';
+	import { RepositoryWorkspaceState } from './workspace-state.svelte';
+	import type { RepositorySelection } from './types';
 
 	let {
 		session,
@@ -18,6 +19,7 @@
 		onLoadNote,
 		onInputActivity,
 		onOutputActivity,
+		onTerminalPresentationChange = () => undefined,
 		systemMetrics,
 		mobilePanel,
 		onMobilePanelChange = () => undefined
@@ -28,260 +30,72 @@
 		onLoadNote: (sessionId: string) => Promise<string>;
 		onInputActivity: (sessionId: string, timestamp: number) => void;
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
+		onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
 		systemMetrics?: SystemMetrics;
 		mobilePanel?: MobilePanel;
 		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
 	} = $props();
 
-	let snapshot = $state<RepositorySnapshot>();
-	let repositoryLoading = $state(true);
-	let repositoryError = $state('');
-	let repositoryRefreshToken = $state(0);
-	let selection = $state<RepositorySelection>();
-	let openedFile = $state<WorkspaceFile>();
-	let fileDirty = $state(false);
-	let deleteTarget = $state<{ path: string; kind: 'file' | 'directory' }>();
-	let discardChangesPrompt = $state(false);
-	let loadedDirectories = $state<string[]>([]);
 	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
-	let repositoryOperation: Promise<void> = Promise.resolve();
-	let refreshPromise: Promise<void> | undefined;
-	let refreshQueued = false;
-	let discardChangesResolver: ((discard: boolean) => void) | undefined;
 	const name = $derived(getProjectName(session.cwd));
-	let changeCount = $state(0);
-	let worktreeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
-	const repositoryApi = $derived(new RepositoryClient(session.id));
-
-	function enqueueRepositoryOperation<T>(operation: () => Promise<T>): Promise<T> {
-		const next = repositoryOperation.then(() => operation(), () => operation());
-		repositoryOperation = next.then(() => undefined, () => undefined);
-		return next;
-	}
-
-	function mergeDirectoryListing(current: RepositorySnapshot, path: string, listing: RepositoryDirectoryListing): RepositorySnapshot {
-		const prefix = path ? `${path}/` : '';
-		return {
-			...current,
-			files: [...current.files.filter((entry) => !entry.startsWith(prefix)), ...listing.files],
-			directories: [...current.directories.filter((entry) => !entry.startsWith(prefix)), ...listing.directories],
-			truncated: path ? current.truncated || listing.truncated : listing.truncated
-		};
-	}
-
-	function fetchRepositoryDirectory(path: string): Promise<RepositoryDirectoryListing> {
-		return repositoryApi.readDirectory(path);
-	}
-
-	async function loadRepositoryDirectory(path: string) {
-		return enqueueRepositoryOperation(async () => {
-			if (loadedDirectories.includes(path)) return;
-			try {
-				const listing = await fetchRepositoryDirectory(path);
-				if (!snapshot) throw new Error('Repository information is unavailable.');
-				snapshot = mergeDirectoryListing(snapshot, path, listing);
-				loadedDirectories = [...loadedDirectories, path];
-			} catch (error) {
-				repositoryError = error instanceof Error ? error.message : 'Unable to read this folder.';
-				throw error;
-			}
-		});
-	}
-
-	async function refreshRepository(showLoading = false) {
-		if (refreshPromise) {
-			refreshQueued = true;
-			return;
-		}
-		if (document.hidden) return;
-		const run = enqueueRepositoryOperation(async () => {
-			const shouldShowLoading = showLoading || !snapshot;
-			if (shouldShowLoading) repositoryLoading = true;
-			try {
-				let nextSnapshot = await repositoryApi.readSnapshot();
-				const activeDirectories: string[] = [];
-				for (const path of loadedDirectories) {
-					try {
-						nextSnapshot = mergeDirectoryListing(nextSnapshot, path, await fetchRepositoryDirectory(path));
-						activeDirectories.push(path);
-					} catch (error) {
-						if (error instanceof RequestError && error.status === 404) continue;
-						throw error;
-					}
-				}
-				loadedDirectories = activeDirectories;
-				snapshot = nextSnapshot;
-				changeCount = nextSnapshot.changes.length;
-				repositoryError = '';
-				repositoryRefreshToken += 1;
-			} catch (error) {
-				repositoryError = error instanceof Error ? error.message : 'Unable to refresh this repository.';
-			} finally {
-				if (shouldShowLoading) repositoryLoading = false;
-			}
-		});
-		refreshPromise = run;
-		try {
-			await run;
-		} finally {
-			if (refreshPromise === run) refreshPromise = undefined;
-			if (refreshQueued) {
-				refreshQueued = false;
-				if (repositoryOpen && !document.hidden) void refreshRepository();
-			}
-		}
-	}
+	const repository = new RepositoryWorkspaceState(untrack(() => session.id), { isOpen: () => repositoryOpen });
 
 	function toggleRepository() {
 		if (repositoryOpen) {
-			closeRepository();
+			void closeRepository();
 			return;
 		}
 		if (desktop) desktopRepositoryOpen = true;
 		else onMobilePanelChange('repository');
 	}
 
-	async function closeRepository() {
-		if (!await confirmDiscardChanges()) return false;
-		closeRepositoryNow();
-		return true;
-	}
-
-	function closeRepositoryNow() {
+	async function closeRepository(): Promise<boolean> {
+		if (!await repository.confirmDiscardChanges()) return false;
 		if (desktop) desktopRepositoryOpen = false;
 		else onMobilePanelChange(undefined);
-		selection = undefined;
-		openedFile = undefined;
-		fileDirty = false;
-	}
-
-	function confirmDiscardChanges(): Promise<boolean> {
-		if (!fileDirty) return Promise.resolve(true);
-		discardChangesPrompt = true;
-		return new Promise((resolve) => {
-			discardChangesResolver = resolve;
-		});
-	}
-
-	function resolveDiscardChanges(discard: boolean) {
-		const resolve = discardChangesResolver;
-		discardChangesResolver = undefined;
-		discardChangesPrompt = false;
-		if (discard) fileDirty = false;
-		resolve?.(discard);
+		repository.clearSelection();
+		return true;
 	}
 
 	async function openSessionNavigator() {
 		if (repositoryOpen) {
 			if (!await closeRepository()) return;
-		} else if (!await confirmDiscardChanges()) {
+		} else if (!await repository.confirmDiscardChanges()) {
 			return;
 		}
 		close();
 	}
 
-	async function selectRepositoryItem(nextSelection: RepositorySelection) {
-		if (!await confirmDiscardChanges()) return;
-		openedFile = undefined;
-		selection = nextSelection;
+	async function selectRepositoryItem(selection: RepositorySelection) {
+		if (!await repository.selectItem(selection)) return;
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
 	async function editRepositoryFile(path: string) {
-		if (!await confirmDiscardChanges()) return;
-		openedFile = undefined;
-		selection = { kind: 'file', path };
+		if (!await repository.editFile(path)) return;
 		if (!desktop) onMobilePanelChange(undefined);
-	}
-
-	function repositoryPath(directory: string, name: string): string {
-		return directory ? `${directory}/${name}` : name;
 	}
 
 	async function createFile(directory: string, name: string) {
-		if (!await confirmDiscardChanges()) throw new Error('Finish editing the current file first.');
-		const path = repositoryPath(directory, name);
-		await enqueueRepositoryOperation(async () => {
-			const created = await repositoryApi.createFile(path);
-			openedFile = created;
-			fileDirty = false;
-			selection = { kind: 'file', path: created.path };
-		});
-		await refreshRepository();
+		await repository.createFile(directory, name);
 		if (!desktop) onMobilePanelChange(undefined);
 	}
 
-	async function createDirectory(directory: string, name: string) {
-		const path = repositoryPath(directory, name);
-		await enqueueRepositoryOperation(() => repositoryApi.createDirectory(path));
-		await refreshRepository();
-	}
-
-	function requestDelete(path: string, kind: 'file' | 'directory') {
-		deleteTarget = { path, kind };
-	}
-
-	function pathContainsEntry(path: string, entryPath: string, kind: 'file' | 'directory'): boolean {
-		return kind === 'directory' ? path === entryPath || path.startsWith(`${entryPath}/`) : path === entryPath;
-	}
-
-	function deleteDescription(target: { path: string; kind: 'file' | 'directory' }): string {
-		const selectedPath = selection?.path;
-		const discardsChanges = Boolean(fileDirty && selectedPath && pathContainsEntry(selectedPath, target.path, target.kind));
-		const targetDescription = target.kind === 'directory'
-			? `“${target.path}” and everything inside it will be permanently deleted.`
-			: `“${target.path}” will be permanently deleted.`;
-		return discardsChanges ? `${targetDescription} The open file has unsaved changes that will be discarded.` : targetDescription;
-	}
-
-	async function confirmDelete() {
-		if (!deleteTarget) return;
-		const target = deleteTarget;
-		const selectedPath = selection?.path;
-		const deletingSelected = Boolean(selectedPath && pathContainsEntry(selectedPath, target.path, target.kind));
-
-		await enqueueRepositoryOperation(async () => {
-			await repositoryApi.deleteEntry(target.path, target.kind);
-			if (target.kind === 'directory') {
-				loadedDirectories = loadedDirectories.filter((directory) => directory !== target.path && !directory.startsWith(`${target.path}/`));
-			}
-			if (deletingSelected) {
-				selection = undefined;
-				openedFile = undefined;
-				fileDirty = false;
-			}
-		});
-		await refreshRepository();
-		deleteTarget = undefined;
-	}
-
-	function handleFileSaved(saved: WorkspaceFile) {
-		openedFile = saved;
-		fileDirty = false;
-		void refreshRepository();
-	}
-
-	async function closeViewer() {
-		if (!await confirmDiscardChanges()) return;
-		selection = undefined;
-		openedFile = undefined;
-		fileDirty = false;
-	}
-
-	function handleRepositoryStatus(nextChangeCount: number, nextWorktreeCount: number) {
-		changeCount = nextChangeCount;
-		worktreeCount = nextWorktreeCount;
-		if (repositoryOpen) void refreshRepository();
-	}
+	$effect(() => {
+		const sessionId = session.id;
+		const presented = !repository.selection;
+		onTerminalPresentationChange(sessionId, presented);
+		return () => onTerminalPresentationChange(sessionId, false);
+	});
 
 	$effect(() => {
 		if (!repositoryOpen) return;
 		const refreshWhenVisible = () => {
-			if (!document.hidden) void refreshRepository();
+			if (!document.hidden) void repository.refresh();
 		};
-		void refreshRepository();
+		void repository.refresh();
 		document.addEventListener('visibilitychange', refreshWhenVisible);
 
 		return () => {
@@ -290,18 +104,18 @@
 	});
 
 	onMount(() => {
-		const desktopQuery = window.matchMedia('(min-width: 64rem)');
+		const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
 		const syncDesktop = () => desktop = desktopQuery.matches;
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
-			if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
+			if (isUiOverlayOpen()) return;
 			if (event.target instanceof HTMLElement && event.target.closest('[data-inline-repository-entry]')) return;
 			if (repositoryOpen) {
 				event.preventDefault();
-				closeRepository();
-			} else if (selection) {
+				void closeRepository();
+			} else if (repository.selection) {
 				event.preventDefault();
-				closeViewer();
+				void repository.closeViewer();
 			}
 		};
 		syncDesktop();
@@ -311,6 +125,7 @@
 		return () => {
 			desktopQuery.removeEventListener('change', syncDesktop);
 			window.removeEventListener('keydown', closeOverlay, { capture: true });
+			repository.resolveDiscardChanges(false);
 		};
 	});
 </script>
@@ -326,21 +141,21 @@
 			{onOutputActivity}
 			{systemMetrics}
 			{repositoryOpen}
-			{changeCount}
-			{worktreeCount}
-			onRepositoryStatus={handleRepositoryStatus}
+			changeCount={repository.changeCount}
+			worktreeCount={repository.worktreeCount}
+			onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
 			onToggleRepository={toggleRepository}
 		>
-			{#if selection}
-					<RepositoryViewer
-						sessionId={session.id}
-						{selection}
-						refreshToken={repositoryRefreshToken}
-						initialFile={openedFile}
-						onClose={closeViewer}
-						onEditFile={editRepositoryFile}
-						onFileSaved={handleFileSaved}
-						onFileDirtyChange={(dirty) => fileDirty = dirty}
+			{#if repository.selection}
+				<RepositoryViewer
+					sessionId={session.id}
+					selection={repository.selection}
+					refreshToken={repository.refreshToken}
+					initialFile={repository.openedFile}
+					onClose={() => repository.closeViewer()}
+					onEditFile={editRepositoryFile}
+					onFileSaved={(file) => repository.handleFileSaved(file)}
+					onFileDirtyChange={(dirty) => repository.fileDirty = dirty}
 				/>
 			{/if}
 		</Terminal>
@@ -348,39 +163,39 @@
 
 	<RepositoryPanel
 		projectName={name}
-		{snapshot}
-		loading={repositoryLoading}
-		errorMessage={repositoryError}
-		selected={selection}
+		snapshot={repository.snapshot}
+		loading={repository.loading}
+		errorMessage={repository.errorMessage}
+		selected={repository.selection}
 		open={repositoryOpen}
-		onRefresh={() => void refreshRepository(true)}
-		onLoadDirectory={loadRepositoryDirectory}
+		onRefresh={() => void repository.refresh(true)}
+		onLoadDirectory={(path) => repository.loadDirectory(path)}
 		onCreateFile={createFile}
-		onCreateDirectory={createDirectory}
-		onRequestDelete={requestDelete}
+		onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
+		onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
 		onClose={closeRepository}
 		onSelect={selectRepositoryItem}
 	/>
 
-	{#if discardChangesPrompt}
+	{#if repository.discardChangesPrompt}
 		<ConfirmDialog
 			title="Discard unsaved changes?"
 			description="Your edits to the open file have not been saved. Discard them and continue?"
 			confirmLabel="Discard changes"
 			busyLabel="Discarding…"
-			close={() => resolveDiscardChanges(false)}
-			onConfirm={async () => resolveDiscardChanges(true)}
+			close={() => repository.resolveDiscardChanges(false)}
+			onConfirm={async () => repository.resolveDiscardChanges(true)}
 		/>
 	{/if}
 
-	{#if deleteTarget}
+	{#if repository.deleteTarget}
 		<ConfirmDialog
-			title={deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
-			description={deleteDescription(deleteTarget)}
-			confirmLabel={deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
+			title={repository.deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
+			description={repository.deleteDescription(repository.deleteTarget)}
+			confirmLabel={repository.deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
 			busyLabel="Deleting…"
-			close={() => deleteTarget = undefined}
-			onConfirm={confirmDelete}
+			close={() => repository.deleteTarget = undefined}
+			onConfirm={() => repository.confirmDelete()}
 		/>
 	{/if}
 </section>

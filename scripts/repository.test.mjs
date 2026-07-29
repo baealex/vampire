@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -154,6 +154,25 @@ test('creates and updates text files without overwriting newer changes', async (
 	const created = await writeWorkspaceFile(directory, 'logs/company.log', 'first line\n', { createOnly: true });
 	assert.equal(created.path, 'logs/company.log');
 	assert.equal(created.content, 'first line\n');
+	const nested = await writeWorkspaceFile(directory, 'generated/reports/today.md', '# Today\n', { createOnly: true });
+	assert.equal(nested.path, 'generated/reports/today.md');
+	assert.equal(nested.content, '# Today\n');
+	const nestedDirectory = await createWorkspaceDirectory(directory, 'archives/2026/july');
+	assert.equal(nestedDirectory.path, 'archives/2026/july');
+	await mkdir(join(directory, 'linked-target'));
+	await symlink(join(directory, 'linked-target'), join(directory, 'linked-parent'));
+	const linkedFile = await writeWorkspaceFile(directory, 'linked-parent/generated/note.txt', 'linked\n', { createOnly: true });
+	assert.equal(linkedFile.path, 'linked-parent/generated/note.txt');
+	assert.equal((await readFile(join(directory, 'linked-target', 'generated', 'note.txt'), 'utf8')), 'linked\n');
+
+	const competingCreates = await Promise.allSettled([
+		writeWorkspaceFile(directory, 'logs/concurrent.log', 'first\n', { createOnly: true }),
+		writeWorkspaceFile(directory, 'logs/concurrent.log', 'second\n', { createOnly: true })
+	]);
+	assert.equal(competingCreates.filter(({ status }) => status === 'fulfilled').length, 1);
+	const rejectedCreate = competingCreates.find(({ status }) => status === 'rejected');
+	assert.equal(rejectedCreate?.status, 'rejected');
+	assert.equal(rejectedCreate.reason instanceof RepositoryReadError && rejectedCreate.reason.reason, 'conflict');
 
 	const updated = await writeWorkspaceFile(directory, 'logs/company.log', 'first line\nsecond line\n', {
 		expectedVersion: created.version
@@ -172,6 +191,31 @@ test('creates and updates text files without overwriting newer changes', async (
 	const snapshot = await readRepositorySnapshot(directory);
 	assert.ok(snapshot.directories.includes('logs'));
 	assert.ok((await readWorkspaceDirectory(directory, 'logs')).files.includes('logs/company.log'));
+});
+
+test('does not create directories through linked parents outside the workspace', async (t) => {
+	const directory = await createRepository(t);
+	const outsideDirectory = await mkdtemp(join(tmpdir(), 'vampire-outside-'));
+	t.after(() => rm(outsideDirectory, { recursive: true, force: true }));
+	await symlink(outsideDirectory, join(directory, 'outside-link'));
+
+	await assert.rejects(
+		() => writeWorkspaceFile(directory, 'outside-link/file-parent/note.txt', 'secret\n', { createOnly: true }),
+		(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+	);
+	await assert.rejects(
+		() => stat(join(outsideDirectory, 'file-parent')),
+		(error) => error?.code === 'ENOENT'
+	);
+
+	await assert.rejects(
+		() => createWorkspaceDirectory(directory, 'outside-link/folder-parent/new-folder'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+	);
+	await assert.rejects(
+		() => stat(join(outsideDirectory, 'folder-parent')),
+		(error) => error?.code === 'ENOENT'
+	);
 });
 
 test('deletes files and folders without leaving the workspace', async (t) => {

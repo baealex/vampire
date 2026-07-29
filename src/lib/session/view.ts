@@ -1,13 +1,20 @@
 import type { ManagedSession, SessionOrderMode, SessionProcess } from './types';
 
-export const SESSION_ACTIVITY_WINDOW_MS = 10_000;
+export const SESSION_OUTPUT_SETTLE_MS = 8_000;
+
+export type SessionActivityState = 'active' | 'review' | 'idle' | 'ended';
+export type SessionActivityRecord = {
+	activeUntil: number;
+	seenThroughAt: number;
+};
+export type SessionActivityRecords = ReadonlyMap<string, SessionActivityRecord>;
 
 const SESSION_PROCESS_COLORS = [
 	'var(--color-agent)',
 	'var(--color-command)',
 	'var(--color-success)',
 	'var(--color-info)',
-	'var(--color-note)',
+	'var(--terminal-blue)',
 	'var(--color-folder)',
 	'var(--color-image)',
 	'var(--color-renamed)',
@@ -48,33 +55,17 @@ export function sessionProcessHint(session: ManagedSession): string {
 
 export function sessionIsActive(
 	session: ManagedSession,
-	activeOutputSessionId?: string,
-	hasUnreadOutput = false
+	activityRecords: SessionActivityRecords = new Map(),
+	now = Date.now()
 ): boolean {
-	return session.state === 'running' && (
-		activeOutputSessionId === session.id
-		|| (hasUnreadOutput && session.lastOutputAt !== null && Date.now() - session.lastOutputAt < SESSION_ACTIVITY_WINDOW_MS)
-	);
+	return session.state === 'running' && (activityRecords.get(session.id)?.activeUntil ?? 0) > now;
 }
-
-export function sessionOutputBecameUnread(
-	previousOutputAt: number | null,
-	nextOutputAt: number | null,
-	observedThrough: number,
-	isObserved: boolean
-): boolean {
-	const previous = previousOutputAt ?? 0;
-	const next = nextOutputAt ?? 0;
-	return !isObserved && next > previous && next > observedThrough;
-}
-
-export type SessionActivityState = 'live' | 'review' | 'idle' | 'missing';
 
 const SESSION_ACTIVITY_PRIORITY: Record<SessionActivityState, number> = {
-	live: 0,
+	active: 0,
 	review: 1,
 	idle: 2,
-	missing: 3
+	ended: 3
 };
 
 export function sessionActivityPriority(state: SessionActivityState): number {
@@ -84,8 +75,7 @@ export function sessionActivityPriority(state: SessionActivityState): number {
 export function buildActivityOrder(
 	sessions: ManagedSession[],
 	previousOrder: string[],
-	activeOutputSessionId?: string,
-	unreadSessionIds: ReadonlySet<string> = new Set()
+	activityRecords: SessionActivityRecords = new Map()
 ): string[] {
 	const currentIds = new Set(sessions.map((session) => session.id));
 	const existingOrder = previousOrder.filter((sessionId) => currentIds.has(sessionId));
@@ -96,7 +86,7 @@ export function buildActivityOrder(
 	];
 	const states = new Map(sessions.map((session) => [
 		session.id,
-		sessionActivityState(session, activeOutputSessionId, unreadSessionIds.has(session.id))
+		sessionActivityState(session, activityRecords)
 	]));
 	const basePosition = new Map(baseOrder.map((sessionId, index) => [sessionId, index]));
 	return [...baseOrder].sort((left, right) =>
@@ -116,25 +106,25 @@ export function reconcileSessionOrder(sessions: ManagedSession[], manualOrder: s
 
 export function sessionActivityState(
 	session: ManagedSession,
-	activeOutputSessionId?: string,
-	hasUnreadOutput = false
+	activityRecords: SessionActivityRecords = new Map(),
+	now = Date.now()
 ): SessionActivityState {
-	if (session.state === 'missing') return 'missing';
-	if (sessionIsActive(session, activeOutputSessionId, hasUnreadOutput)) return 'live';
-	if (hasUnreadOutput) return 'review';
+	if (session.state === 'missing') return 'ended';
+	const activity = activityRecords.get(session.id);
+	if (sessionIsActive(session, activityRecords, now)) return 'active';
+	if ((session.lastOutputAt ?? 0) > (activity?.seenThroughAt ?? 0)) return 'review';
 	return 'idle';
 }
 
 export function sessionActivityHint(
 	session: ManagedSession,
-	activeOutputSessionId?: string,
-	hasUnreadOutput = false
+	activityRecords: SessionActivityRecords = new Map()
 ): string {
-	if (session.state === 'missing') return 'tmux session unavailable';
-	const state = sessionActivityState(session, activeOutputSessionId, hasUnreadOutput);
-	if (state === 'live') return 'Recent terminal output';
-	if (state === 'review') return 'Terminal output has not been viewed yet';
-	return 'No unreviewed terminal output';
+	if (session.state === 'missing') return 'Shell is offline';
+	const state = sessionActivityState(session, activityRecords);
+	if (state === 'active') return 'Terminal is working; check back later';
+	if (state === 'review') return 'Terminal output is ready and needs review';
+	return 'Shell is online and up to date';
 }
 
 export function maxTimestamp(left: number | null, right: number | null): number | null {

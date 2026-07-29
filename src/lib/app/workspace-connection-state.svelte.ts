@@ -2,6 +2,7 @@ import { isUnauthorized, requestJson } from '$lib/client/request';
 import type { ManagedSession } from '$lib/session/types';
 import type { SystemMetrics } from '$lib/system-metrics';
 import type { TmuxStatus } from '$lib/tmux-status';
+import { decodeWorkspaceServerMessage } from './workspace-protocol.mjs';
 
 type SessionRefresher = (options?: { quiet?: boolean }) => Promise<void> | void;
 type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
@@ -178,36 +179,22 @@ export class WorkspaceConnectionState {
 			this.#workspaceReconnectAttempt = 0;
 		};
 		socket.onmessage = (event) => {
-			let payload: unknown;
-			try {
-				payload = JSON.parse(String(event.data));
-			} catch {
-				return;
-			}
-			if (!payload || typeof payload !== 'object' || !('type' in payload) || typeof payload.type !== 'string') return;
-			const message = payload as {
-				type: string;
-				sessions?: unknown;
-				session?: unknown;
-				id?: unknown;
-				changes?: unknown;
-				metrics?: unknown;
-			};
-			if (message.type === 'system-metrics' && isSystemMetrics(message.metrics)) {
+			const message = decodeWorkspaceServerMessage(event.data);
+			if (!message) return;
+			if (message.type === 'system-metrics') {
 				this.systemMetrics = message.metrics;
-			} else if (message.type === 'sessions-snapshot' && Array.isArray(message.sessions)) {
-				const sessions = message.sessions.filter(isManagedSession);
-				if (sessions.length === message.sessions.length) {
-					this.#stopWorkspaceFallback();
-					this.#stopWorkspaceSnapshotTimer();
-					options.onSessionEvent?.({ type: 'sessions-snapshot', sessions });
-				}
-			} else if (message.type === 'session-added' && isManagedSession(message.session)) {
+			} else if (message.type === 'sessions-snapshot') {
+				this.#stopWorkspaceFallback();
+				this.#stopWorkspaceSnapshotTimer();
+				options.onSessionEvent?.({ type: 'sessions-snapshot', sessions: message.sessions });
+			} else if (message.type === 'session-added') {
 				options.onSessionEvent?.({ type: 'session-added', session: message.session });
-			} else if (message.type === 'session-updated' && typeof message.id === 'string' && isSessionChanges(message.changes)) {
+			} else if (message.type === 'session-updated') {
 				options.onSessionEvent?.({ type: 'session-updated', id: message.id, changes: message.changes });
-			} else if (message.type === 'session-removed' && typeof message.id === 'string') {
+			} else if (message.type === 'session-removed') {
 				options.onSessionEvent?.({ type: 'session-removed', id: message.id });
+			} else if (message.type === 'error') {
+				this.errorMessage = message.message;
 			}
 		};
 		socket.onerror = () => undefined;
@@ -268,27 +255,4 @@ export class WorkspaceConnectionState {
 		this.#workspaceSocket = undefined;
 		if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'workspace stream stopped');
 	}
-}
-
-function isManagedSession(value: unknown): value is ManagedSession {
-	return Boolean(value)
-		&& typeof value === 'object'
-		&& !Array.isArray(value)
-		&& typeof (value as ManagedSession).id === 'string'
-		&& typeof (value as ManagedSession).cwd === 'string'
-		&& typeof (value as ManagedSession).state === 'string';
-}
-
-function isSessionChanges(value: unknown): value is SessionChanges {
-	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isSystemMetrics(value: unknown): value is SystemMetrics {
-	return Boolean(value)
-		&& typeof value === 'object'
-		&& !Array.isArray(value)
-		&& typeof (value as SystemMetrics).cpuUsage === 'number'
-		&& typeof (value as SystemMetrics).memoryUsage === 'number'
-		&& typeof (value as SystemMetrics).memoryUsedBytes === 'number'
-		&& typeof (value as SystemMetrics).memoryTotalBytes === 'number';
 }

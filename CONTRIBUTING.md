@@ -39,9 +39,11 @@ Run the full local verification before opening a pull request:
 
 ```sh
 pnpm test
+pnpm exec playwright install chromium # first browser-test run only
+pnpm test:e2e
 ```
 
-GitHub Actions runs the same command for pushes to `main` and for pull requests.
+GitHub Actions runs both verification commands for pushes to `main` and for pull requests.
 
 ## Releases
 
