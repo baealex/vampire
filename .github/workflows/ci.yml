@@ -48,5 +48,10 @@ jobs:
       - name: Verify browser flows
         run: pnpm test:e2e
 
-      - name: Check npm package contents
-        run: pnpm pack --dry-run
+      - name: Build npm package
+        run: |
+          mkdir package-artifact
+          npm pack --ignore-scripts --pack-destination package-artifact
+
+      - name: Verify installed npm package
+        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
