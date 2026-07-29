@@ -28,14 +28,21 @@
 
 	let {
 		close,
-		onSelect,
-		initialPath = ''
+		onCreate,
+		initialPath = '',
+		starting = false,
+		startError = '',
+		tmuxAvailable
 	}: {
 		close: () => void;
-		onSelect: (path: string) => void;
+		onCreate: (path: string) => void;
 		initialPath?: string;
+		starting?: boolean;
+		startError?: string;
+		tmuxAvailable?: boolean;
 	} = $props();
 
+	let manualPath = $state('');
 	let listing = $state<DirectoryListing>();
 	let loading = $state(false);
 	let errorMessage = $state('');
@@ -67,12 +74,25 @@
 		}
 	}
 
+	function submitWorkspace(path: string) {
+		const normalizedPath = path.trim();
+		if (!normalizedPath || starting || tmuxAvailable === false) return;
+		manualPath = normalizedPath;
+		onCreate(normalizedPath);
+	}
+
+	function submitManualPath(event: SubmitEvent) {
+		event.preventDefault();
+		submitWorkspace(manualPath);
+	}
+
 	onMount(() => {
+		manualPath = initialPath;
 		void load(initialPath || undefined, Boolean(initialPath));
 	});
 </script>
 
-<DialogShell eyebrow="Choose workspace" title="Select a folder" {close}>
+<DialogShell eyebrow="New workspace" title="Open a project" {close} closeDisabled={starting}>
 	{#snippet children()}
 		<div class="directory-picker">
 			<p class="directory-picker-description">Choose a folder on the server. Only directories configured as workspace roots are available.</p>
@@ -107,8 +127,8 @@
 							<span title={listing.current.path}>{listing.current.path}</span>
 						</div>
 					</div>
-					<button class="directory-picker-primary-button" type="button" onclick={() => onSelect(listing?.current?.path ?? '')}>
-						Use this folder
+					<button class="directory-picker-primary-button" type="button" onclick={() => submitWorkspace(listing?.current?.path ?? '')} disabled={starting || tmuxAvailable === false}>
+						{starting ? 'Opening…' : 'Open workspace here'}
 					</button>
 				</div>
 
@@ -151,6 +171,31 @@
 					<p class="directory-picker-empty">No workspace roots are available. Configure <code>VAMPIRE_WORKSPACE_ROOTS</code> on the server.</p>
 				{/if}
 			{/if}
+
+			{#if startError}<p class="directory-picker-start-error" role="alert">{startError}</p>{/if}
+			{#if tmuxAvailable === false}<p class="directory-picker-note">Install tmux on the server before opening a workspace.</p>{/if}
+
+			<form class="directory-picker-manual" onsubmit={submitManualPath}>
+				<div class="directory-picker-manual-heading">
+					<label for="workspace-path">Or enter a path manually</label>
+					<span>Use an absolute path on the server.</span>
+				</div>
+				<div class="directory-picker-input-row">
+					<input
+						id="workspace-path"
+						type="text"
+						bind:value={manualPath}
+						placeholder="/Users/you/project"
+						autocapitalize="off"
+						autocomplete="off"
+						spellcheck="false"
+						disabled={starting}
+					/>
+					<button class="directory-picker-secondary-button" type="submit" disabled={starting || tmuxAvailable === false}>
+						Open path
+					</button>
+				</div>
+			</form>
 		</div>
 	{/snippet}
 </DialogShell>
@@ -173,14 +218,24 @@
 	.directory-picker-icon-button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
 	.directory-picker-icon-button:disabled { cursor: not-allowed; opacity: 0.4; }
 	.directory-picker-primary-button, .directory-picker-secondary-button { min-height: 2.5rem; padding: 0 0.85rem; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
-	.directory-picker-primary-button { justify-self: start; background: var(--color-accent); color: var(--color-accent-ink); }
-	.directory-picker-primary-button:hover { background: var(--color-accent-hover); }
+	.directory-picker-primary-button { width: 100%; background: var(--color-accent); color: var(--color-accent-ink); }
+	.directory-picker-primary-button:hover:not(:disabled) { background: var(--color-accent-hover); }
+	.directory-picker-primary-button:disabled, .directory-picker-secondary-button:disabled { cursor: wait; opacity: 0.62; }
 	.directory-picker-secondary-button { justify-self: start; background: var(--color-surface-raised); color: var(--color-text); }
 	.directory-picker-secondary-button:hover { background: var(--color-surface-hover); }
+	.directory-picker-manual { display: grid; gap: 0.55rem; padding-top: 0.85rem; border-top: 1px solid var(--color-border); }
+	.directory-picker-manual-heading { display: grid; gap: 0.15rem; }
+	.directory-picker-manual-heading label { color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
+	.directory-picker-manual-heading span { color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
+	.directory-picker-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; min-width: 0; }
+	.directory-picker-input-row input { width: 100%; min-width: 0; min-height: 2.5rem; padding: 0 0.7rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font: inherit; font-size: var(--text-label); }
+	.directory-picker-input-row input::placeholder { color: var(--color-field-placeholder); }
+	.directory-picker-input-row input:disabled { cursor: wait; opacity: 0.62; }
 	.directory-picker-status { display: flex; align-items: center; gap: 0.5rem; min-height: 8rem; color: var(--color-text-secondary); font-size: var(--text-label); }
 	:global(.directory-picker-loading-icon) { animation: directory-picker-spin 0.8s linear infinite; }
 	.directory-picker-error { display: grid; gap: 0.75rem; }
 	.directory-picker-error p { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-body); }
+	.directory-picker-start-error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-body); }
 	.directory-picker-note { color: var(--color-text-tertiary); font-size: var(--text-caption); }
 	.directory-picker-empty code { font-family: var(--font-mono); font-size: 0.92em; }
 
