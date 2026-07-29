@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
@@ -78,24 +76,18 @@
 		onCreate: () => void;
 	} = $props();
 
-	let cwdInput = $state<HTMLInputElement>();
 	let draggedSessionId = $state<string>();
 	let dragOverSessionId = $state<string>();
 	let dropPosition = $state<'before' | 'after'>('before');
 	let openActionSessionId = $state<string>();
-	let directoryPickerOpen = $state(false);
-
-	$effect(() => {
-		if (newSessionOpen) void tick().then(() => cwdInput?.focus());
-	});
 
 	function openNewSession() {
 		newSessionOpen = true;
 	}
 
-	function selectWorkspaceDirectory(path: string) {
+	function createWorkspace(path: string) {
 		cwd = path;
-		directoryPickerOpen = false;
+		onCreate();
 	}
 
 	function beginSessionDrag(event: DragEvent, sessionId: string) {
@@ -278,32 +270,22 @@
 		{/if}
 	</section>
 
-	<section class="new-session-panel" class:expanded={newSessionOpen} aria-labelledby="new-workspace-title">
-		<button class="new-session-toggle" type="button" onclick={() => newSessionOpen ? newSessionOpen = false : openNewSession()} aria-expanded={newSessionOpen} aria-controls="new-workspace-form">
+	<section class="new-session-panel" aria-labelledby="new-workspace-title">
+		<button class="new-session-toggle" type="button" onclick={openNewSession}>
 			<span class="new-session-toggle__icon" aria-hidden="true"><Plus size={18} strokeWidth={2.3} /></span>
 			<span><strong id="new-workspace-title">New workspace</strong><small>Open a shell in a project</small></span>
-			<span class="new-session-chevron" class:open={newSessionOpen} aria-hidden="true"><ChevronUp size={18} strokeWidth={1.8} /></span>
 		</button>
-
-		{#if newSessionOpen}
-			<form id="new-workspace-form" onsubmit={(event) => { event.preventDefault(); onCreate(); }}>
-				<label for="cwd">Project path</label>
-				<p id="cwd-help" class="field-help">Choose a folder on the server or enter its full path.</p>
-				<div class="cwd-input-row">
-					<input id="cwd" type="text" bind:this={cwdInput} bind:value={cwd} placeholder="/Users/you/project" autocapitalize="off" autocomplete="off" spellcheck="false" aria-describedby="cwd-help" required />
-					<button class="secondary-button directory-browse-button" type="button" onclick={() => directoryPickerOpen = true} disabled={starting}>Browse</button>
-				</div>
-				{#if startError}<p class="error" role="alert">{startError}</p>{/if}
-				<p class="ownership-note">The session keeps running in tmux if Vampire restarts.</p>
-				<div class="new-session-actions">
-					<button class="primary-button" disabled={starting || tmuxAvailable === false}>{starting ? 'Opening…' : 'Open shell'}</button>
-				</div>
-			</form>
-		{/if}
 	</section>
 
-	{#if directoryPickerOpen}
-		<WorkspaceDirectoryPicker initialPath={cwd} close={() => directoryPickerOpen = false} onSelect={selectWorkspaceDirectory} />
+	{#if newSessionOpen}
+		<WorkspaceDirectoryPicker
+			initialPath={cwd}
+			starting={starting}
+			startError={startError}
+			tmuxAvailable={tmuxAvailable}
+			close={() => newSessionOpen = false}
+			onCreate={createWorkspace}
+		/>
 	{/if}
 </div>
 
@@ -361,30 +343,15 @@
 	.empty-state h2 { margin: 0; font-size: var(--text-heading); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
 	.empty-state p { max-width: 28rem; margin: 0.45rem 0 1.2rem; color: var(--color-text-secondary); font-size: var(--text-body); line-height: var(--leading-body); }
 	.new-session-panel { overflow: hidden; }
-	.new-session-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.8rem; width: 100%; min-height: 4.6rem; padding: 0.9rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+	.new-session-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.8rem; width: 100%; min-height: 4.6rem; padding: 0.9rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.new-session-toggle:hover { background: var(--color-surface-raised); }
 	.new-session-toggle__icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--color-accent); color: var(--color-accent-ink); }
 	.new-session-toggle strong, .new-session-toggle small { display: block; }
 	.new-session-toggle strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
 	.new-session-toggle small { margin-top: 0.2rem; color: var(--color-text-secondary); font-size: var(--text-caption); }
-	.new-session-chevron { display: grid; place-items: center; color: var(--color-text-tertiary); transition: transform 160ms ease; }
-	.new-session-chevron.open { transform: rotate(180deg); }
-	form { display: grid; gap: 0.7rem; padding: 0 1rem 1rem; border-top: 1px solid var(--color-border); }
-	form label { margin-top: 1rem; color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
-	.field-help { margin: -0.35rem 0 0; color: var(--color-text-secondary); font-size: var(--text-caption); line-height: var(--leading-ui); }
-	.cwd-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; min-width: 0; }
-	input { width: 100%; min-width: 0; min-height: 2.9rem; padding: 0 0.8rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font-size: var(--text-body); }
-	input::placeholder { color: var(--color-field-placeholder); }
-	.primary-button, .secondary-button { min-height: 2.5rem; padding: 0 0.9rem; border: 0; border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
-	.primary-button { background: var(--color-accent); color: var(--color-accent-ink); }
-	.primary-button:hover { background: var(--color-accent-hover); }
-	.primary-button:disabled { cursor: wait; opacity: 0.65; }
-	.secondary-button { background: var(--color-surface-raised); color: var(--color-text); }
+	.secondary-button { min-height: 2.5rem; padding: 0 0.9rem; border: 0; border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.secondary-button:hover:not(:disabled) { background: var(--color-surface-hover); }
 	.secondary-button:disabled { cursor: wait; opacity: 0.62; }
-	.directory-browse-button { min-height: 2.9rem; }
-	.new-session-actions { display: flex; justify-content: flex-end; }
-	.ownership-note { margin: 0.2rem 0 0; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
 	.error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-ui); }
 	.panel-message { margin: 0 1.35rem 1.35rem; }
 
@@ -397,7 +364,7 @@
 		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 		.sessions, .empty-state { min-height: 0; overflow-y: auto; }
 		.sessions { flex: 1 1 0; }
-		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; max-height: 60%; overflow-y: auto; border-top: 1px solid var(--color-border); background: var(--color-panel); }
+		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; border-top: 1px solid var(--color-border); background: var(--color-panel); }
 		.section-header { padding: 1rem; }
 		.session-order-toolbar { padding-inline: 1rem; }
 		.session-row { padding-inline: 1rem; padding-right: 3.55rem; }
@@ -410,7 +377,7 @@
 		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 		.sessions, .empty-state { min-height: 0; overflow-y: auto; }
 		.sessions { flex: 1 1 0; }
-		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; max-height: 60%; overflow-y: auto; border-top: 1px solid var(--color-border); background: var(--color-panel); }
+		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; border-top: 1px solid var(--color-border); background: var(--color-panel); }
 		.section-header { padding: 1rem; }
 		.session-order-toolbar { padding-inline: 1rem; }
 		.session-row { padding-inline: 1rem; padding-right: 3.55rem; }
@@ -422,12 +389,8 @@
 		.session-row { padding-left: 1rem; }
 	}
 
-	@media (max-width: 32rem) {
-		input { font-size: 1rem; }
-	}
-
 	@media (prefers-reduced-motion: reduce) {
-		.new-session-chevron, .session-column { transition: none; }
+		.session-column { transition: none; }
 		.status-dot.live { animation: none; }
 		.icon-button.spinning :global(svg) { animation-duration: 1.6s; }
 	}
