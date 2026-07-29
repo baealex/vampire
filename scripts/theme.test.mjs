@@ -80,9 +80,9 @@ test('uses the same persisted theme key before and after hydration', async () =>
 });
 
 test('overrides xterm viewport defaults with the active terminal theme', async () => {
-	const terminal = await readFile(join(sourceRoot, 'lib', 'Terminal.svelte'), 'utf8');
+	const terminalViewport = await readFile(join(sourceRoot, 'lib', 'terminal', 'TerminalViewport.svelte'), 'utf8');
 	assert.match(
-		terminal,
+		terminalViewport,
 		/\.xterm-viewport\)[^{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s
 	);
 });

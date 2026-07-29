@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, readdir, realpath, stat, lstat, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 /** @typedef {'conflict' | 'invalid-path' | 'not-found' | 'not-git' | 'too-large' | 'unsupported-file' | 'command-failed'} RepositoryReadErrorReason */
@@ -338,36 +338,23 @@ async function resolveWritableFile(cwd, path) {
 		throw repositoryError('invalid-path', 'File path must stay inside the workspace.');
 	}
 
-	try {
-		await mkdir(dirname(lexicalTarget), { recursive: true });
-	} catch {
-		throw repositoryError('command-failed', 'The file directory could not be created.');
-	}
-
-	let parent;
-	try {
-		parent = await realpath(dirname(lexicalTarget));
-	} catch {
-		throw repositoryError('not-found', 'The file directory is no longer available.');
-	}
-	if (!staysInside(root, parent)) {
-		throw repositoryError('invalid-path', 'File path must stay inside the workspace.');
-	}
+	const parent = await resolveWritableDirectory(root, dirname(lexicalTarget));
+	const writableTarget = join(parent, basename(lexicalTarget));
 
 	let lexicalDetails;
 	try {
-		lexicalDetails = await lstat(lexicalTarget);
+		lexicalDetails = await lstat(writableTarget);
 	} catch (cause) {
 		if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 'ENOENT') {
-			return { normalizedPath, target: lexicalTarget, exists: false };
+			return { normalizedPath, target: writableTarget, exists: false };
 		}
 		throw repositoryError('command-failed', 'The file could not be inspected.');
 	}
 
-	let target = lexicalTarget;
+	let target = writableTarget;
 	if (lexicalDetails.isSymbolicLink()) {
 		try {
-			target = await realpath(lexicalTarget);
+			target = await realpath(writableTarget);
 		} catch {
 			throw repositoryError('invalid-path', 'Linked files outside the workspace cannot be edited.');
 		}
@@ -384,6 +371,79 @@ async function resolveWritableFile(cwd, path) {
 	}
 	if (!details.isFile()) throw repositoryError('unsupported-file', 'Only regular files can be edited.');
 	return { normalizedPath, target, exists: true, details };
+}
+
+/**
+ * Create missing workspace directories without following an unchecked linked parent.
+ * @param {string} root
+ * @param {string} directory
+ */
+async function resolveWritableDirectory(root, directory) {
+	if (!staysInside(root, directory)) {
+		throw repositoryError('invalid-path', 'Directory path must stay inside the workspace.');
+	}
+
+	const pathFromRoot = relative(root, directory);
+	let current = root;
+	for (const segment of pathFromRoot.split(sep).filter(Boolean)) {
+		current = join(current, segment);
+		let details;
+		try {
+			details = await lstat(current);
+		} catch (cause) {
+			if (!(cause && typeof cause === 'object' && 'code' in cause && cause.code === 'ENOENT')) {
+				throw repositoryError('command-failed', 'The directory could not be inspected.');
+			}
+
+			let parent;
+			try {
+				parent = await realpath(dirname(current));
+			} catch {
+				throw repositoryError('not-found', 'The parent directory is no longer available.');
+			}
+			if (!staysInside(root, parent)) {
+				throw repositoryError('invalid-path', 'Directory path must stay inside the workspace.');
+			}
+
+			try {
+				await mkdir(current);
+				details = await lstat(current);
+			} catch (mkdirCause) {
+				if (!(mkdirCause && typeof mkdirCause === 'object' && 'code' in mkdirCause && mkdirCause.code === 'EEXIST')) {
+					throw repositoryError('command-failed', 'The directory could not be created.');
+				}
+				try {
+					details = await lstat(current);
+				} catch {
+					throw repositoryError('command-failed', 'The directory could not be inspected.');
+				}
+			}
+		}
+
+		let canonicalDirectory;
+		try {
+			canonicalDirectory = await realpath(current);
+		} catch {
+			throw repositoryError('not-found', 'The directory is no longer available.');
+		}
+		if (!staysInside(root, canonicalDirectory)) {
+			throw repositoryError('invalid-path', 'Directory path must stay inside the workspace.');
+		}
+		if (!details.isDirectory() && !details.isSymbolicLink()) {
+			throw repositoryError('unsupported-file', 'Only directories can contain workspace entries.');
+		}
+		try {
+			if (!(await stat(canonicalDirectory)).isDirectory()) {
+				throw repositoryError('unsupported-file', 'Only directories can contain workspace entries.');
+			}
+		} catch (cause) {
+			if (cause instanceof RepositoryReadError) throw cause;
+			throw repositoryError('command-failed', 'The directory could not be inspected.');
+		}
+		current = canonicalDirectory;
+	}
+
+	return current;
 }
 
 /** @param {Uint8Array} bytes */
@@ -506,8 +566,11 @@ export async function writeWorkspaceFile(cwd, path, content, options = {}) {
 	}
 
 	try {
-		await writeFile(resolved.target, bytes);
-	} catch {
+		await writeFile(resolved.target, bytes, options.createOnly ? { flag: 'wx' } : undefined);
+	} catch (cause) {
+		if (options.createOnly && cause && typeof cause === 'object' && 'code' in cause && cause.code === 'EEXIST') {
+			throw repositoryError('conflict', 'A file with this name already exists.');
+		}
 		throw repositoryError('command-failed', 'The file could not be saved.');
 	}
 	return readWorkspaceFile(cwd, resolved.normalizedPath);
@@ -520,21 +583,12 @@ export async function writeWorkspaceFile(cwd, path, content, options = {}) {
 export async function createWorkspaceDirectory(cwd, path) {
 	const root = await workspaceRoot(cwd);
 	const normalizedPath = normalizeRelativePath(path);
-	const target = resolve(root, normalizedPath);
-	if (!staysInside(root, target)) {
+	const lexicalTarget = resolve(root, normalizedPath);
+	if (!staysInside(root, lexicalTarget)) {
 		throw repositoryError('invalid-path', 'Folder path must stay inside the workspace.');
 	}
-
-	try {
-		await mkdir(dirname(target), { recursive: true });
-		const parent = await realpath(dirname(target));
-		if (!staysInside(root, parent)) {
-			throw repositoryError('invalid-path', 'Folder path must stay inside the workspace.');
-		}
-	} catch (cause) {
-		if (cause instanceof RepositoryReadError) throw cause;
-		throw repositoryError('command-failed', 'The folder directory could not be created.');
-	}
+	const parent = await resolveWritableDirectory(root, dirname(lexicalTarget));
+	const target = join(parent, basename(lexicalTarget));
 
 	try {
 		await lstat(target);

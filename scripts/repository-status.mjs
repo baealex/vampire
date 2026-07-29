@@ -3,12 +3,13 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readRepositorySummary, readRepositoryWatchPaths } from '../src/lib/server/repository.mjs';
 import { findSessionConnection } from '../src/lib/server/session-state.mjs';
+import { encodeTerminalServerMessage } from '../src/lib/terminal/protocol.mjs';
 
 const STATUS_SETTLE_MS = 400;
 const FALLBACK_REFRESH_MS = 10_000;
 
 function send(socket, payload) {
-	if (socket.readyState === 1) socket.send(JSON.stringify(payload));
+	if (socket.readyState === 1) socket.send(encodeTerminalServerMessage(payload));
 }
 
 function normalizedFilename(filename) {

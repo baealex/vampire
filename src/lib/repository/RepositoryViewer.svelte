@@ -2,7 +2,6 @@
 	import FilePenLine from '@lucide/svelte/icons/file-pen-line';
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
-	import RepositoryCodeEditor from './RepositoryCodeEditor.svelte';
 	import { RepositoryClient } from './client';
 	import { isPreviewableImage, parseDiffLines } from './view';
 	import type { RepositoryDiff, RepositorySelection, WorkspaceFile } from './types';
@@ -35,6 +34,7 @@
 	let errorMessage = $state('');
 	let lastSelectionKey = '';
 	let fileDirty = $state(false);
+	let editorModule: Promise<typeof import('./RepositoryCodeEditor.svelte')> | undefined;
 	let parsedSections = $derived(diff?.sections.map((section) => ({
 		...section,
 		lines: parseDiffLines(section.patch)
@@ -42,6 +42,14 @@
 	const fileName = $derived(selection.path.split('/').pop() || selection.path);
 	const imagePreview = $derived(selection.kind === 'file' && isPreviewableImage(selection.path));
 	const repositoryApi = $derived(new RepositoryClient(sessionId));
+
+	function loadEditor() {
+		editorModule ??= import('./RepositoryCodeEditor.svelte').catch((error) => {
+			editorModule = undefined;
+			throw error;
+		});
+		return editorModule;
+	}
 
 	function setFileDirty(dirty: boolean) {
 		fileDirty = dirty;
@@ -192,12 +200,19 @@
 			{/if}
 		{:else if selection.kind === 'file' && file && !imagePreview}
 			<div class="file-document">
-				<RepositoryCodeEditor
-					{sessionId}
-					{file}
-					onSaved={handleFileSaved}
-					onDirtyChange={setFileDirty}
-				/>
+				{#await loadEditor()}
+					<DocumentOpening kind="file" path={selection.path} />
+				{:then loadedEditor}
+					{@const RepositoryCodeEditor = loadedEditor.default}
+					<RepositoryCodeEditor
+						{sessionId}
+						{file}
+						onSaved={handleFileSaved}
+						onDirtyChange={setFileDirty}
+					/>
+				{:catch}
+					<div class="viewer-state">The editor could not be loaded.</div>
+				{/await}
 			</div>
 		{:else if !loading}
 			<div class="viewer-state">This content is unavailable.</div>
@@ -209,10 +224,10 @@
 	.repository-viewer { position: absolute; z-index: 5; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--color-code-background); color: var(--color-text); }
 	.document-header { display: grid; flex: 0 0 auto; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; min-width: 0; min-height: 2.65rem; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-panel); }
 	.document-header strong { min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
-	.document-kind { color: var(--color-accent-soft-text); font-size: 0.68rem; font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
+	.document-kind { color: var(--color-accent-soft-text); font-size: var(--text-micro); font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
 	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
 	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
-	.edit-file { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 2.25rem; padding: 0 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-control-background); color: var(--color-text-secondary); font: inherit; font-size: var(--text-caption); cursor: pointer; }
+	.edit-file { display: inline-flex; align-items: center; gap: 0.3rem; min-height: var(--control-height-sm); padding: 0 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-control-background); color: var(--color-text-secondary); font: inherit; font-size: var(--text-caption); cursor: pointer; }
 	.edit-file:hover { background: var(--color-control-hover); color: var(--color-text); }
 	.viewer-close { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.viewer-close:hover { background: var(--color-surface-raised); color: var(--color-text); }

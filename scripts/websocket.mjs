@@ -2,6 +2,8 @@ import { WebSocketServer } from 'ws';
 import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '../src/lib/server/session-cookie.mjs';
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.mjs';
 import { attachTerminal } from './terminal.mjs';
+import { recordWorkspaceSessionOutput } from './workspace-websocket.mjs';
+import { TERMINAL_SIZE_LIMITS } from '../src/lib/terminal/protocol.mjs';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 72 * 1024;
@@ -50,11 +52,11 @@ function requestedTerminalSize(url) {
 	const columns = Number(url.searchParams.get('columns'));
 	const rows = Number(url.searchParams.get('rows'));
 	return Number.isInteger(columns)
-		&& columns >= 20
-		&& columns <= 240
+		&& columns >= TERMINAL_SIZE_LIMITS.minimumColumns
+		&& columns <= TERMINAL_SIZE_LIMITS.maximumColumns
 		&& Number.isInteger(rows)
-		&& rows >= 5
-		&& rows <= 120
+		&& rows >= TERMINAL_SIZE_LIMITS.minimumRows
+		&& rows <= TERMINAL_SIZE_LIMITS.maximumRows
 		? { columns, rows }
 		: undefined;
 }
@@ -149,7 +151,8 @@ export function installTerminalWebSocket(server) {
 				attachment.ready = true;
 				return activateAttachment(state, attachment);
 			},
-			onActivate: () => activateAttachment(state, attachment)
+			onActivate: () => activateAttachment(state, attachment),
+			onOutputActivity: (timestamp) => recordWorkspaceSessionOutput(context.sessionId, timestamp)
 		}).catch(() => {
 			socket.close(1011, 'terminal unavailable');
 		});

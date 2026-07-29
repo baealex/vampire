@@ -1,6 +1,7 @@
 import { execFile as execFileCallback, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { findSessionConnection } from '../src/lib/server/session-state.mjs';
+import { decodeTerminalClientMessage, encodeTerminalServerMessage } from '../src/lib/terminal/protocol.mjs';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -63,7 +64,7 @@ export function parseTmuxControlOutput(line, paneId, decoder) {
 }
 
 function message(socket, payload) {
-	if (socket.readyState === 1) socket.send(JSON.stringify(payload));
+	if (socket.readyState === 1) socket.send(encodeTerminalServerMessage(payload));
 }
 
 export async function attachTerminal(socket, sessionId, initialSize, options = {}) {
@@ -107,6 +108,7 @@ export async function attachTerminal(socket, sessionId, initialSize, options = {
 	let syntheticOutputDepth = 0;
 	let syntheticOutputUntil = 0;
 	let lastTerminalOutputAt = 0;
+	let lastOutputActivityNotice = 0;
 	let controlLineBuffer = Buffer.alloc(0);
 	const terminalDecoder = new TextDecoder();
 	let sizeIgnored = Boolean(options.ignoreSize);
@@ -149,11 +151,17 @@ export async function attachTerminal(socket, sessionId, initialSize, options = {
 	};
 
 	const sendTerminalOutput = (output) => {
-		lastTerminalOutputAt = Date.now();
-		const activity = snapshotAcknowledged && syntheticOutputDepth === 0 && Date.now() >= syntheticOutputUntil;
+		const now = Date.now();
+		lastTerminalOutputAt = now;
+		const activity = snapshotAcknowledged && syntheticOutputDepth === 0 && now >= syntheticOutputUntil;
+		const activityAt = activity ? now : null;
+		if (activity && now - lastOutputActivityNotice >= 250) {
+			lastOutputActivityNotice = now;
+			options.onOutputActivity?.(now);
+		}
 		if (!snapshotSent) return;
 		if (snapshotAcknowledged) {
-			message(socket, { type: 'output', data: output, activity });
+			message(socket, { type: 'output', data: output, activity, activityAt });
 			return;
 		}
 
@@ -163,7 +171,7 @@ export async function attachTerminal(socket, sessionId, initialSize, options = {
 			socket.close(1013, 'terminal snapshot fell behind');
 			return;
 		}
-		pendingSnapshotOutput.push({ data: output, activity });
+		pendingSnapshotOutput.push({ data: output, activity, activityAt });
 		pendingSnapshotOutputBytes += bytes;
 	};
 
@@ -312,31 +320,24 @@ export async function attachTerminal(socket, sessionId, initialSize, options = {
 		}
 
 		try {
-			const input = JSON.parse(raw.toString());
-			if (input?.type === 'activate') {
+			const input = decodeTerminalClientMessage(raw);
+			if (!input) throw new Error('Terminal input is invalid.');
+			if (input.type === 'activate') {
 				const activation = options.onActivate?.();
 				if (activation) void Promise.resolve(activation).catch((error) => message(socket, {
 					type: 'error',
 					message: error instanceof Error ? error.message : 'Terminal activation failed.'
 				}));
-			} else if (input?.type === 'snapshot-ready') {
+			} else if (input.type === 'snapshot-ready') {
 				acknowledgeSnapshot();
-			} else if (input?.type === 'input' && typeof input.data === 'string') {
+			} else if (input.type === 'input') {
 				inputQueue = inputQueue
 					.then(() => sendInput(tmuxSession, input.data))
 					.catch((error) => message(socket, {
 						type: 'error',
 						message: error instanceof Error ? error.message : 'Terminal input failed.'
 					}));
-			} else if (
-				input?.type === 'resize'
-				&& Number.isInteger(input.columns)
-				&& Number.isInteger(input.rows)
-				&& input.columns >= 20
-				&& input.columns <= 240
-				&& input.rows >= 5
-				&& input.rows <= 120
-			) {
+			} else if (input.type === 'resize') {
 				requestedSize = { columns: input.columns, rows: input.rows };
 				void resizeControlClient();
 			}

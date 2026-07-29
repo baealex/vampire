@@ -22,3 +22,9 @@ test('opens the realtime workspace stream after status without blocking startup'
 	assert.match(source, /\/ws\/workspace/);
 	assert.match(source, /sessions-snapshot/);
 });
+
+test('loads the code editor only after a text file is opened', async () => {
+	const source = await readFile(resolve(root, 'src/lib/repository/RepositoryViewer.svelte'), 'utf8');
+	assert.match(source, /import\('\.\/RepositoryCodeEditor\.svelte'\)/);
+	assert.doesNotMatch(source, /import\s+RepositoryCodeEditor\s+from/);
+});

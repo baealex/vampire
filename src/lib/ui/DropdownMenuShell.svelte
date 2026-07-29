@@ -33,7 +33,7 @@
 		{@render trigger?.()}
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Portal>
-		<DropdownMenu.Content data-menu-content class="vampire-menu-content" sideOffset={6} {align}>
+		<DropdownMenu.Content data-vampire-overlay class="vampire-menu-content" sideOffset={6} {align}>
 			{@render children?.()}
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>

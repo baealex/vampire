@@ -26,7 +26,7 @@
 	<Dialog.Portal>
 		<Dialog.Overlay class="vampire-dialog-overlay" />
 		<Dialog.Content
-			data-dialog-content
+			data-vampire-overlay
 			class="vampire-dialog-content"
 			escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}
 			interactOutsideBehavior={closeDisabled ? 'ignore' : 'close'}

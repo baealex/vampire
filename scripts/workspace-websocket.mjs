@@ -1,11 +1,13 @@
 import { WebSocketServer } from 'ws';
 import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '../src/lib/server/session-cookie.mjs';
-import { listManagedSessions } from '../src/lib/server/session-snapshot.mjs';
+import { listManagedSessions, listTmuxSessionActivity } from '../src/lib/server/session-snapshot.mjs';
 import { getSystemMetrics } from '../src/lib/server/system-metrics.mjs';
+import { encodeWorkspaceServerMessage } from '../src/lib/app/workspace-protocol.mjs';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const SESSION_ACTIVITY_REFRESH_INTERVAL_MS = 1_000;
 const SESSION_REFRESH_INTERVAL_MS = 5_000;
 const SYSTEM_METRICS_INTERVAL_MS = 10_000;
 const SESSION_FIELDS = [
@@ -21,7 +23,7 @@ const SESSION_FIELDS = [
 ];
 
 function send(socket, payload) {
-	if (socket.readyState === 1) socket.send(JSON.stringify(payload));
+	if (socket.readyState === 1) socket.send(encodeWorkspaceServerMessage(payload));
 }
 
 function rejectUpgrade(socket, status, reason) {
@@ -51,13 +53,65 @@ function sessionChanges(previous, next) {
 	return changes;
 }
 
+export function reconcileSessionActivity(sessions, tmuxActivity) {
+	const activityByName = new Map(tmuxActivity.map((activity) => [activity.name, activity]));
+	const nextSessions = new Map(sessions);
+	const updates = [];
+	for (const [id, session] of sessions) {
+		const activity = activityByName.get(session.tmuxSession);
+		const changes = {};
+		if (!activity) {
+			if (session.state === 'running') {
+				changes.state = 'missing';
+				changes.lastOutputAt = null;
+				changes.attachedClients = 0;
+				changes.foregroundProcess = null;
+			}
+		} else {
+			if (session.state === 'missing') changes.state = 'running';
+			if (activity.lastOutputAt !== null && activity.lastOutputAt > (session.lastOutputAt ?? 0)) {
+				changes.lastOutputAt = activity.lastOutputAt;
+			}
+		}
+		if (Object.keys(changes).length === 0) continue;
+		const next = { ...session, ...changes };
+		nextSessions.set(id, next);
+		updates.push({ id, changes });
+	}
+	return { sessions: nextSessions, updates };
+}
+
+function preserveLatestOutput(nextSessions, currentSessions) {
+	if (!currentSessions) return nextSessions;
+	return new Map([...nextSessions].map(([id, next]) => {
+		const current = currentSessions.get(id);
+		if (
+			!current
+			|| current.tmuxSession !== next.tmuxSession
+			|| current.state !== 'running'
+			|| next.state !== 'running'
+			|| (current.lastOutputAt ?? 0) <= (next.lastOutputAt ?? 0)
+		) return [id, next];
+		return [id, { ...next, lastOutputAt: current.lastOutputAt }];
+	}));
+}
+
 class WorkspaceStatusHub {
 	#clients = new Set();
 	#sessions;
 	#refreshPromise;
+	#activityRefreshPromise;
 	#refreshTimer;
+	#activityRefreshTimer;
 	#metricsTimer;
 	#metrics;
+
+	recordSessionOutput(sessionId, timestamp) {
+		const session = this.#sessions?.get(sessionId);
+		if (!session || session.state !== 'running' || timestamp <= (session.lastOutputAt ?? 0)) return;
+		this.#sessions.set(sessionId, { ...session, lastOutputAt: timestamp });
+		this.#broadcast({ type: 'session-updated', id: sessionId, changes: { lastOutputAt: timestamp } });
+	}
 
 	async subscribe(socket) {
 		try {
@@ -84,8 +138,10 @@ class WorkspaceStatusHub {
 		this.#clients.delete(socket);
 		if (this.#clients.size > 0) return;
 		if (this.#refreshTimer !== undefined) clearInterval(this.#refreshTimer);
+		if (this.#activityRefreshTimer !== undefined) clearInterval(this.#activityRefreshTimer);
 		if (this.#metricsTimer !== undefined) clearInterval(this.#metricsTimer);
 		this.#refreshTimer = undefined;
+		this.#activityRefreshTimer = undefined;
 		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
 		this.#metrics = undefined;
@@ -93,8 +149,10 @@ class WorkspaceStatusHub {
 
 	close() {
 		if (this.#refreshTimer !== undefined) clearInterval(this.#refreshTimer);
+		if (this.#activityRefreshTimer !== undefined) clearInterval(this.#activityRefreshTimer);
 		if (this.#metricsTimer !== undefined) clearInterval(this.#metricsTimer);
 		this.#refreshTimer = undefined;
+		this.#activityRefreshTimer = undefined;
 		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
 		this.#metrics = undefined;
@@ -106,6 +164,11 @@ class WorkspaceStatusHub {
 		if (this.#refreshTimer !== undefined) return;
 		this.#refreshTimer = setInterval(() => void this.#refresh().catch(() => undefined), SESSION_REFRESH_INTERVAL_MS);
 		this.#refreshTimer.unref();
+		this.#activityRefreshTimer = setInterval(
+			() => void this.#refreshActivity().catch(() => undefined),
+			SESSION_ACTIVITY_REFRESH_INTERVAL_MS
+		);
+		this.#activityRefreshTimer.unref();
 		this.#metricsTimer = setInterval(() => {
 			const metrics = getSystemMetrics();
 			if (!systemMetricsChanged(this.#metrics, metrics)) return;
@@ -117,8 +180,13 @@ class WorkspaceStatusHub {
 
 	async #refresh() {
 		if (this.#refreshPromise) return this.#refreshPromise;
+		const precedingActivityRefresh = this.#activityRefreshPromise;
 		this.#refreshPromise = (async () => {
-			const nextSessions = new Map((await listManagedSessions()).map((session) => [session.id, session]));
+			if (precedingActivityRefresh) await precedingActivityRefresh;
+			const nextSessions = preserveLatestOutput(
+				new Map((await listManagedSessions()).map((session) => [session.id, session])),
+				this.#sessions
+			);
 			const previousSessions = this.#sessions;
 			this.#sessions = nextSessions;
 			if (!previousSessions) return;
@@ -143,6 +211,25 @@ class WorkspaceStatusHub {
 		}
 	}
 
+	async #refreshActivity() {
+		if (this.#activityRefreshPromise) return this.#activityRefreshPromise;
+		const precedingRefresh = this.#refreshPromise;
+		this.#activityRefreshPromise = (async () => {
+			if (precedingRefresh) await precedingRefresh;
+			if (!this.#sessions) return;
+			const result = reconcileSessionActivity(this.#sessions, await listTmuxSessionActivity());
+			this.#sessions = result.sessions;
+			for (const update of result.updates) {
+				this.#broadcast({ type: 'session-updated', id: update.id, changes: update.changes });
+			}
+		})();
+		try {
+			await this.#activityRefreshPromise;
+		} finally {
+			this.#activityRefreshPromise = undefined;
+		}
+	}
+
 	#broadcast(payload, excludedSocket) {
 		for (const socket of this.#clients) {
 			if (socket !== excludedSocket) send(socket, payload);
@@ -151,6 +238,10 @@ class WorkspaceStatusHub {
 }
 
 const workspaceStatusHub = new WorkspaceStatusHub();
+
+export function recordWorkspaceSessionOutput(sessionId, timestamp) {
+	workspaceStatusHub.recordSessionOutput(sessionId, timestamp);
+}
 
 export function installWorkspaceWebSocket(server) {
 	const workspaceSockets = new WebSocketServer({

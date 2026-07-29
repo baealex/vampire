@@ -217,7 +217,7 @@
 	.directory-picker-icon-button { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-secondary); cursor: pointer; }
 	.directory-picker-icon-button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
 	.directory-picker-icon-button:disabled { cursor: not-allowed; opacity: 0.4; }
-	.directory-picker-primary-button, .directory-picker-secondary-button { min-height: 2.5rem; padding: 0 0.85rem; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
+	.directory-picker-primary-button, .directory-picker-secondary-button { min-height: var(--control-height-md); padding: 0 0.85rem; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.directory-picker-primary-button { width: 100%; background: var(--color-accent); color: var(--color-accent-ink); }
 	.directory-picker-primary-button:hover:not(:disabled) { background: var(--color-accent-hover); }
 	.directory-picker-primary-button:disabled, .directory-picker-secondary-button:disabled { cursor: wait; opacity: 0.62; }
@@ -228,7 +228,7 @@
 	.directory-picker-manual-heading label { color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
 	.directory-picker-manual-heading span { color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
 	.directory-picker-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; min-width: 0; }
-	.directory-picker-input-row input { width: 100%; min-width: 0; min-height: 2.5rem; padding: 0 0.7rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font: inherit; font-size: var(--text-label); }
+	.directory-picker-input-row input { width: 100%; min-width: 0; min-height: var(--control-height-md); padding: 0 0.7rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font: inherit; font-size: var(--text-label); }
 	.directory-picker-input-row input::placeholder { color: var(--color-field-placeholder); }
 	.directory-picker-input-row input:disabled { cursor: wait; opacity: 0.62; }
 	.directory-picker-status { display: flex; align-items: center; gap: 0.5rem; min-height: 8rem; color: var(--color-text-secondary); font-size: var(--text-label); }

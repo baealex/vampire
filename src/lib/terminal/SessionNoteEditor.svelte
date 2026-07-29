@@ -157,7 +157,7 @@
 </div>
 
 <style>
-	.note-editor { position: absolute; z-index: 12; top: calc(100% + 0.5rem); right: 0.75rem; display: grid; gap: 0.9rem; width: min(30rem, calc(100vw - 1.5rem)); padding: 1rem; border: 1px solid var(--color-border-strong); border-radius: 0.8rem; background: var(--color-surface-overlay); box-shadow: var(--shadow-popover); }
+	.note-editor { position: relative; display: grid; gap: 0.9rem; width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid var(--color-border-strong); border-radius: 0.8rem; background: var(--color-surface-overlay); box-shadow: var(--shadow-popover); }
 	header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 	h2 { margin: 0; font-size: var(--text-title); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
 	header p { margin: 0.25rem 0 0; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
@@ -177,7 +177,6 @@
 	.note-error { margin: 0; color: var(--color-danger-text); font-size: var(--text-label); line-height: var(--leading-ui); }
 
 	@media (max-width: 32rem) {
-		.note-editor { right: 0.5rem; width: calc(100vw - 1rem); }
 		textarea { min-height: 7.5rem; font-size: 1rem; }
 	}
 </style>

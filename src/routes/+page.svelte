@@ -6,6 +6,8 @@
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import TmuxSetupNotice from '$lib/TmuxSetupNotice.svelte';
+	import Spinner from '$lib/ui/Spinner.svelte';
+	import { isUiOverlayOpen } from '$lib/ui/overlay';
 	import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
@@ -17,6 +19,7 @@
 	let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
 
 	let mobilePanel = $state<MobilePanel | undefined>(undefined);
+	let presentedTerminalSessionId = $state<string | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
 	let useMetaSessionShortcuts = false;
 
@@ -29,8 +32,20 @@
 
 	function terminalIsObserved(sessionId: string): boolean {
 		return workspace.requestedSessionId === sessionId
+			&& presentedTerminalSessionId === sessionId
 			&& document.visibilityState === 'visible'
 			&& mobilePanel === undefined;
+	}
+
+	function setTerminalPresentation(sessionId: string, presented: boolean) {
+		if (presented) {
+			presentedTerminalSessionId = sessionId;
+			markActiveSessionObserved();
+			return;
+		}
+		if (presentedTerminalSessionId !== sessionId) return;
+		if (terminalIsObserved(sessionId)) workspace.markSessionObserved(sessionId);
+		presentedTerminalSessionId = undefined;
 	}
 
 	function markActiveSessionObserved() {
@@ -105,7 +120,7 @@
 	function handleSessionShortcut(event: KeyboardEvent) {
 		const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
 		if (event.defaultPrevented || event.repeat || event.isComposing || event.shiftKey || !digitMatch) return;
-		if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
+		if (isUiOverlayOpen()) return;
 		const primaryModifier = useMetaSessionShortcuts
 			? event.metaKey && !event.ctrlKey
 			: event.ctrlKey && !event.metaKey;
@@ -123,7 +138,7 @@
 
 	function handleOverlayKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
-		if (document.querySelector('[data-dialog-content], [data-menu-content]')) return;
+		if (isUiOverlayOpen()) return;
 		if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
 			event.preventDefault();
 			closeSessionNavigator();
@@ -148,8 +163,16 @@
 		});
 		const handlePopState = () => syncSessionFromLocation();
 		const handleVisibilityChange = () => {
-			if (document.hidden && workspace.requestedSessionId && mobilePanel === undefined) {
-				workspace.markSessionObserved(workspace.requestedSessionId);
+			const requestedSessionId = workspace.requestedSessionId;
+			if (
+				document.hidden
+				&& requestedSessionId
+				&& requestedSessionId === presentedTerminalSessionId
+				&& mobilePanel === undefined
+			) {
+				workspace.markSessionObserved(requestedSessionId);
+			} else if (!document.hidden) {
+				markActiveSessionObserved();
 			}
 		};
 		window.addEventListener('popstate', handlePopState);
@@ -175,7 +198,7 @@
 <main class:terminal-open={workspace.hasOpenSession} class:tmux-missing={connection.tmuxStatus?.available === false}>
 	{#if connection.checking}
 		<section class="loading-state" aria-live="polite">
-			<span class="spinner" aria-hidden="true"></span>
+			<Spinner />
 			Connecting…
 		</section>
 	{:else if connection.authenticationRequired && !connection.authenticated}
@@ -203,9 +226,8 @@
 			<SessionNavigator
 				sessions={workspace.sessions}
 				displayedSessions={workspace.displayedSessions}
-				activeSessionId={workspace.activeSession?.id}
-				activeOutputSessionId={workspace.activeOutputSessionId}
-				unreadSessionIds={workspace.unreadSessionIds}
+				selectedSessionId={workspace.activeSession?.id}
+				activityRecords={workspace.activityRecords}
 				authenticationRequired={connection.authenticationRequired}
 				hasOpenSession={workspace.hasOpenSession}
 				mobileOpen={mobilePanel === 'sessions'}
@@ -266,6 +288,7 @@
 						onLoadNote={(sessionId) => workspace.loadSessionNote(sessionId)}
 						onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
 						onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
+						onTerminalPresentationChange={setTerminalPresentation}
 						{mobilePanel}
 						onMobilePanelChange={setMobilePanel}
 						systemMetrics={connection.systemMetrics}
@@ -309,7 +332,7 @@
 	label { color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
 	input { width: 100%; min-width: 0; min-height: 2.9rem; padding: 0 0.8rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font-size: var(--text-body); }
 	input::placeholder { color: var(--color-field-placeholder); }
-	.primary-button, .secondary-button { min-height: 2.85rem; padding: 0 1rem; border: 0; border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
+	.primary-button, .secondary-button { min-height: var(--control-height-lg); padding: 0 1rem; border: 0; border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.primary-button { background: var(--color-accent); color: var(--color-accent-ink); }
 	.primary-button:hover { background: var(--color-accent-hover); }
 	.primary-button:disabled { cursor: wait; opacity: 0.65; }
@@ -320,7 +343,6 @@
 	.login-panel form { gap: 0.8rem; }
 	.error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-ui); }
 	.loading-state { display: flex; align-items: center; justify-content: center; gap: 0.7rem; min-height: 100dvh; color: var(--color-text-secondary); }
-	.spinner { width: 1rem; height: 1rem; border: 2px solid var(--color-border-strong); border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 	.unavailable-sheet { position: fixed; z-index: 20; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; background: var(--color-terminal-background); color: var(--color-text); }
 	.unavailable-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; min-width: 0; padding: max(0.65rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0.65rem max(0.75rem, env(safe-area-inset-left)); border-bottom: 1px solid var(--color-border-subtle); background: var(--color-panel); }
 	.detail-back { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.65rem; padding: 0 0.65rem 0 0.45rem; border: 1px solid var(--color-border); border-radius: 0.55rem; background: var(--color-control-background); color: var(--color-text); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
@@ -329,7 +351,7 @@
 	.unavailable-identity strong, .unavailable-identity span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.unavailable-identity strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
 	.unavailable-identity span { color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); }
-	.ended-badge { padding: 0.28rem 0.5rem; border-radius: 999px; background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
+	.ended-badge { padding: 0.28rem 0.5rem; border-radius: var(--radius-pill); background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
 	.unavailable-body { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; width: min(100%, 32rem); min-height: 0; margin: 0 auto; padding: 2rem 1.25rem max(2rem, env(safe-area-inset-bottom)); }
 	.unavailable-icon { display: grid; place-items: center; width: 3rem; height: 3rem; margin-bottom: 1.25rem; border: 1px solid var(--color-border); border-radius: 0.8rem; background: var(--color-surface); color: var(--color-accent); }
 	.unavailable-body h2 { margin: 0.3rem 0 0; font-size: var(--text-display); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
@@ -337,12 +359,11 @@
 	.unavailable-body code { display: block; width: 100%; overflow: hidden; margin-bottom: 1.25rem; padding: 0.75rem; border: 1px solid var(--color-border-subtle); border-radius: 0.55rem; background: var(--color-panel); color: var(--color-text-secondary); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
 	.unavailable-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; width: 100%; }
 	.unavailable-actions button { flex: 1 1 10rem; }
-	.remove-button { min-height: 2.85rem; padding: 0 1rem; border: 1px solid var(--color-danger-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-danger-text); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
+	.remove-button { min-height: var(--control-height-lg); padding: 0 1rem; border: 1px solid var(--color-danger-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-danger-text); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.remove-button:hover { background: var(--color-danger-surface-hover); }
 	.remove-button:disabled { cursor: wait; opacity: 0.6; }
 	.unavailable-body .error { margin-top: 0.9rem; }
 	.empty-workbench { display: none; }
-	@keyframes spin { to { transform: rotate(360deg); } }
 	@media (min-width: 64rem) {
 		main { height: 100dvh; overflow: hidden; }
 		main.tmux-missing { display: grid; grid-template-rows: auto minmax(0, 1fr); }
@@ -361,5 +382,4 @@
 		.detail-back span { display: none; }
 		input { font-size: 1rem; }
 	}
-	@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
 </style>

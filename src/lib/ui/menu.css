@@ -5,7 +5,7 @@
 	height: 2rem;
 	padding: 0;
 	border: 0;
-	border-radius: 0.4rem;
+	border-radius: var(--radius-xs);
 	background: transparent;
 	color: var(--color-text-tertiary);
 	cursor: pointer;
@@ -18,9 +18,9 @@
 	color: var(--color-text);
 }
 
-.session-row-shell.active .vampire-menu-trigger:hover,
-.session-row-shell.active .vampire-menu-trigger:focus-visible,
-.session-row-shell.active .vampire-menu-trigger[data-state='open'] {
+.session-row-shell.selected .vampire-menu-trigger:hover,
+.session-row-shell.selected .vampire-menu-trigger:focus-visible,
+.session-row-shell.selected .vampire-menu-trigger[data-state='open'] {
 	background: var(--color-surface-active-hover);
 }
 
@@ -61,7 +61,7 @@
 .vampire-menu-heading span {
 	color: var(--color-text-tertiary);
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.68rem;
+	font-size: var(--text-micro);
 }
 
 .vampire-menu-separator {
@@ -75,10 +75,10 @@
 	align-items: center;
 	gap: 0.55rem;
 	width: 100%;
-	min-height: 2.25rem;
+	min-height: var(--control-height-sm);
 	padding: 0 0.6rem;
 	border: 0;
-	border-radius: 0.4rem;
+	border-radius: var(--radius-xs);
 	background: transparent;
 	color: var(--color-text-secondary);
 	font: inherit;
@@ -112,6 +112,6 @@
 .vampire-menu-hint {
 	margin: 0.15rem 0.55rem 0.35rem;
 	color: var(--color-text-tertiary);
-	font-size: 0.68rem;
+	font-size: var(--text-micro);
 	line-height: var(--leading-ui);
 }

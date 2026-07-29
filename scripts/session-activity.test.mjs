@@ -25,29 +25,34 @@ function session(lastOutputAt, id = 'workspace-1', state = 'running') {
 	};
 }
 
-test('does not show live activity for a recent timestamp that has already been observed', () => {
-	assert.equal(view.sessionActivityState(session(Date.now()), undefined, false), 'idle');
-});
+function activity(id, activeUntil, seenThroughAt) {
+	return new Map([[id, { activeUntil, seenThroughAt }]]);
+}
 
-test('shows live activity only while output is active or recent unread output is arriving', () => {
+test('does not infer active output from a recent timestamp alone', () => {
 	const current = session(Date.now());
-	assert.equal(view.sessionActivityState(current, current.id, false), 'live');
-	assert.equal(view.sessionActivityState(current, undefined, true), 'live');
-	assert.equal(view.sessionActivityState(session(Date.now() - 11_000), undefined, true), 'review');
+	assert.equal(view.sessionActivityState(current), 'review');
 });
 
-test('places live sessions above review sessions', () => {
-	const states = ['live', 'review', 'idle', 'missing'];
+test('derives active, review, and idle from output and observation timestamps', () => {
+	const current = session(2_000);
+	assert.equal(view.sessionActivityState(current, activity(current.id, 3_000, 0), 2_500), 'active');
+	assert.equal(view.sessionActivityState(current, activity(current.id, 2_500, 0), 2_500), 'review');
+	assert.equal(view.sessionActivityState(current, activity(current.id, 2_500, 2_000), 2_500), 'idle');
+});
+
+test('places active sessions above review sessions', () => {
+	const states = ['active', 'review', 'idle', 'ended'];
 	assert.deepEqual(
 		states.sort((left, right) => view.sessionActivityPriority(left) - view.sessionActivityPriority(right)),
-		['live', 'review', 'idle', 'missing']
+		['active', 'review', 'idle', 'ended']
 	);
 });
 
-test('ignores delayed timestamps covered by the last observation', () => {
-	assert.equal(view.sessionOutputBecameUnread(1_000, 2_000, 2_500, false), false);
-	assert.equal(view.sessionOutputBecameUnread(1_000, 3_000, 2_500, false), true);
-	assert.equal(view.sessionOutputBecameUnread(1_000, 3_000, 0, true), false);
+test('does not mark output covered by the observation watermark for review', () => {
+	const current = session(2_000);
+	assert.equal(view.sessionActivityState(current, activity(current.id, 0, 2_500), 3_000), 'idle');
+	assert.equal(view.sessionActivityState({ ...current, lastOutputAt: 3_000 }, activity(current.id, 0, 2_500), 3_500), 'review');
 });
 
 test('does not invent a shell label for a missing session', () => {
@@ -59,30 +64,36 @@ test('groups activity states without reordering sessions inside a state', () => 
 	const sessions = [
 		session(1_000, 'idle-a'),
 		session(2_000, 'review-a'),
-		session(3_000, 'live-a'),
+		session(3_000, 'active-a'),
 		session(4_000, 'idle-b')
 	];
+	const records = new Map([
+		['idle-a', { activeUntil: 0, seenThroughAt: 1_000 }],
+		['review-a', { activeUntil: 0, seenThroughAt: 0 }],
+		['active-a', { activeUntil: Date.now() + 10_000, seenThroughAt: 0 }],
+		['idle-b', { activeUntil: 0, seenThroughAt: 4_000 }]
+	]);
 	assert.deepEqual(
-		view.sortSessions(sessions, 'activity', [], ['review-a', 'live-a', 'idle-a', 'idle-b'])
-			.map(({ id }) => id),
-		['review-a', 'live-a', 'idle-a', 'idle-b']
-	);
-	assert.deepEqual(
-		view.sortSessions(sessions, 'activity', [], ['idle-a', 'review-a', 'live-a', 'idle-b'])
-			.map(({ id }) => id),
-		['idle-a', 'review-a', 'live-a', 'idle-b']
+		view.buildActivityOrder(sessions, ['idle-a', 'review-a', 'active-a', 'idle-b'], records),
+		['active-a', 'review-a', 'idle-a', 'idle-b']
 	);
 });
 
-test('builds the Latest order from activity groups while preserving the previous order inside each group', () => {
+test('keeps the previous order inside each activity group', () => {
 	const sessions = [
-		session(1_000, 'idle-a'),
-		session(2_000, 'review-a'),
-		session(3_000, 'live-a'),
-		session(4_000, 'idle-b')
+		session(1_000, 'active-a'),
+		session(2_000, 'active-b'),
+		session(3_000, 'review-a'),
+		session(4_000, 'review-b')
 	];
+	const records = new Map([
+		['active-a', { activeUntil: Date.now() + 10_000, seenThroughAt: 0 }],
+		['active-b', { activeUntil: Date.now() + 10_000, seenThroughAt: 0 }],
+		['review-a', { activeUntil: 0, seenThroughAt: 0 }],
+		['review-b', { activeUntil: 0, seenThroughAt: 0 }]
+	]);
 	assert.deepEqual(
-		view.buildActivityOrder(sessions, ['idle-a', 'review-a', 'live-a', 'idle-b'], 'live-a', new Set(['review-a'])),
-		['live-a', 'review-a', 'idle-a', 'idle-b']
+		view.buildActivityOrder(sessions, ['review-b', 'active-b', 'review-a', 'active-a'], records),
+		['active-b', 'active-a', 'review-b', 'review-a']
 	);
 });

@@ -25,7 +25,7 @@
 <AlertDialog.Root open={true} onOpenChange={handleOpenChange}>
 	<AlertDialog.Portal>
 		<AlertDialog.Overlay class="vampire-dialog-overlay vampire-alert-dialog-overlay" />
-		<AlertDialog.Content data-dialog-content class="vampire-dialog-content vampire-alert-dialog-content" escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}>
+		<AlertDialog.Content data-vampire-overlay class="vampire-dialog-content vampire-alert-dialog-content" escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}>
 			<header class="vampire-dialog-header">
 				<div>
 					{#if eyebrow}<p class="vampire-dialog-eyebrow">{eyebrow}</p>{/if}

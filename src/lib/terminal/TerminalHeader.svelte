@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { Popover } from 'bits-ui';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
 	import MemoryStick from '@lucide/svelte/icons/memory-stick';
 	import Microchip from '@lucide/svelte/icons/microchip';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
+	import type { Snippet } from 'svelte';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import TerminalDisplayMenu from './TerminalDisplayMenu.svelte';
 
@@ -22,6 +24,7 @@
 		worktreeCount,
 		toggleRepository,
 		toggleNote,
+		noteEditor,
 		decreaseFontSize,
 		increaseFontSize
 	}: {
@@ -39,6 +42,7 @@
 		worktreeCount: number;
 		toggleRepository: () => void;
 		toggleNote: () => void;
+		noteEditor?: Snippet;
 		decreaseFontSize: () => void;
 		increaseFontSize: () => void;
 	} = $props();
@@ -46,6 +50,10 @@
 	function formatMemory(bytes: number): string {
 		const gigabytes = bytes / 1024 ** 3;
 		return `${gigabytes >= 10 ? Math.round(gigabytes) : gigabytes.toFixed(1)} GB`;
+	}
+
+	function handleNoteOpenChange(nextOpen: boolean) {
+		if (nextOpen !== noteOpen) toggleNote();
 	}
 </script>
 
@@ -60,18 +68,24 @@
 			{#if worktreeCount > 1}
 				<span class="worktree-count" title="Git worktrees in this repository">{worktreeCount > 99 ? '99+' : worktreeCount} worktrees</span>
 			{/if}
-			<button
-				type="button"
-				class="note-button"
-				class:has-note={hasNote}
-				class:active={noteOpen}
-				onclick={toggleNote}
-				aria-label={hasNote ? 'Open workspace note' : 'Add workspace note'}
-				aria-expanded={noteOpen}
-				title={hasNote ? 'Workspace note' : 'Add a workspace note'}
-			>
-				<StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
-			</button>
+			<Popover.Root open={noteOpen} onOpenChange={handleNoteOpenChange}>
+				<Popover.Trigger
+					type="button"
+					class={`note-button${hasNote ? ' has-note' : ''}${noteOpen ? ' active' : ''}`}
+					aria-label={hasNote ? 'Open workspace note' : 'Add workspace note'}
+					aria-expanded={noteOpen}
+					title={hasNote ? 'Workspace note' : 'Add a workspace note'}
+				>
+					<StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
+				</Popover.Trigger>
+				<Popover.Portal>
+					{#if noteOpen && noteEditor}
+						<Popover.Content class="workspace-note-popover" side="bottom" align="start" sideOffset={8}>
+							{@render noteEditor()}
+						</Popover.Content>
+					{/if}
+				</Popover.Portal>
+			</Popover.Root>
 		</div>
 		<span title={cwd}>{cwd}</span>
 	</div>
@@ -126,7 +140,7 @@
 	.terminal-identity-title { display: flex; align-items: center; gap: 0.45rem; min-width: 0; max-width: 100%; }
 	.terminal-identity-title strong { min-width: 0; overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.terminal-identity > span { max-width: 100%; overflow: hidden; color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
-	.worktree-count { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-tertiary); font-size: 0.64rem; font-variant-numeric: tabular-nums; line-height: 1.25; }
+	.worktree-count { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-border); border-radius: var(--radius-pill); color: var(--color-text-tertiary); font-size: var(--text-nano); font-variant-numeric: tabular-nums; line-height: 1.25; }
 	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; min-width: max-content; }
 	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-overlay); color: var(--color-text-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 	.system-metric { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 1.9rem; padding: 0 0.42rem; white-space: nowrap; }
@@ -135,11 +149,12 @@
 	.system-metric b { font-weight: var(--weight-medium); }
 	.system-metric output { color: var(--color-text); font: inherit; }
 	.control-divider { width: 1px; height: 1.35rem; margin-inline: 0.05rem; background: var(--color-divider-subtle); }
-	.note-button, .repository-button { position: relative; display: grid; place-items: center; width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: 0.5rem; background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
-	.note-button:hover, .note-button.active, .repository-button:hover { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
-	.note-button.has-note { color: var(--color-command); }
-	.note-button.has-note::after { position: absolute; top: 0.38rem; right: 0.38rem; width: 0.32rem; height: 0.32rem; border-radius: 50%; background: var(--color-accent); content: ""; }
-	.repository-button span { position: absolute; top: -0.25rem; right: -0.35rem; display: grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.24rem; border: 2px solid var(--color-panel); border-radius: 999px; background: var(--color-accent); color: var(--color-accent-ink); font-size: 0.62rem; font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+	:global(.note-button), .repository-button { position: relative; display: grid; place-items: center; width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
+	:global(.note-button:hover), :global(.note-button.active), .repository-button:hover { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
+	:global(.note-button.has-note) { color: var(--color-command); }
+	:global(.note-button.has-note::after) { position: absolute; top: 0.38rem; right: 0.38rem; width: 0.32rem; height: 0.32rem; border-radius: 50%; background: var(--color-accent); content: ""; }
+	.repository-button span { position: absolute; top: -0.25rem; right: -0.35rem; display: grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.24rem; border: 2px solid var(--color-panel); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-accent-ink); font-size: var(--text-nano); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+	:global(.workspace-note-popover) { z-index: 60; width: min(30rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); outline: none; }
 
 	@media (min-width: 64rem) {
 		.terminal-header { grid-template-columns: minmax(0, 1fr) auto; }

@@ -5,10 +5,10 @@
 <table>
   <tr>
     <td width="78%" valign="top">
-      <img src="docs/images/vampire-desktop.png" alt="Vampire desktop workspace with an agent conversation" />
+      <img src="docs/images/vampire-desktop.png" alt="Vampire desktop workspace with Smart status groups, a Codex session, and repository changes" />
     </td>
     <td width="22%" valign="top">
-      <img src="docs/images/vampire-mobile.png" alt="Vampire mobile workspace with an agent conversation" />
+      <img src="docs/images/vampire-mobile.png" alt="Vampire mobile workspace with the same Codex session" />
     </td>
   </tr>
 </table>
@@ -70,16 +70,17 @@ The process keeps running in tmux when you close the browser. Reopen the workspa
 
 - Persistent tmux sessions for Codex, Claude Code, and any CLI.
 - The same workspace from a desktop or mobile browser.
-- Activity states for sessions that are live, under review, or idle.
+- Smart status groups for sessions that are working, need review, are idle, or have ended.
 - Notes and process labels in the workspace list.
 - Git diffs, image previews, text editing, and inline file/folder creation.
 - Light and dark themes with a mobile-friendly terminal.
 
 | State | Meaning |
 | --- | --- |
-| Live | Terminal output is active. |
-| Review | New terminal output needs review. |
-| Idle | No process is currently active. |
+| Working | Terminal output is currently active. |
+| Review needed | New terminal output is waiting for you to check it. |
+| Idle | No unreviewed terminal output. |
+| Ended | The saved workspace no longer has a running tmux shell. |
 
 ## Remote access
 
