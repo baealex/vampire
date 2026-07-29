@@ -1,6 +1,4 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -14,14 +12,10 @@ if (!packagePath || !expectedVersion) {
 }
 
 const resolvedPackagePath = resolve(packagePath);
-const localIntegrity = `sha512-${createHash('sha512').update(await readFile(resolvedPackagePath)).digest('base64')}`;
 const registryIntegrity = await publishedIntegrity(expectedVersion);
 
 if (registryIntegrity) {
-	if (registryIntegrity !== localIntegrity) {
-		throw new Error(`vampire@${expectedVersion} already exists with different package contents.`);
-	}
-	console.log(`vampire@${expectedVersion} is already published with the verified tarball.`);
+	console.log(`vampire@${expectedVersion} is already published; registry verification will run separately.`);
 } else {
 	const { stdout, stderr } = await execFileAsync(npmCommand(), ['publish', resolvedPackagePath, '--access', 'public'], {
 		timeout: 120_000
