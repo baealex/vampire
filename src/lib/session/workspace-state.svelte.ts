@@ -382,7 +382,7 @@ export class SessionWorkspaceState {
 		this.sessionAction = 'remove';
 		this.sessionActionError = '';
 		try {
-			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}`, { method: 'DELETE' });
+			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}?terminate=true`, { method: 'DELETE' });
 			this.invalidateSessions();
 			this.sessions = this.sessions.filter((item) => item.id !== session.id);
 			this.#activity.removeSession(session.id);
