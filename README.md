@@ -98,10 +98,11 @@ Do not expose an unauthenticated instance to the public internet. See [SECURITY.
 | `VAMPIRE_HOST` | Bind address | `127.0.0.1` |
 | `VAMPIRE_PORT` | HTTP port | `7677` |
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
+| `VAMPIRE_WORKSPACE_ROOTS` | Directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory |
 | `VAMPIRE_STATE_DIR` | Session registry and workspace notes | `~/.vampire` |
 | `VAMPIRE_ADAPTER_ORIGIN` | Allowed browser origin for an adapter | unset |
 
-Project files, commands, terminal history, and running processes stay on your machine. Repository access is restricted to the workspace directory.
+Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to `VAMPIRE_WORKSPACE_ROOTS`; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
 
 ## Development
 

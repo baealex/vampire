@@ -8,6 +8,7 @@
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import X from '@lucide/svelte/icons/x';
 	import SessionActionsMenu from './SessionActionsMenu.svelte';
+	import WorkspaceDirectoryPicker from './WorkspaceDirectoryPicker.svelte';
 	import ThemeToggle from '$lib/theme/ThemeToggle.svelte';
 	import type { ManagedSession, SessionOrderMode } from './types';
 	import {
@@ -82,6 +83,7 @@
 	let dragOverSessionId = $state<string>();
 	let dropPosition = $state<'before' | 'after'>('before');
 	let openActionSessionId = $state<string>();
+	let directoryPickerOpen = $state(false);
 
 	$effect(() => {
 		if (newSessionOpen) void tick().then(() => cwdInput?.focus());
@@ -89,6 +91,11 @@
 
 	function openNewSession() {
 		newSessionOpen = true;
+	}
+
+	function selectWorkspaceDirectory(path: string) {
+		cwd = path;
+		directoryPickerOpen = false;
 	}
 
 	function beginSessionDrag(event: DragEvent, sessionId: string) {
@@ -281,8 +288,11 @@
 		{#if newSessionOpen}
 			<form id="new-workspace-form" onsubmit={(event) => { event.preventDefault(); onCreate(); }}>
 				<label for="cwd">Project path</label>
-				<p id="cwd-help" class="field-help">Use the full directory path on this computer.</p>
-				<input id="cwd" type="text" bind:this={cwdInput} bind:value={cwd} placeholder="/Users/you/project" autocapitalize="off" autocomplete="off" spellcheck="false" aria-describedby="cwd-help" required />
+				<p id="cwd-help" class="field-help">Choose a folder on the server or enter its full path.</p>
+				<div class="cwd-input-row">
+					<input id="cwd" type="text" bind:this={cwdInput} bind:value={cwd} placeholder="/Users/you/project" autocapitalize="off" autocomplete="off" spellcheck="false" aria-describedby="cwd-help" required />
+					<button class="secondary-button directory-browse-button" type="button" onclick={() => directoryPickerOpen = true} disabled={starting}>Browse</button>
+				</div>
 				{#if startError}<p class="error" role="alert">{startError}</p>{/if}
 				<p class="ownership-note">The session keeps running in tmux if Vampire restarts.</p>
 				<div class="new-session-actions">
@@ -291,6 +301,10 @@
 			</form>
 		{/if}
 	</section>
+
+	{#if directoryPickerOpen}
+		<WorkspaceDirectoryPicker initialPath={cwd} close={() => directoryPickerOpen = false} onSelect={selectWorkspaceDirectory} />
+	{/if}
 </div>
 
 <style>
@@ -358,6 +372,7 @@
 	form { display: grid; gap: 0.7rem; padding: 0 1rem 1rem; border-top: 1px solid var(--color-border); }
 	form label { margin-top: 1rem; color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
 	.field-help { margin: -0.35rem 0 0; color: var(--color-text-secondary); font-size: var(--text-caption); line-height: var(--leading-ui); }
+	.cwd-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; min-width: 0; }
 	input { width: 100%; min-width: 0; min-height: 2.9rem; padding: 0 0.8rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font-size: var(--text-body); }
 	input::placeholder { color: var(--color-field-placeholder); }
 	.primary-button, .secondary-button { min-height: 2.5rem; padding: 0 0.9rem; border: 0; border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
@@ -365,6 +380,9 @@
 	.primary-button:hover { background: var(--color-accent-hover); }
 	.primary-button:disabled { cursor: wait; opacity: 0.65; }
 	.secondary-button { background: var(--color-surface-raised); color: var(--color-text); }
+	.secondary-button:hover:not(:disabled) { background: var(--color-surface-hover); }
+	.secondary-button:disabled { cursor: wait; opacity: 0.62; }
+	.directory-browse-button { min-height: 2.9rem; }
 	.new-session-actions { display: flex; justify-content: flex-end; }
 	.ownership-note { margin: 0.2rem 0 0; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
 	.error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-ui); }
