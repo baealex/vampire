@@ -7,6 +7,8 @@
 		onOpenChange = () => undefined,
 		triggerLabel,
 		triggerTitle,
+		triggerClass = 'vampire-menu-trigger',
+		align = 'start',
 		trigger,
 		children
 	}: {
@@ -14,6 +16,8 @@
 		onOpenChange?: (open: boolean) => void;
 		triggerLabel: string;
 		triggerTitle?: string;
+		triggerClass?: string;
+		align?: 'start' | 'center' | 'end';
 		trigger?: Snippet;
 		children?: Snippet;
 	} = $props();
@@ -25,11 +29,11 @@
 </script>
 
 <DropdownMenu.Root bind:open onOpenChange={handleOpenChange}>
-	<DropdownMenu.Trigger class="vampire-menu-trigger" aria-label={triggerLabel} title={triggerTitle}>
+	<DropdownMenu.Trigger class={triggerClass} aria-label={triggerLabel} title={triggerTitle}>
 		{@render trigger?.()}
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Portal>
-		<DropdownMenu.Content data-menu-content class="vampire-menu-content" sideOffset={6} align="start">
+		<DropdownMenu.Content data-menu-content class="vampire-menu-content" sideOffset={6} {align}>
 			{@render children?.()}
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>

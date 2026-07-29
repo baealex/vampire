@@ -209,7 +209,6 @@
 				authenticationRequired={connection.authenticationRequired}
 				hasOpenSession={workspace.hasOpenSession}
 				mobileOpen={mobilePanel === 'sessions'}
-				loading={workspace.loading}
 				errorMessage={workspace.errorMessage || connection.errorMessage}
 				sessionOrderMode={workspace.sessionOrderMode}
 				bind:newSessionOpen={workspace.newSessionOpen}
@@ -217,7 +216,6 @@
 				starting={workspace.starting}
 				startError={workspace.startError}
 				tmuxAvailable={connection.tmuxStatus?.available}
-				onRefresh={() => void workspace.refresh()}
 				onLogout={() => void logout()}
 				onClose={closeSessionNavigator}
 				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}

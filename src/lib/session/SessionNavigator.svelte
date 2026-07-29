@@ -1,7 +1,6 @@
 <script lang="ts">
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Plus from '@lucide/svelte/icons/plus';
-	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import X from '@lucide/svelte/icons/x';
@@ -29,7 +28,6 @@
 		authenticationRequired,
 		hasOpenSession,
 		mobileOpen,
-		loading,
 		errorMessage,
 		sessionOrderMode,
 		newSessionOpen = $bindable(),
@@ -37,7 +35,6 @@
 		starting,
 		startError,
 		tmuxAvailable,
-		onRefresh,
 		onLogout,
 		onClose,
 		onOrderModeChange,
@@ -56,7 +53,6 @@
 		authenticationRequired: boolean;
 		hasOpenSession: boolean;
 		mobileOpen: boolean;
-		loading: boolean;
 		errorMessage: string;
 		sessionOrderMode: SessionOrderMode;
 		newSessionOpen: boolean;
@@ -64,7 +60,6 @@
 		starting: boolean;
 		startError: string;
 		tmuxAvailable?: boolean;
-		onRefresh: () => void;
 		onLogout: () => void;
 		onClose: () => void;
 		onOrderModeChange: (mode: SessionOrderMode) => void;
@@ -145,9 +140,6 @@
 			</div>
 			<div class="section-actions">
 				<ThemeToggle />
-				<button class="icon-button" class:spinning={loading} onclick={onRefresh} disabled={loading} aria-label="Refresh workspaces" title="Refresh workspaces">
-					<RefreshCw size={18} strokeWidth={1.8} aria-hidden="true" />
-				</button>
 				{#if authenticationRequired}
 					<button class="icon-button" onclick={onLogout} aria-label="Sign out" title="Sign out">
 						<LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
@@ -308,7 +300,6 @@
 	.icon-button { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.icon-button:hover { background: var(--color-surface-raised); color: var(--color-text); }
 	.icon-button:disabled { cursor: wait; opacity: 0.55; }
-	.icon-button.spinning :global(svg) { animation: spin 0.8s linear infinite; }
 	.navigator-close { display: none; }
 	.sessions { border-top: 1px solid var(--color-border); }
 	.session-row-shell { position: relative; min-width: 0; border-bottom: 1px solid var(--color-border); }
@@ -396,6 +387,5 @@
 	@media (prefers-reduced-motion: reduce) {
 		.session-column { transition: none; }
 		.status-dot.live { animation: none; }
-		.icon-button.spinning :global(svg) { animation-duration: 1.6s; }
 	}
 </style>
