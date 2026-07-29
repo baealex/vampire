@@ -13,10 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: npm
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -31,8 +30,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -48,5 +46,55 @@ jobs:
       - name: Verify
         run: pnpm test
 
-      - name: Publish package
-        run: npm publish --access public
+      - name: Install browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Verify browser flows
+        run: pnpm test:e2e
+
+      - name: Build npm package
+        run: |
+          mkdir package-artifact
+          npm pack --ignore-scripts --pack-destination package-artifact
+
+      - name: Verify installed npm package
+        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+
+      - name: Upload verified npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: package-artifact/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Download verified npm package
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: package-artifact
+
+      - name: Publish verified package
+        run: npm publish package-artifact/vampire-*.tgz --access public
+
+      - name: Verify package from npm registry
+        run: node scripts/package-smoke.mjs "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"
