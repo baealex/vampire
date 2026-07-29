@@ -63,6 +63,8 @@ test('pushes Git change counts and releases its watcher with the socket', async 
 	await writeFile(join(workspace, 'app.js'), 'export const value = 1;\n');
 	await git(workspace, 'add', '.');
 	await git(workspace, 'commit', '--quiet', '-m', 'initial');
+	const linkedWorktree = join(root, 'linked-worktree');
+	await git(workspace, 'worktree', 'add', '--quiet', '-b', 'status-worktree-test', linkedWorktree);
 	await mkdir(stateDirectory);
 	const sessionId = 'e272a1ce-550a-48a6-8d4a-5ef1cef1b46';
 	await writeFile(join(stateDirectory, 'sessions.json'), JSON.stringify({
@@ -73,6 +75,10 @@ test('pushes Git change counts and releases its watcher with the socket', async 
 	const socket = new TestSocket();
 	await observeRepositoryStatus(socket, sessionId);
 	await waitFor(() => socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 0));
+	assert.equal(socket.messages.at(-1)?.worktreeCount, 2);
+
+	await git(workspace, 'worktree', 'remove', '--force', linkedWorktree);
+	await waitFor(() => socket.messages.at(-1)?.worktreeCount === 1);
 
 	await writeFile(join(workspace, 'app.js'), 'export const value = 2;\n');
 	await waitFor(() => socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 1));

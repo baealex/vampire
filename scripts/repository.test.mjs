@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import {
 	readRepositoryDiff,
+	readRepositorySummary,
 	readRepositorySnapshot,
 	readWorkspaceDirectory,
 	readWorkspaceImage,
@@ -76,6 +77,21 @@ test('lists workspace files including Git-ignored entries and reflects structure
 		{ path: 'src/app.js', status: ' M' },
 		{ path: 'src/new.js', status: '??' }
 	]);
+});
+
+test('counts the main and linked Git worktrees without scanning their files', async (t) => {
+	const directory = await createRepository(t);
+	const worktreeParent = await mkdtemp(join(tmpdir(), 'vampire-worktrees-'));
+	const linkedWorktree = join(worktreeParent, 'linked');
+	t.after(() => rm(worktreeParent, { recursive: true, force: true }));
+
+	assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
+	await git(directory, 'worktree', 'add', '--quiet', '-b', 'worktree-count-test', linkedWorktree);
+	assert.equal((await readRepositorySummary(directory)).worktreeCount, 2);
+	assert.equal((await readRepositorySummary(linkedWorktree)).worktreeCount, 2);
+
+	await git(directory, 'worktree', 'remove', '--force', linkedWorktree);
+	assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
 });
 
 test('returns staged, working tree, and untracked diff sections', async (t) => {

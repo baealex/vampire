@@ -51,6 +51,7 @@
 	let discardChangesResolver: ((discard: boolean) => void) | undefined;
 	const name = $derived(getProjectName(session.cwd));
 	let changeCount = $state(0);
+	let worktreeCount = $state(0);
 	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
 	const repositoryApi = $derived(new RepositoryClient(session.id));
 
@@ -269,8 +270,9 @@
 		fileDirty = false;
 	}
 
-	function handleRepositoryStatus(nextChangeCount: number) {
+	function handleRepositoryStatus(nextChangeCount: number, nextWorktreeCount: number) {
 		changeCount = nextChangeCount;
+		worktreeCount = nextWorktreeCount;
 		if (repositoryOpen) void refreshRepository();
 	}
 
@@ -325,6 +327,7 @@
 			{systemMetrics}
 			{repositoryOpen}
 			{changeCount}
+			{worktreeCount}
 			onRepositoryStatus={handleRepositoryStatus}
 			onToggleRepository={toggleRepository}
 		>
