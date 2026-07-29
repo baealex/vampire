@@ -1,4 +1,5 @@
 import { watch } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readRepositorySummary, readRepositoryWatchPaths } from '../src/lib/server/repository.mjs';
 import { findSessionConnection } from '../src/lib/server/session-state.mjs';
@@ -33,6 +34,8 @@ function shouldRefreshForGitEvent(filename) {
 		|| path === 'HEAD'
 		|| path === 'index'
 		|| path === 'packed-refs'
+		|| path === 'worktrees'
+		|| path.startsWith('worktrees/')
 		|| path === 'refs'
 		|| path.startsWith('refs/');
 }
@@ -47,6 +50,8 @@ class RepositoryStatusMonitor {
 	#sockets = new Set();
 	#startPromise;
 	#summary;
+	#worktreeWatcherInstalled = false;
+	#worktreesDirectory;
 
 	constructor(cwd, onEmpty) {
 		this.cwd = cwd;
@@ -88,8 +93,9 @@ class RepositoryStatusMonitor {
 	}
 
 	async #installWatchers() {
-		const { root, gitDirectory } = await readRepositoryWatchPaths(this.cwd);
+		const { root, gitDirectory, worktreesDirectory } = await readRepositoryWatchPaths(this.cwd);
 		if (this.#disposed) return;
+		this.#worktreesDirectory = worktreesDirectory;
 
 		let watcherInstalled = false;
 		watcherInstalled = this.#watch(root, true, shouldRefreshForWorkspaceEvent) || watcherInstalled;
@@ -97,7 +103,19 @@ class RepositoryStatusMonitor {
 			watcherInstalled = this.#watch(gitDirectory, false, shouldRefreshForGitEvent) || watcherInstalled;
 			watcherInstalled = this.#watch(join(gitDirectory, 'refs'), true, () => true) || watcherInstalled;
 		}
+		if (worktreesDirectory && await this.#directoryExists(worktreesDirectory)) {
+			this.#worktreeWatcherInstalled = this.#watch(worktreesDirectory, false, () => true);
+			if (!this.#worktreeWatcherInstalled) this.#startFallback();
+		}
 		if (!watcherInstalled) this.#startFallback();
+	}
+
+	async #directoryExists(path) {
+		try {
+			return (await stat(path)).isDirectory();
+		} catch {
+			return false;
+		}
 	}
 
 	#watch(path, recursive, shouldRefresh) {
@@ -140,9 +158,14 @@ class RepositoryStatusMonitor {
 		try {
 			const summary = await readRepositorySummary(this.cwd);
 			if (this.#disposed) return;
+			if (summary.worktreeCount > 1 && this.#worktreesDirectory && !this.#worktreeWatcherInstalled) {
+				this.#worktreeWatcherInstalled = this.#watch(this.#worktreesDirectory, false, () => true);
+				if (!this.#worktreeWatcherInstalled) this.#startFallback();
+			}
 			const changed = !this.#summary
 				|| summary.isGitRepository !== this.#summary.isGitRepository
-				|| summary.changeCount !== this.#summary.changeCount;
+				|| summary.changeCount !== this.#summary.changeCount
+				|| summary.worktreeCount !== this.#summary.worktreeCount;
 			this.#summary = summary;
 			if (changed || this.#sockets.size > 0) {
 				for (const socket of this.#sockets) send(socket, { type: 'repository-status', ...summary });

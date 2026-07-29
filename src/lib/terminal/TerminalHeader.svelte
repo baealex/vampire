@@ -20,6 +20,7 @@
 		close,
 		repositoryOpen,
 		changeCount,
+		worktreeCount,
 		toggleRepository,
 		toggleNote,
 		decreaseFontSize,
@@ -36,6 +37,7 @@
 		close: () => void;
 		repositoryOpen: boolean;
 		changeCount: number;
+		worktreeCount: number;
 		toggleRepository: () => void;
 		toggleNote: () => void;
 		decreaseFontSize: () => void;
@@ -54,7 +56,12 @@
 		<span>Workspaces</span>
 	</button>
 	<div class="terminal-identity">
-		<strong>{projectName}</strong>
+		<div class="terminal-identity-title">
+			<strong>{projectName}</strong>
+			{#if worktreeCount > 1}
+				<span class="worktree-count" title="Git worktrees in this repository">{worktreeCount > 99 ? '99+' : worktreeCount} worktrees</span>
+			{/if}
+		</div>
 		<span title={cwd}>{cwd}</span>
 	</div>
 	<div class="terminal-controls">
@@ -125,9 +132,10 @@
 	.back-button { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.65rem; padding: 0 0.65rem 0 0.45rem; border: 1px solid var(--color-border); border-radius: 0.55rem; background: var(--color-control-background); color: var(--color-text); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
 	.back-button:hover { background: var(--color-surface-hover); }
 	.terminal-identity { display: grid; min-width: 0; justify-items: center; gap: 0.18rem; }
-	.terminal-identity strong, .terminal-identity span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.terminal-identity strong { font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
-	.terminal-identity span { color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); line-height: var(--leading-tight); }
+	.terminal-identity-title { display: flex; align-items: center; gap: 0.45rem; min-width: 0; max-width: 100%; }
+	.terminal-identity-title strong { min-width: 0; overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
+	.terminal-identity > span { max-width: 100%; overflow: hidden; color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
+	.worktree-count { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-tertiary); font-size: 0.64rem; font-variant-numeric: tabular-nums; line-height: 1.25; }
 	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; min-width: max-content; }
 	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-overlay); color: var(--color-text-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 	.system-metric { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 1.9rem; padding: 0 0.42rem; white-space: nowrap; }
@@ -155,7 +163,7 @@
 	@media (max-width: 63.999rem) {
 		.terminal-header { gap: 0.5rem; }
 		.back-button { width: 2.65rem; padding: 0; justify-content: center; }
-		.back-button span, .terminal-identity span { display: none; }
+		.back-button span, .terminal-identity > span { display: none; }
 		.terminal-identity { justify-items: start; }
 	}
 

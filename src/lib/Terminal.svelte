@@ -20,6 +20,7 @@
 		onOutputActivity = () => undefined,
 		repositoryOpen = false,
 		changeCount = 0,
+		worktreeCount = 0,
 		onRepositoryStatus = () => undefined,
 		onToggleRepository = () => undefined,
 		systemMetrics,
@@ -33,7 +34,8 @@
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		repositoryOpen?: boolean;
 		changeCount?: number;
-		onRepositoryStatus?: (changeCount: number) => void;
+		worktreeCount?: number;
+		onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
 		onToggleRepository?: () => void;
 		systemMetrics?: SystemMetrics;
 		children?: Snippet;
@@ -382,7 +384,7 @@
 					return;
 				}
 				if (!payload || typeof payload !== 'object') return;
-				const message = payload as { type?: unknown; data?: unknown; message?: unknown; activity?: unknown; changeCount?: unknown };
+				const message = payload as { type?: unknown; data?: unknown; message?: unknown; activity?: unknown; changeCount?: unknown; worktreeCount?: unknown };
 				if (message.type === 'snapshot' && typeof message.data === 'string') {
 					if (!terminal) return;
 					screenReady = false;
@@ -423,7 +425,12 @@
 					&& Number.isInteger(message.changeCount)
 					&& message.changeCount >= 0
 				) {
-					onRepositoryStatus(message.changeCount);
+					const worktreeCount = typeof message.worktreeCount === 'number'
+						&& Number.isInteger(message.worktreeCount)
+						&& message.worktreeCount >= 0
+						? message.worktreeCount
+						: 0;
+					onRepositoryStatus(message.changeCount, worktreeCount);
 				} else if (message.type === 'error' && typeof message.message === 'string') {
 					terminalError = message.message;
 				}
@@ -497,6 +504,7 @@
 			{close}
 			{repositoryOpen}
 			{changeCount}
+			{worktreeCount}
 			toggleRepository={onToggleRepository}
 			toggleNote={() => noteOpen = !noteOpen}
 			decreaseFontSize={() => changeTerminalFontSize(-1)}

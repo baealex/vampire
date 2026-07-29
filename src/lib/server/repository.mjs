@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, open, readFile, readdir, realpath, stat, lstat, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, normalize, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 /** @typedef {'conflict' | 'invalid-path' | 'not-found' | 'not-git' | 'too-large' | 'unsupported-file' | 'command-failed'} RepositoryReadErrorReason */
@@ -115,6 +115,17 @@ async function isGitRepository(cwd) {
 		if (error instanceof RepositoryReadError && error.reason === 'command-failed') return false;
 		throw error;
 	}
+}
+
+/** @param {string} output */
+function countGitWorktrees(output) {
+	return output.split('\n').filter((line) => line.startsWith('worktree ')).length;
+}
+
+/** @param {string} cwd */
+async function readGitWorktreeCount(cwd) {
+	const { stdout } = await runGit(cwd, ['worktree', 'list', '--porcelain']);
+	return countGitWorktrees(stdout);
 }
 
 /** @param {string} output */
@@ -253,18 +264,29 @@ export async function readRepositorySnapshot(cwd) {
 export async function readRepositorySummary(cwd) {
 	const root = await workspaceRoot(cwd);
 	const gitRepository = await isGitRepository(root);
-	if (!gitRepository) return { isGitRepository: false, changeCount: 0 };
-	const changes = await readGitChanges(root);
-	return { isGitRepository: true, changeCount: changes.length };
+	if (!gitRepository) return { isGitRepository: false, changeCount: 0, worktreeCount: 0 };
+	const [changes, worktreeCount] = await Promise.all([
+		readGitChanges(root),
+		readGitWorktreeCount(root)
+	]);
+	return { isGitRepository: true, changeCount: changes.length, worktreeCount };
 }
 
 /** @param {string} cwd */
 export async function readRepositoryWatchPaths(cwd) {
 	const root = await workspaceRoot(cwd);
 	if (!await isGitRepository(root)) return { root, gitDirectory: undefined };
-	const { stdout } = await runGit(root, ['rev-parse', '--absolute-git-dir']);
-	const gitDirectory = stdout.trim();
-	return { root, gitDirectory: gitDirectory || undefined };
+	const [{ stdout: gitDirectoryOutput }, { stdout: gitCommonDirectoryOutput }] = await Promise.all([
+		runGit(root, ['rev-parse', '--absolute-git-dir']),
+		runGit(root, ['rev-parse', '--git-common-dir'])
+	]);
+	const gitDirectory = gitDirectoryOutput.trim();
+	const gitCommonDirectory = gitCommonDirectoryOutput.trim();
+	return {
+		root,
+		gitDirectory: gitDirectory || undefined,
+		worktreesDirectory: gitCommonDirectory ? join(resolve(root, gitCommonDirectory), 'worktrees') : undefined
+	};
 }
 
 /**
