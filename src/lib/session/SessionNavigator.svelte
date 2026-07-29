@@ -273,7 +273,7 @@
 	<section class="new-session-panel" aria-labelledby="new-workspace-title">
 		<button class="new-session-toggle" type="button" onclick={openNewSession}>
 			<span class="new-session-toggle__icon" aria-hidden="true"><Plus size={18} strokeWidth={2.3} /></span>
-			<span><strong id="new-workspace-title">New workspace</strong><small>Open a shell in a project</small></span>
+			<strong id="new-workspace-title">New workspace</strong>
 		</button>
 	</section>
 
@@ -293,11 +293,11 @@
 	.session-column { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; gap: 1.25rem; min-width: 0; }
 	.session-panel, .new-session-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 	.session-panel { min-width: 0; overflow: hidden; }
-	.section-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4rem; padding: 0.8rem 1.35rem; }
-	.section-header h1 { margin: 0; font-size: var(--text-title); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
-	.session-panel-title { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
-	.section-actions { display: flex; align-items: center; gap: 0.5rem; }
-	.session-count { display: grid; place-items: center; min-width: 1.7rem; height: 1.7rem; border-radius: 999px; background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
+	.section-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 3.75rem; padding: 0.75rem 1.35rem; }
+	.section-header h1 { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
+	.session-panel-title { display: flex; flex: 1 1 auto; align-items: center; gap: 0.45rem; min-width: 0; }
+	.section-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; }
+	.session-count { display: grid; place-items: center; min-width: 1.4rem; height: 1.4rem; border: 1px solid var(--color-border); border-radius: 999px; background: transparent; color: var(--color-text-tertiary); font-size: 0.68rem; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
 	.session-order-toolbar { display: flex; align-items: center; gap: 0.55rem; min-width: 0; padding: 0.15rem 1.35rem 0.75rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
 	.session-order-control { display: inline-flex; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-sunken); }
 	.session-order-control button { min-height: 1.8rem; padding: 0 0.55rem; border: 0; border-right: 1px solid var(--color-border); background: transparent; color: var(--color-text-tertiary); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
@@ -346,9 +346,7 @@
 	.new-session-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.8rem; width: 100%; min-height: 4.6rem; padding: 0.9rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.new-session-toggle:hover { background: var(--color-surface-raised); }
 	.new-session-toggle__icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--color-accent); color: var(--color-accent-ink); }
-	.new-session-toggle strong, .new-session-toggle small { display: block; }
 	.new-session-toggle strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
-	.new-session-toggle small { margin-top: 0.2rem; color: var(--color-text-secondary); font-size: var(--text-caption); }
 	.secondary-button { min-height: 2.5rem; padding: 0 0.9rem; border: 0; border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.secondary-button:hover:not(:disabled) { background: var(--color-surface-hover); }
 	.secondary-button:disabled { cursor: wait; opacity: 0.62; }
@@ -387,6 +385,12 @@
 	@media (max-width: 46rem) {
 		.section-header { padding-inline: 1rem; }
 		.session-row { padding-left: 1rem; }
+	}
+
+	@media (max-width: 24rem) {
+		.section-header { align-items: flex-start; flex-wrap: wrap; min-height: 0; gap: 0.5rem 0.75rem; padding-block: 0.75rem; }
+		.session-panel-title, .section-actions { flex-basis: 100%; }
+		.section-actions { justify-content: flex-end; }
 	}
 
 	@media (prefers-reduced-motion: reduce) {

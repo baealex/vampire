@@ -98,11 +98,22 @@ Do not expose an unauthenticated instance to the public internet. See [SECURITY.
 | `VAMPIRE_HOST` | Bind address | `127.0.0.1` |
 | `VAMPIRE_PORT` | HTTP port | `7677` |
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
-| `VAMPIRE_WORKSPACE_ROOTS` | Directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory |
+| `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
 | `VAMPIRE_STATE_DIR` | Session registry and workspace notes | `~/.vampire` |
 | `VAMPIRE_ADAPTER_ORIGIN` | Allowed browser origin for an adapter | unset |
 
-Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to `VAMPIRE_WORKSPACE_ROOTS`; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
+Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to the configured workspace roots; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
+
+### Workspace directory access
+
+`VAMPIRE_WORKSPACE_ROOTS` controls which server-side directories can be selected when creating a workspace. Paths may be absolute, relative to the server launch directory, or use `~` for the server user's home directory.
+
+```bash
+# macOS or Linux: allow two project areas
+VAMPIRE_WORKSPACE_ROOTS="$HOME/Code:$HOME/Projects" npx vampire
+```
+
+If it is unset or empty, the server launch directory is the only root. The root itself or any directory below it can be registered; Vampire stores that server path and starts the tmux session there. The manual path field uses the same validation, and paths outside the roots or non-directories are rejected.
 
 ## Development
 
