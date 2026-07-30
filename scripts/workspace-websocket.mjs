@@ -19,7 +19,8 @@ const SESSION_FIELDS = [
 	'state',
 	'lastOutputAt',
 	'attachedClients',
-	'foregroundProcess'
+	'foregroundProcess',
+	'isGitRepository'
 ];
 
 function send(socket, payload) {

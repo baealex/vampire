@@ -42,6 +42,8 @@
 	let directInputFocused = $state(false);
 	let terminalDropActive = $state(false);
 	let sendTerminalInput: (data: string) => void = () => undefined;
+	let scrollTerminalToTop: () => void = () => undefined;
+	let scrollTerminalToBottom: () => void = () => undefined;
 	let activateTerminal: () => void = () => undefined;
 	let focusTerminal: () => void = () => undefined;
 	let applyTerminalFontSize = $state<(size: number) => void>(() => undefined);
@@ -262,6 +264,8 @@
 			fit = fitAddon;
 			terminal.loadAddon(fitAddon);
 			terminal.open(terminalElement);
+			scrollTerminalToTop = () => terminal?.scrollToTop();
+			scrollTerminalToBottom = () => terminal?.scrollToBottom();
 			screenSync = new TerminalScreenSync({
 				reset: () => terminal?.reset(),
 				write: (data, complete) => {
@@ -354,6 +358,11 @@
 				onRetrying: () => {
 					if (!destroyed) terminalReconnecting = true;
 				},
+				onReconnectExhausted: () => {
+					if (destroyed) return;
+					terminalReconnecting = false;
+					terminalError = 'The terminal could not connect after several attempts. Try again.';
+				},
 				onProtocolError: () => {
 					if (!destroyed) terminalError = 'The terminal sent an unreadable response.';
 				}
@@ -395,6 +404,8 @@
 			terminal?.dispose();
 			imagePaste.dispose();
 			sendTerminalInput = () => undefined;
+			scrollTerminalToTop = () => undefined;
+			scrollTerminalToBottom = () => undefined;
 			activateTerminal = () => undefined;
 			focusTerminal = () => undefined;
 			applyTerminalFontSize = () => undefined;
@@ -424,7 +435,11 @@
 			aria-label="Interactive shell terminal"
 		></div>
 		{#if !terminalError}
-			<ShellOpening ready={screenReady} visible={openingVisible} stage={openingStage} />
+			<ShellOpening
+				ready={screenReady}
+				visible={openingVisible && !terminalReconnecting && !terminalError}
+				stage={openingStage}
+			/>
 		{/if}
 	</div>
 	{#if terminalError}
@@ -447,6 +462,8 @@
 	<TerminalInputDock
 		{connected}
 		send={(data) => sendTerminalInput(data)}
+		scrollToTop={() => scrollTerminalToTop()}
+		scrollToBottom={() => scrollTerminalToBottom()}
 		onComposerFocus={() => directInputFocused = false}
 		onImageSelected={(image) => void imagePaste.paste(image)}
 		{fontSize}

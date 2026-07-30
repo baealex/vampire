@@ -20,9 +20,10 @@ function managedSession(overrides = {}) {
 		lastActiveAt: 2,
 		notePreview: '',
 		state: 'running',
-		lastOutputAt: 3,
-		attachedClients: 1,
-		foregroundProcess: { kind: 'command', label: 'codex' },
+	lastOutputAt: 3,
+	attachedClients: 1,
+	foregroundProcess: { kind: 'command', label: 'codex' },
+	isGitRepository: true,
 		...overrides
 	};
 }
@@ -73,6 +74,10 @@ test('validates complete workspace messages before applying them to client state
 	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'sessions-snapshot',
 		sessions: [managedSession({ attachedClients: '1' })]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
+		sessions: [managedSession({ isGitRepository: 'true' })]
 	})), undefined);
 	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'session-updated',

@@ -20,6 +20,7 @@
 		systemMetrics,
 		close,
 		repositoryOpen,
+		isGitRepository,
 		changeCount,
 		worktreeCount,
 		toggleRepository,
@@ -38,6 +39,7 @@
 		systemMetrics?: SystemMetrics;
 		close: () => void;
 		repositoryOpen: boolean;
+		isGitRepository?: boolean;
 		changeCount: number;
 		worktreeCount: number;
 		toggleRepository: () => void;
@@ -65,7 +67,7 @@
 	<div class="terminal-identity">
 		<div class="terminal-identity-title">
 			<strong>{projectName}</strong>
-			{#if worktreeCount > 1}
+			{#if isGitRepository && worktreeCount > 1}
 				<span class="worktree-count" title="Git worktrees in this repository">{worktreeCount > 99 ? '99+' : worktreeCount} worktrees</span>
 			{/if}
 			<Popover.Root open={noteOpen} onOpenChange={handleNoteOpenChange}>
@@ -121,12 +123,12 @@
 				type="button"
 				class="repository-button"
 				onclick={toggleRepository}
-				aria-label="Open repository"
+				aria-label={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
 				aria-expanded={repositoryOpen}
-				title="Repository"
+				title={isGitRepository === false ? 'Files' : 'Repository'}
 			>
 				<PanelRight size={16} strokeWidth={1.8} aria-hidden="true" />
-				{#if changeCount > 0}<span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>{/if}
+				{#if isGitRepository && changeCount > 0}<span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>{/if}
 			</button>
 		{/if}
 	</div>

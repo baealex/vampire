@@ -1,6 +1,6 @@
 <script lang="ts">
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
-	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
+import ChevronRight from '@lucide/svelte/icons/chevron-right';
+import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import SessionActionsMenu from './SessionActionsMenu.svelte';
 	import type { ManagedSession, SessionOrderMode } from './types';

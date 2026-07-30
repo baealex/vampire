@@ -15,6 +15,7 @@
 		onInputActivity = () => undefined,
 		onOutputActivity = () => undefined,
 		repositoryOpen = false,
+		isGitRepository = undefined,
 		changeCount = 0,
 		worktreeCount = 0,
 		onRepositoryStatus = () => undefined,
@@ -29,6 +30,7 @@
 		onInputActivity?: (sessionId: string, timestamp: number) => void;
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		repositoryOpen?: boolean;
+		isGitRepository?: boolean;
 		changeCount?: number;
 		worktreeCount?: number;
 		onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
@@ -90,6 +92,7 @@
 			{systemMetrics}
 			{close}
 			{repositoryOpen}
+			{isGitRepository}
 			{changeCount}
 			{worktreeCount}
 			toggleRepository={onToggleRepository}

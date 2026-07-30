@@ -19,9 +19,9 @@ test.afterEach(async ({ context }) => {
 	sessionId = undefined;
 });
 
-test('rejects a wrong token and unlocks with the configured token', async ({ page }) => {
+	test('rejects a wrong token and unlocks with the configured token', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: 'Connect to Vampire' })).toBeVisible();
+	await expect(page.getByLabel('Access token')).toBeVisible();
 
 	await page.getByLabel('Access token').fill('wrong-token');
 	await page.getByRole('button', { name: 'Continue' }).click();

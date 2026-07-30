@@ -5,12 +5,12 @@
 	import { projectName as getProjectName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-	import { DESKTOP_MEDIA_QUERY } from '$lib/ui/layout';
+	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
 	import { isUiOverlayOpen } from '$lib/ui/overlay';
 	import RepositoryPanel from './RepositoryPanel.svelte';
 	import RepositoryViewer from './RepositoryViewer.svelte';
 	import { RepositoryWorkspaceState } from './workspace-state.svelte';
-	import type { RepositorySelection } from './types';
+	import type { RepositorySelection, RepositoryTab } from './types';
 
 	let {
 		session,
@@ -22,7 +22,11 @@
 		onTerminalPresentationChange = () => undefined,
 		systemMetrics,
 		mobilePanel,
-		onMobilePanelChange = () => undefined
+		onMobilePanelChange = () => undefined,
+		repositoryPanelOpen = false,
+		onRepositoryPanelOpenChange = () => undefined,
+		repositoryTab = 'changes',
+		onRepositoryTabChange = () => undefined
 	}: {
 		session: ManagedSession;
 		close: () => void;
@@ -34,12 +38,15 @@
 		systemMetrics?: SystemMetrics;
 		mobilePanel?: MobilePanel;
 		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
+		repositoryPanelOpen?: boolean;
+		onRepositoryPanelOpenChange?: (open: boolean) => void;
+		repositoryTab?: RepositoryTab;
+		onRepositoryTabChange?: (tab: RepositoryTab) => void;
 	} = $props();
 
-	let desktopRepositoryOpen = $state(false);
 	let desktop = $state(false);
 	const name = $derived(getProjectName(session.cwd));
-	const repositoryOpen = $derived(desktop ? desktopRepositoryOpen : mobilePanel === 'repository');
+	const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
 	const repository = new RepositoryWorkspaceState(untrack(() => session.id), { isOpen: () => repositoryOpen });
 
 	function toggleRepository() {
@@ -47,14 +54,14 @@
 			void closeRepository();
 			return;
 		}
-		if (desktop) desktopRepositoryOpen = true;
-		else onMobilePanelChange('repository');
+		onRepositoryPanelOpenChange(true);
+		if (!desktop) onMobilePanelChange('repository');
 	}
 
 	async function closeRepository(): Promise<boolean> {
 		if (!await repository.confirmDiscardChanges()) return false;
-		if (desktop) desktopRepositoryOpen = false;
-		else onMobilePanelChange(undefined);
+		onRepositoryPanelOpenChange(false);
+		if (!desktop) onMobilePanelChange(undefined);
 		repository.clearSelection();
 		return true;
 	}
@@ -70,17 +77,27 @@
 
 	async function selectRepositoryItem(selection: RepositorySelection) {
 		if (!await repository.selectItem(selection)) return;
-		if (!desktop) onMobilePanelChange(undefined);
+		if (selection.kind === 'file') onRepositoryTabChange('files');
+		if (!desktop) {
+			onRepositoryPanelOpenChange(false);
+			onMobilePanelChange(undefined);
+		}
 	}
 
 	async function editRepositoryFile(path: string) {
 		if (!await repository.editFile(path)) return;
-		if (!desktop) onMobilePanelChange(undefined);
+		if (!desktop) {
+			onRepositoryPanelOpenChange(false);
+			onMobilePanelChange(undefined);
+		}
 	}
 
 	async function createFile(directory: string, name: string) {
 		await repository.createFile(directory, name);
-		if (!desktop) onMobilePanelChange(undefined);
+		if (!desktop) {
+			onRepositoryPanelOpenChange(false);
+			onMobilePanelChange(undefined);
+		}
 	}
 
 	$effect(() => {
@@ -104,13 +121,15 @@
 	});
 
 	onMount(() => {
-		const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+		const desktopQuery = window.matchMedia(REPOSITORY_SPLIT_MEDIA_QUERY);
 		const syncDesktop = () => desktop = desktopQuery.matches;
 		const closeOverlay = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape') return;
 			if (isUiOverlayOpen()) return;
-			if (event.target instanceof HTMLElement && event.target.closest('[data-inline-repository-entry]')) return;
+			const target = event.target instanceof Element ? event.target : undefined;
+			if (target?.closest('[data-inline-repository-entry]')) return;
 			if (repositoryOpen) {
+				if (!target?.closest('.repository-panel')) return;
 				event.preventDefault();
 				void closeRepository();
 			} else if (repository.selection) {
@@ -141,6 +160,7 @@
 			{onOutputActivity}
 			{systemMetrics}
 			{repositoryOpen}
+			isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
 			changeCount={repository.changeCount}
 			worktreeCount={repository.worktreeCount}
 			onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
@@ -167,6 +187,7 @@
 		loading={repository.loading}
 		errorMessage={repository.errorMessage}
 		selected={repository.selection}
+		activeTab={repositoryTab}
 		open={repositoryOpen}
 		onRefresh={() => void repository.refresh(true)}
 		onLoadDirectory={(path) => repository.loadDirectory(path)}
@@ -175,6 +196,7 @@
 		onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
 		onClose={closeRepository}
 		onSelect={selectRepositoryItem}
+		onTabChange={onRepositoryTabChange}
 	/>
 
 	{#if repository.discardChangesPrompt}
