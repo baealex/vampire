@@ -4,7 +4,7 @@
 	import Spinner from '$lib/ui/Spinner.svelte';
 	import RepositoryChanges from './RepositoryChanges.svelte';
 	import RepositoryFileTree from './RepositoryFileTree.svelte';
-	import type { RepositorySelection, RepositorySnapshot } from './types';
+	import type { RepositorySelection, RepositorySnapshot, RepositoryTab } from './types';
 
 	let {
 		projectName,
@@ -12,6 +12,7 @@
 		loading,
 		errorMessage,
 		selected,
+		activeTab = 'changes',
 		open,
 		onRefresh,
 		onLoadDirectory,
@@ -19,13 +20,15 @@
 		onCreateDirectory,
 		onRequestDelete,
 		onClose,
-		onSelect
+		onSelect,
+		onTabChange = () => undefined
 	}: {
 		projectName: string;
 		snapshot?: RepositorySnapshot;
 		loading: boolean;
 		errorMessage: string;
 		selected?: RepositorySelection;
+		activeTab?: RepositoryTab;
 		open: boolean;
 		onRefresh: () => void;
 		onLoadDirectory: (path: string) => Promise<void>;
@@ -34,25 +37,22 @@
 		onRequestDelete: (path: string, kind: 'file' | 'directory') => void;
 		onClose: () => void;
 		onSelect: (selection: RepositorySelection) => void;
+		onTabChange?: (tab: RepositoryTab) => void;
 	} = $props();
 
-	let activeTab = $state<'changes' | 'files'>('changes');
-
-	$effect(() => {
-		if (selected?.kind === 'file') activeTab = 'files';
-	});
+	const visibleTab = $derived(snapshot?.isGitRepository === false ? 'files' : activeTab);
 </script>
 
 <aside
 	class="repository-panel"
 	class:open
-	aria-label={`Repository for ${projectName}`}
+	aria-label={`${snapshot?.isGitRepository === false ? 'Files' : 'Repository'} for ${projectName}`}
 	aria-hidden={!open}
 	inert={!open}
 >
 	<header class="repository-header">
 		<div class="repository-title">
-			<strong>Repository</strong>
+			<strong>{snapshot?.isGitRepository === false ? 'Files' : 'Repository'}</strong>
 			<span title={projectName}>{projectName}</span>
 		</div>
 		<div class="repository-actions">
@@ -65,25 +65,27 @@
 		</div>
 	</header>
 
-	<div class="repository-tabs" role="tablist" aria-label="Repository view">
-		<button
-			type="button"
-			role="tab"
-			class:active={activeTab === 'changes'}
-			aria-selected={activeTab === 'changes'}
-			onclick={() => activeTab = 'changes'}
-		>
-			Changes
-			{#if snapshot?.changes.length}<span>{snapshot.changes.length}</span>{/if}
-		</button>
-		<button
-			type="button"
-			role="tab"
-			class:active={activeTab === 'files'}
-			aria-selected={activeTab === 'files'}
-			onclick={() => activeTab = 'files'}
-		>Files</button>
-	</div>
+	{#if snapshot?.isGitRepository !== false}
+		<div class="repository-tabs" role="tablist" aria-label="Repository view">
+			<button
+				type="button"
+				role="tab"
+				class:active={visibleTab === 'changes'}
+				aria-selected={visibleTab === 'changes'}
+				onclick={() => onTabChange('changes')}
+			>
+				Changes
+				{#if snapshot?.changes.length}<span>{snapshot.changes.length}</span>{/if}
+			</button>
+			<button
+				type="button"
+				role="tab"
+				class:active={visibleTab === 'files'}
+				aria-selected={visibleTab === 'files'}
+				onclick={() => onTabChange('files')}
+			>Files</button>
+		</div>
+	{/if}
 
 	{#if errorMessage}
 		<p class="repository-warning" role="status">{errorMessage}</p>
@@ -97,12 +99,12 @@
 			</div>
 		{:else if !snapshot}
 			<div class="repository-state">Repository information is unavailable.</div>
-		{:else if activeTab === 'changes'}
+		{:else if visibleTab === 'changes'}
 			<RepositoryChanges
 				{snapshot}
 				{selected}
 				{onSelect}
-				onOpenFiles={() => activeTab = 'files'}
+				onOpenFiles={() => onTabChange('files')}
 			/>
 		{:else}
 			<RepositoryFileTree
@@ -123,7 +125,7 @@
 </aside>
 
 <style>
-	.repository-panel { position: absolute; z-index: 10; top: 0; right: 0; display: flex; flex-direction: column; width: min(22rem, calc(100% - 3rem)); height: 100%; min-width: 0; min-height: 0; overflow: hidden; transform: translateX(100%); border-left: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-repository-panel); color: var(--color-text); pointer-events: none; transition: transform 180ms ease; }
+	.repository-panel { position: absolute; z-index: 10; top: 0; right: 0; display: flex; flex-direction: column; width: min(22rem, calc(100% - 3rem)); height: 100%; min-width: 0; min-height: 0; overflow: hidden; transform: translateX(100%); border-left: 1px solid var(--color-border); background: var(--color-panel); box-shadow: var(--shadow-repository-panel); color: var(--color-text); pointer-events: none; transition: transform 180ms ease; }
 	.repository-panel.open { transform: translateX(0); pointer-events: auto; }
 	.repository-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 4rem; padding: 0.75rem 0.8rem 0.75rem 1rem; border-bottom: 1px solid var(--color-border); }
 	.repository-title { display: grid; min-width: 0; gap: 0.15rem; }
@@ -147,7 +149,7 @@
 
 	@keyframes spin { to { transform: rotate(360deg); } }
 
-	@media (max-width: 63.999rem) {
+	@media (max-width: 79.999rem) {
 		.repository-panel { position: fixed; z-index: 40; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 	}
 

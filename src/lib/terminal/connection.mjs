@@ -4,11 +4,12 @@ const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
 const SOCKET_CLOSED = 3;
 const MAXIMUM_RECONNECT_DELAY_MS = 30_000;
+const MAXIMUM_RECONNECT_ATTEMPTS = 5;
 
 /** @typedef {import('./protocol.mjs').TerminalClientMessage} TerminalClientMessage */
 /** @typedef {import('./protocol.mjs').TerminalServerMessage} TerminalServerMessage */
 /** @typedef {{ id: number; isCurrent: () => boolean; send: (message: TerminalClientMessage) => boolean }} TerminalConnectionContext */
-/** @typedef {{ onOpen?: (context: TerminalConnectionContext) => void; onMessage?: (message: TerminalServerMessage, context: TerminalConnectionContext) => void; onDisconnect?: (event: { code: number; reason: string }, retrying: boolean) => void; onRetrying?: (delay: number) => void; onProtocolError?: (context: TerminalConnectionContext) => void }} TerminalConnectionCallbacks */
+/** @typedef {{ onOpen?: (context: TerminalConnectionContext) => void; onMessage?: (message: TerminalServerMessage, context: TerminalConnectionContext) => void; onDisconnect?: (event: { code: number; reason: string }, retrying: boolean) => void; onRetrying?: (delay: number) => void; onReconnectExhausted?: () => void; onProtocolError?: (context: TerminalConnectionContext) => void }} TerminalConnectionCallbacks */
 /** @typedef {{ createSocket?: (url: string) => WebSocket; setTimeout?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>; clearTimeout?: (timer: ReturnType<typeof setTimeout>) => void }} TerminalConnectionDependencies */
 
 /** @param {number} attempt */
@@ -120,6 +121,10 @@ export class TerminalConnection {
 
 	#scheduleReconnect() {
 		if (this.#stopped || this.#reconnectTimer !== undefined) return;
+		if (this.#reconnectAttempt >= MAXIMUM_RECONNECT_ATTEMPTS) {
+			this.#callbacks.onReconnectExhausted?.();
+			return;
+		}
 		const delay = terminalReconnectDelay(this.#reconnectAttempt);
 		this.#reconnectAttempt += 1;
 		this.#callbacks.onRetrying?.(delay);

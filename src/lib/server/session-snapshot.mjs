@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readSessionStateFile, SESSION_STATE_VERSION } from './session-state.mjs';
 import { createSessionNotePreview } from './session-note.mjs';
+import { isGitRepository } from './repository.mjs';
 
 const execFile = promisify(execFileCallback);
 const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell', 'pwsh', 'sh', 'tcsh', 'zsh']);
@@ -12,7 +13,7 @@ const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell
  * @typedef {{ name: string; createdAt: number | null; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} TmuxSessionSnapshot
  * @typedef {{ name: string; lastOutputAt: number | null }} TmuxSessionActivity
  * @typedef {{ kind: 'shell' | 'command'; label: string }} TmuxProcessHint
- * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null }} ManagedSessionSnapshot
+ * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: TmuxProcessHint | null; isGitRepository: boolean }} ManagedSessionSnapshot
  */
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -186,6 +187,14 @@ export async function listTmuxSessionActivity() {
 /** @returns {Promise<ManagedSessionSnapshot[]>} */
 export async function listManagedSessions() {
 	const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);
+	const repositoryStates = await Promise.all([...new Set(state.sessions.map((session) => session.cwd))].map(async (cwd) => {
+		try {
+			return /** @type {[string, boolean]} */ ([cwd, await isGitRepository(cwd)]);
+		} catch {
+			return /** @type {[string, boolean]} */ ([cwd, false]);
+		}
+	}));
+	const repositoryByCwd = new Map(repositoryStates);
 	const byName = new Map(tmuxSessions.map((session) => [session.name, session]));
 	return state.sessions.map((session) => {
 		const tmux = byName.get(session.tmuxSession);
@@ -196,7 +205,8 @@ export async function listManagedSessions() {
 			state: tmux ? 'running' : 'missing',
 			lastOutputAt: tmux?.lastOutputAt ?? null,
 			attachedClients: tmux?.attachedClients ?? 0,
-			foregroundProcess: tmux?.foregroundProcess ?? null
+			foregroundProcess: tmux?.foregroundProcess ?? null,
+			isGitRepository: repositoryByCwd.get(session.cwd) ?? false
 		};
 	});
 }

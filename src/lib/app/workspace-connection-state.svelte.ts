@@ -33,7 +33,6 @@ export class WorkspaceConnectionState {
 	token = $state('');
 	loginError = $state('');
 	errorMessage = $state('');
-	transportSecure = $state(true);
 	tmuxStatus = $state<TmuxStatus | undefined>(undefined);
 	systemMetrics = $state<SystemMetrics | undefined>(undefined);
 
@@ -54,7 +53,6 @@ export class WorkspaceConnectionState {
 		const abortController = new AbortController();
 		this.#connectionOptions = options;
 		this.checking = true;
-		this.transportSecure = location.protocol === 'https:' || ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 
 		void this.#loadStatus(runVersion, abortController.signal);
 		const refreshWhenVisible = () => {

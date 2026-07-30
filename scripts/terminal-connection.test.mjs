@@ -72,12 +72,14 @@ function createHarness() {
 	const messages = [];
 	const disconnects = [];
 	const retryDelays = [];
+	let reconnectExhausted = 0;
 	let protocolErrors = 0;
 	const connection = new TerminalConnection('ws://example.test/terminal', {
 		onOpen: (context) => opened.push(context),
 		onMessage: (message, context) => messages.push({ message, context }),
 		onDisconnect: (event, retrying) => disconnects.push({ event, retrying }),
 		onRetrying: (delay) => retryDelays.push(delay),
+		onReconnectExhausted: () => { reconnectExhausted += 1; },
 		onProtocolError: () => { protocolErrors += 1; }
 	}, {
 		createSocket: (url) => {
@@ -96,6 +98,7 @@ function createHarness() {
 		messages,
 		disconnects,
 		retryDelays,
+		get reconnectExhausted() { return reconnectExhausted; },
 		get protocolErrors() { return protocolErrors; }
 	};
 }
@@ -145,4 +148,25 @@ test('does not reconnect after authentication or rate-limit policy closes', () =
 	assert.equal(harness.disconnects[0].retrying, false);
 	harness.scheduler.advance(60_000);
 	assert.equal(harness.sockets.length, 1);
+});
+
+test('stops reconnecting after repeated failures and allows a manual retry', () => {
+	const harness = createHarness();
+	harness.connection.start();
+	harness.sockets[0].open();
+
+	for (const delay of [500, 1_000, 2_000, 4_000, 8_000]) {
+		harness.sockets.at(-1).disconnect(1011, 'temporary failure');
+		harness.scheduler.advance(delay);
+	}
+	assert.equal(harness.sockets.length, 6);
+	assert.deepEqual(harness.retryDelays, [500, 1_000, 2_000, 4_000, 8_000]);
+
+	harness.sockets.at(-1).disconnect(1011, 'temporary failure');
+	assert.equal(harness.reconnectExhausted, 1);
+	assert.equal(harness.sockets.length, 6);
+
+	harness.connection.retryNow();
+	assert.equal(harness.sockets.length, 7);
+	harness.connection.stop();
 });

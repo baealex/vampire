@@ -14,6 +14,7 @@ export type ManagedSession = {
 	state: 'running' | 'missing';
 	attachedClients: number;
 	foregroundProcess: SessionProcess | null;
+	isGitRepository: boolean;
 };
 
 export type SessionOrderMode = 'activity' | 'manual';

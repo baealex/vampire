@@ -8,6 +8,8 @@
 		send,
 		onComposerFocus,
 		onImageSelected,
+		scrollToTop,
+		scrollToBottom,
 		fontSize,
 		minimumFontSize,
 		maximumFontSize,
@@ -18,6 +20,8 @@
 		send: (data: string) => void;
 		onComposerFocus: () => void;
 		onImageSelected: (image: File) => void;
+		scrollToTop: () => void;
+		scrollToBottom: () => void;
 		fontSize: number;
 		minimumFontSize: number;
 		maximumFontSize: number;
@@ -109,10 +113,14 @@
 		<button type="button" class="wide-key" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\u0003')}>Ctrl+C</button>
 		<button type="button" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\t')}>Tab</button>
 		<button type="button" class="wide-key" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\r')}>Enter</button>
+		<span class="toolbar-divider" aria-hidden="true"></span>
 		<button type="button" disabled={!connected} aria-label="Arrow up" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[A')}>↑</button>
 		<button type="button" disabled={!connected} aria-label="Arrow down" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[B')}>↓</button>
 		<button type="button" disabled={!connected} aria-label="Arrow left" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[D')}>←</button>
 		<button type="button" disabled={!connected} aria-label="Arrow right" onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b[C')}>→</button>
+		<span class="toolbar-divider" aria-hidden="true"></span>
+		<button type="button" class="wide-key" aria-label="Scroll to terminal top" title="Scroll to top" onpointerdown={preventButtonFocus} onclick={scrollToTop}>Top</button>
+		<button type="button" class="wide-key" aria-label="Scroll to terminal bottom" title="Scroll to bottom" onpointerdown={preventButtonFocus} onclick={scrollToBottom}>Bottom</button>
 		<span class="toolbar-divider" aria-hidden="true"></span>
 		<button
 			type="button"

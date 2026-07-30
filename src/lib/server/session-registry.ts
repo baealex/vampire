@@ -3,6 +3,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
 import { listManagedSessions as readManagedSessions } from './session-snapshot.mjs';
+import { isGitRepository as readIsGitRepository } from './repository.mjs';
 import { createSessionNotePreview } from './session-note.mjs';
 import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
 import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.mjs';
@@ -29,6 +30,7 @@ export interface ManagedSession extends Omit<StoredSession, 'note'> {
 	lastOutputAt: number | null;
 	attachedClients: number;
 	foregroundProcess: TmuxProcessHint | null;
+	isGitRepository: boolean;
 }
 
 export class SessionLaunchError extends Error {
@@ -111,6 +113,14 @@ async function validateExistingCwd(cwd: string): Promise<string> {
 	}
 }
 
+async function detectGitRepository(cwd: string): Promise<boolean> {
+	try {
+		return await readIsGitRepository(cwd);
+	} catch {
+		return false;
+	}
+}
+
 let mutationQueue: Promise<void> = Promise.resolve();
 
 async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
@@ -143,6 +153,7 @@ export async function findManagedWorkspace(id: string): Promise<Pick<StoredSessi
 export async function createManagedSession(input: { cwd: string }): Promise<ManagedSession> {
 	return exclusively(async () => {
 		const cwd = await validateCwd(input.cwd);
+		const gitRepository = await detectGitRepository(cwd);
 		const id = randomUUID();
 		const stored: StoredSession = {
 			id,
@@ -176,7 +187,8 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			state: 'running',
 			lastOutputAt: stored.createdAt,
 			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'shell' }
+			foregroundProcess: { kind: 'shell', label: 'shell' },
+			isGitRepository: gitRepository
 		};
 	});
 }
@@ -190,6 +202,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		const stored = state.sessions[index];
 		const tmux = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
 		if (tmux) {
+			const gitRepository = await detectGitRepository(stored.cwd);
 			return {
 				id: stored.id,
 				tmuxSession: stored.tmuxSession,
@@ -200,11 +213,13 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				state: 'running',
 				lastOutputAt: tmux.lastOutputAt,
 				attachedClients: tmux.attachedClients,
-				foregroundProcess: tmux.foregroundProcess
+				foregroundProcess: tmux.foregroundProcess,
+				isGitRepository: gitRepository
 			};
 		}
 
 		const cwd = await validateExistingCwd(stored.cwd);
+		const gitRepository = await detectGitRepository(cwd);
 		try {
 			await createTmuxSession(stored.tmuxSession, cwd);
 		} catch {
@@ -225,7 +240,8 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			state: 'running',
 			lastOutputAt: restarted.createdAt,
 			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'shell' }
+			foregroundProcess: { kind: 'shell', label: 'shell' },
+			isGitRepository: gitRepository
 		};
 	});
 }

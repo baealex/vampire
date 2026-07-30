@@ -1,6 +1,6 @@
 /**
  * @typedef {{ kind: 'shell' | 'command'; label: string }} ForegroundProcessMessage
- * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: ForegroundProcessMessage | null }} ManagedSessionMessage
+ * @typedef {{ id: string; tmuxSession: string; cwd: string; createdAt: number; lastActiveAt: number; notePreview: string; state: 'running' | 'missing'; lastOutputAt: number | null; attachedClients: number; foregroundProcess: ForegroundProcessMessage | null; isGitRepository: boolean }} ManagedSessionMessage
  * @typedef {{ cpuUsage: number; memoryUsage: number; memoryUsedBytes: number; memoryTotalBytes: number }} SystemMetricsMessage
  * @typedef {Partial<Omit<ManagedSessionMessage, 'id'>>} SessionChangesMessage
  * @typedef {{ type: 'sessions-snapshot'; sessions: ManagedSessionMessage[] } | { type: 'session-added'; session: ManagedSessionMessage } | { type: 'session-updated'; id: string; changes: SessionChangesMessage } | { type: 'session-removed'; id: string } | { type: 'system-metrics'; metrics: SystemMetricsMessage } | { type: 'error'; message: string }} WorkspaceServerMessage
@@ -15,7 +15,8 @@ const SESSION_CHANGE_FIELDS = new Set([
 	'state',
 	'lastOutputAt',
 	'attachedClients',
-	'foregroundProcess'
+	'foregroundProcess',
+	'isGitRepository'
 ]);
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -50,7 +51,8 @@ export function isManagedSessionMessage(value) {
 		&& (value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& Number.isInteger(value.attachedClients)
 		&& Number(value.attachedClients) >= 0
-		&& isForegroundProcess(value.foregroundProcess);
+		&& isForegroundProcess(value.foregroundProcess)
+		&& typeof value.isGitRepository === 'boolean';
 }
 
 /** @param {unknown} value @returns {value is SystemMetricsMessage} */
@@ -73,7 +75,8 @@ export function isSessionChangesMessage(value) {
 		&& (value.state === undefined || value.state === 'running' || value.state === 'missing')
 		&& (value.lastOutputAt === undefined || value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& (value.attachedClients === undefined || (Number.isInteger(value.attachedClients) && Number(value.attachedClients) >= 0))
-		&& (value.foregroundProcess === undefined || isForegroundProcess(value.foregroundProcess));
+		&& (value.foregroundProcess === undefined || isForegroundProcess(value.foregroundProcess))
+		&& (value.isGitRepository === undefined || typeof value.isGitRepository === 'boolean');
 }
 
 /** @param {unknown} value @returns {WorkspaceServerMessage | undefined} */

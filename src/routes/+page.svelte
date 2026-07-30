@@ -1,29 +1,41 @@
 <script lang="ts">
+	import { dev } from '$app/environment';
 	import { pushState } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import Keyboard from '@lucide/svelte/icons/keyboard';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
-	import TmuxSetupNotice from '$lib/TmuxSetupNotice.svelte';
+	import LoginScreen from '$lib/LoginScreen.svelte';
+	import TmuxSetupScreen from '$lib/TmuxSetupScreen.svelte';
 	import Spinner from '$lib/ui/Spinner.svelte';
 	import { isUiOverlayOpen } from '$lib/ui/overlay';
 	import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
+	import type { RepositoryTab } from '$lib/repository/types';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
 	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName } from '$lib/session/view';
-	import ThemeToggle from '$lib/theme/ThemeToggle.svelte';
+	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
 
 	let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
 
 	let mobilePanel = $state<MobilePanel | undefined>(undefined);
+	let repositoryPanelOpen = $state(false);
+	let repositoryTab = $state<RepositoryTab>('changes');
 	let presentedTerminalSessionId = $state<string | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
+	let previewTmuxUnavailable = $state(false);
 	let useMetaSessionShortcuts = false;
+	const REPOSITORY_TAB_KEY = 'vampire:repository-tab';
 
 	const connection = new WorkspaceConnectionState();
+	const tmuxStatus = $derived(
+		connection.tmuxStatus && previewTmuxUnavailable
+			? { ...connection.tmuxStatus, available: false, version: null }
+			: connection.tmuxStatus
+	);
 	const workspace: SessionWorkspaceState = new SessionWorkspaceState({
 		navigate: (path) => pushState(path, {}),
 		onUnauthorized: () => connection.markUnauthenticated(),
@@ -60,6 +72,24 @@
 		if (panel === undefined) markActiveSessionObserved();
 	}
 
+	function setRepositoryPanelOpen(open: boolean) {
+		repositoryPanelOpen = open;
+		if (!open && mobilePanel === 'repository') setMobilePanel(undefined);
+	}
+
+	function setRepositoryTab(tab: RepositoryTab) {
+		repositoryTab = tab;
+		window.localStorage.setItem(REPOSITORY_TAB_KEY, tab);
+	}
+
+	function isRepositorySplitViewport(): boolean {
+		return window.matchMedia(REPOSITORY_SPLIT_MEDIA_QUERY).matches;
+	}
+
+	function restorePanelAfterWorkspaceChange() {
+		setMobilePanel(repositoryPanelOpen && !isRepositorySplitViewport() ? 'repository' : undefined);
+	}
+
 	function unlock() {
 		return connection.unlock();
 	}
@@ -67,17 +97,18 @@
 	async function logout() {
 		if (!await connection.logout()) return;
 		workspace.reset();
+		repositoryPanelOpen = false;
 		mobilePanel = 'sessions';
 		pushState('/', {});
 	}
 
 	function openSession(session: ManagedSession) {
 		workspace.openSession(session);
-		setMobilePanel(undefined);
+		restorePanelAfterWorkspaceChange();
 	}
 
 	async function createSession() {
-		if (await workspace.createSession(connection.tmuxStatus?.available)) setMobilePanel(undefined);
+		if (await workspace.createSession(tmuxStatus?.available)) restorePanelAfterWorkspaceChange();
 	}
 
 	function clearActiveSession() {
@@ -90,12 +121,13 @@
 	}
 
 	function closeSessionNavigator() {
-		if (workspace.hasOpenSession) setMobilePanel(undefined);
+		if (workspace.hasOpenSession) restorePanelAfterWorkspaceChange();
 	}
 
 	function syncSessionFromLocation(pathname = location.pathname) {
 		workspace.syncLocation(pathname);
-		mobilePanel = workspace.requestedSessionId ? undefined : 'sessions';
+		if (workspace.requestedSessionId) restorePanelAfterWorkspaceChange();
+		else mobilePanel = 'sessions';
 		markActiveSessionObserved();
 	}
 
@@ -148,9 +180,12 @@
 	onMount(() => {
 		const initialSessionPath = initialSessionId ? `/sessions/${encodeURIComponent(initialSessionId)}` : '/';
 		syncSessionFromLocation(location.pathname || initialSessionPath);
+		previewTmuxUnavailable = dev && new URLSearchParams(location.search).get('preview') === 'tmux';
 		useMetaSessionShortcuts = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 		sessionShortcutModifier = useMetaSessionShortcuts ? '⌘' : 'Ctrl+';
 		workspace.restoreBrowserPreferences(window.localStorage);
+		const savedRepositoryTab = window.localStorage.getItem(REPOSITORY_TAB_KEY);
+		if (savedRepositoryTab === 'changes' || savedRepositoryTab === 'files') repositoryTab = savedRepositoryTab;
 		const stopConnection = connection.start({
 			refreshSessions: (options) => workspace.refresh(options),
 			onVisible: markActiveSessionObserved,
@@ -195,33 +230,22 @@
 	<meta name="description" content="A self-hosted browser workspace for persistent tmux sessions." />
 </svelte:head>
 
-<main class:terminal-open={workspace.hasOpenSession} class:tmux-missing={connection.tmuxStatus?.available === false}>
+<main class:terminal-open={workspace.hasOpenSession}>
 	{#if connection.checking}
 		<section class="loading-state" aria-live="polite">
 			<Spinner />
 			Connecting…
 		</section>
+	{:else if tmuxStatus?.available === false}
+		<TmuxSetupScreen status={tmuxStatus} />
 	{:else if connection.authenticationRequired && !connection.authenticated}
-		{#if connection.tmuxStatus && !connection.tmuxStatus.available}<TmuxSetupNotice status={connection.tmuxStatus} />{/if}
-		<section class="login-panel" aria-labelledby="login-title">
-			<div class="login-heading">
-				<div>
-					<p class="section-label">Private server</p>
-					<h1 id="login-title">Connect to Vampire</h1>
-				</div>
-				<ThemeToggle />
-			</div>
-			<p class="supporting">Enter the access token configured on this computer.</p>
-			{#if !connection.transportSecure}<p class="transport-warning" role="alert">This connection is not encrypted. Use HTTPS before entering a token.</p>{/if}
-			<form onsubmit={(event) => { event.preventDefault(); void unlock(); }}>
-				<label for="token">Access token</label>
-				<input id="token" type="password" bind:value={connection.token} autocomplete="current-password" required />
-				<button class="primary-button">Continue</button>
-				{#if connection.loginError}<p class="error" role="alert">{connection.loginError}</p>{/if}
-			</form>
-		</section>
+		<LoginScreen
+			token={connection.token}
+			error={connection.loginError}
+			onTokenChange={(token) => connection.token = token}
+			onSubmit={() => void unlock()}
+		/>
 	{:else}
-		{#if connection.tmuxStatus && !connection.tmuxStatus.available}<TmuxSetupNotice status={connection.tmuxStatus} />{/if}
 		<div class="dashboard" class:terminal-open={workspace.hasOpenSession}>
 			<SessionNavigator
 				sessions={workspace.sessions}
@@ -237,7 +261,7 @@
 				bind:cwd={workspace.cwd}
 				starting={workspace.starting}
 				startError={workspace.startError}
-				tmuxAvailable={connection.tmuxStatus?.available}
+				tmuxAvailable={tmuxStatus?.available}
 				onLogout={() => void logout()}
 				onClose={closeSessionNavigator}
 				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
@@ -291,6 +315,10 @@
 						onTerminalPresentationChange={setTerminalPresentation}
 						{mobilePanel}
 						onMobilePanelChange={setMobilePanel}
+						repositoryPanelOpen={repositoryPanelOpen}
+						onRepositoryPanelOpenChange={setRepositoryPanelOpen}
+						repositoryTab={repositoryTab}
+						onRepositoryTabChange={setRepositoryTab}
 						systemMetrics={connection.systemMetrics}
 					/>
 				{/key}
@@ -324,23 +352,11 @@
 <style>
 	main { width: 100%; min-height: 100dvh; }
 	.dashboard { min-width: 0; min-height: 100dvh; padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); }
-	.login-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
-	.login-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-	.login-panel h1 { margin: 0.15rem 0 0; font-size: var(--text-display); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
-	.section-label { margin: 0; color: var(--color-text-tertiary); font-size: var(--text-caption); font-weight: var(--weight-medium); line-height: var(--leading-ui); }
-	form { display: grid; gap: 0.7rem; }
-	label { color: var(--color-text); font-size: var(--text-label); font-weight: var(--weight-medium); }
-	input { width: 100%; min-width: 0; min-height: 2.9rem; padding: 0 0.8rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-field-background); color: var(--color-text); font-size: var(--text-body); }
-	input::placeholder { color: var(--color-field-placeholder); }
 	.primary-button, .secondary-button { min-height: var(--control-height-lg); padding: 0 1rem; border: 0; border-radius: var(--radius-sm); font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.primary-button { background: var(--color-accent); color: var(--color-accent-ink); }
 	.primary-button:hover { background: var(--color-accent-hover); }
 	.primary-button:disabled { cursor: wait; opacity: 0.65; }
 	.secondary-button { background: var(--color-surface-raised); color: var(--color-text); }
-	.login-panel { width: min(calc(100% - 2rem), 25rem); margin: clamp(2rem, 12vh, 7rem) auto; padding: 1.5rem; }
-	.login-panel .supporting { margin: 0.7rem 0 1.4rem; color: var(--color-text-secondary); font-size: var(--text-body); line-height: var(--leading-body); }
-	.transport-warning { margin: -0.65rem 0 1.25rem; padding: 0.7rem 0.8rem; border: 1px solid var(--color-danger-border-strong); border-radius: var(--radius-sm); background: var(--color-danger-surface); color: var(--color-danger-text); font-size: var(--text-label); line-height: var(--leading-ui); }
-	.login-panel form { gap: 0.8rem; }
 	.error { margin: 0; color: var(--color-danger); font-size: var(--text-label); line-height: var(--leading-ui); }
 	.loading-state { display: flex; align-items: center; justify-content: center; gap: 0.7rem; min-height: 100dvh; color: var(--color-text-secondary); }
 	.unavailable-sheet { position: fixed; z-index: 20; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; background: var(--color-terminal-background); color: var(--color-text); }
@@ -366,8 +382,6 @@
 	.empty-workbench { display: none; }
 	@media (min-width: 64rem) {
 		main { height: 100dvh; overflow: hidden; }
-		main.tmux-missing { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-		main.tmux-missing .dashboard { min-height: 0; }
 		.dashboard { display: grid; grid-template-columns: 20rem minmax(0, 1fr); align-items: stretch; gap: 0; height: 100%; min-height: 0; padding: 0; }
 		.empty-workbench { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; background: var(--color-terminal-background); color: var(--color-text-tertiary); }
 		.empty-workbench__prompt { margin-bottom: 0.9rem; color: var(--color-text-disabled); }
@@ -380,6 +394,5 @@
 		.unavailable-header { grid-template-columns: 2.65rem minmax(0, 1fr) auto; }
 		.detail-back { width: 2.65rem; padding: 0; justify-content: center; }
 		.detail-back span { display: none; }
-		input { font-size: 1rem; }
 	}
 </style>

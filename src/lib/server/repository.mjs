@@ -107,7 +107,7 @@ async function runGit(cwd, args, options = {}) {
 }
 
 /** @param {string} cwd */
-async function isGitRepository(cwd) {
+export async function isGitRepository(cwd) {
 	try {
 		const { stdout } = await runGit(cwd, ['rev-parse', '--is-inside-work-tree'], { acceptedExitCodes: [0, 128] });
 		return stdout.trim() === 'true';

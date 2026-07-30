@@ -23,6 +23,8 @@ export type RepositorySelection = {
 	path: string;
 };
 
+export type RepositoryTab = 'changes' | 'files';
+
 export type WorkspaceFile = {
 	path: string;
 	content: string;
