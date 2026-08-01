@@ -55,13 +55,22 @@ jobs:
       - name: Verify browser flows
         run: pnpm test:e2e
 
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure
+          path: test-results/playwright
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build npm package
         run: |
           mkdir package-artifact
           npm pack --ignore-scripts --pack-destination package-artifact
 
       - name: Verify installed npm package
-        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
 
       - name: Upload verified npm package
         uses: actions/upload-artifact@v7
@@ -94,7 +103,7 @@ jobs:
           path: package-artifact
 
       - name: Publish verified package
-        run: node scripts/publish-package.mjs ./package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/publish-package.ts ./package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
 
   verify-registry:
     needs: publish
@@ -112,4 +121,4 @@ jobs:
           package-manager-cache: false
 
       - name: Verify package from npm registry
-        run: node scripts/package-smoke.mjs "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"

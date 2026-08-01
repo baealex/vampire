@@ -41,7 +41,6 @@
 		onUnauthorized: () => connection.markUnauthenticated(),
 		isSessionObserved: (sessionId) => terminalIsObserved(sessionId)
 	});
-
 	function terminalIsObserved(sessionId: string): boolean {
 		return workspace.requestedSessionId === sessionId
 			&& presentedTerminalSessionId === sessionId
@@ -161,7 +160,7 @@
 
 		const digit = digitMatch[1];
 		const index = digit === '0' ? 9 : Number(digit) - 1;
-		const targetSession = workspace.displayedSessions[index];
+		const targetSession = workspace.shortcutSessions[index];
 		if (!targetSession) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -307,6 +306,15 @@
 				{#key workspace.activeSession.id}
 					<WorkspaceWorkbench
 						session={workspace.activeSession}
+						onStartBackground={(command) => workspace.startBackgroundProcess(workspace.activeSession!.id, command)}
+						onStopBackground={(process) => workspace.stopBackgroundProcess(workspace.activeSession!.id, process.id)}
+						onLoadBackgroundOutput={(process) => workspace.loadBackgroundOutput(workspace.activeSession!.id, process.id)}
+						onFavoriteBackground={(command) => workspace.favoriteBackgroundCommand(workspace.activeSession!.id, command)}
+						onRemoveBackgroundFavorite={(command) => workspace.removeBackgroundCommandFavorite(workspace.activeSession!.id, command)}
+						startingBackground={workspace.startingBackgroundSessionId === workspace.activeSession.id}
+						stoppingBackgroundProcessId={workspace.stoppingBackgroundProcessId}
+						updatingFavoriteCommand={workspace.updatingFavoriteCommand}
+						backgroundActionError={workspace.backgroundActionErrorSessionId === workspace.activeSession.id ? workspace.backgroundActionError : ''}
 						close={openSessionNavigator}
 						onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
 						onLoadNote={(sessionId) => workspace.loadSessionNote(sessionId)}

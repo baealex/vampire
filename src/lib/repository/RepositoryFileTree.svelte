@@ -8,7 +8,7 @@
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import ImageIcon from '@lucide/svelte/icons/image';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import { WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
+	import { WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
 	import RepositoryInlineEntry from './RepositoryInlineEntry.svelte';
 	import { buildChangeKindMap, buildVisibleFileTree, isPreviewableImage } from './view';
 	import type { RepositorySelection, RepositorySnapshot } from './types';

@@ -70,7 +70,7 @@
 		</button>
 	</div>
 	<span class="session-order-help" role="status">
-		{sessionOrderMode === 'activity' ? 'Grouped by status' : 'Drag rows to reorder'}
+		{sessionOrderMode === 'activity' ? 'Main session status' : 'Drag rows to reorder'}
 	</span>
 </div>
 

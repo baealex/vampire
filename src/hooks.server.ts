@@ -1,29 +1,9 @@
-import { env } from '$env/dynamic/private';
 import type { Handle } from '@sveltejs/kit';
-
-const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
-
-function configuredOrigin(): string | undefined {
-	const value = env.VAMPIRE_ADAPTER_ORIGIN?.trim();
-	if (!value) return undefined;
-
-	try {
-		const origin = new URL(value);
-		if (!['http:', 'https:'].includes(origin.protocol)) throw new Error('unsupported protocol');
-		return origin.origin;
-	} catch {
-		throw new Error('VAMPIRE_ADAPTER_ORIGIN must be a valid HTTP(S) origin.');
-	}
-}
-
-const adapterOrigin = configuredOrigin();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method)) {
 		const origin = event.request.headers.get('origin');
-		const hostname = event.url.hostname.replace(/^\[|\]$/g, '');
-		const expectedOrigin = adapterOrigin ?? (loopbackHosts.has(hostname) ? `http://${event.url.host}` : event.url.origin);
-		if (origin && origin !== expectedOrigin) {
+		if (origin && origin !== event.url.origin) {
 			return new Response('Forbidden', { status: 403 });
 		}
 	}

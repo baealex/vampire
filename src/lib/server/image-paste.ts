@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { sendTmuxInput } from './tmux';
+import { sendTmuxInput } from './tmux.ts';
 
 const execFile = promisify(execFileCallback);
 const IMAGE_CONVERSION_TIMEOUT_MS = 8_000;
@@ -18,12 +18,14 @@ export const SUPPORTED_IMAGE_TYPES = new Set([
 	'image/webp'
 ]);
 
+export type ImagePasteErrorReason = 'unsupported-platform' | 'clipboard-unavailable' | 'clipboard-failed';
+
 export class ImagePasteError extends Error {
-	constructor(
-		readonly reason: 'unsupported-platform' | 'clipboard-unavailable' | 'clipboard-failed',
-		message: string
-	) {
+	readonly reason: ImagePasteErrorReason;
+
+	constructor(reason: ImagePasteErrorReason, message: string) {
 		super(message);
+		this.reason = reason;
 	}
 }
 
@@ -132,12 +134,12 @@ async function writeImageToHostClipboard(bytes: Buffer, mimeType: string, direct
 
 let pasteQueue: Promise<void> = Promise.resolve();
 
-export function pasteImageToSession(input: { tmuxSession: string; bytes: Buffer; mimeType: string }): Promise<void> {
+export function pasteImageToSession(input: { tmuxTarget: string; bytes: Buffer; mimeType: string }): Promise<void> {
 	const operation = pasteQueue.then(async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'vampire-image-'));
 		try {
 			await writeImageToHostClipboard(input.bytes, input.mimeType, directory);
-			await sendTmuxInput(input.tmuxSession, '\u0016');
+			await sendTmuxInput(input.tmuxTarget, '\u0016');
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

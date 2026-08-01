@@ -48,10 +48,19 @@ jobs:
       - name: Verify browser flows
         run: pnpm test:e2e
 
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure
+          path: test-results/playwright
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build npm package
         run: |
           mkdir package-artifact
           npm pack --ignore-scripts --pack-destination package-artifact
 
       - name: Verify installed npm package
-        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"

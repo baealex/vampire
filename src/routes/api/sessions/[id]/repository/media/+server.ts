@@ -4,7 +4,7 @@ import {
 	readWorkspaceImage,
 	readWorkspaceImageMetadata,
 	RepositoryReadError
-} from '$lib/server/repository.mjs';
+} from '$lib/server/repository.ts';
 import { findManagedWorkspace } from '$lib/server/session-registry';
 
 function repositoryErrorStatus(reason: string): number {
@@ -47,7 +47,7 @@ export const GET: RequestHandler = async (event) => {
 	const { cwd, path } = await requestDetails(event);
 	try {
 		const image = await readWorkspaceImage(cwd, path);
-		return new Response(image.bytes, {
+		return new Response(new Uint8Array(image.bytes), {
 			headers: {
 				'content-length': String(image.size),
 				'content-type': image.mimeType,
