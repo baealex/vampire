@@ -54,4 +54,4 @@ jobs:
           npm pack --ignore-scripts --pack-destination package-artifact
 
       - name: Verify installed npm package
-        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"

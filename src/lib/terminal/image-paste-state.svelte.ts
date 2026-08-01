@@ -6,11 +6,19 @@ export class TerminalImagePasteState {
 
 	#noticeTimer: ReturnType<typeof setTimeout> | undefined;
 	#requestId = 0;
+	readonly #sessionId: string;
+	readonly #terminalId: string | undefined;
+	readonly #isConnected: () => boolean;
 
 	constructor(
-		private readonly sessionId: string,
-		private readonly isConnected: () => boolean
-	) {}
+		sessionId: string,
+		terminalId: string | undefined,
+		isConnected: () => boolean
+	) {
+		this.#sessionId = sessionId;
+		this.#terminalId = terminalId;
+		this.#isConnected = isConnected;
+	}
 
 	#setNotice(kind: ImagePasteNoticeKind, message: string, duration = 5_000) {
 		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
@@ -27,7 +35,7 @@ export class TerminalImagePasteState {
 
 	async paste(image: File) {
 		const requestId = ++this.#requestId;
-		if (!this.isConnected()) {
+		if (!this.#isConnected()) {
 			this.#setNotice('error', 'Connect to the terminal before sending an image.');
 			return;
 		}
@@ -36,7 +44,8 @@ export class TerminalImagePasteState {
 		const form = new FormData();
 		form.append('image', image, image.name || 'pasted-image');
 		try {
-			const response = await fetch(`/api/sessions/${encodeURIComponent(this.sessionId)}/image`, {
+			const terminalQuery = this.#terminalId ? `?terminal=${encodeURIComponent(this.#terminalId)}` : '';
+			const response = await fetch(`/api/sessions/${encodeURIComponent(this.#sessionId)}/image${terminalQuery}`, {
 				method: 'POST',
 				body: form
 			});

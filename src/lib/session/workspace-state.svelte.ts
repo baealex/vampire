@@ -4,9 +4,9 @@ import {
 	reconcileSessionOrder,
 	sortSessions,
 	type SessionActivityRecord
-} from './view';
-import { SessionActivityController } from './activity-controller';
-import type { ManagedSession, SessionOrderMode } from './types';
+} from './view.ts';
+import { SessionActivityController } from './activity-controller.ts';
+import type { ManagedSession, SessionOrderMode, SessionTerminal } from './types.ts';
 
 type RefreshOptions = { quiet?: boolean };
 type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
@@ -32,6 +32,11 @@ export class SessionWorkspaceState {
 	errorMessage = $state('');
 	sessionAction = $state<'restart' | 'close' | 'remove' | undefined>(undefined);
 	sessionActionError = $state('');
+	startingBackgroundSessionId = $state<string | undefined>(undefined);
+	stoppingBackgroundProcessId = $state<string | undefined>(undefined);
+	updatingFavoriteCommand = $state<string | undefined>(undefined);
+	backgroundActionError = $state('');
+	backgroundActionErrorSessionId = $state<string | undefined>(undefined);
 	sessionOrderMode = $state<SessionOrderMode>('activity');
 	manualSessionOrder = $state<string[]>([]);
 	activityOrder = $state<string[]>([]);
@@ -43,6 +48,7 @@ export class SessionWorkspaceState {
 		this.manualSessionOrder,
 		this.activityOrder
 	));
+	shortcutSessions = $derived(this.displayedSessions.filter((session) => session.state === 'running'));
 	activeSession = $derived(
 		this.requestedSessionId
 			? this.sessions.find((session) => session.id === this.requestedSessionId)
@@ -57,21 +63,33 @@ export class SessionWorkspaceState {
 	#refreshPromise: Promise<void> | undefined;
 	#refreshQueued = false;
 	#sessionsVersion = 0;
+	readonly #options: SessionWorkspaceStateOptions;
 
-	constructor(private readonly options: SessionWorkspaceStateOptions) {
+	constructor(options: SessionWorkspaceStateOptions) {
+		this.#options = options;
 		this.#activity = new SessionActivityController({
 			isSessionObserved: options.isSessionObserved,
 			getSessions: () => this.sessions,
-		getActivityRecords: () => this.activityRecords,
-		setActivityRecords: (records) => this.activityRecords = records,
+			getActivityRecords: () => this.activityRecords,
+			setActivityRecords: (records) => this.activityRecords = records,
 			getActivityOrder: () => this.activityOrder,
 			setActivityOrder: (order) => this.activityOrder = order,
 			updateSessionOutput: (sessionId, timestamp) => {
 				const session = this.sessions.find((item) => item.id === sessionId);
 				if (!session) return;
 				const lastOutputAt = maxTimestamp(session.lastOutputAt, timestamp);
-				if (lastOutputAt === session.lastOutputAt) return;
-				this.sessions = this.sessions.map((item) => sessionId === item.id ? { ...item, lastOutputAt } : item);
+				const mainTerminal = session.terminals[0];
+				const mainLastOutputAt = maxTimestamp(mainTerminal?.lastOutputAt ?? null, timestamp);
+				if (lastOutputAt === session.lastOutputAt && mainLastOutputAt === mainTerminal?.lastOutputAt) return;
+				this.sessions = this.sessions.map((item) => sessionId === item.id
+					? {
+						...item,
+						lastOutputAt,
+						terminals: mainTerminal
+							? item.terminals.map((terminal, index) => index === 0 ? { ...terminal, lastOutputAt: mainLastOutputAt } : terminal)
+							: item.terminals
+					}
+					: item);
 			}
 		});
 	}
@@ -113,10 +131,18 @@ export class SessionWorkspaceState {
 			return;
 		}
 
+		const terminals = changes.terminals ?? (
+			typeof changes.lastOutputAt === 'number' && previous.terminals.length > 0
+				? previous.terminals.map((terminal, index) => index === 0
+					? { ...terminal, lastOutputAt: maxTimestamp(terminal.lastOutputAt, changes.lastOutputAt ?? null) }
+					: terminal)
+				: previous.terminals
+		);
 		const next = {
 			...previous,
 			...changes,
 			id: sessionId,
+			terminals,
 			lastActiveAt: Math.max(previous.lastActiveAt, changes.lastActiveAt ?? previous.lastActiveAt),
 			lastOutputAt: maxTimestamp(changes.lastOutputAt ?? previous.lastOutputAt, previous.lastOutputAt)
 		};
@@ -133,6 +159,10 @@ export class SessionWorkspaceState {
 		this.#sessionNotes.delete(sessionId);
 		this.#sessionNoteRequests.delete(sessionId);
 		this.#activity.removeSession(sessionId);
+		if (this.backgroundActionErrorSessionId === sessionId) {
+			this.backgroundActionError = '';
+			this.backgroundActionErrorSessionId = undefined;
+		}
 		this.syncManualSessionOrder();
 	}
 
@@ -147,7 +177,7 @@ export class SessionWorkspaceState {
 				this.applySessions(data.sessions);
 			} catch (error) {
 				if (requestVersion !== this.#sessionsVersion) continue;
-				if (isUnauthorized(error)) this.options.onUnauthorized();
+				if (isUnauthorized(error)) this.#options.onUnauthorized();
 				else this.errorMessage = error instanceof Error ? error.message : 'Unable to load sessions';
 			}
 		} while (this.#refreshQueued);
@@ -190,9 +220,9 @@ export class SessionWorkspaceState {
 			this.invalidateSessions();
 			this.cwd = '';
 			this.newSessionOpen = false;
-			this.sessions = [data.session, ...this.sessions.filter((session) => session.id !== data.session.id)];
+			this.sessions = [...this.sessions.filter((session) => session.id !== data.session.id), data.session];
 			this.#activity.rebuild(this.sessions);
-			this.manualSessionOrder = [data.session.id, ...this.manualSessionOrder.filter((id) => id !== data.session.id)];
+			this.manualSessionOrder = [...this.manualSessionOrder.filter((id) => id !== data.session.id), data.session.id];
 			this.persistManualSessionOrder();
 			this.openSession(data.session);
 			void this.refresh({ quiet: true });
@@ -234,14 +264,137 @@ export class SessionWorkspaceState {
 		return request;
 	}
 
+	async startBackgroundProcess(sessionId: string, command: string): Promise<SessionTerminal | undefined> {
+		if (this.startingBackgroundSessionId || this.stoppingBackgroundProcessId) return undefined;
+		this.startingBackgroundSessionId = sessionId;
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
+		try {
+			const data = await requestJson<{ backgroundProcess: SessionTerminal }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/background`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ command })
+				},
+				'Unable to start the background command'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? {
+					...session,
+					terminals: [
+						...session.terminals.filter((terminal) => terminal.id !== data.backgroundProcess.id),
+						data.backgroundProcess
+					].sort((left, right) => left.index - right.index)
+				}
+				: session);
+			return data.backgroundProcess;
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			this.backgroundActionError = error instanceof Error ? error.message : 'Unable to start the background command';
+			this.backgroundActionErrorSessionId = sessionId;
+			return undefined;
+		} finally {
+			this.startingBackgroundSessionId = undefined;
+		}
+	}
+
+	async stopBackgroundProcess(sessionId: string, processId: string): Promise<boolean> {
+		if (this.startingBackgroundSessionId || this.stoppingBackgroundProcessId) return false;
+		this.stoppingBackgroundProcessId = processId;
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
+		try {
+			await requestJson<{ ok: boolean }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/background/${encodeURIComponent(processId)}`,
+				{ method: 'DELETE' },
+				'Unable to stop the background process'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? { ...session, terminals: session.terminals.filter((terminal) => terminal.id !== processId) }
+				: session);
+			return true;
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			this.backgroundActionError = error instanceof Error ? error.message : 'Unable to stop the background process';
+			this.backgroundActionErrorSessionId = sessionId;
+			return false;
+		} finally {
+			this.stoppingBackgroundProcessId = undefined;
+		}
+	}
+
+	async loadBackgroundOutput(sessionId: string, processId: string): Promise<string> {
+		const data = await requestJson<{ output: string }>(
+			`/api/sessions/${encodeURIComponent(sessionId)}/background/${encodeURIComponent(processId)}/output`,
+			{ cache: 'no-store' },
+			'Unable to read the background output'
+		);
+		return data.output;
+	}
+
+	async favoriteBackgroundCommand(sessionId: string, command: string): Promise<boolean> {
+		if (this.updatingFavoriteCommand) return false;
+		this.updatingFavoriteCommand = command;
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
+		try {
+			const data = await requestJson<{ favoriteCommands: string[] }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/background/favorites`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ command })
+				},
+				'Unable to save the favorite command'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? { ...session, favoriteCommands: data.favoriteCommands }
+				: session);
+			return true;
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			this.backgroundActionError = error instanceof Error ? error.message : 'Unable to save the favorite command';
+			this.backgroundActionErrorSessionId = sessionId;
+			return false;
+		} finally {
+			this.updatingFavoriteCommand = undefined;
+		}
+	}
+
+	async removeBackgroundCommandFavorite(sessionId: string, command: string): Promise<boolean> {
+		if (this.updatingFavoriteCommand) return false;
+		this.updatingFavoriteCommand = command;
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
+		try {
+			const data = await requestJson<{ favoriteCommands: string[] }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/background/favorites`,
+				{
+					method: 'DELETE',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ command })
+				},
+				'Unable to remove the favorite command'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? { ...session, favoriteCommands: data.favoriteCommands }
+				: session);
+			return true;
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			this.backgroundActionError = error instanceof Error ? error.message : 'Unable to remove the favorite command';
+			this.backgroundActionErrorSessionId = sessionId;
+			return false;
+		} finally {
+			this.updatingFavoriteCommand = undefined;
+		}
+	}
+
 	restoreBrowserPreferences(storage: Storage) {
 		this.#activity.restoreBrowserPreferences(storage);
-		const savedOrderMode = storage.getItem(SESSION_ORDER_MODE_KEY);
-		if (savedOrderMode === 'activity' || savedOrderMode === 'manual') this.sessionOrderMode = savedOrderMode;
-		else if (savedOrderMode === 'recent') {
-			this.sessionOrderMode = 'activity';
-			storage.setItem(SESSION_ORDER_MODE_KEY, 'activity');
-		}
+		const savedMode = storage.getItem(SESSION_ORDER_MODE_KEY);
+		if (savedMode === 'activity' || savedMode === 'manual') this.sessionOrderMode = savedMode;
 		try {
 			const savedOrder: unknown = JSON.parse(storage.getItem(SESSION_ORDER_KEY) ?? '[]');
 			if (Array.isArray(savedOrder) && savedOrder.every((id) => typeof id === 'string')) {
@@ -297,23 +450,23 @@ export class SessionWorkspaceState {
 		if (
 			previousSessionId
 			&& previousSessionId !== session.id
-			&& this.options.isSessionObserved(previousSessionId)
+			&& this.#options.isSessionObserved(previousSessionId)
 		) {
 			this.markSessionObserved(previousSessionId);
 		}
 		if (this.activeSession?.id === session.id && this.requestedSessionId === session.id) return;
 		this.requestedSessionId = session.id;
 		this.sessionActionError = '';
-		this.options.navigate(`/sessions/${encodeURIComponent(session.id)}`);
+		this.#options.navigate(`/sessions/${encodeURIComponent(session.id)}`);
 	}
 
 	clearActiveSession() {
-		if (this.requestedSessionId && this.options.isSessionObserved(this.requestedSessionId)) {
+		if (this.requestedSessionId && this.#options.isSessionObserved(this.requestedSessionId)) {
 			this.markSessionObserved(this.requestedSessionId);
 		}
 		this.requestedSessionId = undefined;
 		this.sessionActionError = '';
-		this.options.navigate('/');
+		this.#options.navigate('/');
 	}
 
 	syncLocation(pathname: string) {
@@ -322,12 +475,12 @@ export class SessionWorkspaceState {
 		if (
 			this.requestedSessionId
 			&& this.requestedSessionId !== nextSessionId
-			&& this.options.isSessionObserved(this.requestedSessionId)
+			&& this.#options.isSessionObserved(this.requestedSessionId)
 		) {
 			this.markSessionObserved(this.requestedSessionId);
 		}
 		this.requestedSessionId = nextSessionId;
-		if (this.requestedSessionId && this.options.isSessionObserved(this.requestedSessionId)) {
+		if (this.requestedSessionId && this.#options.isSessionObserved(this.requestedSessionId)) {
 			this.markSessionObserved(this.requestedSessionId);
 		}
 		this.sessionActionError = '';
@@ -360,7 +513,7 @@ export class SessionWorkspaceState {
 			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}/close`, { method: 'POST' });
 			this.invalidateSessions();
 			this.sessions = this.sessions.map((item) => item.id === session.id
-				? { ...item, state: 'missing', lastOutputAt: null, attachedClients: 0, foregroundProcess: null }
+				? { ...item, state: 'missing', lastOutputAt: null, attachedClients: 0, foregroundProcess: null, terminals: [] }
 				: item);
 			this.#activity.clearOutputActivity(session.id);
 			this.markSessionObserved(session.id);
@@ -379,6 +532,8 @@ export class SessionWorkspaceState {
 	async removeSession(session: ManagedSession): Promise<boolean> {
 		this.sessionAction = 'remove';
 		this.sessionActionError = '';
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
 		try {
 			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}?terminate=true`, { method: 'DELETE' });
 			this.invalidateSessions();
@@ -408,6 +563,11 @@ export class SessionWorkspaceState {
 		this.newSessionOpen = false;
 		this.errorMessage = '';
 		this.sessionActionError = '';
+		this.startingBackgroundSessionId = undefined;
+		this.stoppingBackgroundProcessId = undefined;
+		this.updatingFavoriteCommand = undefined;
+		this.backgroundActionError = '';
+		this.backgroundActionErrorSessionId = undefined;
 	}
 
 	dispose() {

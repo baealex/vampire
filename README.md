@@ -19,7 +19,7 @@ Vampire is a small, self-hosted browser UI for Codex, Claude Code, and ordinary 
 
 ### 1. Install prerequisites
 
-You need Node.js 22+ and tmux.
+You need Node.js 22.18+ and tmux.
 
 macOS (Homebrew):
 
@@ -66,20 +66,23 @@ claude
 
 The process keeps running in tmux when you close the browser. Reopen the workspace from any device to continue.
 
+Use the **Background** bar below the terminal to run a development server or watcher without touching the main session. Background commands keep running when the browser disconnects, expose read-only output, and can be stopped directly from the bar. Completed commands can be run again or deleted, and commands you explicitly star are saved per workspace for later use. Vampire never adds commands to favorites automatically, so a command containing a token or password is not persisted in the workspace registry unless you choose to star it.
+
 ## What you get
 
 - Persistent tmux sessions for Codex, Claude Code, and any CLI.
+- Supervised background commands with live output, reruns, deletion, and explicit favorites.
 - The same workspace from a desktop or mobile browser.
-- Smart status groups for sessions that are working, need review, are idle, or have ended.
+- Smart status groups for main sessions that are working, need review, are idle, or have ended.
 - Notes and process labels in the workspace list.
 - Git diffs, image previews, text editing, and inline file/folder creation.
 - Light and dark themes with a mobile-friendly terminal.
 
 | State | Meaning |
 | --- | --- |
-| Working | Terminal output is currently active. |
-| Review needed | New terminal output is waiting for you to check it. |
-| Idle | No unreviewed terminal output. |
+| Working | The main terminal is producing output. |
+| Review needed | New main-terminal output is waiting for you to check it. |
+| Idle | The main terminal has no unreviewed output. |
 | Ended | The saved workspace no longer has a running tmux shell. |
 
 ## Remote access
@@ -100,7 +103,7 @@ Do not expose an unauthenticated instance to the public internet. See [SECURITY.
 | `VAMPIRE_PORT` | HTTP port | `7677` |
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
 | `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
-| `VAMPIRE_STATE_DIR` | Session registry and workspace notes | `~/.vampire` |
+| `VAMPIRE_STATE_DIR` | Session registry, workspace notes, and explicit command favorites | `~/.vampire` |
 | `VAMPIRE_ADAPTER_ORIGIN` | Allowed browser origin for an adapter | unset |
 
 Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to the configured workspace roots; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.

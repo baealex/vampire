@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Send from '@lucide/svelte/icons/send';
 	import ImagePlus from '@lucide/svelte/icons/image-plus';
-	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
+	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
 
 	let {
 		connected,

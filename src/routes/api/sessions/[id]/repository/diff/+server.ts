@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
-import { readRepositoryDiff, RepositoryReadError } from '$lib/server/repository.mjs';
+import { readRepositoryDiff, RepositoryReadError } from '$lib/server/repository.ts';
 import { findManagedWorkspace } from '$lib/server/session-registry';
 
 function repositoryErrorStatus(reason: string): number {

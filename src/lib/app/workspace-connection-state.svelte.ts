@@ -2,11 +2,9 @@ import { isUnauthorized, requestJson } from '$lib/client/request';
 import type { ManagedSession } from '$lib/session/types';
 import type { SystemMetrics } from '$lib/system-metrics';
 import type { TmuxStatus } from '$lib/tmux-status';
-import { decodeWorkspaceServerMessage } from './workspace-protocol.mjs';
+import { decodeWorkspaceServerMessage, type SessionChanges } from './workspace-protocol.ts';
 
 type SessionRefresher = (options?: { quiet?: boolean }) => Promise<void> | void;
-type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
-
 type WorkspaceSessionEvent =
 	| { type: 'sessions-snapshot'; sessions: ManagedSession[] }
 	| { type: 'session-added'; session: ManagedSession }

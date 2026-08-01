@@ -23,6 +23,10 @@ export const POST: RequestHandler = async (event) => {
 	const session = await findManagedSession(id);
 	if (!session) throw error(404, 'Session was not found.');
 	if (session.state !== 'running') throw error(409, 'This tmux session is no longer running.');
+	const requestedTerminalId = event.url.searchParams.get('terminal') ?? undefined;
+	if (requestedTerminalId && !session.terminals.some((terminal) => terminal.id === requestedTerminalId)) {
+		throw error(400, 'Terminal does not belong to this workspace.');
+	}
 
 	let form: FormData;
 	try {
@@ -46,7 +50,7 @@ export const POST: RequestHandler = async (event) => {
 
 	try {
 		await pasteImageToSession({
-			tmuxSession: session.tmuxSession,
+			tmuxTarget: requestedTerminalId ?? session.tmuxSession,
 			bytes: Buffer.from(await image.arrayBuffer()),
 			mimeType
 		});

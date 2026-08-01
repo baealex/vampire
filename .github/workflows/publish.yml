@@ -61,7 +61,7 @@ jobs:
           npm pack --ignore-scripts --pack-destination package-artifact
 
       - name: Verify installed npm package
-        run: node scripts/package-smoke.mjs package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
 
       - name: Upload verified npm package
         uses: actions/upload-artifact@v7
@@ -94,7 +94,7 @@ jobs:
           path: package-artifact
 
       - name: Publish verified package
-        run: node scripts/publish-package.mjs ./package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+        run: node tools/publish-package.ts ./package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
 
   verify-registry:
     needs: publish
@@ -112,4 +112,4 @@ jobs:
           package-manager-cache: false
 
       - name: Verify package from npm registry
-        run: node scripts/package-smoke.mjs "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"
+        run: node tools/package-smoke.ts "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"

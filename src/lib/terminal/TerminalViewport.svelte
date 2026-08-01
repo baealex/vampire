@@ -2,17 +2,18 @@
 	import { onMount, untrack, type Snippet } from 'svelte';
 	import TerminalInputDock from './TerminalInputDock.svelte';
 	import ShellOpening from './ShellOpening.svelte';
-	import { TerminalConnection } from './connection.mjs';
+	import { TerminalConnection } from './connection.ts';
 	import { TerminalImagePasteState } from './image-paste-state.svelte';
-	import { TerminalScreenSync } from './screen-sync.mjs';
+	import { TerminalScreenSync } from './screen-sync.ts';
 	import { installTerminalTouchScroll } from './touch-scroll';
 	import { terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
 	import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '$lib/ui/layout';
-	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.mjs';
+	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
 		sessionId,
+		terminalId,
 		onInputActivity = () => undefined,
 		onOutputActivity = () => undefined,
 		onRepositoryStatus = () => undefined,
@@ -22,6 +23,7 @@
 		children
 	}: {
 		sessionId: string;
+		terminalId?: string;
 		onInputActivity?: (sessionId: string, timestamp: number) => void;
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
@@ -48,7 +50,11 @@
 	let focusTerminal: () => void = () => undefined;
 	let applyTerminalFontSize = $state<(size: number) => void>(() => undefined);
 	let reconnectTerminal = $state<() => void>(() => undefined);
-	const imagePaste = new TerminalImagePasteState(untrack(() => sessionId), () => connected);
+	const imagePaste = new TerminalImagePasteState(
+		untrack(() => sessionId),
+		untrack(() => terminalId),
+		() => connected
+	);
 
 	function changeTerminalFontSize(delta: number) {
 		fontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, fontSize + delta));
@@ -300,6 +306,7 @@
 			const initialSize = fitTerminal(fitAddon);
 			const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
 			websocketUrl.searchParams.set('session', sessionId);
+			if (terminalId) websocketUrl.searchParams.set('terminal', terminalId);
 			if (initialSize) {
 				websocketUrl.searchParams.set('columns', String(initialSize.columns));
 				websocketUrl.searchParams.set('rows', String(initialSize.rows));

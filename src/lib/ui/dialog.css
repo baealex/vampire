@@ -3,7 +3,6 @@
 	z-index: 50;
 	inset: 0;
 	background: var(--color-backdrop);
-	backdrop-filter: blur(3px);
 }
 
 .vampire-dialog-content {
@@ -89,30 +88,6 @@
 	color: var(--color-text-secondary);
 	font-size: var(--text-body);
 	line-height: var(--leading-body);
-}
-
-.vampire-dialog-destructive {
-	display: grid;
-	gap: 0.4rem;
-	padding: 0.8rem;
-	border: 1px solid var(--color-danger-border);
-	border-radius: 0.6rem;
-	background: var(--color-danger-surface);
-}
-
-.vampire-dialog-destructive strong {
-	color: var(--color-danger-text-strong);
-	font-size: var(--text-body);
-	font-weight: var(--weight-medium);
-}
-
-.vampire-dialog-destructive p,
-.vampire-dialog-destructive [data-dialog-description] {
-	margin: 0;
-	color: var(--color-text-secondary);
-	font-size: var(--text-body);
-	line-height: var(--leading-body);
-	overflow-wrap: anywhere;
 }
 
 .vampire-dialog-actions {
