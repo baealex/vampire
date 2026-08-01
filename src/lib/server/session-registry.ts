@@ -323,7 +323,7 @@ export async function stopManagedBackgroundProcess(id: string, terminalId: strin
 		const running = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
 		if (!running) throw new SessionMutationError('session-not-running', 'Reopen the workspace before stopping a background process.');
 		const backgroundProcess = running.terminals.slice(1).find((candidate) => candidate.id === terminalId);
-		if (!backgroundProcess) throw new SessionMutationError('background-not-found', 'Background process was not found in this workspace.');
+		if (!backgroundProcess) return;
 		await killTmuxBackgroundProcess(stored.tmuxSession, backgroundProcess.id);
 	});
 }

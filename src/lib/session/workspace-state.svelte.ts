@@ -6,6 +6,7 @@ import {
 	type SessionActivityRecord
 } from './view.ts';
 import { SessionActivityController } from './activity-controller.ts';
+import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
 import type { ManagedSession, SessionOrderMode, SessionTerminal } from './types.ts';
 
 type RefreshOptions = { quiet?: boolean };
@@ -58,6 +59,7 @@ export class SessionWorkspaceState {
 
 	#activityRequestTimers = new Map<string, number>();
 	#activity: SessionActivityController;
+	#backgroundTerminals = new BackgroundTerminalReconciler();
 	#sessionNotes = new Map<string, string>();
 	#sessionNoteRequests = new Map<string, Promise<string>>();
 	#refreshPromise: Promise<void> | undefined;
@@ -131,13 +133,19 @@ export class SessionWorkspaceState {
 			return;
 		}
 
-		const terminals = changes.terminals ?? (
-			typeof changes.lastOutputAt === 'number' && previous.terminals.length > 0
-				? previous.terminals.map((terminal, index) => index === 0
-					? { ...terminal, lastOutputAt: maxTimestamp(terminal.lastOutputAt, changes.lastOutputAt ?? null) }
-					: terminal)
-				: previous.terminals
-		);
+		const nextState = changes.state ?? previous.state;
+		if (nextState === 'missing') this.#backgroundTerminals.clearSession(sessionId);
+		const terminals = changes.terminals && nextState === 'running'
+			? this.#backgroundTerminals.reconcile(sessionId, changes.terminals)
+			: (
+				changes.terminals ?? (
+					typeof changes.lastOutputAt === 'number' && previous.terminals.length > 0
+						? previous.terminals.map((terminal, index) => index === 0
+							? { ...terminal, lastOutputAt: maxTimestamp(terminal.lastOutputAt, changes.lastOutputAt ?? null) }
+							: terminal)
+						: previous.terminals
+				)
+			);
 		const next = {
 			...previous,
 			...changes,
@@ -154,6 +162,7 @@ export class SessionWorkspaceState {
 	}
 
 	applySessionRemoved(sessionId: string) {
+		this.#backgroundTerminals.clearSession(sessionId);
 		if (!this.sessions.some((session) => session.id === sessionId)) return;
 		this.sessions = this.sessions.filter((session) => session.id !== sessionId);
 		this.#sessionNotes.delete(sessionId);
@@ -185,11 +194,19 @@ export class SessionWorkspaceState {
 
 	private applySessions(incomingSessions: ManagedSession[]) {
 		const previousSessions = new Map(this.sessions.map((session) => [session.id, session]));
+		const incomingSessionIds = new Set(incomingSessions.map((session) => session.id));
+		for (const sessionId of previousSessions.keys()) {
+			if (!incomingSessionIds.has(sessionId)) this.#backgroundTerminals.clearSession(sessionId);
+		}
 		const nextSessions = incomingSessions.map((session) => {
 			const previous = previousSessions.get(session.id);
 			if (previous && previous.notePreview !== session.notePreview) this.#sessionNotes.delete(session.id);
+			if (session.state === 'missing') this.#backgroundTerminals.clearSession(session.id);
 			return {
 				...session,
+				terminals: session.state === 'running'
+					? this.#backgroundTerminals.reconcile(session.id, session.terminals)
+					: session.terminals,
 				lastActiveAt: Math.max(session.lastActiveAt, previous?.lastActiveAt ?? 0),
 				lastOutputAt: maxTimestamp(session.lastOutputAt, previous?.lastOutputAt ?? null)
 			};
@@ -282,10 +299,11 @@ export class SessionWorkspaceState {
 			this.sessions = this.sessions.map((session) => session.id === sessionId
 				? {
 					...session,
-					terminals: [
-						...session.terminals.filter((terminal) => terminal.id !== data.backgroundProcess.id),
+					terminals: this.#backgroundTerminals.applyStarted(
+						sessionId,
+						session.terminals,
 						data.backgroundProcess
-					].sort((left, right) => left.index - right.index)
+					)
 				}
 				: session);
 			return data.backgroundProcess;
@@ -311,7 +329,10 @@ export class SessionWorkspaceState {
 				'Unable to stop the background process'
 			);
 			this.sessions = this.sessions.map((session) => session.id === sessionId
-				? { ...session, terminals: session.terminals.filter((terminal) => terminal.id !== processId) }
+				? {
+					...session,
+					terminals: this.#backgroundTerminals.applyStopped(sessionId, session.terminals, processId)
+				}
 				: session);
 			return true;
 		} catch (error) {
@@ -493,6 +514,7 @@ export class SessionWorkspaceState {
 			const data = await requestJson<{ session: ManagedSession }>(`/api/sessions/${encodeURIComponent(session.id)}`, {
 				method: 'POST'
 			});
+			this.#backgroundTerminals.clearSession(session.id);
 			this.invalidateSessions();
 			this.sessions = this.sessions.map((item) => item.id === data.session.id ? data.session : item);
 			this.#activity.rebuild(this.sessions);
@@ -511,6 +533,7 @@ export class SessionWorkspaceState {
 		this.sessionActionError = '';
 		try {
 			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}/close`, { method: 'POST' });
+			this.#backgroundTerminals.clearSession(session.id);
 			this.invalidateSessions();
 			this.sessions = this.sessions.map((item) => item.id === session.id
 				? { ...item, state: 'missing', lastOutputAt: null, attachedClients: 0, foregroundProcess: null, terminals: [] }
@@ -536,6 +559,7 @@ export class SessionWorkspaceState {
 		this.backgroundActionErrorSessionId = undefined;
 		try {
 			await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(session.id)}?terminate=true`, { method: 'DELETE' });
+			this.#backgroundTerminals.clearSession(session.id);
 			this.invalidateSessions();
 			this.sessions = this.sessions.filter((item) => item.id !== session.id);
 			this.#activity.removeSession(session.id);
@@ -555,6 +579,7 @@ export class SessionWorkspaceState {
 		this.invalidateSessions();
 		this.clearAllInputActivity();
 		this.#activity.reset();
+		this.#backgroundTerminals.clear();
 		this.sessions = [];
 		this.requestedSessionId = undefined;
 		this.#sessionNotes.clear();
@@ -573,6 +598,7 @@ export class SessionWorkspaceState {
 	dispose() {
 		this.clearAllInputActivity();
 		this.#activity.dispose();
+		this.#backgroundTerminals.clear();
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();
 	}
