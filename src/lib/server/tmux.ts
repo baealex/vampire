@@ -213,7 +213,7 @@ async function assertTmuxTerminalOwner(name: string, terminalId: string): Promis
 		'-t',
 		terminalId,
 		'#{session_name}'
-	]);
+	], { timeout: 3_000 });
 	if (stdout.trim() !== name) throw new Error('Background process does not belong to this workspace.');
 }
 
@@ -263,8 +263,14 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
 }
 
 export async function killTmuxBackgroundProcess(name: string, terminalId: string): Promise<void> {
-	await assertTmuxTerminalOwner(name, terminalId);
-	await execFile('tmux', ['kill-window', '-t', terminalId]);
+	try {
+		await assertTmuxTerminalOwner(name, terminalId);
+		await execFile('tmux', ['kill-window', '-t', terminalId], { timeout: 3_000 });
+	} catch (error) {
+		const details = error as NodeJS.ErrnoException & { stderr?: string };
+		if (Number(details.code) === 1 && /can't find/i.test(details.stderr ?? '')) return;
+		throw error;
+	}
 }
 
 export async function captureTmuxBackgroundOutput(name: string, terminalId: string): Promise<string> {
