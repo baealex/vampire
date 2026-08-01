@@ -148,6 +148,14 @@ test('describes managed background commands and their exit status', () => {
 	});
 });
 
+test('removes trailing tmux pane padding without changing log formatting', () => {
+	assert.equal(
+		tmux.stripTmuxCapturePadding('\nfirst line\n\n  indented line  \n\n\n'),
+		'\nfirst line\n\n  indented line  '
+	);
+	assert.equal(tmux.stripTmuxCapturePadding('\n\n\n'), '');
+});
+
 test('parses the lightweight tmux output activity snapshot', () => {
 	assert.deepEqual(tmux.parseTmuxSessionActivity([
 		'vampire-one\t0\t1712345678',

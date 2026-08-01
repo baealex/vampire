@@ -273,13 +273,19 @@ export async function killTmuxBackgroundProcess(name: string, terminalId: string
 	}
 }
 
+export function stripTmuxCapturePadding(output: string): string {
+	const lines = output.split('\n');
+	while (lines.length > 0 && (lines.at(-1) ?? '').trim().length === 0) lines.pop();
+	return lines.join('\n');
+}
+
 export async function captureTmuxBackgroundOutput(name: string, terminalId: string): Promise<string> {
 	await assertTmuxTerminalOwner(name, terminalId);
 	const { stdout } = await execFile('tmux', ['capture-pane', '-p', '-S', '-', '-t', terminalId], {
 		maxBuffer: 512 * 1024,
 		timeout: 3_000
 	});
-	return stdout;
+	return stripTmuxCapturePadding(stdout);
 }
 
 export async function sendTmuxInput(name: string, data: string): Promise<void> {
