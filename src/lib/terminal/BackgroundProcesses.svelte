@@ -68,8 +68,14 @@
 
 	$effect(() => {
 		const processId = selectedProcessId;
-		if (!open || !processId) return;
-		const loadOutput = untrack(() => onLoadOutput);
+		const expanded = open;
+		if (!expanded || !processId) return;
+		// Parent loaders close over reactive workspace state. Only expansion and
+		// selection should control this polling lifecycle.
+		return untrack(() => startOutputPolling(processId));
+	});
+
+	function startOutputPolling(processId: string): () => void {
 		let disposed = false;
 		let refreshing = false;
 		const refresh = async (initial = false) => {
@@ -77,7 +83,7 @@
 			refreshing = true;
 			if (initial) outputLoading = true;
 			try {
-				const next = await loadOutput(processId);
+				const next = await onLoadOutput(processId);
 				if (!disposed) {
 					output = next;
 					outputError = '';
@@ -95,7 +101,7 @@
 			disposed = true;
 			window.clearInterval(timer);
 		};
-	});
+	}
 
 	function processCommand(process: SessionTerminal): string {
 		return process.command || process.name || process.foregroundProcess?.label || 'Background command';

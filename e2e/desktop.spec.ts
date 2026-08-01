@@ -149,7 +149,8 @@ test('runs and stops a background command without replacing the main session', a
 	await page.getByRole('button', { name: 'Run', exact: true }).click();
 	const processRow = page.locator('.process-row', { hasText: 'background-process-marker' });
 	await expect(processRow).toBeVisible();
-	await expect(page.locator('.process-output')).toContainText('background-process-marker', { timeout: 10_000 });
+	await expect(page.locator('.process-output pre')).toContainText('background-process-marker', { timeout: 10_000 });
+	await expect(page.locator('.process-output pre')).toHaveText('background-process-marker');
 	await expect(page.locator('.xterm-rows')).toContainText('main-session-marker');
 	await expect(page.locator('.xterm-rows')).not.toContainText('background-process-marker');
 	await expect(page.locator('.session-row-shell.selected .session-program')).toHaveText(mainWorkspaceProcess || 'zsh');
@@ -167,10 +168,25 @@ test('runs and stops a background command without replacing the main session', a
 		await new Promise((resolve) => setTimeout(resolve, 2_500));
 		await route.continue();
 	});
-	await composer.fill("for i in {1..16}; do printf 'main-output-churn\\n'; sleep 0.4; done");
+	await composer.fill("for i in {1..24}; do printf 'main-output-churn\\n'; sleep 0.4; done");
 	await composer.press('Enter');
 	await processRow.locator('.process-summary').click();
-	await expect(page.locator('.process-output')).toContainText('background-process-marker', { timeout: 5_000 });
+	await expect(page.locator('.process-output pre')).toContainText('background-process-marker', { timeout: 10_000 });
+	const returnedToLoading = await page.locator('.process-output').evaluate(async (output) => {
+		let loadingObserved = Boolean(output.querySelector('.output-placeholder'));
+		const observer = new MutationObserver(() => {
+			if (output.querySelector('.output-placeholder')) loadingObserved = true;
+		});
+		observer.observe(output, {
+			characterData: true,
+			childList: true,
+			subtree: true
+		});
+		await new Promise((resolve) => window.setTimeout(resolve, 4_000));
+		observer.disconnect();
+		return loadingObserved;
+	});
+	expect(returnedToLoading).toBe(false);
 	await page.unrouteAll({ behavior: 'wait' });
 
 	await processRow.getByRole('button', { name: /Stop printf/ }).click();
@@ -189,7 +205,7 @@ test('runs and stops a background command without replacing the main session', a
 	await expect(finishedRows).toHaveCount(1);
 	const rerunFinishedCommand = finishedRows.first().getByRole('button', { name: /Run printf.*again/ });
 	await expect(rerunFinishedCommand).toBeVisible({ timeout: 10_000 });
-	await expect(page.locator('.process-output')).toContainText('finished-background-marker');
+	await expect(page.locator('.process-output pre')).toContainText('finished-background-marker');
 	await rerunFinishedCommand.click();
 	await expect(finishedRows).toHaveCount(2, { timeout: 10_000 });
 
