@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import Play from '@lucide/svelte/icons/play';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
@@ -31,7 +31,7 @@
 		actionError?: string;
 		onStart: (command: string) => Promise<SessionTerminal | undefined>;
 		onStop: (process: SessionTerminal) => Promise<boolean>;
-		onLoadOutput: (process: SessionTerminal) => Promise<string>;
+		onLoadOutput: (processId: string) => Promise<string>;
 		onFavorite: (command: string) => Promise<boolean>;
 		onRemoveFavorite: (command: string) => Promise<boolean>;
 	} = $props();
@@ -67,16 +67,17 @@
 	});
 
 	$effect(() => {
-		const process = selectedProcess;
-		if (!open || !process) return;
+		const processId = selectedProcessId;
+		if (!open || !processId) return;
+		const loadOutput = untrack(() => onLoadOutput);
 		let disposed = false;
 		let refreshing = false;
-		const refresh = async () => {
+		const refresh = async (initial = false) => {
 			if (refreshing) return;
 			refreshing = true;
-			outputLoading = output === '';
+			if (initial) outputLoading = true;
 			try {
-				const next = await onLoadOutput(process);
+				const next = await loadOutput(processId);
 				if (!disposed) {
 					output = next;
 					outputError = '';
@@ -88,7 +89,7 @@
 				refreshing = false;
 			}
 		};
-		void refresh();
+		void refresh(true);
 		const timer = window.setInterval(() => void refresh(), 1_500);
 		return () => {
 			disposed = true;

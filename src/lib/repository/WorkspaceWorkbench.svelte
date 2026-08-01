@@ -40,7 +40,7 @@
 		session: ManagedSession;
 		onStartBackground: (command: string) => Promise<SessionTerminal | undefined>;
 		onStopBackground: (process: SessionTerminal) => Promise<boolean>;
-		onLoadBackgroundOutput: (process: SessionTerminal) => Promise<string>;
+		onLoadBackgroundOutput: (processId: string) => Promise<string>;
 		onFavoriteBackground: (command: string) => Promise<boolean>;
 		onRemoveBackgroundFavorite: (command: string) => Promise<boolean>;
 		startingBackground?: boolean;

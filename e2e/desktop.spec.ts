@@ -162,6 +162,16 @@ test('runs and stops a background command without replacing the main session', a
 	await expectTerminalReady(page);
 	await page.getByRole('button', { name: 'Run background command' }).click();
 	await expect(page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toBeVisible();
+	const outputRoute = '**/api/sessions/*/background/*/output';
+	await page.route(outputRoute, async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, 2_500));
+		await route.continue();
+	});
+	await composer.fill("for i in {1..16}; do printf 'main-output-churn\\n'; sleep 0.4; done");
+	await composer.press('Enter');
+	await processRow.locator('.process-summary').click();
+	await expect(page.locator('.process-output')).toContainText('background-process-marker', { timeout: 5_000 });
+	await page.unrouteAll({ behavior: 'wait' });
 
 	await processRow.getByRole('button', { name: /Stop printf/ }).click();
 	await expect(processRow).toBeHidden();

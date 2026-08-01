@@ -308,7 +308,7 @@
 						session={workspace.activeSession}
 						onStartBackground={(command) => workspace.startBackgroundProcess(workspace.activeSession!.id, command)}
 						onStopBackground={(process) => workspace.stopBackgroundProcess(workspace.activeSession!.id, process.id)}
-						onLoadBackgroundOutput={(process) => workspace.loadBackgroundOutput(workspace.activeSession!.id, process.id)}
+						onLoadBackgroundOutput={(processId) => workspace.loadBackgroundOutput(workspace.activeSession!.id, processId)}
 						onFavoriteBackground={(command) => workspace.favoriteBackgroundCommand(workspace.activeSession!.id, command)}
 						onRemoveBackgroundFavorite={(command) => workspace.removeBackgroundCommandFavorite(workspace.activeSession!.id, command)}
 						startingBackground={workspace.startingBackgroundSessionId === workspace.activeSession.id}
