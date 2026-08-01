@@ -3,15 +3,25 @@ import { runtimeConfig } from '../src/lib/server/runtime-config.ts';
 import { installTerminalWebSocket } from './websocket.ts';
 import { installWorkspaceWebSocket } from './workspace-websocket.ts';
 
+const DEFAULT_PROTOCOL_HEADER = 'x-forwarded-proto';
+
 // Image uploads allow files up to 10 MB; the adapter otherwise defaults to 512 KB.
 if (!process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT?.trim()) {
 	process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT = '11M';
 }
 
+const protocolHeader = process.env.VAMPIRE_ADAPTER_PROTOCOL_HEADER?.trim().toLowerCase() || DEFAULT_PROTOCOL_HEADER;
+if (!process.env.VAMPIRE_ADAPTER_PROTOCOL_HEADER?.trim()) {
+	process.env.VAMPIRE_ADAPTER_PROTOCOL_HEADER = protocolHeader;
+}
+
 const config = runtimeConfig();
 const handlerUrl = new URL('../build/handler.js', import.meta.url);
 const { handler } = await import(handlerUrl.href);
-const server = createServer(handler);
+const server = createServer((request, response) => {
+	if (!request.headers[protocolHeader]) request.headers[protocolHeader] = 'http';
+	void handler(request, response);
+});
 const closeTerminalSockets = installTerminalWebSocket(server);
 const closeWorkspaceSockets = installWorkspaceWebSocket(server);
 

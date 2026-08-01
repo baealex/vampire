@@ -21,6 +21,7 @@ const installDirectory = join(temporaryDirectory, 'install');
 const workspaceDirectory = join(temporaryDirectory, 'workspace');
 const stateDirectory = join(temporaryDirectory, 'state');
 const resolvedPackageSource = packageSource.endsWith('.tgz') ? resolve(packageSource) : packageSource;
+const smokeToken = 'vampire-package-smoke-token';
 
 try {
 	await mkdir(workspaceDirectory, { recursive: true });
@@ -35,7 +36,7 @@ try {
 	const port = await availablePort();
 	const child = spawn(process.execPath, [join(installedPackageDirectory, 'bin', 'vampire.js')], {
 		cwd: workspaceDirectory,
-		env: runtimeEnvironment(port, stateDirectory, workspaceDirectory),
+		env: runtimeEnvironment(port, stateDirectory, workspaceDirectory, smokeToken),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
 	let output = '';
@@ -43,7 +44,9 @@ try {
 	child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
 
 	try {
-		await waitForHttpServer(child, `http://127.0.0.1:${port}/`, () => output);
+		const baseUrl = `http://127.0.0.1:${port}`;
+		await waitForHttpServer(child, `${baseUrl}/`, () => output);
+		await verifyAuthentication(baseUrl, smokeToken);
 	} finally {
 		await stopProcess(child);
 	}
@@ -96,17 +99,39 @@ async function availablePort(): Promise<number> {
 	return address.port;
 }
 
-function runtimeEnvironment(port: number, statePath: string, workspacePath: string): NodeJS.ProcessEnv {
+function runtimeEnvironment(port: number, statePath: string, workspacePath: string, token: string): NodeJS.ProcessEnv {
 	const environment: NodeJS.ProcessEnv = {
 		...process.env,
 		VAMPIRE_HOST: '127.0.0.1',
 		VAMPIRE_PORT: String(port),
 		VAMPIRE_STATE_DIR: statePath,
+		VAMPIRE_TOKEN: token,
 		VAMPIRE_WORKSPACE_ROOTS: workspacePath
 	};
 	delete environment.VAMPIRE_ADAPTER_ORIGIN;
-	delete environment.VAMPIRE_TOKEN;
+	delete environment.VAMPIRE_ADAPTER_PROTOCOL_HEADER;
 	return environment;
+}
+
+async function verifyAuthentication(baseUrl: string, token: string): Promise<void> {
+	const login = await fetch(`${baseUrl}/api/login`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ token })
+	});
+	if (!login.ok) throw new Error(`Packaged CLI rejected its configured access token with status ${login.status}.`);
+
+	const setCookie = login.headers.get('set-cookie');
+	if (!setCookie) throw new Error('Packaged CLI did not create an authentication cookie.');
+	if (/(?:^|;\s*)Secure(?:;|$)/i.test(setCookie)) {
+		throw new Error('Packaged CLI marked its direct HTTP authentication cookie as Secure.');
+	}
+
+	const cookie = setCookie.split(';', 1)[0];
+	const sessions = await fetch(`${baseUrl}/api/sessions`, { headers: { cookie } });
+	if (!sessions.ok) {
+		throw new Error(`Packaged CLI did not accept its authentication cookie; status ${sessions.status}.`);
+	}
 }
 
 async function waitForHttpServer(child: ChildProcess, url: string, output: () => string): Promise<void> {

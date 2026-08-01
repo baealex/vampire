@@ -95,7 +95,9 @@ VAMPIRE_TOKEN="$(openssl rand -base64 32)" npx vampire
 
 Do not expose an unauthenticated instance to the public internet. See [SECURITY.md](SECURITY.md) for the threat model and reverse-proxy guidance.
 
-## Configuration
+## Optional configuration
+
+Running `npx vampire` needs no environment variables. Set only the options your deployment actually needs:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -104,7 +106,6 @@ Do not expose an unauthenticated instance to the public internet. See [SECURITY.
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
 | `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
 | `VAMPIRE_STATE_DIR` | Session registry, workspace notes, and explicit command favorites | `~/.vampire` |
-| `VAMPIRE_ADAPTER_ORIGIN` | Allowed browser origin for an adapter | unset |
 
 Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to the configured workspace roots; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
 

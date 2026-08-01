@@ -55,6 +55,15 @@ jobs:
       - name: Verify browser flows
         run: pnpm test:e2e
 
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure
+          path: test-results/playwright
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build npm package
         run: |
           mkdir package-artifact
