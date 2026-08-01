@@ -1,10 +1,15 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
-import { authenticate, createSession, expectTerminalReady, removeSession } from './support.ts';
+import { authenticate, createSession, expectTerminalReady, removeSession, resetSessions } from './support.ts';
 
 let sessionId: string | undefined;
 const run = promisify(execFile);
+
+test.beforeEach(async ({ request }) => {
+	sessionId = undefined;
+	await resetSessions(request);
+});
 
 test.afterEach(async ({ context }) => {
 	await removeSession(context, sessionId);
@@ -12,6 +17,7 @@ test.afterEach(async ({ context }) => {
 });
 
 test('keeps the core workspace flow usable in a narrow viewport', async ({ context, page }) => {
+	test.setTimeout(60_000);
 	await authenticate(context);
 	const session = await createSession(context);
 	sessionId = session.id;

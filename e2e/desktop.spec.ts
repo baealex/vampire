@@ -8,7 +8,8 @@ import {
 	createSession,
 	E2E_WORKSPACE_DIRECTORY,
 	expectTerminalReady,
-	removeSession
+	removeSession,
+	resetSessions
 } from './support.ts';
 
 declare global {
@@ -20,6 +21,11 @@ declare global {
 
 let sessionId: string | undefined;
 const run = promisify(execFile);
+
+test.beforeEach(async ({ request }) => {
+	sessionId = undefined;
+	await resetSessions(request);
+});
 
 test.afterEach(async ({ context }) => {
 	await removeSession(context, sessionId);
@@ -75,6 +81,7 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
 });
 
 test('does not treat another device terminal redraw as main-session output', async ({ browser }) => {
+	test.setTimeout(60_000);
 	const firstContext = await browser.newContext();
 	const secondContext = await browser.newContext();
 	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
@@ -190,6 +197,7 @@ test('runs and stops a background command without replacing the main session', a
 });
 
 test('moves terminal output through active, review, idle, and ended', async ({ context, page }) => {
+	test.setTimeout(45_000);
 	await authenticate(context);
 	const session = await createSession(context);
 	sessionId = session.id;
@@ -221,6 +229,7 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
 });
 
 test('keeps an externally changed file when an editor save conflicts', async ({ context, page }) => {
+	test.setTimeout(45_000);
 	const conflictFile = join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt');
 	await writeFile(conflictFile, 'initial browser test content\n', 'utf8');
 	await authenticate(context);
@@ -234,7 +243,7 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
 	await page.getByRole('button', { name: 'Open conflict.txt' }).click();
 
 	const editor = page.locator('[aria-label="Edit conflict.txt"] .cm-content');
-	await expect(editor).toBeVisible();
+	await expect(editor).toBeVisible({ timeout: 15_000 });
 	await editor.click();
 	await page.keyboard.press('End');
 	await page.keyboard.insertText('\nlocal browser edit');

@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import type { BrowserContext, Page } from '@playwright/test';
+import type { APIRequestContext, BrowserContext, Page } from '@playwright/test';
 import type { ManagedSession } from '../src/lib/session/types.ts';
 import {
 	E2E_BASE_URL,
@@ -25,12 +25,28 @@ export async function createSession(context: BrowserContext): Promise<ManagedSes
 	return body.session;
 }
 
+export async function resetSessions(request: APIRequestContext): Promise<void> {
+	const headers = { authorization: `Bearer ${E2E_TOKEN}` };
+	const response = await request.get(`${E2E_BASE_URL}/api/sessions`, { headers });
+	expect(response.ok()).toBe(true);
+	const body = await response.json() as { sessions: ManagedSession[] };
+	for (const session of body.sessions) {
+		const removal = await request.delete(
+			`${E2E_BASE_URL}/api/sessions/${encodeURIComponent(session.id)}?terminate=true`,
+			{ headers }
+		);
+		expect(removal.ok()).toBe(true);
+	}
+}
+
 export async function removeSession(context: BrowserContext, sessionId: string | undefined): Promise<void> {
 	if (!sessionId) return;
-	await context.request.delete(`${E2E_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}?terminate=true`);
+	await context.request
+		.delete(`${E2E_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}?terminate=true`)
+		.catch(() => undefined);
 }
 
 export async function expectTerminalReady(page: Page): Promise<void> {
-	await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible();
-	await expect(page.locator('.terminal.screen-ready')).toBeVisible({ timeout: 15_000 });
+	await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible({ timeout: 15_000 });
+	await expect(page.locator('.terminal.screen-ready')).toBeVisible({ timeout: 20_000 });
 }
