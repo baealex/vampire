@@ -177,9 +177,10 @@ test('runs and stops a background command without replacing the main session', a
 	await page.getByRole('button', { name: 'Run', exact: true }).click();
 	const finishedRows = page.locator('.process-row', { hasText: 'finished-background-marker' });
 	await expect(finishedRows).toHaveCount(1);
-	await expect(finishedRows.first()).toContainText('Finished', { timeout: 10_000 });
+	const rerunFinishedCommand = finishedRows.first().getByRole('button', { name: /Run printf.*again/ });
+	await expect(rerunFinishedCommand).toBeVisible({ timeout: 10_000 });
 	await expect(page.locator('.process-output')).toContainText('finished-background-marker');
-	await finishedRows.first().getByRole('button', { name: /Run printf.*again/ }).click();
+	await rerunFinishedCommand.click();
 	await expect(finishedRows).toHaveCount(2, { timeout: 10_000 });
 
 	await page.reload();
