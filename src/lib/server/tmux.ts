@@ -81,8 +81,13 @@ function tmuxInstallGuide(): TmuxStatus['install'] {
 
 export function isTmuxUnavailable(error: unknown): boolean {
 	const details = error as NodeJS.ErrnoException & { stderr?: string };
+	const output = `${details?.message ?? ''} ${details?.stderr ?? ''}`;
 	return details?.code === 'ENOENT'
-		|| /(?:tmux|command) (?:not found|not recognized)/i.test(`${details?.message ?? ''} ${details?.stderr ?? ''}`);
+		|| /(?:tmux|command) (?:not found|not recognized)/i.test(output)
+		|| (
+			Number(details?.code) === 1
+			&& /(?:no server running|error connecting to .*\(No such file or directory\))/i.test(output)
+		);
 }
 
 export async function getTmuxStatus(): Promise<TmuxStatus> {
@@ -281,7 +286,7 @@ export async function killTmuxSession(name: string): Promise<void> {
 		await execFile('tmux', ['kill-session', '-t', name]);
 	} catch (error) {
 		const details = error as NodeJS.ErrnoException & { stderr?: string };
-		if (Number(details.code) === 1 && /(?:can't find|no server running)/i.test(details.stderr ?? '')) return;
+		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /can't find/i.test(details.stderr ?? ''))) return;
 		throw error;
 	}
 }
@@ -418,8 +423,7 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 		]);
 		return parseTmuxSessionsWithProcesses(stdout, processTable);
 	} catch (error) {
-		const details = error as NodeJS.ErrnoException & { stderr?: string };
-		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /no server running/i.test(details.stderr ?? ''))) return [];
+		if (isTmuxUnavailable(error)) return [];
 		throw error;
 	}
 }
@@ -434,8 +438,7 @@ export async function listTmuxSessionActivity(): Promise<TmuxSessionActivity[]> 
 		]);
 		return parseTmuxSessionActivity(stdout);
 	} catch (error) {
-		const details = error as NodeJS.ErrnoException & { stderr?: string };
-		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /no server running/i.test(details.stderr ?? ''))) return [];
+		if (isTmuxUnavailable(error)) return [];
 		throw error;
 	}
 }

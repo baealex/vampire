@@ -43,6 +43,15 @@ test('keeps Vampire server configuration out of new tmux sessions', () => {
 	]);
 });
 
+test('treats a missing tmux server socket as an empty server', () => {
+	const error = Object.assign(new Error('Command failed: tmux list-windows'), {
+		code: 1,
+		stderr: 'error connecting to /tmp/tmux-1001/default (No such file or directory)'
+	});
+
+	assert.equal(tmux.isTmuxUnavailable(error), true);
+});
+
 test('labels sessions with the lower-case executable at the front of the command', () => {
 	const sessions = tmux.parseTmuxSessions([
 		'vampire-npm\t1\t0\t0\t@0\tnpm\t1\t2\t%0\tnpm i\t0\t',

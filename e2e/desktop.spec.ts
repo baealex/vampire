@@ -26,7 +26,7 @@ test.afterEach(async ({ context }) => {
 	sessionId = undefined;
 });
 
-	test('rejects a wrong token and unlocks with the configured token', async ({ page }) => {
+test('rejects a wrong token and unlocks without waiting for the workspace stream', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.getByLabel('Access token')).toBeVisible();
 
@@ -34,6 +34,7 @@ test.afterEach(async ({ context }) => {
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await expect(page.getByRole('alert')).toContainText('That access token did not work.');
 
+	await page.routeWebSocket(/\/ws\/workspace(?:\?|$)/, () => undefined);
 	await page.getByLabel('Access token').fill('vampire-playwright-token');
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();

@@ -3,7 +3,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { findSessionConnection, SESSION_STATE_VERSION } from '../src/lib/server/session-store.ts';
+import {
+	findSessionConnection,
+	readSessionStore,
+	SESSION_STATE_VERSION
+} from '../src/lib/server/session-store.ts';
 
 test('finds the terminal and workspace registered for a session ID', async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), 'vampire-session-state-'));
@@ -29,4 +33,27 @@ test('does not trust malformed session state', async (t) => {
 	await writeFile(file, JSON.stringify({ version: SESSION_STATE_VERSION, sessions: [{ id: 'broken' }] }));
 
 	assert.equal(await findSessionConnection('broken', file), undefined);
+});
+
+test('migrates legacy sessions without inventing command favorites', async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), 'vampire-session-store-favorites-'));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const file = join(directory, 'sessions.json');
+	const session = {
+		id: 'favorite-workspace',
+		tmuxSession: 'vampire-favorite-store-test',
+		cwd: tmpdir(),
+		createdAt: 1,
+		lastActiveAt: 1,
+		note: ''
+	};
+
+	await writeFile(file, JSON.stringify({ version: SESSION_STATE_VERSION, sessions: [session] }));
+	assert.deepEqual((await readSessionStore(file)).sessions[0]?.favoriteCommands, []);
+
+	await writeFile(file, JSON.stringify({
+		version: SESSION_STATE_VERSION,
+		sessions: [{ ...session, favoriteCommands: ['pnpm dev'] }]
+	}));
+	assert.deepEqual((await readSessionStore(file)).sessions[0]?.favoriteCommands, ['pnpm dev']);
 });
