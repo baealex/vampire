@@ -1,6 +1,8 @@
 <script lang="ts">
-import ChevronRight from '@lucide/svelte/icons/chevron-right';
-import SquareTerminal from '@lucide/svelte/icons/square-terminal';
+	import { onMount } from 'svelte';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import CirclePlay from '@lucide/svelte/icons/circle-play';
+	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import SessionActionsMenu from './SessionActionsMenu.svelte';
 	import type { ManagedSession, SessionOrderMode } from './types';
@@ -10,9 +12,10 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 		latestSessionOutputAt,
 		projectName,
 		sessionActivityHint,
+		sessionActivityLabel,
 		sessionActivityState,
-		sessionProcessColor,
 		sessionProcess,
+		sessionProcessColor,
 		sessionProcessHint
 	} from './view';
 
@@ -56,17 +59,24 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	let dropPosition = $state<'before' | 'after'>('before');
 	let openActionSessionId = $state<string>();
 	let endedGroupExpanded = $state(false);
+	let now = $state(Date.now());
 	const smartActivityGroups = $derived(SMART_ACTIVITY_GROUPS.map((group) => ({
 		...group,
 		sessions: displayedSessions.filter(
-			(session) => sessionActivityState(session, activityRecords) === group.state
+			(session) => sessionActivityState(session, activityRecords, now) === group.state
 		)
 	})));
 	const selectedEndedSession = $derived(displayedSessions.some(
-		(session) => session.id === selectedSessionId && sessionActivityState(session, activityRecords) === 'ended'
+		(session) => session.id === selectedSessionId && sessionActivityState(session, activityRecords, now) === 'ended'
 	));
+
 	$effect(() => {
 		if (selectedEndedSession) endedGroupExpanded = true;
+	});
+
+	onMount(() => {
+		const timer = window.setInterval(() => now = Date.now(), 1_000);
+		return () => window.clearInterval(timer);
 	});
 
 	function beginSessionDrag(event: DragEvent, sessionId: string) {
@@ -117,8 +127,9 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 
 {#snippet sessionRows(groupSessions: ManagedSession[])}
 	{#each groupSessions as session (session.id)}
-		{@const activityState = sessionActivityState(session, activityRecords)}
+		{@const activityState = sessionActivityState(session, activityRecords, now)}
 		{@const process = sessionProcess(session)}
+		{@const backgroundCount = Math.max(0, session.terminals.length - 1)}
 		<div
 			class="session-row-shell"
 			class:selected={selectedSessionId === session.id}
@@ -140,34 +151,42 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 				oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 				onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 				aria-current={selectedSessionId === session.id ? 'true' : undefined}
-				aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activityRecords)}${session.notePreview ? '; has a note' : ''})`}
+				aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${session.notePreview ? '; has a note' : ''})`}
 			>
-				<span class="row-leading" aria-hidden="true">
-					<span
-						class="status-dot"
-						class:output-active={activityState === 'active'}
-						class:review={activityState === 'review'}
-						class:ended={activityState === 'ended'}
-						title={sessionActivityHint(session, activityRecords)}
-					></span>
-				</span>
 				<span class="session-summary">
 					<span class="session-title" title={projectName(session.cwd)}>
 						<strong>{projectName(session.cwd)}</strong>
 					</span>
-					{#if session.notePreview}
-						<span class="session-note-preview" title={session.notePreview}>
-							<span class="session-note-indicator" aria-hidden="true"><StickyNote size={12} strokeWidth={1.8} /></span>
-							<span class="session-note-text">{session.notePreview}</span>
-						</span>
-					{/if}
-					<span class="session-context">
+					<span class="agent-summary" title={sessionActivityHint(session, activityRecords, now)}>
+						<span
+							class="status-dot"
+							class:output-active={activityState === 'active'}
+							class:review={activityState === 'review'}
+							class:ended={activityState === 'ended'}
+							aria-hidden="true"
+						></span>
 						{#if process}
 							<span class="session-program" style={`--session-program-color: ${sessionProcessColor(process)}`} title={sessionProcessHint(session)}>{process.label}</span>
 							<span class="session-context-divider" aria-hidden="true">·</span>
 						{/if}
-						<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Last terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session))}</time>
+						{#if sessionOrderMode === 'manual'}
+							<span class={`workspace-state ${activityState}`}>{sessionActivityLabel(activityState)}</span>
+							<span class="session-context-divider" aria-hidden="true">·</span>
+						{/if}
+						<time datetime={new Date(latestSessionOutputAt(session)).toISOString()} title={`Main terminal update ${new Date(latestSessionOutputAt(session)).toLocaleString()}`}>{formatSessionTimestamp(latestSessionOutputAt(session), now)}</time>
 					</span>
+					{#if backgroundCount > 0}
+						<span class="runtime-summary" title={`${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'} in this workspace`}>
+							<CirclePlay size={13} strokeWidth={1.7} aria-hidden="true" />
+							<span>{backgroundCount} background</span>
+						</span>
+					{/if}
+					{#if session.notePreview}
+						<span class="session-note-preview" title={session.notePreview}>
+							<StickyNote size={12} strokeWidth={1.8} aria-hidden="true" />
+							<span>{session.notePreview}</span>
+						</span>
+					{/if}
 				</span>
 			</button>
 			<div class="session-actions-menu">
@@ -239,7 +258,6 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 
 <style>
 	.sessions { border-top: 1px solid var(--color-border); }
-	.session-group + .session-group { border-top: 1px solid var(--color-border); }
 	.session-group-header { display: flex; align-items: center; gap: 0.38rem; min-height: 2rem; margin: 0; padding: 0.45rem 1rem 0.38rem; border: 0; background: var(--color-panel); color: var(--color-text-tertiary); font: inherit; font-size: var(--text-nano); font-weight: var(--weight-medium); letter-spacing: 0.065em; line-height: var(--leading-ui); text-transform: uppercase; }
 	.session-group.working .session-group-header { color: var(--color-warning-accent); }
 	.session-group.review .session-group-header { color: var(--color-info-text); }
@@ -250,8 +268,7 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	.session-group-toggle :global(svg) { margin-left: auto; transition: transform 150ms ease; }
 	.session-group-toggle :global(svg.expanded) { transform: rotate(90deg); }
 	.session-row-shell { position: relative; min-width: 0; border-bottom: 1px solid var(--color-border); }
-	.session-row-shell:last-child { border-bottom: 0; }
-	.session-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.75rem; width: 100%; min-width: 0; min-height: 4.5rem; padding: 0.85rem 3.8rem 0.85rem 1.35rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+	.session-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; width: 100%; min-width: 0; min-height: 4.65rem; padding: 0.8rem 3.45rem 0.8rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.session-row:hover { background: var(--color-surface-raised); }
 	.session-row-shell.selected .session-row:hover { background: var(--color-surface-active-hover); }
 	.session-row-shell.selected { background: var(--color-surface-active); box-shadow: inset 0.18rem 0 var(--color-accent); }
@@ -260,24 +277,29 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	.session-row-shell.dropBefore::before, .session-row-shell.dropAfter::after { position: absolute; z-index: 4; right: 0.65rem; left: 0.65rem; height: 2px; border-radius: 2px; background: var(--color-accent); content: ""; }
 	.session-row-shell.dropBefore::before { top: 0; }
 	.session-row-shell.dropAfter::after { bottom: -1px; }
-	.session-actions-menu { position: absolute; z-index: 3; top: 50%; right: 0.65rem; transform: translateY(-50%); }
-	.row-leading { display: inline-flex; align-items: center; gap: 0.3rem; }
-	.status-dot { box-sizing: border-box; width: 0.58rem; height: 0.58rem; border-radius: 50%; background: var(--color-success); box-shadow: none; }
+	.session-actions-menu { position: absolute; z-index: 3; top: 0.72rem; right: 0.65rem; }
+	.session-summary { display: grid; min-width: 0; gap: 0.3rem; }
+	.session-title { display: flex; align-items: center; min-width: 0; min-height: 1.55rem; padding-right: 0.25rem; }
+	.session-title strong { min-width: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
+	.agent-summary, .runtime-summary, .session-note-preview { display: flex; align-items: center; min-width: 0; overflow: hidden; font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
+	.agent-summary { gap: 0.34rem; color: var(--color-text-tertiary); }
+	.status-dot { box-sizing: border-box; flex: 0 0 auto; width: 0.52rem; height: 0.52rem; border-radius: 50%; background: var(--color-success); box-shadow: none; }
 	.status-dot.output-active { background: var(--color-warning); box-shadow: var(--shadow-status-active); animation: activity-pulse 1.4s ease-out infinite; }
-	.status-dot.review { border: 0.12rem solid var(--color-info); background: transparent; box-shadow: var(--shadow-status-review); }
+	.status-dot.review { border: 0.11rem solid var(--color-info); background: transparent; box-shadow: var(--shadow-status-review); }
 	.status-dot.ended { border: 0.1rem solid var(--color-status-missing); background: transparent; box-shadow: none; }
-	.session-row.missing .session-summary { opacity: 0.62; }
-	.session-summary { display: grid; min-width: 0; gap: 0.28rem; }
-	.session-title { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
-	.session-title strong { overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
-	.session-note-preview { display: flex; align-items: center; gap: 0.3rem; min-width: 0; margin-inline: 0.15rem 0.35rem; padding: 0.3rem 0.45rem; border-radius: var(--radius-xs); background: var(--color-note-surface); color: var(--color-note); font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
-	.session-row-shell.selected .session-note-preview { background: transparent; }
-	.session-note-indicator { display: grid; flex: 0 0 auto; place-items: center; }
-	.session-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-	.session-context { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
 	.session-program { flex: 0 0 auto; color: var(--session-program-color, var(--color-text-secondary)); font-weight: var(--weight-medium); }
-	.session-context-divider { color: var(--color-text-disabled); }
-	.session-context time { flex: 0 0 auto; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
+	.workspace-state { flex: 0 0 auto; color: var(--color-text-tertiary); }
+	.workspace-state.active { color: var(--color-warning-accent); }
+	.workspace-state.review { color: var(--color-info-text); }
+	.workspace-state.ended { color: var(--color-text-disabled); }
+	.session-context-divider { flex: 0 0 auto; color: var(--color-text-disabled); }
+	.agent-summary time { min-width: 0; overflow: hidden; color: var(--color-text-disabled); font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+	.runtime-summary { gap: 0.32rem; color: var(--color-text-tertiary); }
+	.runtime-summary :global(svg) { flex: 0 0 auto; color: var(--color-text-disabled); }
+	.session-note-preview { gap: 0.32rem; color: var(--color-note); }
+	.session-note-preview :global(svg) { flex: 0 0 auto; }
+	.session-note-preview span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.session-row.missing .session-summary { opacity: 0.62; }
 	.empty-state { display: grid; justify-items: start; padding: clamp(1.5rem, 6vw, 3rem) 1.35rem 2rem; border-top: 1px solid var(--color-border); }
 	.empty-state__icon { margin-bottom: 1.1rem; color: var(--color-accent); }
 	.empty-state h2 { margin: 0; font-size: var(--text-heading); font-weight: var(--weight-strong); line-height: var(--leading-tight); }
@@ -293,17 +315,11 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	@media (min-width: 64rem) {
 		.sessions, .empty-state { min-height: 0; overflow-y: auto; }
 		.sessions { flex: 1 1 0; }
-		.session-row { padding-inline: 1rem; padding-right: 3.55rem; }
 	}
 
 	@media (max-width: 63.999rem) {
 		.sessions, .empty-state { min-height: 0; overflow-y: auto; }
 		.sessions { flex: 1 1 0; }
-		.session-row { padding-inline: 1rem; padding-right: 3.55rem; }
-	}
-
-	@media (max-width: 46rem) {
-		.session-row { padding-left: 1rem; }
 	}
 
 	@media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,8 @@
-import type { ManagedSession, SessionOrderMode, SessionProcess } from './types';
+import type { ManagedSession, SessionOrderMode, SessionProcess } from './types.ts';
+import { isAgentProcessLabel } from './agent.ts';
 
 export const SESSION_OUTPUT_SETTLE_MS = 8_000;
+export const SESSION_AGENT_OUTPUT_SETTLE_MS = 30_000;
 
 export type SessionActivityState = 'active' | 'review' | 'idle' | 'ended';
 export type SessionActivityRecord = {
@@ -30,8 +32,21 @@ export function projectName(path: string): string {
 
 export function sessionProcess(session: ManagedSession): SessionProcess | null {
 	if (session.state === 'missing') return null;
-	const process = session.foregroundProcess ?? { kind: 'shell', label: 'shell' };
+	const process = session.terminals?.[0]?.foregroundProcess
+		?? session.foregroundProcess
+		?? { kind: 'shell', label: 'shell' };
 	return { ...process, label: process.label.toLowerCase() };
+}
+
+export function sessionOutputSettleMs(session: ManagedSession): number {
+	const process = sessionProcess(session);
+	return process?.kind === 'command' && isAgentProcessLabel(process.label)
+		? SESSION_AGENT_OUTPUT_SETTLE_MS
+		: SESSION_OUTPUT_SETTLE_MS;
+}
+
+export function sessionTrackedOutputAt(session: ManagedSession): number | null {
+	return session.terminals?.length > 0 ? session.terminals[0].lastOutputAt : session.lastOutputAt;
 }
 
 export function sessionProcessColor(process: SessionProcess): string {
@@ -58,7 +73,10 @@ export function sessionIsActive(
 	activityRecords: SessionActivityRecords = new Map(),
 	now = Date.now()
 ): boolean {
-	return session.state === 'running' && (activityRecords.get(session.id)?.activeUntil ?? 0) > now;
+	return session.state === 'running' && (
+		session.agentState === 'working'
+		|| (activityRecords.get(session.id)?.activeUntil ?? 0) > now
+	);
 }
 
 const SESSION_ACTIVITY_PRIORITY: Record<SessionActivityState, number> = {
@@ -112,16 +130,24 @@ export function sessionActivityState(
 	if (session.state === 'missing') return 'ended';
 	const activity = activityRecords.get(session.id);
 	if (sessionIsActive(session, activityRecords, now)) return 'active';
-	if ((session.lastOutputAt ?? 0) > (activity?.seenThroughAt ?? 0)) return 'review';
+	if ((sessionTrackedOutputAt(session) ?? 0) > (activity?.seenThroughAt ?? 0)) return 'review';
 	return 'idle';
+}
+
+export function sessionActivityLabel(state: SessionActivityState): string {
+	if (state === 'active') return 'Working';
+	if (state === 'review') return 'Review';
+	if (state === 'ended') return 'Ended';
+	return 'Idle';
 }
 
 export function sessionActivityHint(
 	session: ManagedSession,
-	activityRecords: SessionActivityRecords = new Map()
+	activityRecords: SessionActivityRecords = new Map(),
+	now = Date.now()
 ): string {
 	if (session.state === 'missing') return 'Shell is offline';
-	const state = sessionActivityState(session, activityRecords);
+	const state = sessionActivityState(session, activityRecords, now);
 	if (state === 'active') return 'Terminal is working; check back later';
 	if (state === 'review') return 'Terminal output is ready and needs review';
 	return 'Shell is online and up to date';
@@ -134,7 +160,7 @@ export function maxTimestamp(left: number | null, right: number | null): number 
 }
 
 export function latestSessionOutputAt(session: ManagedSession): number {
-	return session.lastOutputAt ?? session.lastActiveAt;
+	return sessionTrackedOutputAt(session) ?? session.lastActiveAt;
 }
 
 export function sortSessions(
@@ -159,8 +185,8 @@ export function sortSessions(
 	);
 }
 
-export function formatSessionTimestamp(value: number): string {
-	const elapsed = Math.max(0, Date.now() - value);
+export function formatSessionTimestamp(value: number, now = Date.now()): string {
+	const elapsed = Math.max(0, now - value);
 	const minutes = Math.floor(elapsed / 60_000);
 	if (minutes < 1) return 'now';
 	if (minutes < 60) return `${minutes}m ago`;

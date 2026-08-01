@@ -1,6 +1,21 @@
+import type { AgentState } from './agent.ts';
+
 export type SessionProcess = {
 	kind: 'shell' | 'command';
 	label: string;
+};
+
+export type SessionTerminal = {
+	id: string;
+	index: number;
+	name: string;
+	active: boolean;
+	lastOutputAt: number | null;
+	foregroundProcess: SessionProcess | null;
+	command: string | null;
+	startedAt: number | null;
+	state: 'running' | 'exited';
+	exitCode: number | null;
 };
 
 export type ManagedSession = {
@@ -10,10 +25,13 @@ export type ManagedSession = {
 	createdAt: number;
 	lastActiveAt: number;
 	notePreview: string;
+	favoriteCommands: string[];
 	lastOutputAt: number | null;
 	state: 'running' | 'missing';
 	attachedClients: number;
 	foregroundProcess: SessionProcess | null;
+	terminals: SessionTerminal[];
+	agentState?: AgentState;
 	isGitRepository: boolean;
 };
 

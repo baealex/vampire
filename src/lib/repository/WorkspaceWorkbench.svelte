@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import Terminal from '$lib/Terminal.svelte';
-	import type { ManagedSession, MobilePanel } from '$lib/session/types';
+	import type { ManagedSession, MobilePanel, SessionTerminal } from '$lib/session/types';
 	import { projectName as getProjectName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
@@ -14,6 +14,15 @@
 
 	let {
 		session,
+		onStartBackground,
+		onStopBackground,
+		onLoadBackgroundOutput,
+		onFavoriteBackground,
+		onRemoveBackgroundFavorite,
+		startingBackground = false,
+		stoppingBackgroundProcessId,
+		updatingFavoriteCommand,
+		backgroundActionError = '',
 		close,
 		onUpdateNote,
 		onLoadNote,
@@ -29,6 +38,15 @@
 		onRepositoryTabChange = () => undefined
 	}: {
 		session: ManagedSession;
+		onStartBackground: (command: string) => Promise<SessionTerminal | undefined>;
+		onStopBackground: (process: SessionTerminal) => Promise<boolean>;
+		onLoadBackgroundOutput: (process: SessionTerminal) => Promise<string>;
+		onFavoriteBackground: (command: string) => Promise<boolean>;
+		onRemoveBackgroundFavorite: (command: string) => Promise<boolean>;
+		startingBackground?: boolean;
+		stoppingBackgroundProcessId?: string;
+		updatingFavoriteCommand?: string;
+		backgroundActionError?: string;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
 		onLoadNote: (sessionId: string) => Promise<string>;
@@ -153,6 +171,15 @@
 	<div class="workspace-primary">
 		<Terminal
 			{session}
+			{onStartBackground}
+			{onStopBackground}
+			{onLoadBackgroundOutput}
+			{onFavoriteBackground}
+			{onRemoveBackgroundFavorite}
+			{startingBackground}
+			{stoppingBackgroundProcessId}
+			{updatingFavoriteCommand}
+			{backgroundActionError}
 			close={openSessionNavigator}
 			{onUpdateNote}
 			{onLoadNote}

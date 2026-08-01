@@ -1,29 +1,15 @@
 {
   "name": "vampire",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux sessions.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "vampire": "bin/vampire.mjs"
+    "vampire": "bin/vampire.js"
   },
   "files": [
     "bin",
     "build",
-    "scripts/config.mjs",
-    "scripts/repository-status.mjs",
-    "scripts/serve.mjs",
-    "scripts/terminal.mjs",
-    "scripts/websocket.mjs",
-    "scripts/workspace-websocket.mjs",
-    "src/lib/app/workspace-protocol.mjs",
-    "src/lib/server/system-metrics.mjs",
-    "src/lib/server/session-snapshot.mjs",
-    "src/lib/server/session-note.mjs",
-    "src/lib/server/repository.mjs",
-    "src/lib/server/session-cookie.mjs",
-    "src/lib/server/session-state.mjs",
-    "src/lib/terminal/protocol.mjs",
     "README.md",
     "LICENSE",
     "SECURITY.md"
@@ -45,15 +31,15 @@
   ],
   "packageManager": "pnpm@10.33.2",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "build": "vite build",
-    "start": "node scripts/serve.mjs",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "pnpm check && node --test scripts/*.test.mjs && pnpm build",
-    "test:e2e": "playwright test",
+    "dev": "node runtime/dev.ts",
+    "build": "vite build && node tools/build-server.ts",
+    "start": "node bin/vampire.js",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project tsconfig.node.json && tsc --project tsconfig.test.json",
+    "test": "pnpm check && node --test tests/*.test.ts && pnpm build",
+    "test:e2e": "pnpm build && playwright test",
     "prepack": "pnpm build"
   },
   "dependencies": {
@@ -69,9 +55,11 @@
     "@sveltejs/kit": "^2.70.1",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "bits-ui": "^2.18.1",
+    "esbuild": "^0.28.1",
     "svelte": "^5.56.7",
     "svelte-check": "^4.7.3",
     "typescript": "^5.0.0",

@@ -1,28 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { createTmuxSession, killTmuxSession, listTmuxSessions, type TmuxProcessHint } from './tmux';
-import { listManagedSessions as readManagedSessions } from './session-snapshot.mjs';
-import { isGitRepository as readIsGitRepository } from './repository.mjs';
-import { createSessionNotePreview } from './session-note.mjs';
-import { readSessionStateFile, SESSION_STATE_VERSION, sessionStatePath } from './session-state.mjs';
-import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.mjs';
+import {
+	captureTmuxBackgroundOutput,
+	createTmuxSession,
+	createTmuxBackgroundProcess,
+	killTmuxBackgroundProcess,
+	killTmuxSession,
+	listTmuxSessions,
+	type TmuxProcessHint,
+	type TmuxTerminal
+} from './tmux.ts';
+import { isGitRepository as readIsGitRepository } from './repository.ts';
+import { createSessionNotePreview } from './session-note.ts';
+import {
+	BACKGROUND_COMMAND_MAX_LENGTH,
+	MAX_FAVORITE_COMMANDS,
+	readSessionStore as readState,
+	type StoredSession,
+	writeSessionStore as writeState
+} from './session-store.ts';
+import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.ts';
+import type { AgentState } from '../session/agent.ts';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
-
-interface StoredSession {
-	id: string;
-	tmuxSession: string;
-	cwd: string;
-	createdAt: number;
-	lastActiveAt: number;
-	note: string;
-}
-
-interface StateFile {
-	version: number;
-	sessions: StoredSession[];
-}
+export const MAX_BACKGROUND_PROCESSES = 8;
+export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS };
 
 export interface ManagedSession extends Omit<StoredSession, 'note'> {
 	notePreview: string;
@@ -30,69 +31,31 @@ export interface ManagedSession extends Omit<StoredSession, 'note'> {
 	lastOutputAt: number | null;
 	attachedClients: number;
 	foregroundProcess: TmuxProcessHint | null;
+	terminals: TmuxTerminal[];
+	agentState: AgentState;
 	isGitRepository: boolean;
 }
 
+export type SessionLaunchErrorReason = 'invalid-cwd' | 'tmux-launch-failed';
+
 export class SessionLaunchError extends Error {
-	constructor(
-		readonly reason: 'invalid-cwd' | 'tmux-launch-failed',
-		message: string
-	) {
+	readonly reason: SessionLaunchErrorReason;
+
+	constructor(reason: SessionLaunchErrorReason, message: string) {
 		super(message);
+		this.reason = reason;
 	}
 }
+
+export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit';
 
 export class SessionMutationError extends Error {
-	constructor(
-		readonly reason: 'not-found' | 'session-running',
-		message: string
-	) {
+	readonly reason: SessionMutationErrorReason;
+
+	constructor(reason: SessionMutationErrorReason, message: string) {
 		super(message);
+		this.reason = reason;
 	}
-}
-
-function isStoredSession(value: unknown): value is StoredSession {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-	const session = value as Record<string, unknown>;
-	return typeof session.id === 'string'
-		&& typeof session.tmuxSession === 'string'
-		&& typeof session.cwd === 'string'
-		&& typeof session.createdAt === 'number'
-		&& (session.lastActiveAt === undefined || typeof session.lastActiveAt === 'number')
-		&& (session.note === undefined || typeof session.note === 'string');
-}
-
-async function readState(): Promise<StateFile> {
-	try {
-		const parsed: unknown = await readSessionStateFile();
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid state file');
-		const state = parsed as { version?: unknown; sessions?: unknown };
-		if (state.version !== SESSION_STATE_VERSION || !Array.isArray(state.sessions) || !state.sessions.every(isStoredSession)) {
-			throw new Error('invalid state file');
-		}
-		return {
-			version: SESSION_STATE_VERSION,
-			sessions: state.sessions.map(({ id, tmuxSession, cwd, createdAt, lastActiveAt, note }) => ({
-				id,
-				tmuxSession,
-				cwd,
-				createdAt,
-				lastActiveAt: typeof lastActiveAt === 'number' ? lastActiveAt : createdAt,
-				note: typeof note === 'string' ? note : ''
-			}))
-		};
-	} catch (cause) {
-		if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return { version: SESSION_STATE_VERSION, sessions: [] };
-		throw new Error('Vampire session registry is unreadable; refusing to overwrite it.');
-	}
-}
-
-async function writeState(state: StateFile): Promise<void> {
-	const file = sessionStatePath();
-	await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-	const temporaryFile = `${file}.${randomUUID()}.tmp`;
-	await writeFile(temporaryFile, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-	await rename(temporaryFile, file);
 }
 
 async function validateCwd(cwd: string): Promise<string> {
@@ -111,6 +74,20 @@ async function validateExistingCwd(cwd: string): Promise<string> {
 		if (cause instanceof WorkspaceRootError) throw new SessionLaunchError('invalid-cwd', cause.message);
 		throw new SessionLaunchError('invalid-cwd', 'Working directory does not exist or is not a directory.');
 	}
+}
+
+function isValidBackgroundCommand(command: string): boolean {
+	return Boolean(command)
+		&& command.length <= BACKGROUND_COMMAND_MAX_LENGTH
+		&& !/[\0\r\n\t]/.test(command);
+}
+
+function normalizeBackgroundCommand(command: string): string {
+	const normalizedCommand = command.trim();
+	if (!isValidBackgroundCommand(normalizedCommand)) {
+		throw new SessionMutationError('invalid-background-command', 'Enter a single-line background command.');
+	}
+	return normalizedCommand;
 }
 
 async function detectGitRepository(cwd: string): Promise<boolean> {
@@ -138,7 +115,31 @@ async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function listManagedSessions(): Promise<ManagedSession[]> {
-	return readManagedSessions();
+	const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);
+	const repositoryStates = await Promise.all(
+		[...new Set(state.sessions.map((session) => session.cwd))].map(async (cwd): Promise<[string, boolean]> => [
+			cwd,
+			await detectGitRepository(cwd)
+		])
+	);
+	const repositoryByCwd = new Map(repositoryStates);
+	const tmuxByName = new Map(tmuxSessions.map((session) => [session.name, session]));
+
+	return state.sessions.map((session) => {
+		const tmux = tmuxByName.get(session.tmuxSession);
+		const { note, ...stored } = session;
+		return {
+			...stored,
+			notePreview: createSessionNotePreview(note),
+			state: tmux ? 'running' : 'missing',
+			lastOutputAt: tmux?.lastOutputAt ?? null,
+			attachedClients: tmux?.attachedClients ?? 0,
+			foregroundProcess: tmux?.foregroundProcess ?? null,
+			terminals: tmux?.terminals ?? [],
+			agentState: null,
+			isGitRepository: repositoryByCwd.get(session.cwd) ?? false
+		};
+	});
 }
 
 export async function findManagedSession(id: string): Promise<ManagedSession | undefined> {
@@ -161,13 +162,15 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			cwd,
 			createdAt: Date.now(),
 			lastActiveAt: Date.now(),
-			note: ''
+			note: '',
+			favoriteCommands: []
 		};
 		const current = await readState();
 		await writeState({ ...current, sessions: [...current.sessions, stored] });
 
+		let tmux;
 		try {
-			await createTmuxSession(stored.tmuxSession, cwd);
+			tmux = await createTmuxSession(stored.tmuxSession, cwd);
 		} catch {
 			const afterFailure = await readState();
 			await writeState({
@@ -183,11 +186,14 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			cwd: stored.cwd,
 			createdAt: stored.createdAt,
 			lastActiveAt: stored.lastActiveAt,
+			favoriteCommands: stored.favoriteCommands,
 			notePreview: createSessionNotePreview(stored.note),
 			state: 'running',
-			lastOutputAt: stored.createdAt,
-			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'shell' },
+			lastOutputAt: tmux.lastOutputAt,
+			attachedClients: tmux.attachedClients,
+			foregroundProcess: tmux.foregroundProcess,
+			terminals: tmux.terminals,
+			agentState: null,
 			isGitRepository: gitRepository
 		};
 	});
@@ -200,8 +206,8 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
 
 		const stored = state.sessions[index];
-		const tmux = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
-		if (tmux) {
+		const existingTmux = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
+		if (existingTmux) {
 			const gitRepository = await detectGitRepository(stored.cwd);
 			return {
 				id: stored.id,
@@ -209,19 +215,23 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				cwd: stored.cwd,
 				createdAt: stored.createdAt,
 				lastActiveAt: stored.lastActiveAt,
+				favoriteCommands: stored.favoriteCommands,
 				notePreview: createSessionNotePreview(stored.note),
 				state: 'running',
-				lastOutputAt: tmux.lastOutputAt,
-				attachedClients: tmux.attachedClients,
-				foregroundProcess: tmux.foregroundProcess,
+				lastOutputAt: existingTmux.lastOutputAt,
+				attachedClients: existingTmux.attachedClients,
+				foregroundProcess: existingTmux.foregroundProcess,
+				terminals: existingTmux.terminals,
+				agentState: null,
 				isGitRepository: gitRepository
 			};
 		}
 
 		const cwd = await validateExistingCwd(stored.cwd);
 		const gitRepository = await detectGitRepository(cwd);
+		let restartedTmux;
 		try {
-			await createTmuxSession(stored.tmuxSession, cwd);
+			restartedTmux = await createTmuxSession(stored.tmuxSession, cwd);
 		} catch {
 			throw new SessionLaunchError('tmux-launch-failed', 'tmux could not restart the shell session.');
 		}
@@ -236,14 +246,98 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			cwd: restarted.cwd,
 			createdAt: restarted.createdAt,
 			lastActiveAt: restarted.lastActiveAt,
+			favoriteCommands: restarted.favoriteCommands,
 			notePreview: createSessionNotePreview(restarted.note),
 			state: 'running',
-			lastOutputAt: restarted.createdAt,
-			attachedClients: 0,
-			foregroundProcess: { kind: 'shell', label: 'shell' },
+			lastOutputAt: restartedTmux.lastOutputAt,
+			attachedClients: restartedTmux.attachedClients,
+			foregroundProcess: restartedTmux.foregroundProcess,
+			terminals: restartedTmux.terminals,
+			agentState: null,
 			isGitRepository: gitRepository
 		};
 	});
+}
+
+export async function createManagedBackgroundProcess(id: string, command: string): Promise<TmuxTerminal> {
+	return exclusively(async () => {
+		const state = await readState();
+		const stored = state.sessions.find((session) => session.id === id);
+		if (!stored) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const normalizedCommand = normalizeBackgroundCommand(command);
+		const running = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
+		if (!running) throw new SessionMutationError('session-not-running', 'Reopen the workspace before running a background command.');
+		if (running.terminals.slice(1).length >= MAX_BACKGROUND_PROCESSES) {
+			throw new SessionMutationError('background-limit', `A workspace can run up to ${MAX_BACKGROUND_PROCESSES} background commands.`);
+		}
+		return createTmuxBackgroundProcess(stored.tmuxSession, stored.cwd, normalizedCommand);
+	});
+}
+
+export async function favoriteManagedBackgroundCommand(id: string, command: string): Promise<string[]> {
+	return exclusively(async () => {
+		const state = await readState();
+		const index = state.sessions.findIndex((session) => session.id === id);
+		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const normalizedCommand = normalizeBackgroundCommand(command);
+		const stored = state.sessions[index];
+		if (stored.favoriteCommands.includes(normalizedCommand)) return stored.favoriteCommands;
+		if (stored.favoriteCommands.length >= MAX_FAVORITE_COMMANDS) {
+			throw new SessionMutationError('favorite-limit', `A workspace can save up to ${MAX_FAVORITE_COMMANDS} favorite commands.`);
+		}
+
+		const favoriteCommands = [...stored.favoriteCommands, normalizedCommand];
+		const sessions = [...state.sessions];
+		sessions[index] = { ...stored, favoriteCommands };
+		await writeState({ ...state, sessions });
+		return favoriteCommands;
+	});
+}
+
+export async function removeManagedBackgroundCommandFavorite(id: string, command: string): Promise<string[]> {
+	return exclusively(async () => {
+		const state = await readState();
+		const index = state.sessions.findIndex((session) => session.id === id);
+		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const normalizedCommand = normalizeBackgroundCommand(command);
+		const stored = state.sessions[index];
+		const favoriteCommands = stored.favoriteCommands.filter((favorite) => favorite !== normalizedCommand);
+		if (favoriteCommands.length === stored.favoriteCommands.length) return stored.favoriteCommands;
+
+		const sessions = [...state.sessions];
+		sessions[index] = { ...stored, favoriteCommands };
+		await writeState({ ...state, sessions });
+		return favoriteCommands;
+	});
+}
+
+export async function stopManagedBackgroundProcess(id: string, terminalId: string): Promise<void> {
+	await exclusively(async () => {
+		const state = await readState();
+		const stored = state.sessions.find((session) => session.id === id);
+		if (!stored) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const running = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
+		if (!running) throw new SessionMutationError('session-not-running', 'Reopen the workspace before stopping a background process.');
+		const backgroundProcess = running.terminals.slice(1).find((candidate) => candidate.id === terminalId);
+		if (!backgroundProcess) throw new SessionMutationError('background-not-found', 'Background process was not found in this workspace.');
+		await killTmuxBackgroundProcess(stored.tmuxSession, backgroundProcess.id);
+	});
+}
+
+export async function captureManagedBackgroundOutput(id: string, terminalId: string): Promise<string> {
+	const state = await readState();
+	const stored = state.sessions.find((session) => session.id === id);
+	if (!stored) throw new SessionMutationError('not-found', 'Session was not found.');
+
+	const running = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
+	if (!running) throw new SessionMutationError('session-not-running', 'Reopen the workspace before reading background output.');
+	const backgroundProcess = running.terminals.slice(1).find((candidate) => candidate.id === terminalId);
+	if (!backgroundProcess) throw new SessionMutationError('background-not-found', 'Background process was not found in this workspace.');
+	return captureTmuxBackgroundOutput(stored.tmuxSession, backgroundProcess.id);
 }
 
 export async function touchManagedSession(id: string): Promise<number> {

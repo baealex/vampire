@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
-import { readRepositorySnapshot, RepositoryReadError } from '$lib/server/repository.mjs';
+import { readRepositorySnapshot, RepositoryReadError } from '$lib/server/repository.ts';
 import { findManagedWorkspace } from '$lib/server/session-registry';
 
 export const GET: RequestHandler = async (event) => {
