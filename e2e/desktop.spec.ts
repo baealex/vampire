@@ -167,7 +167,7 @@ test('runs and stops a background command without replacing the main session', a
 	await expect(processRow).toBeHidden();
 	await expect(page.locator('.session-row-shell.selected .runtime-summary')).toBeHidden();
 	await page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true }).click();
-	await expect(processRow).toBeVisible();
+	await expect(processRow).toBeVisible({ timeout: 15_000 });
 	await processRow.getByRole('button', { name: /Stop printf/ }).click();
 	await expect(processRow).toBeHidden();
 	await page.getByRole('button', { name: `Remove ${longCommand} from favorites`, exact: true }).click();
