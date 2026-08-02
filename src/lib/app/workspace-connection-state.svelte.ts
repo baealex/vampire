@@ -1,6 +1,6 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
 import type { ManagedSession } from '$lib/session/types';
-import type { SystemMetrics } from '$lib/system-metrics';
+import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '$lib/system-metrics';
 import type { TmuxStatus } from '$lib/tmux-status';
 import { decodeWorkspaceServerMessage, type SessionChanges } from './workspace-protocol.ts';
 
@@ -42,6 +42,7 @@ export class WorkspaceConnectionState {
 	#workspaceSocket: WebSocket | undefined;
 	#workspaceReconnectTimer: number | undefined;
 	#workspaceFallbackTimer: number | undefined;
+	#systemFallbackTimer: number | undefined;
 	#workspaceSnapshotTimer: number | undefined;
 	#workspaceReconnectAttempt = 0;
 
@@ -208,19 +209,26 @@ export class WorkspaceConnectionState {
 	}
 
 	#startWorkspaceFallback(options: ConnectionStartOptions, runVersion: number) {
-		if (this.#workspaceFallbackTimer !== undefined) return;
-		void this.refreshSystemMetrics();
-		this.#workspaceFallbackTimer = window.setInterval(() => {
-			if (runVersion !== this.#runVersion || document.hidden || !this.authenticated) return;
-			void options.refreshSessions({ quiet: true });
+		if (this.#workspaceFallbackTimer === undefined) {
+			this.#workspaceFallbackTimer = window.setInterval(() => {
+				if (runVersion !== this.#runVersion || document.hidden || !this.authenticated) return;
+				void options.refreshSessions({ quiet: true });
+			}, 10_000);
+		}
+		if (this.#systemFallbackTimer === undefined) {
 			void this.refreshSystemMetrics();
-		}, 10_000);
+			this.#systemFallbackTimer = window.setInterval(() => {
+				if (runVersion !== this.#runVersion || document.hidden || !this.authenticated) return;
+				void this.refreshSystemMetrics();
+			}, SYSTEM_METRICS_INTERVAL_MS);
+		}
 	}
 
 	#stopWorkspaceFallback() {
-		if (this.#workspaceFallbackTimer === undefined) return;
-		window.clearInterval(this.#workspaceFallbackTimer);
+		if (this.#workspaceFallbackTimer !== undefined) window.clearInterval(this.#workspaceFallbackTimer);
+		if (this.#systemFallbackTimer !== undefined) window.clearInterval(this.#systemFallbackTimer);
 		this.#workspaceFallbackTimer = undefined;
+		this.#systemFallbackTimer = undefined;
 	}
 
 	#stopWorkspaceSnapshotTimer() {

@@ -8,12 +8,14 @@
 		title,
 		close,
 		closeDisabled = false,
+		variant = 'default',
 		children
 	}: {
 		eyebrow?: string;
 		title: string;
 		close: () => void;
 		closeDisabled?: boolean;
+		variant?: 'default' | 'inspect';
 		children?: Snippet;
 	} = $props();
 
@@ -27,7 +29,7 @@
 		<Dialog.Overlay class="vampire-dialog-overlay" />
 		<Dialog.Content
 			data-vampire-overlay
-			class="vampire-dialog-content"
+			class={`vampire-dialog-content${variant === 'inspect' ? ' vampire-dialog-content--inspect' : ''}`}
 			escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}
 			interactOutsideBehavior={closeDisabled ? 'ignore' : 'close'}
 		>

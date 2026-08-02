@@ -13,7 +13,7 @@ import {
 } from '../src/lib/app/workspace-protocol.ts';
 import type { AgentState } from '../src/lib/session/agent.ts';
 import type { ManagedSession } from '../src/lib/session/types.ts';
-import type { SystemMetrics } from '../src/lib/system-metrics.ts';
+import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '../src/lib/system-metrics.ts';
 import {
 	authorizeWebSocketUpgrade,
 	installWebSocketHeartbeat,
@@ -26,7 +26,6 @@ const MAX_PAYLOAD_BYTES = 256 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const SESSION_ACTIVITY_REFRESH_INTERVAL_MS = 1_000;
 const SESSION_REFRESH_INTERVAL_MS = 5_000;
-const SYSTEM_METRICS_INTERVAL_MS = 10_000;
 const SESSION_FIELDS = [
 	'tmuxSession',
 	'cwd',

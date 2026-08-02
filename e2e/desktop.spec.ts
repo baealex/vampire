@@ -46,6 +46,67 @@ test('rejects a wrong token and unlocks without waiting for the workspace stream
 	await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
 });
 
+test('inspects listening ports as an on-demand system utility', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await page.route('**/api/system/ports', async (route) => {
+		await route.fulfill({
+			json: {
+				ports: [
+					{
+						protocol: 'tcp',
+						port: 5173,
+						addresses: ['127.0.0.1', '::1'],
+						pid: 321,
+						processName: 'node',
+						cwd: '/projects/site',
+						termination: 'available'
+					},
+					{
+						protocol: 'tcp',
+						port: 7678,
+						addresses: ['127.0.0.1'],
+						pid: 999,
+						processName: 'node',
+						cwd: '/projects/vampire',
+						termination: 'protected'
+					}
+				]
+			}
+		});
+	});
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	const systemMetrics = page.locator('.terminal-header .system-metrics');
+	await expect(systemMetrics.locator('.system-metric').first()).toHaveAttribute(
+		'title',
+		/sampled average across all logical cores; refreshes about every 2 seconds/
+	);
+	await expect(systemMetrics.locator('.system-metric').first().locator('output')).toContainText('≈');
+	await expect(systemMetrics.getByRole('button')).toHaveCount(0);
+	await expect(page.locator('.terminal-header .terminal-tools').getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
+	await page.getByRole('button', { name: 'Inspect listening ports' }).click();
+	await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
+	await expect(page.getByText('2 ports')).toBeVisible();
+	const developmentServer = page.locator('.listening-port-row', { hasText: '5173' });
+	await expect(developmentServer).toContainText('Localhost');
+	await expect(developmentServer).toContainText('/projects/site');
+	const filter = page.getByRole('searchbox', { name: 'Filter listening ports' });
+	await filter.fill('vampire');
+	await expect(developmentServer).toBeHidden();
+	await filter.clear();
+	await page.getByRole('button', { name: 'Stop node on port 5173' }).click();
+	await expect(page.getByRole('heading', { name: 'Stop node?' })).toBeVisible();
+	await expect(page.getByText('This closes port 5173 and any other work owned by that process.')).toBeVisible();
+	await page.getByRole('button', { name: 'Cancel' }).click();
+
+	const vampireServer = page.locator('.listening-port-row', { hasText: '7678' });
+	await expect(vampireServer).toContainText('Protected');
+	await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
+});
+
 test('reconnects the terminal after a transient WebSocket close', async ({ context, page }) => {
 	await authenticate(context);
 	const session = await createSession(context);

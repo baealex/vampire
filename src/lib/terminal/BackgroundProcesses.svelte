@@ -372,8 +372,8 @@
 	.process-output header code { flex: 1 1 auto; }
 	.process-output header span { flex: 0 0 auto; color: var(--color-text-disabled); font-size: var(--text-nano); }
 	.process-output pre { min-width: 0; min-height: 0; overflow: auto; margin: 0; padding: 0.8rem; color: var(--color-terminal-foreground); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-	.background-bar { display: flex; align-items: stretch; min-width: 0; height: 2.35rem; padding: 0 max(0.65rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.65rem, env(safe-area-inset-left)); }
-	.background-toggle { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0.42rem; min-width: 0; padding: 0 0.55rem; color: var(--color-text-tertiary); font-size: var(--text-caption); text-align: left; }
+	.background-bar { display: flex; align-items: stretch; min-width: 0; height: calc(2.35rem + env(safe-area-inset-bottom)); }
+	.background-toggle { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0.42rem; min-width: 0; padding: 0 max(0.85rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.85rem, env(safe-area-inset-left)); color: var(--color-text-tertiary); font-size: var(--text-caption); text-align: left; }
 	.background-toggle :global(svg) { transition: transform 150ms ease; }
 	.background-toggle.open :global(svg) { transform: rotate(180deg); }
 	.process-count { display: grid; place-items: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.25rem; border-radius: var(--radius-pill); background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-nano); font-variant-numeric: tabular-nums; }

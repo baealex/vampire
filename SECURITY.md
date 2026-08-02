@@ -38,3 +38,9 @@ Image paste temporarily changes the server computer's clipboard. Uploads are siz
 The repository viewer exposes files and Git diffs from every managed workspace to an authenticated browser. It is read-only, limits preview sizes, rejects path traversal, and resolves symlinks before checking that a target remains inside the workspace. These checks reduce accidental exposure; they do not make an untrusted workspace safe.
 
 Do not add a workspace that contains secrets an authenticated Vampire user should not be able to read. Run Vampire with an operating-system account whose file permissions match the intended access boundary.
+
+## Listening port inspector considerations
+
+The listening port inspector shows TCP bind addresses, process IDs, process names, and working directories visible to the Vampire server user. An authenticated browser can send `SIGTERM` to a listed process when that operating-system user has permission. Vampire protects its own server process, refuses incomplete process records, and rechecks the port, process name, and working directory immediately before signaling, but it is not a process sandbox.
+
+Run Vampire as an unprivileged user. Do not give that account permission to signal processes an authenticated Vampire user should not control.
