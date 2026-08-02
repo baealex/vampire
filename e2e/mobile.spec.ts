@@ -39,6 +39,14 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
 	const runBackground = page.getByRole('button', { name: 'Run background command' });
 	await expect(runBackground).toBeVisible();
+	await expect.poll(() => page.evaluate(() => {
+		const bar = document.querySelector<HTMLElement>('.background-bar');
+		const toggle = document.querySelector<HTMLElement>('.background-toggle');
+		if (!bar || !toggle) return false;
+		const barBox = bar.getBoundingClientRect();
+		const toggleBox = toggle.getBoundingClientRect();
+		return Math.abs(barBox.left - toggleBox.left) < 1 && Math.abs(barBox.right - toggleBox.right) < 1;
+	})).toBe(true);
 	await runBackground.click();
 	await page.getByRole('textbox', { name: 'Background command' }).fill('sleep 30');
 	await page.getByRole('button', { name: 'Run', exact: true }).click();

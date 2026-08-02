@@ -23,6 +23,10 @@
 	box-shadow: var(--shadow-dialog);
 }
 
+.vampire-dialog-content--inspect {
+	width: min(calc(100% - 2rem), 46rem);
+}
+
 .vampire-alert-dialog-overlay {
 	z-index: 60;
 }

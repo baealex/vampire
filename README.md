@@ -75,6 +75,7 @@ Use the **Background** bar below the terminal to run a development server or wat
 - The same workspace from a desktop or mobile browser.
 - Smart status groups for main sessions that are working, need review, are idle, or have ended.
 - Notes and process labels in the workspace list.
+- On-demand host TCP port inspection with guarded process termination.
 - Git diffs, image previews, text editing, and inline file/folder creation.
 - Light and dark themes with a mobile-friendly terminal.
 
