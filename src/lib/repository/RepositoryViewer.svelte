@@ -223,7 +223,7 @@
 <style>
 	.repository-viewer { position: absolute; z-index: 5; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--color-code-background); color: var(--color-text); }
 	.document-header { display: grid; flex: 0 0 auto; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; min-width: 0; min-height: 2.65rem; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-panel); }
-	.document-header strong { min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+	.document-header strong { min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 	.document-kind { color: var(--color-accent-soft-text); font-size: var(--text-micro); font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
 	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
 	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
@@ -246,7 +246,7 @@
 	.diff-section > header { position: sticky; z-index: 2; top: 0; min-width: 100%; padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface); color: var(--color-text-secondary); font-size: var(--text-caption); }
 	.diff-section + .diff-section { border-top: 1px solid var(--color-border-strong); }
 	.diff-lines { min-width: 100%; width: max-content; padding: 0.45rem 0; }
-	.diff-line { display: grid; grid-template-columns: 3.1rem 3.1rem minmax(max-content, 1fr); min-width: 100%; min-height: 1.35rem; color: var(--color-diff-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; line-height: 1.5; }
+	.diff-line { display: grid; grid-template-columns: 3.1rem 3.1rem minmax(max-content, 1fr); min-width: 100%; min-height: 1.35rem; color: var(--color-diff-text); font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.5; }
 	.diff-line.addition { background: var(--color-diff-add-background); color: var(--color-diff-add-text); }
 	.diff-line.deletion { background: var(--color-diff-delete-background); color: var(--color-diff-delete-text); }
 	.diff-line.hunk { margin: 0.35rem 0; background: var(--color-diff-hunk-background); color: var(--color-diff-hunk-text); }

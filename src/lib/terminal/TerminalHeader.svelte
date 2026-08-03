@@ -167,7 +167,7 @@
 	.terminal-identity { display: grid; min-width: 0; justify-items: center; gap: 0.18rem; }
 	.terminal-identity-title { display: flex; align-items: center; gap: 0.45rem; min-width: 0; max-width: 100%; }
 	.terminal-identity-title strong { min-width: 0; overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
-	.terminal-identity > span { max-width: 100%; overflow: hidden; color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
+	.terminal-identity > span { max-width: 100%; overflow: hidden; color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: var(--text-caption); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.worktree-count { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-border); border-radius: var(--radius-pill); color: var(--color-text-tertiary); font-size: var(--text-nano); font-variant-numeric: tabular-nums; line-height: 1.25; }
 	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; min-width: max-content; }
 	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-overlay); color: var(--color-text-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }

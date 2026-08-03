@@ -131,7 +131,7 @@
 	.repository-title { display: grid; min-width: 0; gap: 0.15rem; }
 	.repository-title strong, .repository-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.repository-title strong { font-size: var(--text-title); font-weight: var(--weight-strong); }
-	.repository-title span { color: var(--color-text-tertiary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); }
+	.repository-title span { color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: var(--text-caption); }
 	.repository-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.15rem; }
 	.repository-actions button { display: grid; place-items: center; width: var(--control-height-md); height: var(--control-height-md); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 	.repository-actions button:hover { background: var(--color-surface-raised); color: var(--color-text); }

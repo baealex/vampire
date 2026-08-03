@@ -65,13 +65,13 @@
 	.change-row { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); align-items: start; gap: 0.65rem; width: 100%; min-width: 0; padding: 0.72rem 0.85rem; border: 0; border-bottom: 1px solid var(--color-divider-subtle); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.change-row:hover { background: var(--color-surface-raised); }
 	.change-row.selected { background: var(--color-surface-active); box-shadow: inset 0.16rem 0 var(--color-accent); }
-	.change-badge { display: grid; place-items: center; width: 1.4rem; height: 1.4rem; margin-top: 0.08rem; border-radius: 0.3rem; background: var(--color-change-background); color: var(--color-change-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-micro); font-weight: var(--weight-strong); }
+	.change-badge { display: grid; place-items: center; width: 1.4rem; height: 1.4rem; margin-top: 0.08rem; border-radius: 0.3rem; background: var(--color-change-background); color: var(--color-change-text); font-family: var(--font-mono); font-size: var(--text-micro); font-weight: var(--weight-strong); }
 	.change-badge.added { background: var(--color-change-add-background); color: var(--color-change-add-text); }
 	.change-badge.deleted, .change-badge.conflicted { background: var(--color-change-delete-background); color: var(--color-change-delete-text); }
 	.change-badge.renamed { background: var(--color-change-rename-background); color: var(--color-renamed); }
 	.change-summary { display: grid; min-width: 0; gap: 0.18rem; }
 	.change-summary strong, .change-summary span, .change-summary small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.change-summary strong { font-size: var(--text-label); font-weight: var(--weight-medium); }
-	.change-summary span { color: var(--color-text-tertiary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-micro); }
+	.change-summary span { color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: var(--text-micro); }
 	.change-summary small { color: var(--color-text-secondary); font-size: var(--text-micro); }
 </style>

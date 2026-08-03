@@ -374,7 +374,7 @@
 	.unavailable-identity { display: grid; min-width: 0; justify-items: center; gap: 0.18rem; }
 	.unavailable-identity strong, .unavailable-identity span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.unavailable-identity strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
-	.unavailable-identity span { color: var(--color-text-tertiary); font-family: ui-monospace, monospace; font-size: var(--text-caption); }
+	.unavailable-identity span { color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: var(--text-caption); }
 	.ended-badge { padding: 0.28rem 0.5rem; border-radius: var(--radius-pill); background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
 	.unavailable-body { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; width: min(100%, 32rem); min-height: 0; margin: 0 auto; padding: 2rem 1.25rem max(2rem, env(safe-area-inset-bottom)); }
 	.unavailable-icon { display: grid; place-items: center; width: 3rem; height: 3rem; margin-bottom: 1.25rem; border: 1px solid var(--color-border); border-radius: 0.8rem; background: var(--color-surface); color: var(--color-accent); }
@@ -395,7 +395,7 @@
 		.empty-workbench__prompt { margin-bottom: 0.9rem; color: var(--color-text-disabled); }
 		.empty-workbench h2 { margin: 0; color: var(--color-text-tertiary); font-size: var(--text-title); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
 		.empty-workbench p { margin: 0.45rem 0 0; font-size: var(--text-caption); }
-		.empty-workbench .empty-workbench__shortcut { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.9rem; color: var(--color-text-disabled); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); }
+		.empty-workbench .empty-workbench__shortcut { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.9rem; color: var(--color-text-disabled); font-family: var(--font-mono); font-size: var(--text-caption); }
 		.unavailable-sheet { position: relative; z-index: 1; inset: auto; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }
 	}
 	@media (max-width: 32rem) {
