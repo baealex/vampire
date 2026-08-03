@@ -1,6 +1,11 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TmuxStatus } from '../tmux-status.ts';
+import {
+	listProcesses,
+	terminateProcessTrees,
+	type ProcessRecord
+} from './process-cleanup.ts';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -134,27 +139,7 @@ export interface TmuxTerminal {
 	exitCode: number | null;
 }
 
-interface ProcessRecord {
-	pid: number;
-	ppid: number;
-	pgid: number;
-	tpgid: number;
-	command: string;
-}
-
 const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell', 'pwsh', 'sh', 'tcsh', 'zsh']);
-
-function parseProcessTable(output: string): Map<number, ProcessRecord> {
-	const processes = new Map<number, ProcessRecord>();
-	for (const line of output.split('\n')) {
-		const fields = line.trim().split(/\s+/);
-		if (fields.length < 5) continue;
-		const [pid, ppid, pgid, tpgid] = fields.slice(0, 4).map(Number);
-		if (![pid, ppid, pgid, tpgid].every(Number.isFinite)) continue;
-		processes.set(pid, { pid, ppid, pgid, tpgid, command: fields.slice(4).join(' ') });
-	}
-	return processes;
-}
 
 function executableName(command: string): string {
 	const executable = command.trim().split(/\s+/, 1)[0] ?? '';
@@ -217,6 +202,40 @@ async function assertTmuxTerminalOwner(name: string, terminalId: string): Promis
 	if (stdout.trim() !== name) throw new Error('Background process does not belong to this workspace.');
 }
 
+function isMissingTmuxTarget(error: unknown): boolean {
+	const details = error as NodeJS.ErrnoException & { stderr?: string };
+	return isTmuxUnavailable(error)
+		|| (Number(details.code) === 1 && /can't find/i.test(details.stderr ?? details.message ?? ''));
+}
+
+async function listTmuxPanePids(name: string, target: string, sessionScope: boolean): Promise<number[]> {
+	const { stdout } = await execFile('tmux', [
+		'list-panes',
+		...(sessionScope ? ['-s'] : []),
+		'-t',
+		target,
+		'-F',
+		'#{session_name}\t#{pane_pid}'
+	], { timeout: 3_000 });
+	const panePids = new Set<number>();
+	for (const row of stdout.trim().split('\n').filter(Boolean)) {
+		const [sessionName, panePidValue] = row.split('\t');
+		if (sessionName !== name) throw new Error('tmux pane does not belong to this workspace.');
+		const panePid = Number(panePidValue);
+		if (Number.isInteger(panePid) && panePid > 1) panePids.add(panePid);
+	}
+	return [...panePids];
+}
+
+async function destroyTmuxTarget(arguments_: string[]): Promise<void> {
+	try {
+		await execFile('tmux', arguments_, { timeout: 3_000 });
+	} catch (error) {
+		if (isMissingTmuxTarget(error)) return;
+		throw error;
+	}
+}
+
 export async function createTmuxBackgroundProcess(name: string, cwd: string, command: string): Promise<TmuxTerminal> {
 	const startedAt = Date.now();
 	const { stdout } = await execFile('tmux', [
@@ -265,10 +284,13 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
 export async function killTmuxBackgroundProcess(name: string, terminalId: string): Promise<void> {
 	try {
 		await assertTmuxTerminalOwner(name, terminalId);
-		await execFile('tmux', ['kill-window', '-t', terminalId], { timeout: 3_000 });
+		const panePids = await listTmuxPanePids(name, terminalId, false);
+		await terminateProcessTrees(
+			panePids,
+			() => destroyTmuxTarget(['kill-window', '-t', terminalId])
+		);
 	} catch (error) {
-		const details = error as NodeJS.ErrnoException & { stderr?: string };
-		if (Number(details.code) === 1 && /can't find/i.test(details.stderr ?? '')) return;
+		if (isMissingTmuxTarget(error)) return;
 		throw error;
 	}
 }
@@ -295,10 +317,13 @@ export async function sendTmuxInput(name: string, data: string): Promise<void> {
 
 export async function killTmuxSession(name: string): Promise<void> {
 	try {
-		await execFile('tmux', ['kill-session', '-t', name]);
+		const panePids = await listTmuxPanePids(name, name, true);
+		await terminateProcessTrees(
+			panePids,
+			() => destroyTmuxTarget(['kill-session', '-t', name])
+		);
 	} catch (error) {
-		const details = error as NodeJS.ErrnoException & { stderr?: string };
-		if (isTmuxUnavailable(error) || (Number(details.code) === 1 && /can't find/i.test(details.stderr ?? ''))) return;
+		if (isMissingTmuxTarget(error)) return;
 		throw error;
 	}
 }
@@ -429,9 +454,7 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 				'-F',
 				TMUX_WINDOW_FORMAT
 			]),
-			execFile('ps', ['-axo', 'pid=,ppid=,pgid=,tpgid=,command='], { maxBuffer: 2 * 1024 * 1024 })
-				.then(({ stdout: processOutput }) => parseProcessTable(processOutput))
-				.catch(() => new Map<number, ProcessRecord>())
+			listProcesses().catch(() => new Map<number, ProcessRecord>())
 		]);
 		return parseTmuxSessionsWithProcesses(stdout, processTable);
 	} catch (error) {
