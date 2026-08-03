@@ -70,7 +70,7 @@
 <style>
 	.tree-create-row { display: flex; align-items: center; min-width: 0; min-height: 2rem; padding: 0 0.35rem 0 0.65rem; background: var(--color-surface-active); }
 	.tree-create-row.nested { background: var(--color-surface-raised); }
-	.tree-create-row input { flex: 1 1 auto; min-width: 0; height: 1.7rem; padding: 0 0.4rem; border: 1px solid var(--color-accent); border-radius: 0.35rem; outline: none; background: var(--color-field-background); color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); }
+	.tree-create-row input { flex: 1 1 auto; min-width: 0; height: 1.7rem; padding: 0 0.4rem; border: 1px solid var(--color-accent); border-radius: 0.35rem; outline: none; background: var(--color-field-background); color: var(--color-text); font-family: var(--font-mono); font-size: var(--text-caption); }
 	.tree-create-row input::placeholder { color: var(--color-field-placeholder); }
 	.tree-create-row input.error { border-color: var(--color-danger-border-strong); }
 	.tree-create-row button { display: grid; flex: 0 0 1.8rem; place-items: center; width: 1.8rem; height: 1.8rem; padding: 0; border: 0; border-radius: 0.35rem; background: transparent; color: var(--color-text-secondary); font-size: 1rem; cursor: pointer; }

@@ -60,7 +60,7 @@
 
 .vampire-menu-heading span {
 	color: var(--color-text-tertiary);
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-family: var(--font-mono);
 	font-size: var(--text-micro);
 }
 

@@ -152,7 +152,7 @@
 		gap: 0.42rem;
 		min-width: max-content;
 		color: var(--color-text-tertiary);
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		font-family: var(--font-mono);
 		font-size: var(--text-caption);
 		font-weight: var(--weight-medium);
 		letter-spacing: 0.025em;

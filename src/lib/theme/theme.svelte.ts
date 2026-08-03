@@ -42,6 +42,10 @@ function cssToken(name: string): string {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+export function terminalFontFamily(): string {
+	return cssToken('--font-mono');
+}
+
 export function terminalTheme() {
 	return {
 		background: cssToken('--color-terminal-background'),
