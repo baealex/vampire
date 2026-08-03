@@ -24,6 +24,20 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
+	const terminalTypography = await page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
+		const rows = terminal.querySelector<HTMLElement>('.xterm-rows');
+		return {
+			language: terminal.getAttribute('lang'),
+			fontFamily: rows ? getComputedStyle(rows).fontFamily : ''
+		};
+	});
+	expect(terminalTypography.language).toBe(await page.evaluate(() => navigator.language || 'und'));
+	expect(terminalTypography.fontFamily).toContain('system-ui');
+	expect(terminalTypography.fontFamily).toContain('sans-serif');
+	expect(terminalTypography.fontFamily).not.toMatch(/(?:^|,)\s*(?:ui-)?monospace\s*(?:,|$)/);
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀\\n'"]);
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+	await expect(page.locator('.xterm-rows')).toContainText('한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀');
 	await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Scroll to terminal top' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Scroll to terminal bottom' })).toBeVisible();

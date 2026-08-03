@@ -110,7 +110,7 @@
 		border-bottom: 1px solid var(--color-border-subtle);
 		background: var(--color-surface-overlay);
 		color: var(--color-text-tertiary);
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.62rem;
 	}
 
@@ -174,7 +174,7 @@
 		max-width: min(22rem, 78vw);
 		justify-items: center;
 		gap: 0.35rem;
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		font-family: var(--font-mono);
 		font-size: var(--text-caption);
 	}
 

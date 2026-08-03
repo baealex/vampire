@@ -6,7 +6,7 @@
 	import { TerminalImagePasteState } from './image-paste-state.svelte';
 	import { TerminalScreenSync } from './screen-sync.ts';
 	import { installTerminalTouchScroll } from './touch-scroll';
-	import { terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
+	import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
 	import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '$lib/ui/layout';
 	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
 	import '@xterm/xterm/css/xterm.css';
@@ -239,6 +239,7 @@
 		window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.visualViewport?.addEventListener('resize', handleWindowResize);
+		terminalElement.lang = navigator.language || 'und';
 		removeTouchScroll = installTerminalTouchScroll(terminalElement, () => terminal, {
 			onTap: () => {
 				activate();
@@ -262,7 +263,7 @@
 				disableStdin: false,
 				fontSize,
 				lineHeight: 1.2,
-				fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+				fontFamily: terminalFontFamily(),
 				theme: terminalTheme(),
 				scrollback: 10_000
 			});

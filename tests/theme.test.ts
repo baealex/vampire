@@ -36,6 +36,12 @@ function tokenNames(source: string): Set<string> {
 	return new Set([...source.matchAll(/--([a-z0-9-]+)\s*:/g)].map((match) => match[1]));
 }
 
+function rootTokenValue(source: string, name: string): string {
+	const match = selectorBlock(source, ':root').match(new RegExp(`--${name}:\\s*([^;]+);`));
+	assert.ok(match, `--${name} must be defined in :root`);
+	return match[1].trim();
+}
+
 test('keeps component colors behind shared theme tokens', async () => {
 	const violations: string[] = [];
 	for (const file of await sourceFiles(sourceRoot)) {
@@ -85,4 +91,37 @@ test('overrides xterm viewport defaults with the active terminal theme', async (
 		terminalViewport,
 		/\.xterm-viewport\)[^{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s
 	);
+});
+
+test('uses native mono faces with multilingual system fallbacks', async () => {
+	const fontStack = rootTokenValue(await readFile(tokenFile, 'utf8'), 'font-mono');
+	for (const font of [
+		'SFMono-Regular',
+		'Cascadia Mono',
+		'Consolas',
+		'Droid Sans Mono',
+		'Noto Sans Mono',
+		'DejaVu Sans Mono'
+	]) {
+		assert.ok(fontStack.includes(font), `${font} must be part of the shared mono stack`);
+	}
+	assert.doesNotMatch(fontStack, /JetBrains/i);
+	assert.match(fontStack, /system-ui\s*,\s*sans-serif$/);
+	assert.doesNotMatch(fontStack, /(?:^|,)\s*(?:ui-)?monospace\s*(?:,|$)/);
+});
+
+test('keeps component mono fonts behind the shared token', async () => {
+	const violations: string[] = [];
+	const hardcodedMono = /(?:font-family|fontFamily)\s*:\s*[^;\n}]*\b(?:ui-monospace|SFMono-Regular|Menlo|Monaco|Consolas|monospace)\b/i;
+	for (const file of await sourceFiles(sourceRoot)) {
+		if (file === tokenFile) continue;
+		if (hardcodedMono.test(await readFile(file, 'utf8'))) violations.push(relative(root, file));
+	}
+	assert.deepEqual(violations, [], 'use var(--font-mono), or resolve that token for canvas consumers');
+});
+
+test('gives xterm the resolved shared font stack and the browser language', async () => {
+	const terminalViewport = await readFile(join(sourceRoot, 'lib', 'terminal', 'TerminalViewport.svelte'), 'utf8');
+	assert.match(terminalViewport, /fontFamily:\s*terminalFontFamily\(\)/);
+	assert.match(terminalViewport, /terminalElement\.lang\s*=\s*navigator\.language\s*\|\|\s*'und'/);
 });

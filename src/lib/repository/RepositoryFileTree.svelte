@@ -279,7 +279,7 @@
 	.tree-icon { display: grid; flex: 0 0 1.35rem; place-items: center; width: 1.35rem; color: var(--color-folder); }
 	.tree-icon.file { color: var(--color-text-tertiary); }
 	.tree-icon.file.image { color: var(--color-image); }
-	.tree-name { min-width: 0; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
+	.tree-name { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
 	.tree-row.modified, .tree-row.modified:hover, .tree-row-shell.selected .tree-row.modified, .tree-row.modified .tree-icon { color: var(--color-warning); }
 	.tree-row.added, .tree-row.added:hover, .tree-row-shell.selected .tree-row.added, .tree-row.added .tree-icon { color: var(--color-info); }
 </style>

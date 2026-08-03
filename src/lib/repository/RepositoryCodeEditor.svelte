@@ -46,7 +46,7 @@
 				},
 				'.cm-scroller': {
 					overflow: 'auto',
-					fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+					fontFamily: 'var(--font-mono)'
 				},
 				'.cm-content': {
 					minHeight: '100%',

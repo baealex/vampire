@@ -57,7 +57,7 @@
 	.terminal-bar { display: flex; align-items: center; gap: 0.32rem; height: 2rem; padding: 0 0.75rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface-sunken); }
 	.terminal-bar span { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: var(--color-border-strong); }
 	.terminal-body { display: grid; gap: 0.75rem; padding: 1rem; }
-	.command { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.65rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-label); line-height: 1.55; }
+	.command { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.65rem; font-family: var(--font-mono); font-size: var(--text-label); line-height: 1.55; }
 	.command > span { color: var(--color-accent); font-weight: var(--weight-strong); }
 	.command code { min-width: 0; overflow-wrap: anywhere; color: inherit; font: inherit; }
 	.install-note { margin: 0.85rem 0 1.1rem; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-body); }

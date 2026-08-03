@@ -336,7 +336,7 @@
 	.background-runner strong { font-size: var(--text-label); font-weight: var(--weight-medium); }
 	.background-runner span { overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
 	.background-runner form { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
-	.background-runner input { min-width: 0; height: 2.35rem; padding: 0 0.72rem; border: 1px solid var(--color-border); border-right: 0; border-radius: var(--radius-control) 0 0 var(--radius-control); outline: none; background: var(--color-terminal-background); color: var(--color-terminal-foreground); font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); }
+	.background-runner input { min-width: 0; height: 2.35rem; padding: 0 0.72rem; border: 1px solid var(--color-border); border-right: 0; border-radius: var(--radius-control) 0 0 var(--radius-control); outline: none; background: var(--color-terminal-background); color: var(--color-terminal-foreground); font: inherit; font-family: var(--font-mono); font-size: var(--text-caption); }
 	.background-runner input:focus { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
 	.background-runner form button { min-width: 4.5rem; padding: 0 0.85rem; border: 0; border-radius: 0 var(--radius-control) var(--radius-control) 0; background: var(--color-accent); color: var(--color-accent-ink); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
 	.background-runner form button:disabled { cursor: wait; opacity: 0.55; }
@@ -346,7 +346,7 @@
 	.favorite-empty { overflow: hidden; color: var(--color-text-disabled); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
 	.favorite-list { display: flex; gap: 0.4rem; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 	.favorite-command { display: grid; grid-template-columns: minmax(3rem, auto) 1.9rem 1.9rem; flex: 0 0 auto; align-items: center; max-width: min(24rem, 62vw); overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-sunken); }
-	.favorite-command code { min-width: 0; overflow: hidden; padding: 0 0.6rem; color: var(--color-text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-nano); text-overflow: ellipsis; white-space: nowrap; }
+	.favorite-command code { min-width: 0; overflow: hidden; padding: 0 0.6rem; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--text-nano); text-overflow: ellipsis; white-space: nowrap; }
 	.favorite-command button { display: grid; place-items: center; width: 1.9rem; height: 1.85rem; padding: 0; border: 0; border-left: 1px solid var(--color-border); background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
 	.favorite-command button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
 	.favorite-command button:disabled { cursor: default; opacity: 0.42; }
@@ -360,7 +360,7 @@
 	.process-summary:hover, .process-icon-action:hover:not(:disabled), .stop-process:hover:not(:disabled), .background-toggle:hover { background: var(--color-surface-hover); }
 	.process-state { width: 0.48rem; height: 0.48rem; border-radius: 50%; background: var(--color-success); box-shadow: var(--shadow-status-active); }
 	.process-state.exited { background: var(--color-text-disabled); box-shadow: none; }
-	.process-summary code, .process-output code { min-width: 0; overflow: hidden; color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+	.process-summary code, .process-output code { min-width: 0; overflow: hidden; color: var(--color-text); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 	.process-summary > span:not(.process-state), .process-summary time { color: var(--color-text-tertiary); font-size: var(--text-nano); white-space: nowrap; }
 	.process-actions { display: flex; align-items: stretch; min-width: 0; }
 	.process-icon-action { display: grid; place-items: center; width: 2.25rem; padding: 0; color: var(--color-text-disabled); }
@@ -371,7 +371,7 @@
 	.process-output header { display: flex; align-items: center; gap: 0.55rem; min-width: 0; min-height: 2.4rem; padding: 0 0.8rem; border-bottom: 1px solid var(--color-border-subtle); }
 	.process-output header code { flex: 1 1 auto; }
 	.process-output header span { flex: 0 0 auto; color: var(--color-text-disabled); font-size: var(--text-nano); }
-	.process-output pre { min-width: 0; min-height: 0; overflow: auto; margin: 0; padding: 0.8rem; color: var(--color-terminal-foreground); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-caption); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+	.process-output pre { min-width: 0; min-height: 0; overflow: auto; margin: 0; padding: 0.8rem; color: var(--color-terminal-foreground); font-family: var(--font-mono); font-size: var(--text-caption); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
 	.background-bar { display: flex; align-items: stretch; min-width: 0; height: calc(2.35rem + env(safe-area-inset-bottom)); }
 	.background-toggle { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0.42rem; min-width: 0; padding: 0 max(0.85rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.85rem, env(safe-area-inset-left)); color: var(--color-text-tertiary); font-size: var(--text-caption); text-align: left; }
 	.background-toggle :global(svg) { transition: transform 150ms ease; }
