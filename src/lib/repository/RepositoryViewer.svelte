@@ -63,8 +63,11 @@
 	}
 
 	$effect(() => {
-		const requestedRefresh = refreshToken;
 		const requestedSelection = selection;
+		// A repository status refresh must not cancel an in-flight text file open.
+		const refreshesWithRepository = requestedSelection.kind === 'diff'
+			|| isPreviewableImage(requestedSelection.path);
+		const requestedRefresh = refreshesWithRepository ? refreshToken : 0;
 		const selectionKey = `${sessionId}:${requestedSelection.kind}:${requestedSelection.path}`;
 		const firstLoad = selectionKey !== lastSelectionKey;
 		lastSelectionKey = selectionKey;

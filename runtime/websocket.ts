@@ -37,6 +37,7 @@ interface TerminalConnectionContext {
 	sessionId: string;
 	terminalId?: string;
 	initialSize?: TerminalSize;
+	historyLines?: number;
 	expiresAt?: number;
 }
 
@@ -92,6 +93,13 @@ function requestedTerminalSize(url: URL): TerminalSize | undefined {
 		: undefined;
 }
 
+function requestedTerminalHistory(url: URL): number | undefined {
+	const value = url.searchParams.get('history');
+	if (value === null) return undefined;
+	const historyLines = Number(value);
+	return Number.isInteger(historyLines) ? historyLines : undefined;
+}
+
 export function installTerminalWebSocket(server: HttpServer): () => void {
 	const terminalSockets = new WebSocketServer({
 		noServer: true,
@@ -125,11 +133,13 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			return;
 		}
 		const initialSize = requestedTerminalSize(url);
+		const historyLines = requestedTerminalHistory(url);
 		terminalSockets.handleUpgrade(request, socket, head, (websocket) => {
 			connectionContexts.set(websocket, {
 				sessionId,
 				terminalId,
 				initialSize,
+				historyLines,
 				expiresAt: authorization.expiresAt
 			});
 			terminalSockets.emit('connection', websocket, request);
@@ -169,6 +179,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 
 		void attachTerminal(socket, context.sessionId, context.initialSize, {
 			terminalId: context.terminalId,
+			historyLines: context.historyLines,
 			ignoreSize: true,
 			canResize: () => state.activeAttachment === attachment && !attachment.released,
 			onAttached: (setIgnoreSize) => {

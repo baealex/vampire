@@ -6,6 +6,7 @@ import { findSessionConnection } from '../src/lib/server/session-store.ts';
 import {
 	decodeTerminalClientMessage,
 	encodeTerminalServerMessage,
+	TERMINAL_SCROLLBACK_LINES,
 	type TerminalServerMessage
 } from '../src/lib/terminal/protocol.ts';
 import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
@@ -14,9 +15,13 @@ export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.t
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
+const MAX_PENDING_INPUT_BYTES = 256 * 1024;
+const TMUX_INPUT_CHUNK_BYTES = 4 * 1024;
 const MAX_MESSAGES_PER_WINDOW = 600;
 const MESSAGE_WINDOW_MS = 10_000;
 const CONTROL_COMMAND_TIMEOUT_MS = 3_000;
+const BRACKETED_SUBMIT_SETTLE_MS = 20;
+const UNBRACKETED_SUBMIT_SETTLE_MS = 140;
 const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
 const INITIAL_REDRAW_SETTLE_MS = 1_000;
@@ -34,6 +39,7 @@ export type TerminalSizeController = (ignored: boolean) => Promise<void>;
 
 export interface AttachTerminalOptions {
 	terminalId?: string;
+	historyLines?: number;
 	ignoreSize?: boolean;
 	canResize?: () => boolean;
 	onAttached?: (setIgnoreSize: TerminalSizeController) => Promise<void> | void;
@@ -41,6 +47,30 @@ export interface AttachTerminalOptions {
 	onSyntheticOutput?: (timestamp: number) => void;
 	isOutputActivity?: (timestamp: number) => boolean;
 	onOutputActivity?: (timestamp: number) => void;
+}
+
+export function terminalSnapshotHistoryLines(requested?: number): number {
+	if (!Number.isInteger(requested) || Number(requested) <= 0) return TERMINAL_SCROLLBACK_LINES.standard;
+	return Math.min(TERMINAL_SCROLLBACK_LINES.standard, Number(requested));
+}
+
+export function* terminalInputControlCommands(paneId: string, data: string): Generator<string> {
+	if (!/^%\d+$/.test(paneId)) throw new Error('Terminal pane identifier is invalid.');
+	const input = Buffer.from(data);
+	for (let offset = 0; offset < input.length; offset += TMUX_INPUT_CHUNK_BYTES) {
+		const chunk = input.subarray(offset, offset + TMUX_INPUT_CHUNK_BYTES);
+		const bytes = Array.from(chunk, (byte) => byte.toString(16).padStart(2, '0')).join(' ');
+		yield `send-keys -H -t ${paneId} ${bytes}`;
+	}
+}
+
+export function terminalSubmissionData(data: string, bracketedPaste: boolean): string {
+	const normalized = data.replace(/\r?\n/g, '\r');
+	return bracketedPaste ? `\u001b[200~${normalized}\u001b[201~` : normalized;
+}
+
+export function terminalSubmissionSettleMs(bracketedPaste: boolean): number {
+	return bracketedPaste ? BRACKETED_SUBMIT_SETTLE_MS : UNBRACKETED_SUBMIT_SETTLE_MS;
 }
 
 interface OutputActivityState {
@@ -90,11 +120,6 @@ async function terminalTarget(tmuxSession: string, requestedWindowId?: string): 
 	return { windowId, paneId };
 }
 
-async function sendInput(paneId: string, data: string): Promise<void> {
-	if (Buffer.byteLength(data) > MAX_INPUT_BYTES) throw new Error('Input is too large.');
-	await execFile('tmux', ['send-keys', '-t', paneId, '-l', '--', data]);
-}
-
 export function isTerminalOutputActivity({
 	snapshotAcknowledged,
 	syntheticOutputDepth,
@@ -120,6 +145,7 @@ export async function attachTerminal(
 	const connection = await findSessionConnection(sessionId);
 	if (!connection) throw new Error('Unknown Vampire session.');
 	const { tmuxSession } = connection;
+	const snapshotHistoryLines = terminalSnapshotHistoryLines(options.historyLines);
 
 	const { windowId, paneId } = await terminalTarget(tmuxSession, options.terminalId);
 	options.onSyntheticOutput?.(Date.now() + INITIAL_REDRAW_SETTLE_MS);
@@ -150,6 +176,7 @@ export async function attachTerminal(
 	const pendingCommands: PendingControlCommand[] = [];
 	let commandBlock: ControlCommandBlock | undefined;
 	let inputQueue: Promise<void> = Promise.resolve();
+	let pendingInputBytes = 0;
 	let requestedSize: TerminalSize | undefined;
 	let appliedSize: string | undefined;
 	let resizing = false;
@@ -165,9 +192,15 @@ export async function attachTerminal(
 
 	const rejectControlCommands = (error: unknown): void => {
 		attachedReject(error);
-		if (commandBlock?.command) commandBlock.command.reject(error);
+		if (commandBlock?.command) {
+			clearTimeout(commandBlock.command.timer);
+			commandBlock.command.reject(error);
+		}
 		commandBlock = undefined;
-		for (const command of pendingCommands.splice(0)) command.reject(error);
+		for (const command of pendingCommands.splice(0)) {
+			clearTimeout(command.timer);
+			command.reject(error);
+		}
 	};
 
 	const runControlCommand = (command: string, onSuccess?: (output: string) => void): Promise<string> => new Promise((resolve, reject) => {
@@ -193,6 +226,40 @@ export async function attachTerminal(
 			reject(error);
 		});
 	});
+
+	const sendControlInput = async (data: string): Promise<void> => {
+		for (const command of terminalInputControlCommands(paneId, data)) {
+			await runControlCommand(command);
+		}
+	};
+
+	const sendTerminalSubmission = async (data: string, bracketedPaste: boolean): Promise<void> => {
+		await sendControlInput(terminalSubmissionData(data, bracketedPaste));
+		if (closed) return;
+		await new Promise((resolve) => setTimeout(resolve, terminalSubmissionSettleMs(bracketedPaste)));
+		if (!closed) await runControlCommand(`send-keys -t ${paneId} Enter`);
+	};
+
+	const queueTerminalInput = (data: string, operation: () => Promise<void>): void => {
+		const bytes = Buffer.byteLength(data);
+		if (bytes > MAX_INPUT_BYTES) throw new Error('Input is too large.');
+		if (pendingInputBytes + bytes > MAX_PENDING_INPUT_BYTES) {
+			message(socket, { type: 'error', message: 'Terminal input was paused because the server fell behind.' });
+			socket.close(1013, 'terminal input fell behind');
+			return;
+		}
+		pendingInputBytes += bytes;
+		if (syntheticOutputDepth === 0) syntheticOutputUntil = 0;
+		inputQueue = inputQueue
+			.then(operation)
+			.catch((error) => message(socket, {
+				type: 'error',
+				message: error instanceof Error ? error.message : 'Terminal input failed.'
+			}))
+			.finally(() => {
+				pendingInputBytes -= bytes;
+			});
+	};
 
 	const withSyntheticOutput = async <T>(operation: () => Promise<T>, settleMs = SYNTHETIC_OUTPUT_SETTLE_MS): Promise<T> => {
 		syntheticOutputDepth += 1;
@@ -394,13 +461,9 @@ export async function attachTerminal(
 			} else if (input.type === 'snapshot-ready') {
 				acknowledgeSnapshot();
 			} else if (input.type === 'input') {
-				if (syntheticOutputDepth === 0) syntheticOutputUntil = 0;
-				inputQueue = inputQueue
-					.then(() => sendInput(paneId, input.data))
-					.catch((error) => message(socket, {
-						type: 'error',
-						message: error instanceof Error ? error.message : 'Terminal input failed.'
-					}));
+				queueTerminalInput(input.data, () => sendControlInput(input.data));
+			} else if (input.type === 'submit') {
+				queueTerminalInput(input.data, () => sendTerminalSubmission(input.data, input.bracketedPaste));
 			} else if (input.type === 'resize') {
 				requestedSize = { columns: input.columns, rows: input.rows };
 				void resizeControlClient();
@@ -414,7 +477,7 @@ export async function attachTerminal(
 	if (initialSize) requestedSize = initialSize;
 	await options.onAttached?.(setIgnoreSize);
 	if (requestedSize) await resizeControlClient();
-	await runControlCommand(`capture-pane -p -e -S - -t ${paneId}`, (snapshot) => {
+	await runControlCommand(`capture-pane -p -e -S -${snapshotHistoryLines} -t ${paneId}`, (snapshot) => {
 		snapshotSent = true;
 		message(socket, { type: 'snapshot', data: snapshot });
 	});

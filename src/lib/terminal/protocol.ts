@@ -2,6 +2,7 @@ export type TerminalClientMessage =
 	| { type: 'activate' }
 	| { type: 'snapshot-ready' }
 	| { type: 'input'; data: string }
+	| { type: 'submit'; data: string; bracketedPaste: boolean }
 	| { type: 'resize'; columns: number; rows: number };
 
 export type TerminalServerMessage =
@@ -18,6 +19,11 @@ export const TERMINAL_SIZE_LIMITS = {
 	maximumRows: 120
 };
 
+export const TERMINAL_SCROLLBACK_LINES = {
+	reduced: 4_000,
+	standard: 10_000
+} as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -30,6 +36,13 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
 	if (!isRecord(value)) return undefined;
 	if (value.type === 'activate' || value.type === 'snapshot-ready') return { type: value.type };
 	if (value.type === 'input' && typeof value.data === 'string') return { type: 'input', data: value.data };
+	if (
+		value.type === 'submit'
+		&& typeof value.data === 'string'
+		&& typeof value.bracketedPaste === 'boolean'
+	) {
+		return { type: 'submit', data: value.data, bracketedPaste: value.bracketedPaste };
+	}
 	if (
 		value.type === 'resize'
 		&& isIntegerBetween(value.columns, TERMINAL_SIZE_LIMITS.minimumColumns, TERMINAL_SIZE_LIMITS.maximumColumns)
