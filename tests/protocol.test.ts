@@ -51,11 +51,21 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
 		{ type: 'input', data: 'hello\n' }
 	);
 	assert.deepEqual(
+		decodeTerminalClientMessage(encodeTerminalClientMessage({
+			type: 'submit',
+			data: 'hello\nworld',
+			bracketedPaste: true
+		})),
+		{ type: 'submit', data: 'hello\nworld', bracketedPaste: true }
+	);
+	assert.deepEqual(
 		decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 120, rows: 40 })),
 		{ type: 'resize', columns: 120, rows: 40 }
 	);
 	assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":19,"rows":40}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"input","data":12}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello"}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
 });
 
 test('round-trips valid terminal server messages and rejects incomplete payloads', () => {

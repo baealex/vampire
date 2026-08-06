@@ -4,6 +4,7 @@
 	import ShellOpening from './ShellOpening.svelte';
 	import { TerminalConnection } from './connection.ts';
 	import { TerminalImagePasteState } from './image-paste-state.svelte';
+	import { TERMINAL_SCROLLBACK_LINES } from './protocol.ts';
 	import { TerminalScreenSync } from './screen-sync.ts';
 	import { installTerminalTouchScroll } from './touch-scroll';
 	import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
@@ -37,6 +38,7 @@
 	let terminalError = $state('');
 	let connected = $state(false);
 	let terminalReconnecting = $state(false);
+	let terminalOutputPaused = $state(false);
 	let outputActive = $state(false);
 	let screenReady = $state(false);
 	let openingVisible = $state(false);
@@ -44,6 +46,7 @@
 	let directInputFocused = $state(false);
 	let terminalDropActive = $state(false);
 	let sendTerminalInput: (data: string) => void = () => undefined;
+	let submitTerminalInput: (data: string) => boolean = () => false;
 	let scrollTerminalToTop: () => void = () => undefined;
 	let scrollTerminalToBottom: () => void = () => undefined;
 	let activateTerminal: () => void = () => undefined;
@@ -118,15 +121,26 @@
 		let openingDelay: ReturnType<typeof setTimeout> | undefined;
 		let lastInputNotice = 0;
 		let lastActivationNotice = 0;
+		let lastOutputActivityNotice = 0;
 		let lastSentSize = '';
 		let sentSizeConnection = 0;
 		let removeTouchScroll: () => void = () => undefined;
 
 		const setOutputActive = (active: boolean, timestamp?: number) => {
-			if (active && timestamp !== undefined) onOutputActivity(sessionId, true, timestamp);
+			if (
+				active
+				&& timestamp !== undefined
+				&& (!outputActive || timestamp - lastOutputActivityNotice >= 500)
+			) {
+				lastOutputActivityNotice = timestamp;
+				onOutputActivity(sessionId, true, timestamp);
+			}
 			if (outputActive === active) return;
 			outputActive = active;
-			if (!active) onOutputActivity(sessionId, false);
+			if (!active) {
+				lastOutputActivityNotice = 0;
+				onOutputActivity(sessionId, false);
+			}
 		};
 
 		const markOutputActivity = (timestamp: number) => {
@@ -175,6 +189,25 @@
 			}
 		};
 		sendTerminalInput = send;
+
+		const submit = (data: string): boolean => {
+			activate();
+			const currentTerminal = terminal;
+			if (!currentTerminal || !connection?.send({
+				type: 'submit',
+				data,
+				bracketedPaste: currentTerminal.modes.bracketedPasteMode
+					&& currentTerminal.options.ignoreBracketedPasteMode !== true
+			})) return false;
+			scheduleDisplayRecovery(90);
+			const now = Date.now();
+			if (now - lastInputNotice >= 750) {
+				lastInputNotice = now;
+				onInputActivity(sessionId, now);
+			}
+			return true;
+		};
+		submitTerminalInput = submit;
 
 		const fitTerminal = (fitAddon: import('@xterm/addon-fit').FitAddon) => {
 			fitAddon.fit();
@@ -253,6 +286,10 @@
 			const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
 			if (destroyed) return;
 			const desktopInput = isDesktopViewport();
+			const reducedHistory = window.matchMedia(`${COMPACT_MEDIA_QUERY}, (pointer: coarse)`).matches;
+			const scrollback = reducedHistory
+				? TERMINAL_SCROLLBACK_LINES.reduced
+				: TERMINAL_SCROLLBACK_LINES.standard;
 			const savedFontSize = Number(window.localStorage.getItem('vampire:terminal-font-size'));
 			fontSize = Number.isFinite(savedFontSize) && savedFontSize >= minimumFontSize && savedFontSize <= maximumFontSize
 				? savedFontSize
@@ -265,7 +302,7 @@
 				lineHeight: 1.2,
 				fontFamily: terminalFontFamily(),
 				theme: terminalTheme(),
-				scrollback: 10_000
+				scrollback
 			});
 			const fitAddon = new FitAddon();
 			fit = fitAddon;
@@ -289,7 +326,16 @@
 					if (openingDelay) clearTimeout(openingDelay);
 					openingDelay = undefined;
 				},
-				onWriteComplete: () => scheduleDisplayRecovery()
+				onWriteComplete: () => scheduleDisplayRecovery(),
+				onOverflow: () => {
+					if (destroyed || terminalOutputPaused) return;
+					terminalOutputPaused = true;
+					connected = false;
+					terminalReconnecting = false;
+					terminalError = 'Live output was paused to keep this browser responsive. Resume when the command has settled.';
+					setOutputActive(false);
+					connection?.stop();
+				}
 			});
 			terminal.attachCustomKeyEventHandler((event) => {
 				if (event.key !== 'Enter' || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return true;
@@ -307,6 +353,7 @@
 			const initialSize = fitTerminal(fitAddon);
 			const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
 			websocketUrl.searchParams.set('session', sessionId);
+			websocketUrl.searchParams.set('history', String(scrollback));
 			if (terminalId) websocketUrl.searchParams.set('terminal', terminalId);
 			if (initialSize) {
 				websocketUrl.searchParams.set('columns', String(initialSize.columns));
@@ -318,6 +365,7 @@
 					if (destroyed) return;
 					connected = true;
 					terminalReconnecting = false;
+					terminalOutputPaused = false;
 					openingStage = 'attaching';
 					terminalError = '';
 					scheduleDisplayRecovery(0, true);
@@ -377,9 +425,12 @@
 			});
 			reconnectTerminal = () => {
 				if (destroyed) return;
+				const wasOutputPaused = terminalOutputPaused;
 				terminalError = '';
+				terminalOutputPaused = false;
 				terminalReconnecting = true;
-				connection?.retryNow();
+				if (wasOutputPaused) connection?.start();
+				else connection?.retryNow();
 			};
 			connection.start();
 			observer = new ResizeObserver(() => {
@@ -412,6 +463,7 @@
 			terminal?.dispose();
 			imagePaste.dispose();
 			sendTerminalInput = () => undefined;
+			submitTerminalInput = () => false;
 			scrollTerminalToTop = () => undefined;
 			scrollTerminalToBottom = () => undefined;
 			activateTerminal = () => undefined;
@@ -453,7 +505,9 @@
 	{#if terminalError}
 		<div class="terminal-error" role="alert">
 			<span>{terminalError}</span>
-			<button type="button" onclick={() => location.reload()}>Reconnect</button>
+			<button type="button" onclick={terminalOutputPaused ? reconnectTerminal : () => location.reload()}>
+				{terminalOutputPaused ? 'Resume output' : 'Reconnect'}
+			</button>
 		</div>
 	{:else if terminalReconnecting}
 		<div class="terminal-connection-status" role="status" aria-live="polite">
@@ -470,6 +524,7 @@
 	<TerminalInputDock
 		{connected}
 		send={(data) => sendTerminalInput(data)}
+		submit={(data) => submitTerminalInput(data)}
 		scrollToTop={() => scrollTerminalToTop()}
 		scrollToBottom={() => scrollTerminalToBottom()}
 		onComposerFocus={() => directInputFocused = false}

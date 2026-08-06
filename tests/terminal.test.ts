@@ -1,6 +1,47 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { decodeTmuxControlValue, isTerminalOutputActivity, parseTmuxControlOutput } from '../runtime/terminal.ts';
+import {
+	decodeTmuxControlValue,
+	isTerminalOutputActivity,
+	parseTmuxControlOutput,
+	terminalInputControlCommands,
+	terminalSubmissionData,
+	terminalSubmissionSettleMs,
+	terminalSnapshotHistoryLines
+} from '../runtime/terminal.ts';
+
+test('bounds terminal snapshots to the retained client history', () => {
+	assert.equal(terminalSnapshotHistoryLines(), 10_000);
+	assert.equal(terminalSnapshotHistoryLines(4_000), 4_000);
+	assert.equal(terminalSnapshotHistoryLines(50_000), 10_000);
+	assert.equal(terminalSnapshotHistoryLines(-1), 10_000);
+	assert.equal(terminalSnapshotHistoryLines(Number.NaN), 10_000);
+});
+
+test('encodes terminal input as bounded UTF-8 tmux control commands', () => {
+	assert.deepEqual(
+		Array.from(terminalInputControlCommands('%7', 'A한\r')),
+		['send-keys -H -t %7 41 ed 95 9c 0d']
+	);
+	assert.deepEqual(Array.from(terminalInputControlCommands('%7', '')), []);
+
+	const input = `${'a'.repeat(4_096)}한`;
+	const commands = Array.from(terminalInputControlCommands('%7', input));
+	assert.equal(commands.length, 2);
+	const bytes = commands.flatMap((command) => command.split(' ').slice(4).map((byte) => Number.parseInt(byte, 16)));
+	assert.equal(Buffer.from(bytes).toString(), input);
+	assert.throws(() => Array.from(terminalInputControlCommands('not-a-pane', 'hello')), /pane identifier/);
+});
+
+test('prepares composer text as a completed bracketed paste before submit', () => {
+	assert.equal(
+		terminalSubmissionData('first\r\nsecond\nthird', true),
+		'\u001b[200~first\rsecond\rthird\u001b[201~'
+	);
+	assert.equal(terminalSubmissionData('first\nsecond', false), 'first\rsecond');
+	assert.equal(terminalSubmissionSettleMs(true), 20);
+	assert.equal(terminalSubmissionSettleMs(false), 140);
+});
 
 test('decodes tmux control mode octal escapes into terminal bytes', () => {
 	assert.equal(decodeTmuxControlValue('hello\\015\\012next'), 'hello\r\nnext');

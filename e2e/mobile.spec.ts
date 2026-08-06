@@ -81,6 +81,9 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 	await expect(page.getByRole('complementary', { name: 'Repository for workspace' })).toBeVisible();
 	await expect(page.getByRole('tab', { name: 'Files' })).toBeVisible();
 	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-	await page.getByRole('button', { name: 'Close repository' }).click();
+	await page.getByRole('tab', { name: 'Files' }).click();
+	await page.getByRole('button', { name: 'Open conflict.txt' }).click();
+	await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
+	await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
 	await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 });

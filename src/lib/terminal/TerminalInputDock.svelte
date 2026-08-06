@@ -6,6 +6,7 @@
 	let {
 		connected,
 		send,
+		submit,
 		onComposerFocus,
 		onImageSelected,
 		scrollToTop,
@@ -18,6 +19,7 @@
 	}: {
 		connected: boolean;
 		send: (data: string) => void;
+		submit: (data: string) => boolean;
 		onComposerFocus: () => void;
 		onImageSelected: (image: File) => void;
 		scrollToTop: () => void;
@@ -44,7 +46,7 @@
 
 	function sendComposerMessage() {
 		if (!connected || !composerMessage.trim()) return;
-		send(`${composerMessage}\r`);
+		if (!submit(composerMessage)) return;
 		composerMessage = '';
 		requestAnimationFrame(() => {
 			resizeComposer();

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
@@ -342,4 +342,47 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
 	await expect(page.getByRole('alert')).toHaveCount(1);
 	await expect(page.locator('.editor-error')).toContainText('This file changed elsewhere. Reload it before saving.');
 	expect(await readFile(conflictFile, 'utf8')).toBe('external process content\n');
+});
+
+test('does not restart a slow file open while repository status refreshes', async ({ context, page }) => {
+	test.setTimeout(45_000);
+	const targetFile = join(E2E_WORKSPACE_DIRECTORY, 'slow-open.txt');
+	const churnFile = join(E2E_WORKSPACE_DIRECTORY, 'slow-open-churn.txt');
+	await writeFile(targetFile, 'slow request content\n', 'utf8');
+	let targetRequests = 0;
+
+	try {
+		await authenticate(context);
+		const session = await createSession(context);
+		sessionId = session.id;
+		await page.route('**/api/sessions/*/repository/file?*', async (route) => {
+			const url = new URL(route.request().url());
+			if (url.searchParams.get('path') !== 'slow-open.txt') {
+				await route.continue();
+				return;
+			}
+			targetRequests += 1;
+			await new Promise((resolve) => setTimeout(resolve, 1_200));
+			await route.continue().catch(() => undefined);
+		});
+
+		await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+		await expectTerminalReady(page);
+		await page.getByRole('button', { name: 'Open repository' }).click();
+		await page.getByRole('tab', { name: 'Files' }).click();
+		await page.getByRole('button', { name: 'Open slow-open.txt' }).click();
+
+		for (let index = 0; index < 4; index += 1) {
+			await writeFile(churnFile, `change ${index}\n`, 'utf8');
+			await page.waitForTimeout(500);
+		}
+
+		await expect(page.locator('[aria-label="Edit slow-open.txt"] .cm-content')).toBeVisible({ timeout: 6_000 });
+		expect(targetRequests).toBe(1);
+	} finally {
+		await Promise.all([
+			rm(targetFile, { force: true }),
+			rm(churnFile, { force: true })
+		]);
+	}
 });
