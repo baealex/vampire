@@ -121,8 +121,9 @@
 	$effect(() => {
 		const sessionId = session.id;
 		const presented = !repository.selection;
-		onTerminalPresentationChange(sessionId, presented);
-		return () => onTerminalPresentationChange(sessionId, false);
+		// Keep parent activity state out of this effect's dependency graph.
+		untrack(() => onTerminalPresentationChange(sessionId, presented));
+		return () => untrack(() => onTerminalPresentationChange(sessionId, false));
 	});
 
 	$effect(() => {
@@ -130,7 +131,7 @@
 		const refreshWhenVisible = () => {
 			if (!document.hidden) void repository.refresh();
 		};
-		void repository.refresh();
+		untrack(() => void repository.refresh());
 		document.addEventListener('visibilitychange', refreshWhenVisible);
 
 		return () => {
@@ -252,13 +253,10 @@
 <style>
 	.workspace-workbench, .workspace-primary { width: 100%; min-width: 0; min-height: 0; }
 	.workspace-workbench { position: relative; height: 100dvh; overflow: hidden; }
-	.workspace-primary { position: relative; height: 100%; transition: margin-right 180ms ease; }
+	.workspace-primary { position: relative; height: 100%; }
 
 	@media (min-width: 80rem) {
 		.workspace-workbench.repository-open .workspace-primary { width: auto; margin-right: 22rem; }
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.workspace-primary { transition: none; }
-	}
 </style>

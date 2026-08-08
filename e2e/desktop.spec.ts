@@ -141,6 +141,57 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
 	expect(connectionCount).toBe(2);
 });
 
+test('ignores transient terminal container collapse until a usable size returns', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+	const visibleRows = await terminal.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
+	expect(visibleRows).toBeGreaterThanOrEqual(5);
+
+	await terminal.evaluate((element) => {
+		element.style.width = '1px';
+		element.style.height = '1px';
+	});
+	await page.waitForTimeout(250);
+	expect(await terminal.locator('.xterm-rows').evaluate((rows) => rows.childElementCount)).toBe(visibleRows);
+
+	await terminal.evaluate((element) => {
+		element.style.removeProperty('width');
+		element.style.removeProperty('height');
+	});
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+	await expect(terminal.locator('.xterm-rows')).toContainText('stable-terminal-size');
+});
+
+test('keeps the desktop font default on a wide touch display', async ({ browser }) => {
+	const context = await browser.newContext({
+		viewport: { width: 1280, height: 800 },
+		hasTouch: true
+	});
+	let createdSessionId: string | undefined;
+	try {
+		await authenticate(context);
+		const session = await createSession(context);
+		createdSessionId = session.id;
+		const page = await context.newPage();
+		await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+		await expectTerminalReady(page);
+		const fontSize = await page
+			.getByRole('application', { name: 'Interactive shell terminal' })
+			.locator('.xterm-rows')
+			.evaluate((rows) => getComputedStyle(rows).fontSize);
+		expect(fontSize).toBe('14px');
+	} finally {
+		await removeSession(context, createdSessionId);
+		await context.close();
+	}
+});
+
 test('does not treat another device terminal redraw as main-session output', async ({ browser }) => {
 	test.setTimeout(60_000);
 	const firstContext = await browser.newContext();
@@ -369,8 +420,14 @@ test('does not restart a slow file open while repository status refreshes', asyn
 		await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 		await expectTerminalReady(page);
 		await page.getByRole('button', { name: 'Open repository' }).click();
+		await expect(page.getByRole('complementary', { name: 'Repository for workspace' })).toHaveCSS('transition-duration', '0s');
+		await expect(page.locator('.workspace-primary')).toHaveCSS('transition-duration', '0s');
 		await page.getByRole('tab', { name: 'Files' }).click();
 		await page.getByRole('button', { name: 'Open slow-open.txt' }).click();
+		const loadingStatus = page.getByRole('status', { name: 'Loading file: slow-open.txt' });
+		await expect(loadingStatus).toBeVisible();
+		await expect(loadingStatus.locator('.document-opening__spinner')).toBeVisible();
+		await expect(loadingStatus.locator('.document-opening__scene')).toHaveCount(0);
 
 		for (let index = 0; index < 4; index += 1) {
 			await writeFile(churnFile, `change ${index}\n`, 'utf8');

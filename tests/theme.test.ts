@@ -122,6 +122,8 @@ test('keeps component mono fonts behind the shared token', async () => {
 
 test('gives xterm the resolved shared font stack and the browser language', async () => {
 	const terminalViewport = await readFile(join(sourceRoot, 'lib', 'terminal', 'TerminalViewport.svelte'), 'utf8');
-	assert.match(terminalViewport, /fontFamily:\s*terminalFontFamily\(\)/);
-	assert.match(terminalViewport, /terminalElement\.lang\s*=\s*navigator\.language\s*\|\|\s*'und'/);
+	const terminalRuntime = await readFile(join(sourceRoot, 'lib', 'terminal', 'terminal-runtime.ts'), 'utf8');
+	assert.match(terminalViewport, /getFontFamily:\s*terminalFontFamily/);
+	assert.match(terminalRuntime, /fontFamily:\s*this\.#options\.getFontFamily\(\)/);
+	assert.match(terminalRuntime, /this\.#options\.element\.lang\s*=\s*navigator\.language\s*\|\|\s*'und'/);
 });
