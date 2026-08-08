@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { fitTerminalToVisibleArea, type TerminalFitDimensions } from '../src/lib/terminal/fit.ts';
+
+function createFitAddon(dimensions: TerminalFitDimensions | undefined) {
+	let fits = 0;
+	return {
+		addon: {
+			proposeDimensions: () => dimensions,
+			fit: () => { fits += 1; }
+		},
+		get fits() { return fits; }
+	};
+}
+
+test('does not fit a terminal while its container has a transient tiny size', () => {
+	for (const dimensions of [undefined, { cols: 2, rows: 1 }, { cols: 80, rows: 4 }]) {
+		const harness = createFitAddon(dimensions);
+		assert.equal(fitTerminalToVisibleArea(harness.addon), undefined);
+		assert.equal(harness.fits, 0);
+	}
+});
+
+test('fits and reports a stable terminal size', () => {
+	const harness = createFitAddon({ cols: 120, rows: 36 });
+	assert.deepEqual(fitTerminalToVisibleArea(harness.addon), { columns: 120, rows: 36 });
+	assert.equal(harness.fits, 1);
+});
+
+test('rejects non-finite terminal dimensions', () => {
+	for (const dimensions of [{ cols: Number.NaN, rows: 24 }, { cols: 80, rows: Number.NaN }]) {
+		const harness = createFitAddon(dimensions);
+		assert.equal(fitTerminalToVisibleArea(harness.addon), undefined);
+		assert.equal(harness.fits, 0);
+	}
+});

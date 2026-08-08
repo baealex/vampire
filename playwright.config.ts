@@ -24,6 +24,17 @@ export default defineConfig({
 			name: 'mobile-chromium',
 			testMatch: '**/mobile.spec.ts',
 			use: { ...devices['Pixel 7'] }
+		},
+		{
+			name: 'mobile-firefox',
+			testMatch: '**/mobile.spec.ts',
+			use: {
+				...devices['Desktop Firefox'],
+				viewport: { width: 412, height: 915 },
+				deviceScaleFactor: 2,
+				hasTouch: true,
+				userAgent: 'Mozilla/5.0 (Android 15; Mobile; rv:141.0) Gecko/141.0 Firefox/141.0'
+			}
 		}
 	],
 	webServer: {
