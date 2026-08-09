@@ -7,6 +7,7 @@ export interface RuntimeConfig {
 	host: string;
 	port: number;
 	tokenConfigured: boolean;
+	unauthenticatedRemoteAccess: boolean;
 	workspaceRoots: string[];
 }
 
@@ -35,11 +36,13 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
 	const portValue = env.VAMPIRE_PORT || '7677';
 	const port = Number(portValue);
 	const token = env.VAMPIRE_TOKEN?.trim() || undefined;
+	const allowInsecureNoAuth = env.VAMPIRE_ALLOW_INSECURE_NO_AUTH === '1';
+	const nonLoopbackHost = !LOOPBACK_HOSTS.has(host);
 
 	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 		throw new Error(`Invalid VAMPIRE_PORT: ${portValue}`);
 	}
-	if (!LOOPBACK_HOSTS.has(host) && !token) {
+	if (nonLoopbackHost && !token && !allowInsecureNoAuth) {
 		throw new Error('Refusing a non-loopback bind without VAMPIRE_TOKEN. Use a private network or TLS reverse proxy.');
 	}
 
@@ -47,6 +50,7 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
 		host,
 		port,
 		tokenConfigured: Boolean(token),
+		unauthenticatedRemoteAccess: nonLoopbackHost && !token,
 		workspaceRoots: parseWorkspaceRootPaths(env.VAMPIRE_WORKSPACE_ROOTS)
 	};
 }

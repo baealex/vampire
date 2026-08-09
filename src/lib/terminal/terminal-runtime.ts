@@ -1,6 +1,12 @@
 import type { ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { TerminalConnection, type TerminalConnectionContext } from './connection.ts';
+import {
+	isTerminalRgbColor,
+	parseTerminalColorReports,
+	terminalThemeColor,
+	type TerminalColorSlot
+} from './color-report.ts';
 import { fitTerminalToVisibleArea } from './fit.ts';
 import { TERMINAL_SCROLLBACK_LINES } from './protocol.ts';
 import { TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT, TerminalScreenSync } from './screen-sync.ts';
@@ -255,6 +261,7 @@ export class TerminalRuntime {
 			onReadyChange: (ready) => {
 				this.#updateState({ screenReady: ready });
 				if (!ready) return;
+				this.#reportTerminalTheme();
 				if (this.#openingDelay) clearTimeout(this.#openingDelay);
 				this.#openingDelay = undefined;
 			},
@@ -267,7 +274,7 @@ export class TerminalRuntime {
 			if (event.type === 'keydown') this.send('\u001b[13;2u');
 			return false;
 		});
-		this.#inputDisposable = terminal.onData((data) => this.send(data));
+		this.#inputDisposable = terminal.onData((data) => this.#handleTerminalData(data));
 
 		const initialSize = fitTerminalToVisibleArea(fitAddon);
 		const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
@@ -289,6 +296,7 @@ export class TerminalRuntime {
 					outputPaused: false,
 					reconnecting: false
 				});
+				this.#reportTerminalTheme();
 				this.#scheduleDisplayRefresh(true);
 				if (desktopInput) {
 					requestAnimationFrame(() => {
@@ -557,8 +565,36 @@ export class TerminalRuntime {
 	#handleThemeChange = (): void => {
 		if (!this.#terminal) return;
 		this.#terminal.options.theme = this.#options.getTheme();
+		// Theme controls live outside the terminal, so explicitly make this browser
+		// the active tmux client before its color reports are applied.
+		this.#connection?.send({ type: 'activate' });
+		this.#reportTerminalTheme();
 		this.#scheduleDisplayRefresh(true);
 	};
+
+	#handleTerminalData(data: string): void {
+		const reports = parseTerminalColorReports(data);
+		if (!reports) {
+			this.send(data);
+			return;
+		}
+		const theme = this.#options.getTheme();
+		for (const report of reports) {
+			// xterm can emit its previous palette for one frame after options.theme
+			// changes. The app theme is authoritative for OSC color replies.
+			this.#sendTerminalColor(report.slot, terminalThemeColor(report.slot, theme, report.color));
+		}
+	}
+
+	#reportTerminalTheme(): void {
+		const theme = this.#options.getTheme();
+		if (isTerminalRgbColor(theme.foreground)) this.#sendTerminalColor(10, theme.foreground);
+		if (isTerminalRgbColor(theme.background)) this.#sendTerminalColor(11, theme.background);
+	}
+
+	#sendTerminalColor(slot: TerminalColorSlot, color: string): void {
+		this.#connection?.send({ type: 'terminal-color', slot, color });
+	}
 
 	#updateState(changes: Partial<TerminalRuntimeState>): void {
 		let changed = false;

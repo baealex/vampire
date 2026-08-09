@@ -4,11 +4,34 @@ import {
 	decodeTmuxControlValue,
 	isTerminalOutputActivity,
 	parseTmuxControlOutput,
+	terminalColorControlCommand,
 	terminalInputControlCommands,
 	terminalSubmissionData,
 	terminalSubmissionSettleMs,
-	terminalSnapshotHistoryLines
+	terminalSnapshotHistoryLines,
+	tmuxSupportsTerminalColorReports
 } from '../runtime/terminal.ts';
+
+test('reports browser terminal colors through the tmux control client', () => {
+	assert.equal(
+		terminalColorControlCommand('%7', 11, '#fbfafa'),
+		"refresh-client -r '%7:\u001b]11;rgb:fbfb/fafa/fafa\u001b\\'"
+	);
+	assert.throws(() => terminalColorControlCommand('not-a-pane', 11, '#fbfafa'), /pane identifier/);
+	assert.throws(() => terminalColorControlCommand('%7', 11, "#fff'; kill-server"), /terminal color/);
+});
+
+test('detects tmux terminal color report support from available commands', () => {
+	assert.equal(tmuxSupportsTerminalColorReports(
+		'refresh-client (refresh) [-cDlLRSU] [-C XxY] [-r pane:report] [-t target-client]\n'
+	), true);
+	assert.equal(tmuxSupportsTerminalColorReports(
+		'refresh-client (refresh) [-cDlLRSU] [-C XxY] [-t target-client]\n'
+	), false);
+	assert.equal(tmuxSupportsTerminalColorReports(
+		'run-shell (run) [-bdC] [-t target-pane] shell-command\n'
+	), false);
+});
 
 test('bounds terminal snapshots to the retained client history', () => {
 	assert.equal(terminalSnapshotHistoryLines(), 10_000);

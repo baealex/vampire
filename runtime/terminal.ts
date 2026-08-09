@@ -9,6 +9,10 @@ import {
 	TERMINAL_SCROLLBACK_LINES,
 	type TerminalServerMessage
 } from '../src/lib/terminal/protocol.ts';
+import {
+	terminalColorReport,
+	type TerminalColorSlot
+} from '../src/lib/terminal/color-report.ts';
 import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
 
 export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
@@ -42,6 +46,7 @@ export interface AttachTerminalOptions {
 	historyLines?: number;
 	ignoreSize?: boolean;
 	canResize?: () => boolean;
+	canReportTerminalColor?: () => boolean;
 	onAttached?: (setIgnoreSize: TerminalSizeController) => Promise<void> | void;
 	onActivate?: () => Promise<void> | void;
 	onSyntheticOutput?: (timestamp: number) => void;
@@ -62,6 +67,22 @@ export function* terminalInputControlCommands(paneId: string, data: string): Gen
 		const bytes = Array.from(chunk, (byte) => byte.toString(16).padStart(2, '0')).join(' ');
 		yield `send-keys -H -t ${paneId} ${bytes}`;
 	}
+}
+
+export function terminalColorControlCommand(
+	paneId: string,
+	slot: TerminalColorSlot,
+	color: string
+): string {
+	if (!/^%\d+$/.test(paneId)) throw new Error('Terminal pane identifier is invalid.');
+	// Control mode clients report terminal replies through refresh-client, not pane keyboard input.
+	return `refresh-client -r '${paneId}:${terminalColorReport(slot, color)}'`;
+}
+
+export function tmuxSupportsTerminalColorReports(commandList: string): boolean {
+	return commandList.split(/\r?\n/).some((line) =>
+		/^refresh-client(?:\s|\()/.test(line) && /\[-r(?:\s|\])/.test(line)
+	);
 }
 
 export function terminalSubmissionData(data: string, bracketedPaste: boolean): string {
@@ -226,6 +247,13 @@ export async function attachTerminal(
 			reject(error);
 		});
 	});
+	let terminalColorReportSupport: Promise<boolean> | undefined;
+	const supportsTerminalColorReports = (): Promise<boolean> => {
+		terminalColorReportSupport ??= runControlCommand('list-commands')
+			.then(tmuxSupportsTerminalColorReports)
+			.catch(() => false);
+		return terminalColorReportSupport;
+	};
 
 	const sendControlInput = async (data: string): Promise<void> => {
 		for (const command of terminalInputControlCommands(paneId, data)) {
@@ -453,15 +481,21 @@ export async function attachTerminal(
 			const input = decodeTerminalClientMessage(raw);
 			if (!input) throw new Error('Terminal input is invalid.');
 			if (input.type === 'activate') {
-				const activation = options.onActivate?.();
-				if (activation) void Promise.resolve(activation).catch((error) => message(socket, {
-					type: 'error',
-					message: error instanceof Error ? error.message : 'Terminal activation failed.'
-				}));
+				queueTerminalInput('', async () => {
+					await options.onActivate?.();
+				});
 			} else if (input.type === 'snapshot-ready') {
 				acknowledgeSnapshot();
 			} else if (input.type === 'input') {
 				queueTerminalInput(input.data, () => sendControlInput(input.data));
+			} else if (input.type === 'terminal-color') {
+				queueTerminalInput(input.color, async () => {
+					await attached;
+					if (options.canReportTerminalColor?.() === false) return;
+					if (!(await supportsTerminalColorReports())) return;
+					if (options.canReportTerminalColor?.() === false) return;
+					await runControlCommand(terminalColorControlCommand(paneId, input.slot, input.color));
+				});
 			} else if (input.type === 'submit') {
 				queueTerminalInput(input.data, () => sendTerminalSubmission(input.data, input.bracketedPaste));
 			} else if (input.type === 'resize') {
