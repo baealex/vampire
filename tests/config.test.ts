@@ -35,3 +35,17 @@ test('includes parsed workspace roots in runtime configuration', () => {
 
 	assert.deepEqual(config.workspaceRoots, [resolve('/tmp/one'), resolve('/tmp/two')]);
 });
+
+test('requires an explicit opt-in for unauthenticated non-loopback access', () => {
+	assert.throws(
+		() => runtimeConfig({ VAMPIRE_HOST: '192.168.219.106' }),
+		/non-loopback bind without VAMPIRE_TOKEN/
+	);
+
+	const config = runtimeConfig({
+		VAMPIRE_HOST: '192.168.219.106',
+		VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1'
+	});
+	assert.equal(config.tokenConfigured, false);
+	assert.equal(config.unauthenticatedRemoteAccess, true);
+});

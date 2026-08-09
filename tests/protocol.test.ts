@@ -62,10 +62,20 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
 		decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 120, rows: 40 })),
 		{ type: 'resize', columns: 120, rows: 40 }
 	);
+	assert.deepEqual(
+		decodeTerminalClientMessage(encodeTerminalClientMessage({
+			type: 'terminal-color',
+			slot: 11,
+			color: '#fbfafa'
+		})),
+		{ type: 'terminal-color', slot: 11, color: '#fbfafa' }
+	);
 	assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":19,"rows":40}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"input","data":12}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello"}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"terminal-color","slot":9,"color":"#fbfafa"}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"terminal-color","slot":11,"color":"red; kill-server"}'), undefined);
 });
 
 test('round-trips valid terminal server messages and rejects incomplete payloads', () => {

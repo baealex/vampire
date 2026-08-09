@@ -182,6 +182,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			historyLines: context.historyLines,
 			ignoreSize: true,
 			canResize: () => state.activeAttachment === attachment && !attachment.released,
+			canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
 			onAttached: (setIgnoreSize) => {
 				attachment.setIgnoreSize = setIgnoreSize;
 				attachment.ready = true;

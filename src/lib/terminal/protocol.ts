@@ -1,8 +1,11 @@
+import { isTerminalColorSlot, isTerminalRgbColor, type TerminalColorSlot } from './color-report.ts';
+
 export type TerminalClientMessage =
 	| { type: 'activate' }
 	| { type: 'snapshot-ready' }
 	| { type: 'input'; data: string }
 	| { type: 'submit'; data: string; bracketedPaste: boolean }
+	| { type: 'terminal-color'; slot: TerminalColorSlot; color: string }
 	| { type: 'resize'; columns: number; rows: number };
 
 export type TerminalServerMessage =
@@ -36,6 +39,13 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
 	if (!isRecord(value)) return undefined;
 	if (value.type === 'activate' || value.type === 'snapshot-ready') return { type: value.type };
 	if (value.type === 'input' && typeof value.data === 'string') return { type: 'input', data: value.data };
+	if (
+		value.type === 'terminal-color'
+		&& isTerminalColorSlot(value.slot)
+		&& isTerminalRgbColor(value.color)
+	) {
+		return { type: 'terminal-color', slot: value.slot, color: value.color };
+	}
 	if (
 		value.type === 'submit'
 		&& typeof value.data === 'string'

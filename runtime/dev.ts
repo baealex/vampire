@@ -21,7 +21,11 @@ const closeWorkspaceSockets = installWorkspaceWebSocket(httpServer);
 
 await vite.listen();
 vite.printUrls();
-console.log(config.tokenConfigured ? 'Token authentication is enabled.' : 'Local-only mode: no token configured.');
+console.log(config.tokenConfigured
+	? 'Token authentication is enabled.'
+	: config.unauthenticatedRemoteAccess
+		? 'Warning: token authentication is disabled on a non-loopback address.'
+		: 'Local-only mode: no token configured.');
 
 let closing = false;
 const shutdown = () => {

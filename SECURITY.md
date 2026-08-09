@@ -20,8 +20,9 @@ Do not include real access tokens, private terminal output, project files, or se
 
 ## Deployment expectations
 
-- Bind to loopback unless remote binding is intentional and token authentication is enabled.
-- Put Internet-reachable deployments behind HTTPS/WSS and an additional private-network or access-control layer.
+- Bind to loopback unless remote binding is intentional. Prefer token authentication for every remote bind.
+- Use `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` only on a trusted private network. Every device that can reach an unauthenticated instance can control shell sessions with the server user's permissions.
+- Never expose an unauthenticated instance to the public Internet. Put Internet-reachable deployments behind HTTPS/WSS and an additional private-network or access-control layer.
 - Run Vampire as an unprivileged user with access only to the projects it needs.
 - Use a long, random, unique `VAMPIRE_TOKEN` and rotate it after suspected exposure.
 - Keep the host operating system, Node.js, tmux, reverse proxy, and clipboard tools updated.

@@ -66,6 +66,8 @@ claude
 
 The process keeps running in tmux when you close the browser. Reopen the workspace from any device to continue.
 
+On tmux 3.7a or newer, Vampire answers terminal color probes with the active browser theme. Older tmux versions remain supported but cannot relay these probes. Start a TUI after the terminal is connected so it can detect the correct palette. Some TUIs, including Codex, cache that palette for the lifetime of the process; after switching between light and dark, exit and resume the TUI once to refresh application-drawn RGB backgrounds.
+
 Use the **Background** bar below the terminal to run a development server or watcher without touching the main session. Background commands keep running when the browser disconnects, expose read-only output, and can be stopped directly from the bar. Completed commands can be run again or deleted, and commands you explicitly star are saved per workspace for later use. Vampire never adds commands to favorites automatically, so a command containing a token or password is not persisted in the workspace registry unless you choose to star it.
 
 ## What you get
@@ -96,6 +98,12 @@ VAMPIRE_TOKEN="$(openssl rand -base64 32)" npx vampire
 
 Do not expose an unauthenticated instance to the public internet. See [SECURITY.md](SECURITY.md) for the threat model and reverse-proxy guidance.
 
+For a trusted private network only, unauthenticated LAN access requires an explicit opt-in:
+
+```bash
+VAMPIRE_HOST=192.168.1.10 VAMPIRE_ALLOW_INSECURE_NO_AUTH=1 npx vampire
+```
+
 ## Optional configuration
 
 Running `npx vampire` needs no environment variables. Set only the options your deployment actually needs:
@@ -105,6 +113,7 @@ Running `npx vampire` needs no environment variables. Set only the options your 
 | `VAMPIRE_HOST` | Bind address | `127.0.0.1` |
 | `VAMPIRE_PORT` | HTTP port | `7677` |
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
+| `VAMPIRE_ALLOW_INSECURE_NO_AUTH` | Allow a non-loopback bind without authentication when set to `1` | unset |
 | `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
 | `VAMPIRE_STATE_DIR` | Session registry, workspace notes, and explicit command favorites | `~/.vampire` |
 
