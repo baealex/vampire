@@ -3,9 +3,23 @@ import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
 
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.ts';
+import {
+	activateTerminalAttachment,
+	createTerminalAttachmentState,
+	releaseTerminalAttachment,
+	terminalAttachmentKey,
+	updateTerminalGeometry,
+	type ManagedTerminalAttachment,
+	type TerminalAttachmentState
+} from './terminal-attachments.ts';
 import { attachTerminal, type TerminalSize, type TerminalSizeController } from './terminal.ts';
 import { recordWorkspaceSessionOutput, suppressWorkspaceSessionActivity } from './workspace-websocket.ts';
-import { TERMINAL_SIZE_LIMITS } from '../src/lib/terminal/protocol.ts';
+import {
+	encodeTerminalServerMessage,
+	TERMINAL_PROTOCOL_VERSION,
+	TERMINAL_SIZE_LIMITS,
+	type TerminalServerMessage
+} from '../src/lib/terminal/protocol.ts';
 import {
 	authorizeWebSocketUpgrade,
 	installWebSocketHeartbeat,
@@ -19,17 +33,15 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TERMINAL_ID_PATTERN = /^@\d+$/;
 
-interface TerminalAttachment {
+interface TerminalAttachment extends ManagedTerminalAttachment {
 	socket: WebSocket;
-	released: boolean;
-	ready: boolean;
+	supportsGeometry: boolean;
+	readyPromise: Promise<void>;
+	resolveReady: () => void;
 	setIgnoreSize?: TerminalSizeController;
 }
 
-interface SessionAttachmentState {
-	attachments: Set<TerminalAttachment>;
-	activeAttachment?: TerminalAttachment;
-	activationQueue: Promise<void>;
+interface SessionAttachmentState extends TerminalAttachmentState<TerminalAttachment> {
 	syntheticOutputUntil: number;
 }
 
@@ -38,46 +50,46 @@ interface TerminalConnectionContext {
 	terminalId?: string;
 	initialSize?: TerminalSize;
 	historyLines?: number;
+	claimControl: boolean;
+	supportsGeometry: boolean;
 	expiresAt?: number;
 }
 
 const sessionAttachmentStates = new Map<string, SessionAttachmentState>();
 
-function getAttachmentState(sessionId: string): SessionAttachmentState {
-	let state = sessionAttachmentStates.get(sessionId);
+function getAttachmentState(key: string): SessionAttachmentState {
+	let state = sessionAttachmentStates.get(key);
 	if (!state) {
 		state = {
-			attachments: new Set(),
-			activeAttachment: undefined,
-			activationQueue: Promise.resolve(),
+			...createTerminalAttachmentState<TerminalAttachment>(),
 			syntheticOutputUntil: 0
 		};
-		sessionAttachmentStates.set(sessionId, state);
+		sessionAttachmentStates.set(key, state);
 	}
 	return state;
 }
 
-function activateAttachment(state: SessionAttachmentState, attachment: TerminalAttachment): Promise<void> {
-	const activation = state.activationQueue
-		.catch(() => undefined)
-		.then(async () => {
-			if (attachment.released || !attachment.setIgnoreSize) return;
-			const previous = state.activeAttachment;
-			if (previous === attachment) {
-				await attachment.setIgnoreSize(false);
-				return;
-			}
-			state.activeAttachment = attachment;
-			try {
-				if (previous && !previous.released && previous.setIgnoreSize) await previous.setIgnoreSize(true);
-				await attachment.setIgnoreSize(false);
-			} catch (error) {
-				if (state.activeAttachment === attachment) state.activeAttachment = previous;
-				throw error;
-			}
-		});
-	state.activationQueue = activation.catch(() => undefined);
-	return activation;
+function sendTerminalMessage(socket: WebSocket, payload: TerminalServerMessage): void {
+	if (socket.readyState === WebSocket.OPEN) socket.send(encodeTerminalServerMessage(payload));
+}
+
+function broadcastTerminalGeometry(state: SessionAttachmentState, geometry: TerminalSize): void {
+	for (const attachment of state.attachments) {
+		if (!attachment.released && attachment.supportsGeometry) {
+			sendTerminalMessage(attachment.socket, { type: 'geometry', ...geometry });
+		}
+	}
+}
+
+async function activateAttachment(
+	state: SessionAttachmentState,
+	attachment: TerminalAttachment,
+	options: { onlyIfUnclaimed?: boolean } = {}
+): Promise<void> {
+	const changed = await activateTerminalAttachment(state, attachment, options);
+	if (changed && attachment.supportsGeometry && !attachment.released) {
+		sendTerminalMessage(attachment.socket, { type: 'request-terminal-theme' });
+	}
 }
 
 function requestedTerminalSize(url: URL): TerminalSize | undefined {
@@ -134,12 +146,16 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 		}
 		const initialSize = requestedTerminalSize(url);
 		const historyLines = requestedTerminalHistory(url);
+		const claimControl = url.searchParams.get('active') === '1';
+		const supportsGeometry = Number(url.searchParams.get('protocol')) >= TERMINAL_PROTOCOL_VERSION;
 		terminalSockets.handleUpgrade(request, socket, head, (websocket) => {
 			connectionContexts.set(websocket, {
 				sessionId,
 				terminalId,
 				initialSize,
 				historyLines,
+				claimControl,
+				supportsGeometry,
 				expiresAt: authorization.expiresAt
 			});
 			terminalSockets.emit('connection', websocket, request);
@@ -155,24 +171,24 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 		}
 		scheduleAuthenticationExpiry(socket, context.expiresAt);
 
-		const state = getAttachmentState(context.sessionId);
+		const attachmentKey = terminalAttachmentKey(context.sessionId, context.terminalId);
+		const state = getAttachmentState(attachmentKey);
+		let resolveReady!: () => void;
+		const readyPromise = new Promise<void>((resolve) => { resolveReady = resolve; });
 		const attachment: TerminalAttachment = {
 			socket,
+			supportsGeometry: context.supportsGeometry,
 			released: false,
-			ready: false,
+			readyPromise,
+			resolveReady,
 			setIgnoreSize: undefined
 		};
 		state.attachments.add(attachment);
 		const releaseAttachment = () => {
-			if (attachment.released) return;
-			attachment.released = true;
-			state.attachments.delete(attachment);
-			if (state.activeAttachment === attachment) {
-				state.activeAttachment = undefined;
-				const next = [...state.attachments].find((candidate) => candidate.ready && !candidate.released);
-				if (next) void activateAttachment(state, next).catch(() => undefined);
-			}
-			if (state.attachments.size === 0) sessionAttachmentStates.delete(context.sessionId);
+			attachment.resolveReady();
+			const fallback = releaseTerminalAttachment(state, attachment);
+			if (fallback) void activateAttachment(state, fallback).catch(() => undefined);
+			if (state.attachments.size === 0) sessionAttachmentStates.delete(attachmentKey);
 		};
 		socket.once('close', releaseAttachment);
 		void observeRepositoryStatus(socket, context.sessionId).catch(() => undefined);
@@ -183,16 +199,29 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			ignoreSize: true,
 			canResize: () => state.activeAttachment === attachment && !attachment.released,
 			canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
-			onAttached: (setIgnoreSize) => {
+			getGeometry: () => state.geometry,
+			sendGeometry: context.supportsGeometry,
+			onAttached: async (setIgnoreSize) => {
 				attachment.setIgnoreSize = setIgnoreSize;
-				attachment.ready = true;
-				return activateAttachment(state, attachment);
+				attachment.resolveReady();
+				if (context.claimControl && !attachment.released) {
+					await activateAttachment(state, attachment, { onlyIfUnclaimed: true });
+				}
 			},
-			onActivate: () => activateAttachment(state, attachment),
+			onActivate: async () => {
+				await attachment.readyPromise;
+				if (!attachment.released) await activateAttachment(state, attachment);
+			},
+			onGeometryChange: (geometry) => {
+				if (updateTerminalGeometry(state, attachment, geometry)) {
+					broadcastTerminalGeometry(state, geometry);
+				}
+			},
+			onInput: () => { state.syntheticOutputUntil = 0; },
 			onSyntheticOutput: (timestamp) => {
 				state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
-				suppressWorkspaceSessionActivity(context.sessionId, timestamp);
 			},
+			onSyntheticActivity: (timestamp) => suppressWorkspaceSessionActivity(context.sessionId, timestamp),
 			isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
 			onOutputActivity: (timestamp) => recordWorkspaceSessionOutput(context.sessionId, context.terminalId, timestamp)
 		}).catch(() => {

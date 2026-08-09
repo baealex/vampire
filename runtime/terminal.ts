@@ -6,6 +6,7 @@ import { findSessionConnection } from '../src/lib/server/session-store.ts';
 import {
 	decodeTerminalClientMessage,
 	encodeTerminalServerMessage,
+	TERMINAL_GEOMETRY_LIMITS,
 	TERMINAL_SCROLLBACK_LINES,
 	type TerminalServerMessage
 } from '../src/lib/terminal/protocol.ts';
@@ -28,10 +29,7 @@ const BRACKETED_SUBMIT_SETTLE_MS = 20;
 const UNBRACKETED_SUBMIT_SETTLE_MS = 140;
 const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
-const INITIAL_REDRAW_SETTLE_MS = 1_000;
-const INITIAL_REDRAW_MINIMUM_MS = 500;
-const INITIAL_REDRAW_QUIET_MS = 160;
-const INITIAL_REDRAW_MAXIMUM_MS = 1_500;
+const TERMINAL_RESIZE_SETTLE_MS = 1_000;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
 
 export interface TerminalSize {
@@ -47,8 +45,13 @@ export interface AttachTerminalOptions {
 	ignoreSize?: boolean;
 	canResize?: () => boolean;
 	canReportTerminalColor?: () => boolean;
+	getGeometry?: () => TerminalSize | undefined;
+	sendGeometry?: boolean;
 	onAttached?: (setIgnoreSize: TerminalSizeController) => Promise<void> | void;
 	onActivate?: () => Promise<void> | void;
+	onGeometryChange?: (geometry: TerminalSize) => void;
+	onInput?: () => void;
+	onSyntheticActivity?: (timestamp: number) => void;
 	onSyntheticOutput?: (timestamp: number) => void;
 	isOutputActivity?: (timestamp: number) => boolean;
 	onOutputActivity?: (timestamp: number) => void;
@@ -85,6 +88,13 @@ export function tmuxSupportsTerminalColorReports(commandList: string): boolean {
 	);
 }
 
+export function terminalActivityTimestamp(output: string): number | undefined {
+	const value = output.trim();
+	if (!/^\d+$/.test(value)) return undefined;
+	const milliseconds = Number(value) * 1_000;
+	return Number.isSafeInteger(milliseconds) && milliseconds > 0 ? milliseconds : undefined;
+}
+
 export function terminalSubmissionData(data: string, bracketedPaste: boolean): string {
 	const normalized = data.replace(/\r?\n/g, '\r');
 	return bracketedPaste ? `\u001b[200~${normalized}\u001b[201~` : normalized;
@@ -119,7 +129,10 @@ interface ControlCommandBlock {
 	output: string[];
 }
 
-async function terminalTarget(tmuxSession: string, requestedWindowId?: string): Promise<{ windowId: string; paneId: string }> {
+async function terminalTarget(
+	tmuxSession: string,
+	requestedWindowId?: string
+): Promise<{ windowId: string; paneId: string; geometry: TerminalSize }> {
 	if (requestedWindowId !== undefined && !/^@\d+$/.test(requestedWindowId)) {
 		throw new Error('Terminal identifier is invalid.');
 	}
@@ -129,16 +142,26 @@ async function terminalTarget(tmuxSession: string, requestedWindowId?: string): 
 		'-p',
 		'-t',
 		target,
-		'#{session_name}\t#{window_id}\t#{pane_id}'
+		'#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}'
 	]);
-	const [sessionName, windowId, paneId] = stdout.trim().split('\t');
+	const [sessionName, windowId, paneId, rawColumns, rawRows] = stdout.trim().split('\t');
+	const columns = Number(rawColumns);
+	const rows = Number(rawRows);
 	if (sessionName !== tmuxSession || !/^@\d+$/.test(windowId ?? '') || !/^%\d+$/.test(paneId ?? '')) {
 		throw new Error('Terminal does not belong to this workspace.');
 	}
 	if (requestedWindowId !== undefined && windowId !== requestedWindowId) {
 		throw new Error('Terminal does not belong to this workspace.');
 	}
-	return { windowId, paneId };
+	if (
+		!Number.isInteger(columns)
+		|| columns < TERMINAL_GEOMETRY_LIMITS.minimumColumns
+		|| columns > TERMINAL_GEOMETRY_LIMITS.maximumColumns
+		|| !Number.isInteger(rows)
+		|| rows < TERMINAL_GEOMETRY_LIMITS.minimumRows
+		|| rows > TERMINAL_GEOMETRY_LIMITS.maximumRows
+	) throw new Error('Terminal geometry is invalid.');
+	return { windowId, paneId, geometry: { columns, rows } };
 }
 
 export function isTerminalOutputActivity({
@@ -168,8 +191,8 @@ export async function attachTerminal(
 	const { tmuxSession } = connection;
 	const snapshotHistoryLines = terminalSnapshotHistoryLines(options.historyLines);
 
-	const { windowId, paneId } = await terminalTarget(tmuxSession, options.terminalId);
-	options.onSyntheticOutput?.(Date.now() + INITIAL_REDRAW_SETTLE_MS);
+	const { windowId, paneId, geometry: targetGeometry } = await terminalTarget(tmuxSession, options.terminalId);
+	options.onGeometryChange?.(targetGeometry);
 	const attachFlags = options.ignoreSize ? ['-f', 'ignore-size'] : [];
 	const control = spawn('tmux', ['-C', 'attach-session', ...attachFlags, '-t', windowId], {
 		stdio: ['pipe', 'pipe', 'pipe']
@@ -198,14 +221,14 @@ export async function attachTerminal(
 	let commandBlock: ControlCommandBlock | undefined;
 	let inputQueue: Promise<void> = Promise.resolve();
 	let pendingInputBytes = 0;
-	let requestedSize: TerminalSize | undefined;
+	let requestedSize: TerminalSize | undefined = initialSize;
 	let appliedSize: string | undefined;
+	let currentGeometry = targetGeometry;
 	let resizing = false;
 	let messageWindowStartedAt = Date.now();
 	let messageCount = 0;
 	let syntheticOutputDepth = 0;
 	let syntheticOutputUntil = 0;
-	let lastTerminalOutputAt = 0;
 	let lastOutputActivityNotice = 0;
 	let controlLineBuffer = Buffer.alloc(0);
 	const terminalDecoder = new TextDecoder();
@@ -295,6 +318,14 @@ export async function attachTerminal(
 		try {
 			return await operation();
 		} finally {
+			try {
+				const activity = terminalActivityTimestamp(await runControlCommand(
+					`display-message -p -t ${windowId} '#{window_activity}'`
+				));
+				if (activity !== undefined) options.onSyntheticActivity?.(activity);
+			} catch {
+				// Activity classification must not turn a successful terminal resize into an error.
+			}
 			syntheticOutputUntil = Math.max(syntheticOutputUntil, Date.now() + settleMs);
 			options.onSyntheticOutput?.(syntheticOutputUntil);
 			syntheticOutputDepth -= 1;
@@ -303,7 +334,6 @@ export async function attachTerminal(
 
 	const sendTerminalOutput = (output: string): void => {
 		const now = Date.now();
-		lastTerminalOutputAt = now;
 		const locallyEligible = snapshotAcknowledged && syntheticOutputDepth === 0 && now >= syntheticOutputUntil;
 		const activity = isTerminalOutputActivity({
 			snapshotAcknowledged,
@@ -410,7 +440,7 @@ export async function attachTerminal(
 	});
 
 	const resizeControlClient = async (): Promise<void> => {
-		if (resizing || closed || options.canResize?.() === false) return;
+		if (resizing || closed || sizeIgnored || options.canResize?.() === false) return;
 		resizing = true;
 		try {
 			while (requestedSize && !closed && options.canResize?.() !== false) {
@@ -418,11 +448,20 @@ export async function attachTerminal(
 				requestedSize = undefined;
 				const key = `${next.columns}x${next.rows}`;
 				if (key === appliedSize) continue;
-				await withSyntheticOutput(async () => {
-					await runControlCommand(`refresh-client -C ${key}`);
-					await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
-				});
-				appliedSize = key;
+				const previousGeometry = currentGeometry;
+				currentGeometry = next;
+				options.onGeometryChange?.(next);
+				try {
+					await withSyntheticOutput(async () => {
+						await runControlCommand(`refresh-client -C ${key}`);
+						await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
+					}, TERMINAL_RESIZE_SETTLE_MS);
+					appliedSize = key;
+				} catch (error) {
+					currentGeometry = previousGeometry;
+					options.onGeometryChange?.(previousGeometry);
+					throw error;
+				}
 			}
 		} catch (error) {
 			message(socket, { type: 'error', message: error instanceof Error ? error.message : 'Terminal resize failed.' });
@@ -434,34 +473,29 @@ export async function attachTerminal(
 
 	const setIgnoreSize = async (ignored: boolean): Promise<void> => {
 		if (closed) return;
-		if (sizeIgnored !== ignored) {
-			await withSyntheticOutput(() => runControlCommand(`refresh-client -f ${ignored ? 'ignore-size' : '!ignore-size'}`));
-			sizeIgnored = ignored;
+		if (!ignored && sizeIgnored) {
+			while (requestedSize && !closed) {
+				const next = requestedSize;
+				requestedSize = undefined;
+				const key = `${next.columns}x${next.rows}`;
+				if (key === appliedSize) continue;
+				await runControlCommand(`refresh-client -C ${key}`);
+				appliedSize = key;
+				currentGeometry = next;
+			}
+			// Announce the geometry before tmux emits the redraw caused by this client
+			// becoming authoritative, so every browser renders the same grid.
+			options.onGeometryChange?.(currentGeometry);
+			await withSyntheticOutput(
+				() => runControlCommand('refresh-client -f !ignore-size'),
+				TERMINAL_RESIZE_SETTLE_MS
+			);
+			sizeIgnored = false;
+		} else if (ignored && !sizeIgnored) {
+			await withSyntheticOutput(() => runControlCommand('refresh-client -f ignore-size'));
+			sizeIgnored = true;
 		}
 		if (!ignored) await resizeControlClient();
-	};
-
-	const forceTerminalRedraw = async (): Promise<void> => {
-		if (!appliedSize || closed) return;
-		const [columns, rows] = appliedSize.split('x').map(Number);
-		const nudgeColumns = columns < 240 ? columns + 1 : columns - 1;
-		await withSyntheticOutput(async () => {
-			await runControlCommand(`refresh-client -C ${nudgeColumns}x${rows}`);
-			if (!closed) await runControlCommand(`refresh-client -C ${appliedSize}`);
-			await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
-		}, INITIAL_REDRAW_SETTLE_MS);
-	};
-
-	const waitForTerminalRedrawToSettle = async (): Promise<void> => {
-		const startedAt = Date.now();
-		while (!closed) {
-			const now = Date.now();
-			const elapsed = now - startedAt;
-			const quietFor = now - lastTerminalOutputAt;
-			if (elapsed >= INITIAL_REDRAW_MINIMUM_MS && quietFor >= INITIAL_REDRAW_QUIET_MS) return;
-			if (elapsed >= INITIAL_REDRAW_MAXIMUM_MS) return;
-			await new Promise((resolve) => setTimeout(resolve, 40));
-		}
 	};
 
 	socket.on('message', (raw, isBinary) => {
@@ -487,7 +521,11 @@ export async function attachTerminal(
 			} else if (input.type === 'snapshot-ready') {
 				acknowledgeSnapshot();
 			} else if (input.type === 'input') {
-				queueTerminalInput(input.data, () => sendControlInput(input.data));
+				queueTerminalInput(input.data, async () => {
+					await options.onActivate?.();
+					options.onInput?.();
+					await sendControlInput(input.data);
+				});
 			} else if (input.type === 'terminal-color') {
 				queueTerminalInput(input.color, async () => {
 					await attached;
@@ -497,10 +535,14 @@ export async function attachTerminal(
 					await runControlCommand(terminalColorControlCommand(paneId, input.slot, input.color));
 				});
 			} else if (input.type === 'submit') {
-				queueTerminalInput(input.data, () => sendTerminalSubmission(input.data, input.bracketedPaste));
+				queueTerminalInput(input.data, async () => {
+					await options.onActivate?.();
+					options.onInput?.();
+					await sendTerminalSubmission(input.data, input.bracketedPaste);
+				});
 			} else if (input.type === 'resize') {
 				requestedSize = { columns: input.columns, rows: input.rows };
-				void resizeControlClient();
+				queueTerminalInput('', resizeControlClient);
 			}
 		} catch (error) {
 			message(socket, { type: 'error', message: error instanceof Error ? error.message : 'Terminal input failed.' });
@@ -508,18 +550,14 @@ export async function attachTerminal(
 	});
 
 	await attached;
-	if (initialSize) requestedSize = initialSize;
 	await options.onAttached?.(setIgnoreSize);
 	if (requestedSize) await resizeControlClient();
+	const snapshotGeometry = options.getGeometry?.() ?? currentGeometry;
+	if (options.sendGeometry) message(socket, { type: 'geometry', ...snapshotGeometry });
 	await runControlCommand(`capture-pane -p -e -S -${snapshotHistoryLines} -t ${paneId}`, (snapshot) => {
 		snapshotSent = true;
 		message(socket, { type: 'snapshot', data: snapshot });
 	});
-	if (appliedSize) {
-		lastTerminalOutputAt = Date.now();
-		await forceTerminalRedraw();
-		await waitForTerminalRedrawToSettle();
-	}
 	message(socket, { type: 'screen-ready' });
 	if (requestedSize) void resizeControlClient();
 }

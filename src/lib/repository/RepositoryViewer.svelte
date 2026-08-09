@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import FilePenLine from '@lucide/svelte/icons/file-pen-line';
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
@@ -35,6 +36,11 @@
 	let lastSelectionKey = '';
 	let fileDirty = $state(false);
 	let editorModule: Promise<typeof import('./RepositoryCodeEditor.svelte')> | undefined;
+	let textFileRequest: {
+		controller: AbortController;
+		key: string;
+		promise: Promise<WorkspaceFile>;
+	} | undefined;
 	let parsedSections = $derived(diff?.sections.map((section) => ({
 		...section,
 		lines: parseDiffLines(section.patch)
@@ -62,13 +68,28 @@
 		onFileSaved?.(saved);
 	}
 
+	function readTextFile(selectionKey: string, path: string): Promise<WorkspaceFile> {
+		if (textFileRequest?.key === selectionKey) return textFileRequest.promise;
+		textFileRequest?.controller.abort();
+		const controller = new AbortController();
+		const promise = repositoryApi.readFile(path, controller.signal);
+		textFileRequest = { controller, key: selectionKey, promise };
+		return promise;
+	}
+
+	onDestroy(() => textFileRequest?.controller.abort());
+
 	$effect(() => {
 		const requestedSelection = selection;
 		// A repository status refresh must not cancel an in-flight text file open.
 		const refreshesWithRepository = requestedSelection.kind === 'diff'
 			|| isPreviewableImage(requestedSelection.path);
-		const requestedRefresh = refreshesWithRepository ? refreshToken : 0;
 		const selectionKey = `${sessionId}:${requestedSelection.kind}:${requestedSelection.path}`;
+		if (textFileRequest && textFileRequest.key !== selectionKey) {
+			textFileRequest.controller.abort();
+			textFileRequest = undefined;
+		}
+		const requestedRefresh = refreshesWithRepository ? refreshToken : 0;
 		const firstLoad = selectionKey !== lastSelectionKey;
 		lastSelectionKey = selectionKey;
 		if (firstLoad) {
@@ -82,6 +103,7 @@
 		}
 
 		const controller = new AbortController();
+		let active = true;
 		void (async () => {
 			let waitingForImage = false;
 			try {
@@ -111,20 +133,25 @@
 					imageUrl = '';
 					loading = false;
 				} else {
-					file = await repositoryApi.readFile(requestedSelection.path, controller.signal);
+					const loadedFile = await readTextFile(selectionKey, requestedSelection.path);
+					if (!active) return;
+					file = loadedFile;
 					diff = undefined;
 					imageUrl = '';
 				}
 				errorMessage = '';
 			} catch (error) {
-				if (controller.signal.aborted) return;
+				if (!active || controller.signal.aborted) return;
 				errorMessage = error instanceof Error ? error.message : 'Unable to read this file.';
 			} finally {
-				if (!controller.signal.aborted && !waitingForImage) loading = false;
+				if (active && !controller.signal.aborted && !waitingForImage) loading = false;
 			}
 		})();
 
-		return () => controller.abort();
+		return () => {
+			active = false;
+			if (refreshesWithRepository) controller.abort();
+		};
 	});
 </script>
 

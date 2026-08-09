@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, test, type WebSocketRoute } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import {
 	authenticate,
 	createSession,
@@ -21,6 +21,64 @@ declare global {
 
 let sessionId: string | undefined;
 const run = promisify(execFile);
+
+async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
+	const { stdout } = await run('tmux', [
+		'display-message',
+		'-p',
+		'-t',
+		tmuxSession,
+		'#{pane_width}\t#{pane_height}'
+	]);
+	const [columns, rows] = stdout.trim().split('\t').map(Number);
+	return { columns, rows };
+}
+
+interface ObservedTerminalMessage {
+	direction: 'client' | 'server';
+	slot?: number;
+	type?: string;
+}
+
+async function observeTerminalMessages(page: Page, messages: ObservedTerminalMessage[]): Promise<void> {
+	await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+		const server = socket.connectToServer();
+		const record = (direction: ObservedTerminalMessage['direction'], message: string | Buffer) => {
+			try {
+				const value = JSON.parse(typeof message === 'string' ? message : message.toString()) as {
+					slot?: unknown;
+					type?: unknown;
+				};
+				messages.push({
+					direction,
+					...(typeof value.type === 'string' ? { type: value.type } : {}),
+					...(typeof value.slot === 'number' ? { slot: value.slot } : {})
+				});
+			} catch {
+				messages.push({ direction });
+			}
+		};
+		socket.onMessage((message) => {
+			record('client', message);
+			server.send(message);
+		});
+		server.onMessage((message) => {
+			record('server', message);
+			socket.send(message);
+		});
+	});
+}
+
+function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): boolean {
+	const requestIndex = messages.findLastIndex(
+		(message) => message.direction === 'server' && message.type === 'request-terminal-theme'
+	);
+	if (requestIndex < 0) return false;
+	const reports = messages.slice(requestIndex + 1).filter(
+		(message) => message.direction === 'client' && message.type === 'terminal-color'
+	);
+	return reports.some((message) => message.slot === 10) && reports.some((message) => message.slot === 11);
+}
 
 test.beforeEach(async ({ request }) => {
 	sessionId = undefined;
@@ -141,6 +199,43 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
 	expect(connectionCount).toBe(2);
 });
 
+test('keeps geometry messages away from a pre-geometry browser tab', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await page.goto('/');
+
+	const messageTypes = await page.evaluate(({ id, terminalId }) => new Promise<string[]>((resolve, reject) => {
+		const url = new URL('/ws/terminal', location.href);
+		url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		url.searchParams.set('session', id);
+		if (terminalId) url.searchParams.set('terminal', terminalId);
+		const socket = new WebSocket(url);
+		const types: string[] = [];
+		const timer = window.setTimeout(() => {
+			socket.close();
+			reject(new Error('legacy terminal connection timed out'));
+		}, 10_000);
+		socket.onmessage = (event) => {
+			const message = JSON.parse(String(event.data)) as { type?: string };
+			if (typeof message.type === 'string') types.push(message.type);
+			if (message.type === 'snapshot') socket.send(JSON.stringify({ type: 'snapshot-ready' }));
+			if (message.type !== 'screen-ready') return;
+			window.clearTimeout(timer);
+			socket.close();
+			resolve(types);
+		};
+		socket.onerror = () => {
+			window.clearTimeout(timer);
+			reject(new Error('legacy terminal connection failed'));
+		};
+	}), { id: session.id, terminalId: session.terminals[0]?.id });
+
+	expect(messageTypes).toContain('snapshot');
+	expect(messageTypes).toContain('screen-ready');
+	expect(messageTypes).not.toContain('geometry');
+});
+
 test('ignores transient terminal container collapse until a usable size returns', async ({ context, page }) => {
 	await authenticate(context);
 	const session = await createSession(context);
@@ -233,6 +328,134 @@ test('does not treat another device terminal redraw as main-session output', asy
 		await expect(workspaceState).toHaveText('Idle');
 		await firstPage.waitForTimeout(8_200);
 		await expect(workspaceState).toHaveText('Idle');
+	} finally {
+		await removeSession(firstContext, createdSession?.id);
+		await Promise.all([firstContext.close(), secondContext.close()]);
+	}
+});
+
+test('publishes output sent immediately after terminal resize to other devices', async ({ browser }) => {
+	test.setTimeout(45_000);
+	const observerContext = await browser.newContext();
+	const controllerContext = await browser.newContext();
+	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+	try {
+		await authenticate(observerContext);
+		await authenticate(controllerContext);
+		createdSession = await createSession(observerContext);
+		const observerPage = await observerContext.newPage();
+		const controllerPage = await controllerContext.newPage();
+
+		await observerPage.goto('/');
+		await observerPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
+		const observerState = observerPage.locator('.session-row', { hasText: 'workspace' }).locator('.workspace-state');
+		await expect(observerState).toHaveText('Idle');
+
+		await controllerPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(controllerPage);
+		const composer = controllerPage.getByPlaceholder('Send to shell…');
+		await composer.fill("printf 'immediate-resize-output\\n'");
+		await composer.press('Enter');
+
+		await expect(observerState).toHaveText('Working', { timeout: 3_000 });
+	} finally {
+		await removeSession(observerContext, createdSession?.id);
+		await Promise.all([observerContext.close(), controllerContext.close()]);
+	}
+});
+
+test('keeps viewer geometry stable until that device explicitly takes control', async ({ browser }) => {
+	test.setTimeout(60_000);
+	const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+	const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
+	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+	try {
+		await authenticate(desktopContext);
+		await authenticate(phoneContext);
+		createdSession = await createSession(desktopContext);
+		const desktopPage = await desktopContext.newPage();
+		const phonePage = await phoneContext.newPage();
+		await desktopPage.addInitScript(() => {
+			Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+		});
+		await phonePage.addInitScript(() => {
+			// A visible and focused new connection may ask for initial control, but it
+			// must remain a viewer while another device already owns the terminal.
+			Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+		});
+
+		await desktopPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(desktopPage);
+		const desktopRows = await desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
+		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows).toBe(desktopRows);
+		const desktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+
+		await phonePage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(phonePage);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect.poll(() => phonePage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
+			.toBe(desktopGeometry.rows);
+
+		await phonePage.getByRole('application', { name: 'Interactive shell terminal' }).click({
+			position: { x: 80, y: 80 }
+		});
+		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows)
+			.toBeLessThan(desktopGeometry.rows);
+		const phoneGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
+			.toBe(phoneGeometry.rows);
+
+		await phonePage.close();
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
+			.toBe(desktopGeometry.rows);
+	} finally {
+		await removeSession(desktopContext, createdSession?.id);
+		await Promise.all([desktopContext.close(), phoneContext.close()]);
+	}
+});
+
+test('re-reports each device theme whenever terminal control changes', async ({ browser }) => {
+	test.setTimeout(60_000);
+	const firstContext = await browser.newContext();
+	const secondContext = await browser.newContext();
+	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+	try {
+		await authenticate(firstContext);
+		await authenticate(secondContext);
+		createdSession = await createSession(firstContext);
+		const firstPage = await firstContext.newPage();
+		const secondPage = await secondContext.newPage();
+		await firstPage.addInitScript(() => window.localStorage.setItem('vampire:theme', 'light'));
+		await secondPage.addInitScript(() => window.localStorage.setItem('vampire:theme', 'dark'));
+		const firstMessages: ObservedTerminalMessage[] = [];
+		const secondMessages: ObservedTerminalMessage[] = [];
+		await observeTerminalMessages(firstPage, firstMessages);
+		await observeTerminalMessages(secondPage, secondMessages);
+
+		await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(firstPage);
+		await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
+		const firstRequestCount = firstMessages.filter(
+			(message) => message.direction === 'server' && message.type === 'request-terminal-theme'
+		).length;
+
+		await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(secondPage);
+		expect(secondMessages.some(
+			(message) => message.direction === 'server' && message.type === 'request-terminal-theme'
+		)).toBe(false);
+
+		await secondPage.getByRole('application', { name: 'Interactive shell terminal' }).click({
+			position: { x: 80, y: 80 }
+		});
+		await expect.poll(() => reportedThemeAfterLatestRequest(secondMessages)).toBe(true);
+
+		await secondPage.close();
+		await expect.poll(() => firstMessages.filter(
+			(message) => message.direction === 'server' && message.type === 'request-terminal-theme'
+		).length).toBe(firstRequestCount + 1);
+		await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
 	} finally {
 		await removeSession(firstContext, createdSession?.id);
 		await Promise.all([firstContext.close(), secondContext.close()]);

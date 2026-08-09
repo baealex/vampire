@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	TerminalConnection,
+	TERMINAL_READY_TIMEOUT_MS,
 	terminalCloseIsRetryable,
 	type TerminalConnectionContext,
 	type TerminalSocket
@@ -176,4 +177,103 @@ test('stops reconnecting after repeated failures and allows a manual retry', () 
 	harness.connection.retryNow();
 	assert.equal(harness.sockets.length, 7);
 	harness.connection.stop();
+});
+
+test('does not reset backoff for sockets that open but never become ready', () => {
+	const harness = createHarness();
+	harness.connection.start();
+
+	for (const delay of [500, 1_000, 2_000, 4_000, 8_000]) {
+		const socket = harness.sockets.at(-1)!;
+		socket.open();
+		socket.disconnect(1011, 'terminal unavailable');
+		harness.scheduler.advance(delay);
+	}
+	const last = harness.sockets.at(-1)!;
+	last.open();
+	last.disconnect(1011, 'terminal unavailable');
+
+	assert.equal(harness.reconnectExhausted, 1);
+	assert.equal(harness.sockets.length, 6);
+	harness.connection.stop();
+});
+
+test('abandons a socket that stays open without ever producing a ready screen', () => {
+	const harness = createHarness();
+	harness.connection.start();
+	const socket = harness.sockets[0];
+	socket.open();
+
+	harness.scheduler.advance(TERMINAL_READY_TIMEOUT_MS - 1);
+	assert.equal(socket.readyState, 1);
+	harness.scheduler.advance(1);
+	assert.equal(socket.readyState, 3);
+	assert.deepEqual(harness.disconnects, [{
+		event: { code: 4_000, reason: 'terminal ready timeout' },
+		retrying: true
+	}]);
+	assert.deepEqual(harness.retryDelays, [500]);
+
+	harness.scheduler.advance(500);
+	assert.equal(harness.sockets.length, 2);
+	harness.connection.stop();
+});
+
+test('resets reconnect backoff only after the terminal screen is ready', () => {
+	const harness = createHarness();
+	harness.connection.start();
+	harness.sockets[0].open();
+	harness.sockets[0].disconnect(1011, 'temporary failure');
+	harness.scheduler.advance(500);
+	harness.sockets[1].open();
+	harness.sockets[1].disconnect(1011, 'temporary failure');
+	harness.scheduler.advance(1_000);
+	harness.sockets[2].open();
+	harness.connection.markReady(harness.opened.at(-1)!);
+	harness.scheduler.advance(TERMINAL_READY_TIMEOUT_MS);
+	assert.equal(harness.sockets[2].readyState, 1);
+	harness.sockets[2].disconnect(1011, 'temporary failure');
+
+	assert.deepEqual(harness.retryDelays, [500, 1_000, 500]);
+	harness.connection.stop();
+});
+
+test('suspends reconnects while a terminal page is hidden', () => {
+	const harness = createHarness();
+	harness.connection.setRetryEnabled(false);
+	harness.connection.start();
+	assert.equal(harness.sockets.length, 0);
+
+	harness.connection.setRetryEnabled(true);
+	assert.equal(harness.sockets.length, 1);
+	harness.sockets[0].open();
+	harness.sockets[0].disconnect(1011, 'background suspension');
+	harness.connection.setRetryEnabled(false);
+	harness.scheduler.advance(60_000);
+	assert.equal(harness.sockets.length, 1);
+
+	harness.connection.setRetryEnabled(true);
+	harness.scheduler.advance(1_000);
+	assert.equal(harness.sockets.length, 2);
+	harness.connection.stop();
+});
+
+test('resolves a fresh WebSocket URL for each connection attempt', () => {
+	let active = false;
+	const sockets: FakeSocket[] = [];
+	const connection = new TerminalConnection(() => `ws://example.test/terminal?active=${active ? '1' : '0'}`, {}, {
+		createSocket: (url) => {
+			const socket = new FakeSocket(url);
+			sockets.push(socket);
+			return socket;
+		}
+	});
+	connection.start();
+	assert.match(sockets[0].url, /active=0/);
+	sockets[0].open();
+	sockets[0].disconnect(1011, 'temporary failure');
+	active = true;
+	connection.retryNow();
+	assert.match(sockets[1].url, /active=1/);
+	connection.stop();
 });

@@ -7,8 +7,12 @@ import {
 	terminalThemeColor,
 	type TerminalColorSlot
 } from './color-report.ts';
-import { fitTerminalToVisibleArea } from './fit.ts';
-import { TERMINAL_SCROLLBACK_LINES } from './protocol.ts';
+import {
+	fitTerminalToVisibleArea,
+	terminalSizeForVisibleArea,
+	type TerminalSize
+} from './fit.ts';
+import { TERMINAL_PROTOCOL_VERSION, TERMINAL_SCROLLBACK_LINES } from './protocol.ts';
 import { TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT, TerminalScreenSync } from './screen-sync.ts';
 import { installTerminalTouchScroll } from './touch-scroll.ts';
 import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '$lib/ui/layout';
@@ -65,22 +69,26 @@ export class TerminalRuntime {
 	#compositionSettleTimer: ReturnType<typeof setTimeout> | undefined;
 	#connection: TerminalConnection | undefined;
 	#deferredSnapshot: DeferredTerminalSnapshot | undefined;
+	#deferredGeometry: TerminalSize | undefined;
 	#destroyed = false;
 	#displayRefreshFrame: number | undefined;
 	#displayRefreshNeedsAtlasClear = false;
 	#displayRefreshPendingComposition = false;
 	#fit: FitAddon | undefined;
 	#fontSize: number;
+	#geometryConnectionId = 0;
 	#inputDisposable: { dispose(): void } | undefined;
 	#inputNoticeAt = 0;
 	#lastOutputActivityNotice = 0;
 	#lastSentSize = '';
+	#legacyGeometryConnectionId = 0;
 	#openingDelay: ReturnType<typeof setTimeout> | undefined;
 	#options: TerminalRuntimeOptions;
 	#outputActive = false;
 	#outputActivityTimer: ReturnType<typeof setTimeout> | undefined;
 	#removeInputLifecycle: () => void = () => undefined;
 	#removeTouchScroll: () => void = () => undefined;
+	#requestedSize: TerminalSize | undefined;
 	#resizeFrame: number | undefined;
 	#resizeTimer: ReturnType<typeof setTimeout> | undefined;
 	#screenSync: TerminalScreenSync | undefined;
@@ -140,6 +148,7 @@ export class TerminalRuntime {
 		if (now - this.#activationNoticeAt < ACTIVATION_NOTICE_MS) return;
 		if (!this.#connection?.send({ type: 'activate' })) return;
 		this.#activationNoticeAt = now;
+		this.#reportTerminalTheme();
 	}
 
 	focus(): void {
@@ -148,6 +157,7 @@ export class TerminalRuntime {
 
 	markComposerFocused(): void {
 		this.#updateState({ directInputFocused: false });
+		this.activate();
 	}
 
 	scrollToTop(): void {
@@ -165,8 +175,8 @@ export class TerminalRuntime {
 	}
 
 	submit(data: string): boolean {
-		this.activate();
 		const terminal = this.#terminal;
+		this.activate();
 		if (!terminal || !this.#connection?.send({
 			type: 'submit',
 			data,
@@ -210,6 +220,7 @@ export class TerminalRuntime {
 		if (this.#displayRefreshFrame !== undefined) cancelAnimationFrame(this.#displayRefreshFrame);
 		if (this.#openingDelay) clearTimeout(this.#openingDelay);
 		this.#deferredSnapshot = undefined;
+		this.#deferredGeometry = undefined;
 		this.#setOutputActive(false);
 		this.#resizeObserver?.disconnect();
 		this.#inputDisposable?.dispose();
@@ -259,7 +270,7 @@ export class TerminalRuntime {
 			write: (data, complete) => terminal.write(data, complete),
 			refresh: () => this.#refreshTerminalDisplay(),
 			onReadyChange: (ready) => {
-				this.#updateState({ screenReady: ready });
+				this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
 				if (!ready) return;
 				this.#reportTerminalTheme();
 				if (this.#openingDelay) clearTimeout(this.#openingDelay);
@@ -277,28 +288,33 @@ export class TerminalRuntime {
 		this.#inputDisposable = terminal.onData((data) => this.#handleTerminalData(data));
 
 		const initialSize = fitTerminalToVisibleArea(fitAddon);
+		this.#requestedSize = initialSize;
 		const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
 		websocketUrl.searchParams.set('session', this.#options.sessionId);
 		websocketUrl.searchParams.set('history', String(scrollback));
+		websocketUrl.searchParams.set('protocol', String(TERMINAL_PROTOCOL_VERSION));
 		if (this.#options.terminalId) websocketUrl.searchParams.set('terminal', this.#options.terminalId);
-		if (initialSize) {
-			websocketUrl.searchParams.set('columns', String(initialSize.columns));
-			websocketUrl.searchParams.set('rows', String(initialSize.rows));
-			this.#lastSentSize = `${initialSize.columns}x${initialSize.rows}`;
-		}
-		this.#connection = new TerminalConnection(websocketUrl, {
+		this.#connection = new TerminalConnection(() => {
+			const url = new URL(websocketUrl);
+			const requestedSize = this.#requestedSize;
+			if (requestedSize) {
+				url.searchParams.set('columns', String(requestedSize.columns));
+				url.searchParams.set('rows', String(requestedSize.rows));
+			}
+			if (this.#canClaimControl()) url.searchParams.set('active', '1');
+			return url;
+		}, {
 			onOpen: () => {
 				if (this.#destroyed) return;
+				this.#activationNoticeAt = 0;
 				this.#updateState({
 					connected: true,
 					error: '',
 					openingStage: 'attaching',
-					outputPaused: false,
-					reconnecting: false
+					outputPaused: false
 				});
 				this.#reportTerminalTheme();
-				this.#scheduleDisplayRefresh(true);
-				if (desktopInput) {
+				if (desktopInput && this.#canClaimControl()) {
 					requestAnimationFrame(() => {
 						if (this.#destroyed) return;
 						terminal.focus();
@@ -309,7 +325,13 @@ export class TerminalRuntime {
 			},
 			onMessage: (message, context) => {
 				if (this.#destroyed) return;
-				if (message.type === 'snapshot') {
+				if (message.type === 'geometry') {
+					this.#geometryConnectionId = context.id;
+					if (this.#legacyGeometryConnectionId === context.id) this.#legacyGeometryConnectionId = 0;
+					this.#applyGeometry({ columns: message.columns, rows: message.rows });
+				} else if (message.type === 'request-terminal-theme') {
+					this.#reportTerminalTheme();
+				} else if (message.type === 'snapshot') {
 					this.#updateState({ openingVisible: true, openingStage: 'restoring' });
 					if (this.#composing) {
 						this.#deferredSnapshot = {
@@ -322,6 +344,14 @@ export class TerminalRuntime {
 						this.#beginSnapshot(message.data, context);
 					}
 				} else if (message.type === 'screen-ready') {
+					this.#connection?.markReady(context);
+					if (this.#geometryConnectionId !== context.id) {
+						// A pre-geometry server ignores the protocol query. Keep its legacy
+						// client-side fit behavior until this page reconnects to a newer server.
+						this.#legacyGeometryConnectionId = context.id;
+						this.#scheduleResize(0);
+					}
+					this.#updateState({ reconnecting: false });
 					const deferred = this.#deferredSnapshot;
 					if (deferred?.context.id === context.id) deferred.screenReady = true;
 					else this.#screenSync?.markScreenReady();
@@ -360,6 +390,7 @@ export class TerminalRuntime {
 			}),
 			onProtocolError: () => this.#updateState({ error: 'The terminal sent an unreadable response.' })
 		});
+		this.#connection.setRetryEnabled(document.visibilityState === 'visible');
 		this.#connection.start();
 		this.#resizeObserver = new ResizeObserver(() => this.#scheduleResize());
 		this.#resizeObserver.observe(this.#options.element);
@@ -404,6 +435,11 @@ export class TerminalRuntime {
 		this.#compositionSettleTimer = setTimeout(() => {
 			this.#compositionSettleTimer = undefined;
 			if (this.#destroyed || this.#composing) return;
+			if (this.#deferredGeometry) {
+				const geometry = this.#deferredGeometry;
+				this.#deferredGeometry = undefined;
+				this.#applyGeometry(geometry);
+			}
 			this.#flushDeferredSnapshot();
 			if (this.#displayRefreshPendingComposition) {
 				this.#displayRefreshPendingComposition = false;
@@ -482,16 +518,29 @@ export class TerminalRuntime {
 		this.#connection?.stop();
 	}
 
+	#applyGeometry(geometry: TerminalSize): void {
+		if (this.#composing) {
+			this.#deferredGeometry = geometry;
+			return;
+		}
+		const terminal = this.#terminal;
+		if (!terminal || (terminal.cols === geometry.columns && terminal.rows === geometry.rows)) return;
+		terminal.resize(geometry.columns, geometry.rows);
+		this.#scheduleDisplayRefresh();
+	}
+
 	#sendSize(): void {
-		if (this.#composing) return;
+		if (this.#composing || document.visibilityState !== 'visible') return;
 		const fitAddon = this.#fit;
 		if (!fitAddon) return;
-		const dimensions = fitTerminalToVisibleArea(fitAddon);
-		if (!dimensions) return;
 		const connection = this.#connection;
+		const dimensions = connection && this.#legacyGeometryConnectionId === connection.connectionId
+			? fitTerminalToVisibleArea(fitAddon)
+			: terminalSizeForVisibleArea(fitAddon);
+		if (!dimensions) return;
+		this.#requestedSize = dimensions;
 		const key = `${dimensions.columns}x${dimensions.rows}`;
 		if (!connection || (key === this.#lastSentSize && this.#sentSizeConnection === connection.connectionId)) return;
-		this.activate();
 		if (connection.send({ type: 'resize', ...dimensions })) {
 			this.#lastSentSize = key;
 			this.#sentSizeConnection = connection.connectionId;
@@ -551,23 +600,31 @@ export class TerminalRuntime {
 	}
 
 	#handleVisibilityChange = (): void => {
-		if (document.visibilityState !== 'visible') return;
-		this.activate();
+		const visible = document.visibilityState === 'visible';
+		if (!visible) {
+			this.#connection?.setRetryEnabled(false);
+			this.#cancelScheduledResize();
+			return;
+		}
+		this.#sendSize();
+		this.#connection?.setRetryEnabled(true);
+		if (this.#state.reconnecting) this.#connection?.retryNow(false);
+		if (this.#canClaimControl()) this.activate();
 		this.#scheduleResize(0);
 		this.#scheduleDisplayRefresh(true);
-		if (this.#state.reconnecting) this.reconnect();
 	};
 
 	#handleOnline = (): void => {
-		if (this.#state.reconnecting) this.reconnect();
+		if (document.visibilityState === 'visible' && this.#state.reconnecting) {
+			this.#connection?.retryNow(false);
+		}
 	};
 
 	#handleThemeChange = (): void => {
 		if (!this.#terminal) return;
 		this.#terminal.options.theme = this.#options.getTheme();
-		// Theme controls live outside the terminal, so explicitly make this browser
-		// the active tmux client before its color reports are applied.
-		this.#connection?.send({ type: 'activate' });
+		// The server accepts color reports only from the current controller. Theme
+		// changes on another device must never take terminal ownership by themselves.
 		this.#reportTerminalTheme();
 		this.#scheduleDisplayRefresh(true);
 	};
@@ -594,6 +651,10 @@ export class TerminalRuntime {
 
 	#sendTerminalColor(slot: TerminalColorSlot, color: string): void {
 		this.#connection?.send({ type: 'terminal-color', slot, color });
+	}
+
+	#canClaimControl(): boolean {
+		return document.visibilityState === 'visible' && document.hasFocus();
 	}
 
 	#updateState(changes: Partial<TerminalRuntimeState>): void {

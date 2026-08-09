@@ -10,6 +10,9 @@ const SOCKET_OPEN = 1;
 const SOCKET_CLOSED = 3;
 const MAXIMUM_RECONNECT_DELAY_MS = 30_000;
 const MAXIMUM_RECONNECT_ATTEMPTS = 5;
+export const TERMINAL_READY_TIMEOUT_MS = 15_000;
+const TERMINAL_READY_TIMEOUT_CLOSE_CODE = 4_000;
+const TERMINAL_READY_TIMEOUT_REASON = 'terminal ready timeout';
 
 export interface TerminalConnectionContext {
 	id: number;
@@ -44,6 +47,8 @@ export interface TerminalConnectionDependencies {
 	clearTimeout?: (timer: Timer) => void;
 }
 
+export type TerminalConnectionUrl = string | URL | (() => string | URL);
+
 export function terminalReconnectDelay(attempt: number): number {
 	return Math.min(MAXIMUM_RECONNECT_DELAY_MS, 500 * 2 ** Math.min(Math.max(0, attempt), 6));
 }
@@ -60,17 +65,19 @@ export class TerminalConnection {
 	#createSocket: (url: string) => TerminalSocket;
 	#reconnectAttempt = 0;
 	#reconnectTimer: Timer | undefined;
+	#readyTimer: Timer | undefined;
+	#retryEnabled = true;
 	#setTimeout: (callback: () => void, delay: number) => Timer;
 	#socket: TerminalSocket | undefined;
 	#stopped = true;
-	#url: string;
+	#url: () => string;
 
 	constructor(
-		url: string | URL,
+		url: TerminalConnectionUrl,
 		callbacks: TerminalConnectionCallbacks,
 		dependencies: TerminalConnectionDependencies = {}
 	) {
-		this.#url = String(url);
+		this.#url = typeof url === 'function' ? () => String(url()) : () => String(url);
 		this.#callbacks = callbacks;
 		this.#createSocket = dependencies.createSocket ?? ((socketUrl) => new WebSocket(socketUrl));
 		this.#setTimeout = dependencies.setTimeout ?? ((callback, delay) => setTimeout(callback, delay));
@@ -84,25 +91,45 @@ export class TerminalConnection {
 	start(): void {
 		if (!this.#stopped) return;
 		this.#stopped = false;
-		this.#connect();
+		if (this.#retryEnabled) this.#connect();
 	}
 
 	stop(): void {
 		if (this.#stopped) return;
 		this.#stopped = true;
 		this.#clearReconnectTimer();
+		this.#clearReadyTimer();
 		this.#reconnectAttempt = 0;
 		const socket = this.#socket;
 		this.#socket = undefined;
 		if (socket && socket.readyState !== SOCKET_CLOSED) socket.close(1000, 'terminal connection stopped');
 	}
 
-	retryNow(): void {
+	retryNow(resetAttempts = true): void {
 		if (this.#stopped) return;
+		this.#retryEnabled = true;
 		this.#clearReconnectTimer();
-		this.#reconnectAttempt = 0;
+		if (resetAttempts) this.#reconnectAttempt = 0;
 		this.#callbacks.onRetrying?.(0);
 		this.#connect();
+	}
+
+	setRetryEnabled(enabled: boolean): void {
+		if (this.#retryEnabled === enabled) return;
+		this.#retryEnabled = enabled;
+		if (!enabled) {
+			this.#clearReconnectTimer();
+			return;
+		}
+		if (this.#stopped || this.#socket) return;
+		if (this.#reconnectAttempt === 0) this.#connect();
+		else this.#scheduleReconnect();
+	}
+
+	markReady(context: TerminalConnectionContext): void {
+		if (!context.isCurrent()) return;
+		this.#clearReadyTimer();
+		this.#reconnectAttempt = 0;
 	}
 
 	send(message: TerminalClientMessage): boolean {
@@ -110,8 +137,13 @@ export class TerminalConnection {
 	}
 
 	#connect(): void {
-		if (this.#stopped || this.#socket?.readyState === SOCKET_OPEN || this.#socket?.readyState === SOCKET_CONNECTING) return;
-		const socket = this.#createSocket(this.#url);
+		if (
+			this.#stopped
+			|| !this.#retryEnabled
+			|| this.#socket?.readyState === SOCKET_OPEN
+			|| this.#socket?.readyState === SOCKET_CONNECTING
+		) return;
+		const socket = this.#createSocket(this.#url());
 		this.#socket = socket;
 		const id = ++this.#connectionId;
 		const context: TerminalConnectionContext = {
@@ -119,10 +151,10 @@ export class TerminalConnection {
 			isCurrent: () => !this.#stopped && this.#socket === socket,
 			send: (message) => this.#sendToSocket(socket, message)
 		};
+		this.#startReadyTimer(socket, context);
 
 		socket.onopen = () => {
 			if (!context.isCurrent()) return;
-			this.#reconnectAttempt = 0;
 			this.#callbacks.onOpen?.(context);
 		};
 		socket.onmessage = (event) => {
@@ -137,6 +169,7 @@ export class TerminalConnection {
 		socket.onerror = () => undefined;
 		socket.onclose = (event) => {
 			if (!context.isCurrent()) return;
+			this.#clearReadyTimer();
 			this.#socket = undefined;
 			const retrying = terminalCloseIsRetryable(event);
 			this.#callbacks.onDisconnect?.(event, retrying);
@@ -144,8 +177,27 @@ export class TerminalConnection {
 		};
 	}
 
+	#startReadyTimer(socket: TerminalSocket, context: TerminalConnectionContext): void {
+		this.#clearReadyTimer();
+		this.#readyTimer = this.#setTimeout(() => {
+			this.#readyTimer = undefined;
+			if (!context.isCurrent()) return;
+			this.#socket = undefined;
+			try {
+				socket.close(TERMINAL_READY_TIMEOUT_CLOSE_CODE, TERMINAL_READY_TIMEOUT_REASON);
+			} catch {
+				// A browser can reject close() while the WebSocket handshake is still pending.
+			}
+			this.#callbacks.onDisconnect?.({
+				code: TERMINAL_READY_TIMEOUT_CLOSE_CODE,
+				reason: TERMINAL_READY_TIMEOUT_REASON
+			}, true);
+			this.#scheduleReconnect();
+		}, TERMINAL_READY_TIMEOUT_MS);
+	}
+
 	#scheduleReconnect(): void {
-		if (this.#stopped || this.#reconnectTimer !== undefined) return;
+		if (this.#stopped || !this.#retryEnabled || this.#reconnectTimer !== undefined) return;
 		if (this.#reconnectAttempt >= MAXIMUM_RECONNECT_ATTEMPTS) {
 			this.#callbacks.onReconnectExhausted?.();
 			return;
@@ -163,6 +215,12 @@ export class TerminalConnection {
 		if (this.#reconnectTimer === undefined) return;
 		this.#clearTimeout(this.#reconnectTimer);
 		this.#reconnectTimer = undefined;
+	}
+
+	#clearReadyTimer(): void {
+		if (this.#readyTimer === undefined) return;
+		this.#clearTimeout(this.#readyTimer);
+		this.#readyTimer = undefined;
 	}
 
 	#sendToSocket(socket: TerminalSocket, message: TerminalClientMessage): boolean {
