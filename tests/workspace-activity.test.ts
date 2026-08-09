@@ -128,6 +128,31 @@ test('ignores tmux activity covered by a synthetic redraw watermark', () => {
 	assert.deepEqual(result.sessions.get(current.id), current);
 });
 
+test('accepts real output immediately after the exact synthetic redraw watermark', () => {
+	const current = session({
+		terminals: [
+			terminal('@0', 0, 1_000),
+			terminal('@1', 1, 1_000)
+		]
+	});
+	const result = reconcileSessionActivity(
+		new Map([[current.id, current]]),
+		[{ name: current.tmuxSession, lastOutputAt: 4_000, mainLastOutputAt: 4_000 }],
+		new Map([[current.id, { lastOutputAt: 3_000, mainLastOutputAt: 3_000 }]])
+	);
+
+	assert.deepEqual(result.updates, [{
+		id: current.id,
+		changes: {
+			lastOutputAt: 4_000,
+			terminals: [
+				{ ...current.terminals[0], lastOutputAt: 4_000 },
+				current.terminals[1]
+			]
+		}
+	}]);
+});
+
 test('preserves visible output times while accepting process changes after a synthetic redraw', () => {
 	const current = session({
 		terminals: [

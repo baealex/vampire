@@ -191,11 +191,13 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 	await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', 'seq 1 200']);
 	await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
 	const terminalRows = page.locator('.xterm-rows');
-	await expect.poll(() => terminalRows.innerText()).toContain('200');
+	const hasVisibleOutputLine = (value: string) => terminalRows.evaluate((rows, expected) =>
+		Array.from(rows.children).some((row) => row.textContent?.trim() === expected), value);
+	await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
 	await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
-	await expect.poll(async () => !(await terminalRows.innerText()).includes('200')).toBe(true);
+	await expect.poll(() => hasVisibleOutputLine('200')).toBe(false);
 	await page.getByRole('button', { name: 'Scroll to terminal bottom' }).click();
-	await expect.poll(() => terminalRows.innerText()).toContain('200');
+	await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
 
 	const runBackground = page.getByRole('button', { name: 'Run background command' });
 	await expect(runBackground).toBeVisible();

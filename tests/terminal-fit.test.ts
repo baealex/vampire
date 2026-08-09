@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fitTerminalToVisibleArea, type TerminalFitDimensions } from '../src/lib/terminal/fit.ts';
+import {
+	fitTerminalToVisibleArea,
+	terminalSizeForVisibleArea,
+	type TerminalFitDimensions
+} from '../src/lib/terminal/fit.ts';
 
 function createFitAddon(dimensions: TerminalFitDimensions | undefined) {
 	let fits = 0;
@@ -25,6 +29,12 @@ test('fits and reports a stable terminal size', () => {
 	const harness = createFitAddon({ cols: 120, rows: 36 });
 	assert.deepEqual(fitTerminalToVisibleArea(harness.addon), { columns: 120, rows: 36 });
 	assert.equal(harness.fits, 1);
+});
+
+test('measures a viewer without changing its authoritative terminal geometry', () => {
+	const harness = createFitAddon({ cols: 52, rows: 18 });
+	assert.deepEqual(terminalSizeForVisibleArea(harness.addon), { columns: 52, rows: 18 });
+	assert.equal(harness.fits, 0);
 });
 
 test('rejects non-finite terminal dimensions', () => {

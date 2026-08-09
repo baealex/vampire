@@ -10,16 +10,27 @@ export type TerminalClientMessage =
 
 export type TerminalServerMessage =
 	| { type: 'snapshot'; data: string }
+	| { type: 'geometry'; columns: number; rows: number }
+	| { type: 'request-terminal-theme' }
 	| { type: 'screen-ready' }
 	| { type: 'output'; data: string; activity: boolean; activityAt: number | null }
 	| { type: 'repository-status'; changeCount: number; worktreeCount: number }
 	| { type: 'error'; message: string };
+
+export const TERMINAL_PROTOCOL_VERSION = 2;
 
 export const TERMINAL_SIZE_LIMITS = {
 	minimumColumns: 20,
 	maximumColumns: 240,
 	minimumRows: 5,
 	maximumRows: 120
+};
+
+export const TERMINAL_GEOMETRY_LIMITS = {
+	minimumColumns: 1,
+	maximumColumns: 1_000,
+	minimumRows: 1,
+	maximumRows: 500
 };
 
 export const TERMINAL_SCROLLBACK_LINES = {
@@ -66,7 +77,14 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
 export function parseTerminalServerMessage(value: unknown): TerminalServerMessage | undefined {
 	if (!isRecord(value)) return undefined;
 	if (value.type === 'snapshot' && typeof value.data === 'string') return { type: 'snapshot', data: value.data };
-	if (value.type === 'screen-ready') return { type: 'screen-ready' };
+	if (
+		value.type === 'geometry'
+		&& isIntegerBetween(value.columns, TERMINAL_GEOMETRY_LIMITS.minimumColumns, TERMINAL_GEOMETRY_LIMITS.maximumColumns)
+		&& isIntegerBetween(value.rows, TERMINAL_GEOMETRY_LIMITS.minimumRows, TERMINAL_GEOMETRY_LIMITS.maximumRows)
+	) {
+		return { type: 'geometry', columns: Number(value.columns), rows: Number(value.rows) };
+	}
+	if (value.type === 'request-terminal-theme' || value.type === 'screen-ready') return { type: value.type };
 	if (
 		value.type === 'output'
 		&& typeof value.data === 'string'

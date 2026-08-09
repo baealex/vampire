@@ -5,12 +5,20 @@ import {
 	isTerminalOutputActivity,
 	parseTmuxControlOutput,
 	terminalColorControlCommand,
+	terminalActivityTimestamp,
 	terminalInputControlCommands,
 	terminalSubmissionData,
 	terminalSubmissionSettleMs,
 	terminalSnapshotHistoryLines,
 	tmuxSupportsTerminalColorReports
 } from '../runtime/terminal.ts';
+
+test('converts an exact tmux activity watermark without inventing a future window', () => {
+	assert.equal(terminalActivityTimestamp('1786280522\n'), 1_786_280_522_000);
+	assert.equal(terminalActivityTimestamp('0\n'), undefined);
+	assert.equal(terminalActivityTimestamp('1786280522 extra\n'), undefined);
+	assert.equal(terminalActivityTimestamp('not-a-timestamp'), undefined);
+});
 
 test('reports browser terminal colors through the tmux control client', () => {
 	assert.equal(

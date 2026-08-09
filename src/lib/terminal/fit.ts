@@ -13,7 +13,7 @@ export interface TerminalSize {
 	rows: number;
 }
 
-export function fitTerminalToVisibleArea(fitAddon: TerminalFitAddon): TerminalSize | undefined {
+export function terminalSizeForVisibleArea(fitAddon: TerminalFitAddon): TerminalSize | undefined {
 	const dimensions = fitAddon.proposeDimensions();
 	if (
 		!dimensions
@@ -22,7 +22,12 @@ export function fitTerminalToVisibleArea(fitAddon: TerminalFitAddon): TerminalSi
 		|| dimensions.cols < 20
 		|| dimensions.rows < 5
 	) return undefined;
-
-	fitAddon.fit();
 	return { columns: dimensions.cols, rows: dimensions.rows };
+}
+
+export function fitTerminalToVisibleArea(fitAddon: TerminalFitAddon): TerminalSize | undefined {
+	const dimensions = terminalSizeForVisibleArea(fitAddon);
+	if (!dimensions) return undefined;
+	fitAddon.fit();
+	return dimensions;
 }
