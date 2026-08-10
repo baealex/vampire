@@ -1,8 +1,15 @@
-export type WorkspaceEntryKind = 'file' | 'directory';
+import type { WorkspaceEntryKind } from './repository/types.ts';
+
+export type { WorkspaceEntryKind };
 
 export interface WorkspaceEntryDragData {
 	path: string;
 	kind: WorkspaceEntryKind;
+}
+
+export interface TerminalPathInsertionRequest {
+	entries: WorkspaceEntryDragData[];
+	token: number;
 }
 
 export const WORKSPACE_ENTRY_DRAG_TYPE = 'application/x-vampire-workspace-entry';
@@ -34,4 +41,15 @@ function shellQuote(value: string): string {
 
 export function workspaceEntryDragText({ path, kind }: WorkspaceEntryDragData): string {
 	return shellQuote(kind === 'directory' ? `${path}/` : path);
+}
+
+export function workspaceEntryParent(path: string): string {
+	const separator = path.lastIndexOf('/');
+	return separator < 0 ? '' : path.slice(0, separator);
+}
+
+export function workspaceEntryCanMoveToDirectory(entry: WorkspaceEntryDragData, targetDirectory: string): boolean {
+	if (workspaceEntryParent(entry.path) === targetDirectory) return false;
+	return entry.kind !== 'directory'
+		|| (targetDirectory !== entry.path && !targetDirectory.startsWith(`${entry.path}/`));
 }

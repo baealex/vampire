@@ -1,17 +1,22 @@
 <script lang="ts">
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
-	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderOpen from '@lucide/svelte/icons/folder-open';
-	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import ImageIcon from '@lucide/svelte/icons/image';
-	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import { WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
+	import {
+		parseWorkspaceEntryDrag,
+		WORKSPACE_ENTRY_DRAG_TYPE,
+		workspaceEntryCanMoveToDirectory,
+		workspaceEntryDragText,
+		type WorkspaceEntryDragData
+	} from '$lib/workspace-entry-drag.ts';
+	import RepositoryEntryMenu from './RepositoryEntryMenu.svelte';
 	import RepositoryInlineEntry from './RepositoryInlineEntry.svelte';
+	import { dataTransferHasUploadFiles } from './upload';
 	import { buildChangeKindMap, buildVisibleFileTree, isPreviewableImage } from './view';
-	import type { RepositorySelection, RepositorySnapshot } from './types';
+	import type { RepositorySelection, RepositorySnapshot, WorkspaceMoveResult } from './types';
 
 	let {
 		snapshot,
@@ -20,6 +25,11 @@
 		onCreateFile,
 		onCreateDirectory,
 		onRequestDelete,
+		rootCreationRequest,
+		onDropFiles,
+		onMoveEntry,
+		onInsertPath,
+		dropOperation = '',
 		onSelect
 	}: {
 		snapshot: RepositorySnapshot;
@@ -28,6 +38,11 @@
 		onCreateFile: (directory: string, name: string) => Promise<void>;
 		onCreateDirectory: (directory: string, name: string) => Promise<void>;
 		onRequestDelete: (path: string, kind: 'file' | 'directory') => void;
+		rootCreationRequest?: { kind: 'file' | 'directory'; token: number };
+		onDropFiles: (directory: string, dataTransfer: DataTransfer) => Promise<void>;
+		onMoveEntry: (entry: WorkspaceEntryDragData, directory: string) => Promise<WorkspaceMoveResult | undefined>;
+		onInsertPath: (entry: WorkspaceEntryDragData) => void;
+		dropOperation?: '' | 'copy' | 'move';
 		onSelect: (selection: RepositorySelection) => void;
 	} = $props();
 
@@ -38,22 +53,125 @@
 	let creating = $state(false);
 	let loadingDirectories = $state<string[]>([]);
 	let draggingPath = $state('');
+	let draggingEntry = $state<WorkspaceEntryDragData>();
+	let dropTargetDirectory = $state('');
+	let dropTargetOperation = $state<'' | 'copy' | 'move'>('');
+	let entryMenuPath = $state('');
 	let treeRows = $derived(buildVisibleFileTree(snapshot.files, expandedDirectories, snapshot.directories));
 	let changeKinds = $derived(buildChangeKindMap(snapshot.changes));
+	let ignoredPaths = $derived(new Set(snapshot.ignored));
 	let revealRequestPath = '';
 	let revealRequestId = 0;
+	let handledCreationToken = 0;
 
 	function beginEntryDrag(event: DragEvent, path: string, kind: 'file' | 'directory') {
 		if (!event.dataTransfer) return;
 		const entry = { path, kind };
-		event.dataTransfer.effectAllowed = 'copy';
+		event.dataTransfer.effectAllowed = 'copyMove';
 		event.dataTransfer.setData(WORKSPACE_ENTRY_DRAG_TYPE, JSON.stringify(entry));
 		event.dataTransfer.setData('text/plain', workspaceEntryDragText(entry));
 		draggingPath = path;
+		draggingEntry = entry;
 	}
 
 	function endEntryDrag() {
 		draggingPath = '';
+		draggingEntry = undefined;
+		dropTargetDirectory = '';
+		dropTargetOperation = '';
+	}
+
+	function handleDirectoryDragOver(event: DragEvent, path: string) {
+		const dataTransfer = event.dataTransfer;
+		if (!dataTransfer) return;
+		if (dataTransferHasUploadFiles(dataTransfer)) {
+			event.preventDefault();
+			dataTransfer.dropEffect = 'copy';
+			dropTargetDirectory = path;
+			dropTargetOperation = 'copy';
+			return;
+		}
+		if (!Array.from(dataTransfer.types).includes(WORKSPACE_ENTRY_DRAG_TYPE)) return;
+		const entry = draggingEntry ?? parseWorkspaceEntryDrag(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
+		if (!entry || !workspaceEntryCanMoveToDirectory(entry, path)) return;
+		event.preventDefault();
+		dataTransfer.dropEffect = 'move';
+		dropTargetDirectory = path;
+		dropTargetOperation = 'move';
+	}
+
+	function handleDirectoryDragLeave(event: DragEvent, path: string) {
+		if (dropTargetDirectory !== path) return;
+		event.stopPropagation();
+		const current = event.currentTarget;
+		const related = event.relatedTarget;
+		if (current instanceof Node && related instanceof Node && current.contains(related)) return;
+		dropTargetDirectory = '';
+		dropTargetOperation = '';
+	}
+
+	function handleDirectoryDrop(event: DragEvent, path: string) {
+		const dataTransfer = event.dataTransfer;
+		if (!dataTransfer) return;
+		if (dataTransferHasUploadFiles(dataTransfer)) {
+			event.preventDefault();
+			dropTargetDirectory = '';
+			dropTargetOperation = '';
+			void onDropFiles(path, dataTransfer);
+			return;
+		}
+		if (!Array.from(dataTransfer.types).includes(WORKSPACE_ENTRY_DRAG_TYPE)) return;
+		const entry = draggingEntry ?? parseWorkspaceEntryDrag(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
+		if (!entry || !workspaceEntryCanMoveToDirectory(entry, path)) return;
+		event.preventDefault();
+		dropTargetDirectory = '';
+		dropTargetOperation = '';
+		void moveEntryToDirectory(entry, path);
+	}
+
+	function isDirectoryDropCandidate(path: string): boolean {
+		if (!dropOperation) return false;
+		if (dropOperation === 'copy' || !draggingEntry) return true;
+		return workspaceEntryCanMoveToDirectory(draggingEntry, path);
+	}
+
+	function isGitIgnored(path: string): boolean {
+		let candidate = path;
+		while (candidate) {
+			if (ignoredPaths.has(candidate)) return true;
+			const separator = candidate.lastIndexOf('/');
+			candidate = separator < 0 ? '' : candidate.slice(0, separator);
+		}
+		return false;
+	}
+
+	function rebaseExpandedDirectories(result: WorkspaceMoveResult) {
+		if (result.kind !== 'directory') return;
+		expandedDirectories = expandedDirectories.map((directory) => {
+			if (directory === result.fromPath) return result.path;
+			if (directory.startsWith(`${result.fromPath}/`)) {
+				return `${result.path}${directory.slice(result.fromPath.length)}`;
+			}
+			return directory;
+		});
+	}
+
+	async function moveEntryToDirectory(entry: WorkspaceEntryDragData, path: string) {
+		const result = await onMoveEntry(entry, path);
+		if (!result) return;
+		rebaseExpandedDirectories(result);
+		try {
+			await onLoadDirectory(path);
+			if (!expandedDirectories.includes(path)) expandedDirectories = [...expandedDirectories, path];
+		} catch {
+			// The move succeeded; the parent panel displays any refresh error.
+		}
+	}
+
+	function openEntryMenu(event: MouseEvent, path: string) {
+		event.preventDefault();
+		event.stopPropagation();
+		entryMenuPath = path;
 	}
 
 	async function toggleDirectory(path: string) {
@@ -140,6 +258,14 @@
 	}
 
 	$effect(() => {
+		const request = rootCreationRequest;
+		if (request && request.token !== handledCreationToken) {
+			handledCreationToken = request.token;
+			beginCreation(request.kind, '');
+		}
+	});
+
+	$effect(() => {
 		const targetPath = selected?.kind === 'file' ? selected.path : '';
 		if (!targetPath) {
 			revealRequestPath = '';
@@ -153,23 +279,10 @@
 </script>
 
 <div role="tabpanel" aria-label="Workspace files">
-	<div class="file-toolbar" role="toolbar" aria-label="Add workspace files">
-		<span>Workspace files</span>
-		<div class="file-toolbar-actions">
-			<button type="button" onclick={() => beginCreation('file', '')} aria-label="Create file in workspace root" title="New file">
-				<FilePlus size={15} strokeWidth={1.8} aria-hidden="true" />
-				<span>File</span>
-			</button>
-			<button type="button" onclick={() => beginCreation('directory', '')} aria-label="Create folder in workspace root" title="New folder">
-				<FolderPlus size={15} strokeWidth={1.8} aria-hidden="true" />
-				<span>Folder</span>
-			</button>
-		</div>
-	</div>
 	{#if treeRows.length === 0 && !inlineCreation}
 		<div class="repository-empty">
 			<strong>No files yet</strong>
-			<p>Create a file or folder from the toolbar above.</p>
+			<p>Use + or drop files into this panel.</p>
 		</div>
 	{:else}
 		<div class="file-tree">
@@ -185,7 +298,21 @@
 			{/if}
 			{#each treeRows as row (row.path)}
 				{@const changeKind = changeKinds.get(row.path)}
-				<div class="tree-row-shell" class:directory={row.kind === 'directory'} class:dragging={draggingPath === row.path} class:selected={selected?.kind === 'file' && selected.path === row.path}>
+				{@const gitIgnored = isGitIgnored(row.path)}
+				<div
+					class="tree-row-shell"
+					role="group"
+					class:directory={row.kind === 'directory'}
+					class:dragging={draggingPath === row.path}
+					class:drop-candidate={row.kind === 'directory' && isDirectoryDropCandidate(row.path)}
+					class:drop-target={dropTargetDirectory === row.path}
+					class:ignored={gitIgnored}
+					class:selected={selected?.kind === 'file' && selected.path === row.path}
+					oncontextmenu={(event) => openEntryMenu(event, row.path)}
+					ondragover={row.kind === 'directory' ? (event) => handleDirectoryDragOver(event, row.path) : undefined}
+					ondragleave={row.kind === 'directory' ? (event) => handleDirectoryDragLeave(event, row.path) : undefined}
+					ondrop={row.kind === 'directory' ? (event) => handleDirectoryDrop(event, row.path) : undefined}
+				>
 					<button
 						type="button"
 						class="tree-row"
@@ -197,7 +324,7 @@
 						onclick={() => row.kind === 'directory' ? void toggleDirectory(row.path) : selectFile(row.path)}
 						aria-busy={row.kind === 'directory' && loadingDirectories.includes(row.path)}
 						aria-expanded={row.kind === 'directory' ? expandedDirectories.includes(row.path) : undefined}
-						aria-label={row.kind === 'directory' ? `${expandedDirectories.includes(row.path) ? 'Collapse' : 'Expand'} ${row.path}` : `Open ${row.path}`}
+						aria-label={`${row.kind === 'directory' ? `${expandedDirectories.includes(row.path) ? 'Collapse' : 'Expand'} ${row.path}` : `Open ${row.path}`}${gitIgnored ? ', ignored by Git' : ''}`}
 					>
 						<span class="tree-indent" aria-hidden="true">
 							{#each Array(row.depth) as _}<span></span>{/each}
@@ -216,24 +343,21 @@
 							</span>
 						{/if}
 						<span class="tree-name" title={row.path}>{row.name}</span>
-					</button>
-					<div class="tree-actions">
-						{#if row.kind === 'directory'}
-							<button type="button" onclick={(event) => { event.stopPropagation(); beginCreation('file', row.path); }} aria-label={`Create file in ${row.path}`} title="New file here">
-								<FilePlus size={14} strokeWidth={1.8} aria-hidden="true" />
-							</button>
-							<button type="button" onclick={(event) => { event.stopPropagation(); beginCreation('directory', row.path); }} aria-label={`Create folder in ${row.path}`} title="New folder here">
-								<FolderPlus size={14} strokeWidth={1.8} aria-hidden="true" />
-							</button>
+						{#if dropTargetDirectory === row.path}
+							<span class="tree-drop-label">{dropTargetOperation === 'move' ? 'Move here' : 'Copy here'}</span>
 						{/if}
-						<button
-							type="button"
-							onclick={(event) => { event.stopPropagation(); onRequestDelete(row.path, row.kind); }}
-							aria-label={`Delete ${row.kind === 'directory' ? 'folder' : 'file'} ${row.path}`}
-							title={`Delete ${row.kind === 'directory' ? 'folder' : 'file'}`}
-						>
-							<Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-						</button>
+					</button>
+					<div class="tree-actions" class:open={entryMenuPath === row.path}>
+						<RepositoryEntryMenu
+							path={row.path}
+							kind={row.kind}
+							open={entryMenuPath === row.path}
+							onOpenChange={(open) => entryMenuPath = open ? row.path : ''}
+							onCreateFile={() => beginCreation('file', row.path)}
+							onCreateFolder={() => beginCreation('directory', row.path)}
+							onInsertPath={() => onInsertPath({ path: row.path, kind: row.kind })}
+							onDelete={() => onRequestDelete(row.path, row.kind)}
+						/>
 					</div>
 				</div>
 				{#if inlineCreation?.parent === row.path}
@@ -257,29 +381,33 @@
 	.repository-empty { padding: 1.5rem 1rem; }
 	.repository-empty strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
 	.repository-empty p { margin: 0.35rem 0 0; color: var(--color-text-secondary); font-size: var(--text-caption); line-height: var(--leading-body); }
-	.file-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; min-height: 2.7rem; padding: 0.35rem 0.65rem 0.35rem 0.85rem; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: var(--text-caption); }
-	.file-toolbar-actions { display: flex; align-items: center; gap: 0.25rem; }
-	.file-toolbar-actions button { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 2rem; padding: 0 0.45rem; border: 1px solid var(--color-border); border-radius: var(--radius-xs); background: var(--color-control-background); color: var(--color-text-secondary); font-size: var(--text-caption); cursor: pointer; }
-	.file-toolbar-actions button:hover { background: var(--color-control-hover); color: var(--color-text); }
 	.file-tree { padding: 0.35rem 0; }
 	.tree-row-shell { display: flex; align-items: center; min-width: 0; min-height: 2rem; border-bottom: 1px solid transparent; }
 	.tree-row-shell:hover, .tree-row-shell.selected { background: var(--color-surface-raised); }
 	.tree-row-shell.selected { background: var(--color-surface-active); }
 	.tree-row-shell.dragging { opacity: 0.45; }
+	.tree-row-shell.drop-candidate { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 38%, transparent); }
+	.tree-row-shell.drop-target { background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent), inset 3px 0 0 var(--color-accent); }
+	.tree-row-shell.drop-target .tree-row, .tree-row-shell.drop-target .tree-icon { color: var(--color-accent-soft-text); }
 	.tree-row { display: flex; flex: 1 1 auto; align-items: center; width: 0; min-width: 0; min-height: 2rem; padding: 0 0.2rem 0 0.65rem; border: 0; background: transparent; color: var(--color-text-secondary); text-align: left; cursor: pointer; }
-	.tree-row[draggable="true"] { cursor: grab; }
 	.tree-row-shell.dragging .tree-row { cursor: grabbing; }
 	.tree-row:hover, .tree-row-shell.selected .tree-row { color: var(--color-text); }
-	.tree-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.05rem; padding-right: 0.35rem; }
-	.tree-actions button { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; padding: 0; border: 0; border-radius: 0.35rem; background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
-	.tree-actions button:hover, .tree-actions button:focus-visible { background: var(--color-control-hover); color: var(--color-text); }
+	.tree-row-shell.ignored .tree-row { opacity: 0.48; }
+	.tree-row-shell.ignored:hover .tree-row, .tree-row-shell.ignored:focus-within .tree-row { opacity: 0.68; }
+	.tree-actions { display: flex; flex: 0 0 auto; align-items: center; padding-right: 0.35rem; opacity: 0; }
+	.tree-row-shell:hover .tree-actions, .tree-row-shell:focus-within .tree-actions, .tree-actions.open { opacity: 1; }
 	.tree-indent { display: inline-flex; flex: 0 0 auto; }
 	.tree-indent > span { width: 0.72rem; }
 	.tree-chevron { display: grid; flex: 0 0 1rem; place-items: center; width: 1rem; color: var(--color-text-tertiary); }
 	.tree-icon { display: grid; flex: 0 0 1.35rem; place-items: center; width: 1.35rem; color: var(--color-folder); }
 	.tree-icon.file { color: var(--color-text-tertiary); }
 	.tree-icon.file.image { color: var(--color-image); }
-	.tree-name { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
+	.tree-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
+	.tree-drop-label { flex: 0 0 auto; margin-left: 0.45rem; padding: 0.12rem 0.38rem; border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent); border-radius: var(--radius-pill); background: var(--color-panel); color: var(--color-accent-soft-text); font-family: var(--font-sans); font-size: var(--text-micro); line-height: 1.2; }
 	.tree-row.modified, .tree-row.modified:hover, .tree-row-shell.selected .tree-row.modified, .tree-row.modified .tree-icon { color: var(--color-warning); }
 	.tree-row.added, .tree-row.added:hover, .tree-row-shell.selected .tree-row.added, .tree-row.added .tree-icon { color: var(--color-info); }
+
+	@media (hover: none) {
+		.tree-actions { opacity: 1; }
+	}
 </style>

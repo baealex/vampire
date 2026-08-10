@@ -7,6 +7,7 @@
 	import TerminalViewport from '$lib/terminal/TerminalViewport.svelte';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import { isDesktopViewport } from '$lib/ui/layout';
+	import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '$lib/workspace-entry-drag.ts';
 
 	let {
 		session,
@@ -30,6 +31,8 @@
 		worktreeCount = 0,
 		onRepositoryStatus = () => undefined,
 		onToggleRepository = () => undefined,
+		pathInsertionRequest,
+		onExternalFileDrop = async () => [],
 		systemMetrics,
 		children
 	}: {
@@ -54,6 +57,8 @@
 		worktreeCount?: number;
 		onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
 		onToggleRepository?: () => void;
+		pathInsertionRequest?: TerminalPathInsertionRequest;
+		onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
 		systemMetrics?: SystemMetrics;
 		children?: Snippet;
 	} = $props();
@@ -142,6 +147,8 @@
 				{onInputActivity}
 				{onOutputActivity}
 				{onRepositoryStatus}
+				{pathInsertionRequest}
+				{onExternalFileDrop}
 				bind:fontSize={terminalFontSize}
 				{minimumFontSize}
 				{maximumFontSize}

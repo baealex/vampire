@@ -1,15 +1,22 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdir, open, readFile, readdir, realpath, stat, lstat, rm, unlink, writeFile } from 'node:fs/promises';
+import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { link, mkdir, open, readFile, readdir, realpath, rename, rmdir, stat, lstat, rm, unlink, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type {
 	RepositoryChange,
+	RepositoryDiscardResult,
 	RepositoryDiff,
 	RepositoryDirectoryListing,
 	RepositorySnapshot,
-	WorkspaceFile
+	WorkspaceEntryKind,
+	WorkspaceFile,
+	WorkspaceMoveConflict,
+	WorkspaceMoveResult,
+	WorkspaceUploadConflict,
+	WorkspaceUploadResult
 } from '../repository/types.ts';
 import { errorHasCode, pathStaysInside } from './path-policy.ts';
 
@@ -59,6 +66,7 @@ const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git']);
+const TEMPORARY_UPLOAD_PREFIX = '.vampire-upload-';
 
 export class RepositoryReadError extends Error {
 	readonly reason: RepositoryReadErrorReason;
@@ -104,8 +112,8 @@ async function runGit(cwd: string, args: string[], options: GitRunOptions = {}):
 			timeout: GIT_TIMEOUT_MS,
 			env: {
 				...process.env,
-				GIT_EXTERNAL_DIFF: '',
 				GIT_LITERAL_PATHSPECS: '1',
+				GIT_EXTERNAL_DIFF: '',
 				GIT_OPTIONAL_LOCKS: '0',
 				GIT_PAGER: 'cat',
 				GIT_TERMINAL_PROMPT: '0',
@@ -123,6 +131,60 @@ async function runGit(cwd: string, args: string[], options: GitRunOptions = {}):
 		if (commandError.killed) throw repositoryError('command-failed', 'Git took too long to respond.');
 		throw repositoryError('command-failed', 'Git could not read this workspace.');
 	}
+}
+
+async function readGitIgnoredPaths(cwd: string, paths: string[]): Promise<string[]> {
+	if (paths.length === 0) return [];
+	return new Promise((resolvePromise, rejectPromise) => {
+		const child = spawn('git', ['-C', cwd, '-c', 'status.relativePaths=true', 'check-ignore', '--stdin', '-z'], {
+			stdio: ['pipe', 'pipe', 'pipe'],
+			env: {
+				...process.env,
+				GIT_OPTIONAL_LOCKS: '0',
+				GIT_PAGER: 'cat',
+				GIT_TERMINAL_PROMPT: '0',
+				LC_ALL: 'C'
+			}
+		});
+		const stdout: Buffer[] = [];
+		const stderr: Buffer[] = [];
+		let outputBytes = 0;
+		let settled = false;
+		const finish = (error?: Error, ignored: string[] = []) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			if (error) rejectPromise(error);
+			else resolvePromise(ignored);
+		};
+		const timeout = setTimeout(() => {
+			child.kill('SIGKILL');
+			finish(repositoryError('command-failed', 'Git took too long to respond.'));
+		}, GIT_TIMEOUT_MS);
+
+		child.stdout.on('data', (chunk: Buffer) => {
+			outputBytes += chunk.length;
+			if (outputBytes > MAX_GIT_OUTPUT_BYTES) {
+				child.kill('SIGKILL');
+				finish(repositoryError('too-large', 'Repository output is too large to display safely.'));
+				return;
+			}
+			stdout.push(chunk);
+		});
+		child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+		child.on('error', () => finish(repositoryError('command-failed', 'Git could not read this workspace.')));
+		child.on('close', (code) => {
+			if (settled) return;
+			if (code !== 0 && code !== 1) {
+				const message = Buffer.concat(stderr).toString('utf8').trim();
+				finish(repositoryError('command-failed', message || 'Git could not read this workspace.'));
+				return;
+			}
+			finish(undefined, Buffer.concat(stdout).toString('utf8').split('\0').filter(Boolean));
+		});
+		child.stdin.on('error', () => undefined);
+		child.stdin.end(`${paths.join('\0')}\0`);
+	});
 }
 
 export async function isGitRepository(cwd: string): Promise<boolean> {
@@ -158,6 +220,7 @@ function parseGitChanges(output: string): RepositoryChange[] {
 		const path = record.slice(3);
 		const renamed = status[0] === 'R' || status[0] === 'C' || status[1] === 'R' || status[1] === 'C';
 		const previousPath = renamed ? records[++index] : undefined;
+		if (path.split('/').some((segment) => segment.startsWith(TEMPORARY_UPLOAD_PREFIX))) continue;
 		changes.push({
 			path,
 			status,
@@ -177,6 +240,67 @@ async function readGitChanges(cwd: string): Promise<RepositoryChange[]> {
 		'.'
 	]);
 	return parseGitChanges(stdout);
+}
+
+async function gitHeadExists(cwd: string): Promise<boolean> {
+	const { stdout } = await runGit(cwd, ['rev-parse', '--verify', 'HEAD'], { acceptedExitCodes: [0, 128] });
+	return Boolean(stdout.trim());
+}
+
+function repositoryChangesMatch(left: RepositoryChange, right: RepositoryChange): boolean {
+	return left.path === right.path
+		&& left.status === right.status
+		&& left.previousPath === right.previousPath;
+}
+
+/**
+ * Restore one changed path to HEAD. Untracked entries are removed only through
+ * Git's own clean eligibility check; tracked paths restore both index and worktree.
+ */
+export async function discardRepositoryChange(
+	cwd: string,
+	path: string,
+	expected?: RepositoryChange
+): Promise<RepositoryDiscardResult> {
+	const root = await workspaceRoot(cwd);
+	const normalizedPath = normalizeRelativePath(path);
+	if (pathContainsGitMetadata(normalizedPath)) {
+		throw repositoryError('invalid-path', 'Git metadata changes cannot be discarded here.');
+	}
+	if (!await isGitRepository(root)) {
+		throw repositoryError('not-git', 'This workspace is not a Git repository.');
+	}
+
+	const changes = await readGitChanges(root);
+	const change = changes.find((candidate) => candidate.path === normalizedPath);
+	if (!change) throw repositoryError('not-found', 'This path no longer has changes to discard.');
+	if (expected && !repositoryChangesMatch(change, expected)) {
+		throw repositoryError('conflict', 'This Git change was updated. Review it again before discarding.');
+	}
+
+	if (change.status === '??') {
+		await runGit(root, ['clean', '-f', '--', normalizedPath]);
+	} else {
+		const restorePaths = [normalizedPath];
+		if (change.status.includes('R') && change.previousPath) {
+			const previousPath = normalizeRelativePath(change.previousPath);
+			if (pathContainsGitMetadata(previousPath)) {
+				throw repositoryError('invalid-path', 'Git metadata changes cannot be discarded here.');
+			}
+			restorePaths.push(previousPath);
+		}
+		if (await gitHeadExists(root)) {
+			await runGit(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...restorePaths]);
+		} else {
+			await runGit(root, ['rm', '-f', '--', ...restorePaths]);
+		}
+	}
+
+	const remaining = await readGitChanges(root);
+	if (remaining.some((candidate) => candidate.path === normalizedPath)) {
+		throw repositoryError('command-failed', 'Git could not completely discard this change.');
+	}
+	return { path: normalizedPath, untracked: change.status === '??' };
 }
 
 /**
@@ -229,7 +353,11 @@ export async function readWorkspaceDirectory(cwd: string, path = ''): Promise<Re
 	const directories: string[] = [];
 	let truncated = false;
 	for (const entry of entries) {
-		if (entry.isSymbolicLink() || IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;
+		if (
+			entry.isSymbolicLink()
+			|| IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)
+			|| entry.name.startsWith(TEMPORARY_UPLOAD_PREFIX)
+		) continue;
 		if (files.length + directories.length >= MAX_DIRECTORY_ENTRY_COUNT) {
 			truncated = true;
 			break;
@@ -239,7 +367,17 @@ export async function readWorkspaceDirectory(cwd: string, path = ''): Promise<Re
 		else if (entry.isFile()) files.push(entryPath);
 	}
 
-	return { files, directories, truncated };
+	return { files, directories, ignored: [], truncated };
+}
+
+export async function readRepositoryDirectory(cwd: string, path = ''): Promise<RepositoryDirectoryListing> {
+	const root = await workspaceRoot(cwd);
+	const directory = await readWorkspaceDirectory(root, path);
+	if (!await isGitRepository(root)) return directory;
+	return {
+		...directory,
+		ignored: await readGitIgnoredPaths(root, [...directory.directories, ...directory.files])
+	};
 }
 
 export async function readRepositorySnapshot(cwd: string): Promise<RepositorySnapshot> {
@@ -251,16 +389,21 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
 			isGitRepository: false,
 			files: directory.files,
 			directories: directory.directories,
+			ignored: [],
 			changes: [],
 			truncated: directory.truncated
 		};
 	}
 
-	const changes = await readGitChanges(root);
+	const [changes, ignored] = await Promise.all([
+		readGitChanges(root),
+		readGitIgnoredPaths(root, [...directory.directories, ...directory.files])
+	]);
 	return {
 		isGitRepository: true,
 		files: directory.files,
 		directories: directory.directories,
+		ignored,
 		changes,
 		truncated: directory.truncated
 	};
@@ -334,7 +477,7 @@ async function resolveReadableFile(cwd: string, path: string, maximumBytes = MAX
 
 /**
  */
-async function resolveWritableFile(cwd: string, path: string): Promise<
+async function resolveWritableFile(cwd: string, path: string, existingEntryIsConflict = false): Promise<
 	| { normalizedPath: string; target: string; exists: false }
 	| { normalizedPath: string; target: string; exists: true; details: Stats }
 > {
@@ -376,7 +519,10 @@ async function resolveWritableFile(cwd: string, path: string): Promise<
 	} catch {
 		throw repositoryError('not-found', 'File is no longer available.');
 	}
-	if (!details.isFile()) throw repositoryError('unsupported-file', 'Only regular files can be edited.');
+	if (!details.isFile()) {
+		if (existingEntryIsConflict) throw repositoryError('conflict', 'A file or folder with this name already exists.');
+		throw repositoryError('unsupported-file', 'Only regular files can be edited.');
+	}
 	return { normalizedPath, target, exists: true, details };
 }
 
@@ -572,6 +718,288 @@ export async function writeWorkspaceFile(
 		throw repositoryError('command-failed', 'The file could not be saved.');
 	}
 	return readWorkspaceFile(cwd, resolved.normalizedPath);
+}
+
+function ensureUploadPathIsAllowed(path: string): string {
+	const normalizedPath = normalizeRelativePath(path);
+	if (pathContainsGitMetadata(normalizedPath)) {
+		throw repositoryError('invalid-path', 'Git metadata cannot be added.');
+	}
+	return normalizedPath;
+}
+
+function pathContainsGitMetadata(path: string): boolean {
+	return path.split('/').some((segment) => segment.toLowerCase() === '.git');
+}
+
+function uploadConflictPath(path: string, index: number): string {
+	const extension = extname(path);
+	const stem = extension ? path.slice(0, -extension.length) : path;
+	return `${stem} (${index})${extension}`;
+}
+
+async function resolveNewUploadTarget(cwd: string, path: string): Promise<{
+	normalizedPath: string;
+	target: string;
+	parent: string;
+}> {
+	const root = await workspaceRoot(cwd);
+	const normalizedPath = ensureUploadPathIsAllowed(path);
+	const lexicalTarget = resolve(root, normalizedPath);
+	if (!pathStaysInside(root, lexicalTarget)) {
+		throw repositoryError('invalid-path', 'File path must stay inside the workspace.');
+	}
+	const parent = await resolveWritableDirectory(root, dirname(lexicalTarget));
+	return { normalizedPath, target: join(parent, basename(lexicalTarget)), parent };
+}
+
+async function writeUploadChunk(handle: FileHandle, chunk: Uint8Array): Promise<number> {
+	let offset = 0;
+	while (offset < chunk.byteLength) {
+		const { bytesWritten } = await handle.write(chunk, offset, chunk.byteLength - offset, null);
+		if (bytesWritten <= 0) throw new Error('The file write stopped before it completed.');
+		offset += bytesWritten;
+	}
+	return offset;
+}
+
+async function writeUploadContent(
+	handle: FileHandle,
+	content: Uint8Array | ReadableStream<Uint8Array>
+): Promise<number> {
+	if (!('getReader' in content)) return writeUploadChunk(handle, content);
+	const reader = content.getReader();
+	let size = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return size;
+			if (value?.byteLength) size += await writeUploadChunk(handle, value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+async function writeTemporaryUpload(
+	parent: string,
+	content: Uint8Array | ReadableStream<Uint8Array>
+): Promise<{ path: string; size: number }> {
+	const path = join(parent, `${TEMPORARY_UPLOAD_PREFIX}${randomUUID()}`);
+	let handle: FileHandle | undefined;
+	try {
+		handle = await open(path, 'wx', 0o666);
+		const size = await writeUploadContent(handle, content);
+		await handle.sync();
+		return { path, size };
+	} catch (cause) {
+		await handle?.close().catch(() => undefined);
+		handle = undefined;
+		await unlink(path).catch(() => undefined);
+		throw cause;
+	} finally {
+		await handle?.close().catch(() => undefined);
+	}
+}
+
+async function linkTemporaryUpload(source: string, target: string): Promise<void> {
+	try {
+		await link(source, target);
+	} catch (cause) {
+		if (errorHasCode(cause, 'EEXIST')) {
+			throw repositoryError('conflict', 'A file or folder with this name already exists.');
+		}
+		throw repositoryError('command-failed', 'The file could not be added.');
+	}
+}
+
+/**
+ * Save one browser-uploaded file. Uploads default to create-only so replacing
+ * workspace data always requires an explicit conflict policy.
+ */
+export async function uploadWorkspaceFile(
+	cwd: string,
+	path: string,
+	content: Uint8Array | ReadableStream<Uint8Array>,
+	options: { conflict?: WorkspaceUploadConflict } = {}
+): Promise<WorkspaceUploadResult> {
+	const conflict = options.conflict ?? 'reject';
+	const requested = await resolveNewUploadTarget(cwd, path);
+	let destinationTarget = requested.target;
+	if (conflict === 'overwrite') {
+		const writable = await resolveWritableFile(cwd, requested.normalizedPath);
+		destinationTarget = writable.target;
+	}
+	const temporary = await writeTemporaryUpload(dirname(destinationTarget), content).catch((cause) => {
+		if (cause instanceof RepositoryReadError) throw cause;
+		throw repositoryError('command-failed', 'The file could not be added.');
+	});
+
+	try {
+		if (conflict === 'overwrite') {
+			try {
+				await rename(temporary.path, destinationTarget);
+			} catch {
+				throw repositoryError('command-failed', 'The file could not be replaced.');
+			}
+			return { path: requested.normalizedPath, size: temporary.size, renamed: false };
+		}
+
+		const maximumAttempts = conflict === 'rename' ? 10_000 : 0;
+		for (let index = 0; index <= maximumAttempts; index += 1) {
+			const candidatePath = index === 0
+				? requested.normalizedPath
+				: uploadConflictPath(requested.normalizedPath, index);
+			const candidateTarget = join(requested.parent, basename(candidatePath));
+			try {
+				await linkTemporaryUpload(temporary.path, candidateTarget);
+				return {
+					path: candidatePath,
+					size: temporary.size,
+					renamed: candidatePath !== requested.normalizedPath
+				};
+			} catch (cause) {
+				if (conflict === 'rename' && cause instanceof RepositoryReadError && cause.reason === 'conflict') continue;
+				throw cause;
+			}
+		}
+		throw repositoryError('conflict', 'A unique name could not be found for this file.');
+	} finally {
+		await unlink(temporary.path).catch(() => undefined);
+	}
+}
+
+async function resolveMovableEntry(cwd: string, path: string, kind: WorkspaceEntryKind): Promise<{
+	normalizedPath: string;
+	target: string;
+	canonicalTarget: string;
+}> {
+	const root = await workspaceRoot(cwd);
+	const normalizedPath = normalizeRelativePath(path);
+	if (pathContainsGitMetadata(normalizedPath)) {
+		throw repositoryError('invalid-path', 'Git metadata cannot be moved.');
+	}
+	const target = resolve(root, normalizedPath);
+	if (!pathStaysInside(root, target) || target === root) {
+		throw repositoryError('invalid-path', 'Only entries inside the workspace can be moved.');
+	}
+
+	let parent;
+	try {
+		parent = await realpath(dirname(target));
+	} catch {
+		throw repositoryError('not-found', 'The entry is no longer available.');
+	}
+	if (!pathStaysInside(root, parent)) {
+		throw repositoryError('invalid-path', 'Linked entries outside the workspace cannot be moved.');
+	}
+
+	let details;
+	try {
+		details = await lstat(target);
+	} catch (cause) {
+		if (errorHasCode(cause, 'ENOENT')) throw repositoryError('not-found', 'The entry is no longer available.');
+		throw repositoryError('command-failed', 'The entry could not be inspected.');
+	}
+	if (details.isSymbolicLink()) throw repositoryError('invalid-path', 'Linked entries cannot be moved from the workspace.');
+	if (kind === 'file' && !details.isFile()) throw repositoryError('unsupported-file', 'Only files can be moved from this action.');
+	if (kind === 'directory' && !details.isDirectory()) throw repositoryError('unsupported-file', 'Only folders can be moved from this action.');
+
+	let canonicalTarget;
+	try {
+		canonicalTarget = await realpath(target);
+	} catch {
+		throw repositoryError('not-found', 'The entry is no longer available.');
+	}
+	if (!pathStaysInside(root, canonicalTarget)) {
+		throw repositoryError('invalid-path', 'Linked entries outside the workspace cannot be moved.');
+	}
+	return { normalizedPath, target, canonicalTarget };
+}
+
+function moveConflictPath(path: string, index: number, kind: WorkspaceEntryKind): string {
+	if (kind === 'directory') return `${path} (${index})`;
+	return uploadConflictPath(path, index);
+}
+
+async function moveEntryToTarget(source: string, target: string, kind: WorkspaceEntryKind): Promise<void> {
+	if (kind === 'file') {
+		try {
+			await link(source, target);
+		} catch (cause) {
+			if (errorHasCode(cause, 'EEXIST')) throw repositoryError('conflict', 'A file or folder with this name already exists.');
+			throw repositoryError('command-failed', 'The file could not be moved.');
+		}
+		try {
+			await unlink(source);
+		} catch {
+			await unlink(target).catch(() => undefined);
+			throw repositoryError('command-failed', 'The file could not be moved.');
+		}
+		return;
+	}
+
+	try {
+		await mkdir(target);
+	} catch (cause) {
+		if (errorHasCode(cause, 'EEXIST')) throw repositoryError('conflict', 'A file or folder with this name already exists.');
+		throw repositoryError('command-failed', 'The folder destination could not be reserved.');
+	}
+	try {
+		await rename(source, target);
+	} catch {
+		await rmdir(target).catch(() => undefined);
+		throw repositoryError('command-failed', 'The folder could not be moved.');
+	}
+}
+
+/**
+ * Move a regular workspace entry into another workspace directory. A target
+ * name is reserved before the source is removed so conflicts never overwrite.
+ */
+export async function moveWorkspaceEntry(
+	cwd: string,
+	path: string,
+	kind: WorkspaceEntryKind,
+	targetDirectory: string,
+	options: { conflict?: WorkspaceMoveConflict } = {}
+): Promise<WorkspaceMoveResult> {
+	const source = await resolveMovableEntry(cwd, path, kind);
+	const normalizedTargetDirectory = targetDirectory === '' ? '' : normalizeRelativePath(targetDirectory);
+	if (normalizedTargetDirectory && pathContainsGitMetadata(normalizedTargetDirectory)) {
+		throw repositoryError('invalid-path', 'Entries cannot be moved into Git metadata.');
+	}
+	const targetDirectoryEntry = await resolveReadableDirectory(cwd, normalizedTargetDirectory);
+	if (kind === 'directory' && pathStaysInside(source.canonicalTarget, targetDirectoryEntry.target)) {
+		throw repositoryError('invalid-path', 'A folder cannot be moved into itself.');
+	}
+
+	const sourceName = basename(source.normalizedPath);
+	const requestedPath = normalizedTargetDirectory ? `${normalizedTargetDirectory}/${sourceName}` : sourceName;
+	const requestedTarget = join(targetDirectoryEntry.target, sourceName);
+	if (source.canonicalTarget === requestedTarget) {
+		return { fromPath: source.normalizedPath, path: source.normalizedPath, kind, renamed: false };
+	}
+
+	const conflict = options.conflict ?? 'reject';
+	const maximumAttempts = conflict === 'rename' ? 10_000 : 0;
+	for (let index = 0; index <= maximumAttempts; index += 1) {
+		const candidatePath = index === 0 ? requestedPath : moveConflictPath(requestedPath, index, kind);
+		const candidateName = basename(candidatePath);
+		try {
+			await moveEntryToTarget(source.target, join(targetDirectoryEntry.target, candidateName), kind);
+			return {
+				fromPath: source.normalizedPath,
+				path: candidatePath,
+				kind,
+				renamed: candidatePath !== requestedPath
+			};
+		} catch (cause) {
+			if (conflict === 'rename' && cause instanceof RepositoryReadError && cause.reason === 'conflict') continue;
+			throw cause;
+		}
+	}
+	throw repositoryError('conflict', 'A unique name could not be found for this move.');
 }
 
 /**

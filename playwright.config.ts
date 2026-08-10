@@ -38,7 +38,7 @@ export default defineConfig({
 		}
 	],
 	webServer: {
-		command: 'node e2e/server.ts',
+		command: 'corepack pnpm build && node e2e/server.ts',
 		url: `${E2E_BASE_URL}/health`,
 		reuseExistingServer: false,
 		timeout: 120_000,

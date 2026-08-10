@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
-import { createWorkspaceDirectory, deleteWorkspaceEntry, readWorkspaceDirectory, RepositoryReadError } from '$lib/server/repository.ts';
+import { createWorkspaceDirectory, deleteWorkspaceEntry, readRepositoryDirectory, RepositoryReadError } from '$lib/server/repository.ts';
 import { findManagedWorkspace } from '$lib/server/session-registry';
 
 function repositoryErrorStatus(reason: string): number {
@@ -21,7 +21,7 @@ export const GET: RequestHandler = async (event) => {
 	if (!workspace) throw error(404, 'Workspace was not found.');
 
 	try {
-		return json(await readWorkspaceDirectory(workspace.cwd, event.url.searchParams.get('path') ?? ''));
+		return json(await readRepositoryDirectory(workspace.cwd, event.url.searchParams.get('path') ?? ''));
 	} catch (cause) {
 		if (cause instanceof RepositoryReadError) throw error(repositoryErrorStatus(cause.reason), cause.message);
 		throw error(500, 'Vampire could not read this folder.');

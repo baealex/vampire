@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import FilePenLine from '@lucide/svelte/icons/file-pen-line';
+	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import X from '@lucide/svelte/icons/x';
 	import DocumentOpening from './DocumentOpening.svelte';
 	import { RepositoryClient } from './client';
@@ -14,6 +15,7 @@
 		initialFile,
 		onClose,
 		onEditFile = () => undefined,
+		onRequestDiscardChange = () => undefined,
 		onFileSaved = () => undefined,
 		onFileDirtyChange = () => undefined
 	}: {
@@ -23,6 +25,7 @@
 		initialFile?: WorkspaceFile;
 		onClose: () => void;
 		onEditFile?: (path: string) => void;
+		onRequestDiscardChange?: (path: string) => void;
 		onFileSaved?: (file: WorkspaceFile) => void;
 		onFileDirtyChange?: (dirty: boolean) => void;
 	} = $props();
@@ -164,12 +167,14 @@
 				<span class="dirty-indicator" role="status">Unsaved</span>
 			{/if}
 			{#if selection.kind === 'diff'}
-				<button class="edit-file" type="button" onclick={() => onEditFile(selection.path)} aria-label={`Edit ${selection.path}`} title={`Edit ${selection.path}`}>
-					<FilePenLine size={15} strokeWidth={1.8} aria-hidden="true" />
-					<span>Edit file</span>
+				<button class="document-action edit-file" type="button" onclick={() => onEditFile(selection.path)} aria-label={`Edit ${selection.path}`} title="Edit file">
+					<FilePenLine size={17} strokeWidth={1.8} aria-hidden="true" />
+				</button>
+				<button class="document-action discard-file" type="button" onclick={() => onRequestDiscardChange(selection.path)} aria-label={`Discard changes for ${selection.path}`} title="Discard changes">
+					<RotateCcw size={17} strokeWidth={1.8} aria-hidden="true" />
 				</button>
 			{/if}
-			<button class="viewer-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind} and return to terminal`} title={`Close ${selection.kind} and return to terminal`}>
+			<button class="document-action viewer-close" type="button" onclick={onClose} aria-label={`Close ${selection.kind} and return to terminal`} title={`Close ${selection.kind} and return to terminal`}>
 				<X size={17} strokeWidth={1.8} aria-hidden="true" />
 			</button>
 		</div>
@@ -257,10 +262,9 @@
 	.document-kind { color: var(--color-accent-soft-text); font-size: var(--text-micro); font-weight: var(--weight-strong); letter-spacing: 0.05em; text-transform: uppercase; }
 	.document-actions { display: flex; align-items: center; gap: 0.35rem; }
 	.dirty-indicator { color: var(--color-warning-text); font-size: var(--text-caption); }
-	.edit-file { display: inline-flex; align-items: center; gap: 0.3rem; min-height: var(--control-height-sm); padding: 0 0.55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-control-background); color: var(--color-text-secondary); font: inherit; font-size: var(--text-caption); cursor: pointer; }
-	.edit-file:hover { background: var(--color-control-hover); color: var(--color-text); }
-	.viewer-close { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
-	.viewer-close:hover { background: var(--color-surface-raised); color: var(--color-text); }
+	.document-action { display: grid; place-items: center; width: 2.15rem; height: 2.15rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+	.document-action:hover { background: var(--color-surface-raised); color: var(--color-text); }
+	.discard-file:hover { background: var(--color-danger-surface-hover); color: var(--color-danger-text); }
 	.viewer-warning { z-index: 2; margin: 0; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-danger-border); background: var(--color-danger-surface); color: var(--color-danger-text); font-size: var(--text-caption); line-height: var(--leading-ui); }
 	.viewer-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 	.viewer-state { display: grid; min-height: 100%; place-items: center; padding: 2rem 1rem; color: var(--color-text-secondary); font-size: var(--text-label); text-align: center; }

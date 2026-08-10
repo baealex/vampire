@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,6 +8,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import {
 	readRepositoryDiff,
+	readRepositoryDirectory,
 	readRepositorySummary,
 	readRepositorySnapshot,
 	readWorkspaceDirectory,
@@ -16,6 +17,9 @@ import {
 	readWorkspaceFile,
 	createWorkspaceDirectory,
 	deleteWorkspaceEntry,
+	discardRepositoryChange,
+	moveWorkspaceEntry,
+	uploadWorkspaceFile,
 	writeWorkspaceFile,
 	RepositoryReadError
 } from '../src/lib/server/repository.ts';
@@ -62,8 +66,10 @@ test('lists workspace files including Git-ignored entries and reflects structure
 	assert.equal(first.isGitRepository, true);
 	assert.deepEqual(first.files, ['.env', '.gitignore', 'ignored.log', 'notes.md']);
 	assert.deepEqual(first.directories, ['build', 'node_modules', 'src']);
+	assert.deepEqual([...first.ignored].sort(), ['.env', 'build', 'ignored.log', 'node_modules']);
 	assert.deepEqual((await readWorkspaceDirectory(directory, 'src')).files, ['src/app.js']);
 	assert.deepEqual((await readWorkspaceDirectory(directory, 'node_modules')).files, ['node_modules/package.js']);
+	assert.deepEqual((await readRepositoryDirectory(directory, 'node_modules')).ignored, ['node_modules/package.js']);
 	assert.deepEqual(first.changes.map(({ path, status }) => ({ path, status })), [
 		{ path: 'notes.md', status: '??' },
 		{ path: 'src/app.js', status: ' M' }
@@ -111,6 +117,80 @@ test('returns staged, working tree, and untracked diff sections', async (t) => {
 	const untracked = await readRepositoryDiff(directory, 'notes.md');
 	assert.deepEqual(untracked.sections.map((section) => section.kind), ['untracked']);
 	assert.match(untracked.sections[0].patch, /\+# New note/);
+});
+
+test('discards tracked, staged, renamed, and untracked Git changes', async (t) => {
+	const directory = await createRepository(t);
+	await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\n');
+	await git(directory, 'add', 'src/app.js');
+	await writeFile(join(directory, 'src', 'app.js'), 'const value = 3;\n');
+	await writeFile(join(directory, 'notes.md'), '# Untracked\n');
+
+	let snapshot = await readRepositorySnapshot(directory);
+	const tracked = snapshot.changes.find((change) => change.path === 'src/app.js');
+	const untracked = snapshot.changes.find((change) => change.path === 'notes.md');
+	assert.ok(tracked);
+	assert.ok(untracked);
+	assert.deepEqual(await discardRepositoryChange(directory, tracked.path, tracked), {
+		path: 'src/app.js',
+		untracked: false
+	});
+	assert.equal(await readFile(join(directory, 'src', 'app.js'), 'utf8'), 'const value = 1;\n');
+	assert.deepEqual(await discardRepositoryChange(directory, untracked.path, untracked), {
+		path: 'notes.md',
+		untracked: true
+	});
+	await assert.rejects(() => stat(join(directory, 'notes.md')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+
+	await git(directory, 'mv', 'src/app.js', 'src/main.js');
+	snapshot = await readRepositorySnapshot(directory);
+	const renamed = snapshot.changes.find((change) => change.path === 'src/main.js');
+	assert.ok(renamed);
+	assert.equal(renamed.previousPath, 'src/app.js');
+	await discardRepositoryChange(directory, renamed.path, renamed);
+	assert.equal(await readFile(join(directory, 'src', 'app.js'), 'utf8'), 'const value = 1;\n');
+	await assert.rejects(() => stat(join(directory, 'src', 'main.js')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+
+	await writeFile(join(directory, 'src', 'new.js'), 'export {};\n');
+	await git(directory, 'add', 'src/new.js');
+	snapshot = await readRepositorySnapshot(directory);
+	const added = snapshot.changes.find((change) => change.path === 'src/new.js');
+	assert.ok(added);
+	await discardRepositoryChange(directory, added.path, added);
+	await assert.rejects(() => stat(join(directory, 'src', 'new.js')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+	assert.deepEqual((await readRepositorySnapshot(directory)).changes, []);
+});
+
+test('refuses stale or non-change discard requests', async (t) => {
+	const directory = await createRepository(t);
+	await writeFile(join(directory, '.gitignore'), 'changed\n');
+	const working = (await readRepositorySnapshot(directory)).changes.find((change) => change.path === '.gitignore');
+	assert.ok(working);
+	await git(directory, 'add', '.gitignore');
+
+	await assert.rejects(
+		() => discardRepositoryChange(directory, working.path, working),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+	assert.equal(await readFile(join(directory, '.gitignore'), 'utf8'), 'changed\n');
+	await assert.rejects(
+		() => discardRepositoryChange(directory, 'src/app.js'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+	);
+});
+
+test('discards a staged file before the repository has its first commit', async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), 'vampire-unborn-repository-'));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	await git(directory, 'init', '--quiet');
+	await writeFile(join(directory, 'first.txt'), 'first content\n');
+	await git(directory, 'add', 'first.txt');
+	const change = (await readRepositorySnapshot(directory)).changes.find((candidate) => candidate.path === 'first.txt');
+	assert.ok(change);
+
+	await discardRepositoryChange(directory, change.path, change);
+	await assert.rejects(() => stat(join(directory, 'first.txt')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+	assert.deepEqual((await readRepositorySnapshot(directory)).changes, []);
 });
 
 test('reads UTF-8 files but rejects traversal, binary data, and escaping symlinks', async (t) => {
@@ -192,6 +272,130 @@ test('creates and updates text files without overwriting newer changes', async (
 	const snapshot = await readRepositorySnapshot(directory);
 	assert.ok(snapshot.directories.includes('logs'));
 	assert.ok((await readWorkspaceDirectory(directory, 'logs')).files.includes('logs/company.log'));
+});
+
+test('uploads binary files without replacing existing entries by default', async (t) => {
+	const directory = await createRepository(t);
+	const firstBytes = Buffer.from([0, 1, 2, 3, 255]);
+	const created = await uploadWorkspaceFile(directory, 'assets/archive.bin', firstBytes);
+	assert.deepEqual(created, { path: 'assets/archive.bin', size: firstBytes.length, renamed: false });
+	assert.deepEqual(await readFile(join(directory, created.path)), firstBytes);
+
+	await assert.rejects(
+		() => uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('replacement')),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+	assert.deepEqual(await readFile(join(directory, created.path)), firstBytes);
+});
+
+test('renames or replaces upload conflicts only when explicitly requested', async (t) => {
+	const directory = await createRepository(t);
+	await uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('original'));
+
+	const renamedUploads = await Promise.all([
+		uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('first copy'), { conflict: 'rename' }),
+		uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('second copy'), { conflict: 'rename' })
+	]);
+	assert.deepEqual(
+		renamedUploads.map(({ path }) => path).sort(),
+		['assets/archive (1).bin', 'assets/archive (2).bin']
+	);
+	assert.ok(renamedUploads.every(({ renamed }) => renamed));
+
+	const replaced = await uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('replacement'), { conflict: 'overwrite' });
+	assert.deepEqual(replaced, { path: 'assets/archive.bin', size: 11, renamed: false });
+	assert.equal(await readFile(join(directory, replaced.path), 'utf8'), 'replacement');
+});
+
+test('keeps uploads inside the workspace and protects git metadata', async (t) => {
+	const directory = await createRepository(t);
+	const outsideDirectory = await mkdtemp(join(tmpdir(), 'vampire-upload-outside-'));
+	t.after(() => rm(outsideDirectory, { recursive: true, force: true }));
+	await symlink(outsideDirectory, join(directory, 'outside-link'));
+
+	for (const path of ['../secret.bin', '.git/config', '.GIT/config', 'nested/.git/index', 'outside-link/secret.bin']) {
+		await assert.rejects(
+			() => uploadWorkspaceFile(directory, path, Buffer.from('secret')),
+			(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+		);
+	}
+
+	let remainingChunks = 12;
+	const streamed = await uploadWorkspaceFile(directory, 'large.bin', new ReadableStream<Uint8Array>({
+		pull(controller) {
+			if (remainingChunks-- > 0) controller.enqueue(Buffer.alloc(1024 * 1024, remainingChunks));
+			else controller.close();
+		}
+	}));
+	assert.equal(streamed.size, 12 * 1024 * 1024);
+	assert.equal((await stat(join(directory, streamed.path))).size, streamed.size);
+
+	let firstChunk = true;
+	await assert.rejects(
+		() => uploadWorkspaceFile(directory, 'interrupted.bin', new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (firstChunk) {
+					firstChunk = false;
+					controller.enqueue(Buffer.from('partial'));
+					return;
+				}
+				controller.error(new Error('stream interrupted'));
+			}
+		})),
+		(error) => error instanceof RepositoryReadError && error.reason === 'command-failed'
+	);
+	await assert.rejects(() => stat(join(directory, 'interrupted.bin')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+	assert.equal((await readdir(directory)).some((name) => name.startsWith('.vampire-upload-')), false);
+});
+
+test('moves workspace files and folders without overwriting existing entries', async (t) => {
+	const directory = await createRepository(t);
+	await writeFile(join(directory, 'move-me.txt'), 'source file\n', 'utf8');
+	await writeFile(join(directory, 'src', 'move-me.txt'), 'existing file\n', 'utf8');
+
+	await assert.rejects(
+		() => moveWorkspaceEntry(directory, 'move-me.txt', 'file', 'src'),
+		(error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+	);
+	assert.equal(await readFile(join(directory, 'move-me.txt'), 'utf8'), 'source file\n');
+	assert.equal(await readFile(join(directory, 'src', 'move-me.txt'), 'utf8'), 'existing file\n');
+
+	const renamed = await moveWorkspaceEntry(directory, 'move-me.txt', 'file', 'src', { conflict: 'rename' });
+	assert.deepEqual(renamed, {
+		fromPath: 'move-me.txt',
+		path: 'src/move-me (1).txt',
+		kind: 'file',
+		renamed: true
+	});
+	assert.equal(await readFile(join(directory, renamed.path), 'utf8'), 'source file\n');
+	await assert.rejects(() => stat(join(directory, 'move-me.txt')), (error) => (error as NodeJS.ErrnoException).code === 'ENOENT');
+
+	await mkdir(join(directory, 'docs', 'guides'), { recursive: true });
+	await writeFile(join(directory, 'docs', 'guides', 'intro.md'), '# Intro\n', 'utf8');
+	const movedDirectory = await moveWorkspaceEntry(directory, 'docs', 'directory', 'src');
+	assert.equal(movedDirectory.path, 'src/docs');
+	assert.equal(await readFile(join(directory, 'src', 'docs', 'guides', 'intro.md'), 'utf8'), '# Intro\n');
+});
+
+test('rejects workspace moves into descendants, git metadata, and linked directories outside the workspace', async (t) => {
+	const directory = await createRepository(t);
+	const outsideDirectory = await mkdtemp(join(tmpdir(), 'vampire-move-outside-'));
+	t.after(() => rm(outsideDirectory, { recursive: true, force: true }));
+	await mkdir(join(directory, 'src', 'nested'));
+	await symlink(outsideDirectory, join(directory, 'outside-link'));
+
+	for (const operation of [
+		() => moveWorkspaceEntry(directory, 'src', 'directory', 'src/nested'),
+		() => moveWorkspaceEntry(directory, '.git/config', 'file', ''),
+		() => moveWorkspaceEntry(directory, 'src/app.js', 'file', '.GIT'),
+		() => moveWorkspaceEntry(directory, 'src/app.js', 'file', 'outside-link')
+	]) {
+		await assert.rejects(
+			operation,
+			(error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+		);
+	}
+	assert.equal(await readFile(join(directory, 'src', 'app.js'), 'utf8'), 'const value = 1;\n');
 });
 
 test('does not create directories through linked parents outside the workspace', async (t) => {

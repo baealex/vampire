@@ -39,7 +39,7 @@
     "start": "node bin/vampire.js",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project tsconfig.node.json && tsc --project tsconfig.test.json",
     "test": "pnpm check && node --test tests/*.test.ts && pnpm build",
-    "test:e2e": "pnpm build && playwright test",
+    "test:e2e": "playwright test",
     "prepack": "pnpm build"
   },
   "dependencies": {
