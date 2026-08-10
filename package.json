@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux sessions.",
   "license": "MIT",
   "type": "module",
