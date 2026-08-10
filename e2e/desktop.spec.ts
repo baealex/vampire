@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import {
 	authenticate,
 	createSession,
@@ -21,6 +21,18 @@ declare global {
 
 let sessionId: string | undefined;
 const run = promisify(execFile);
+
+async function gitWorkspace(...args: string[]): Promise<void> {
+	await run('git', ['-C', E2E_WORKSPACE_DIRECTORY, ...args], {
+		env: {
+			...process.env,
+			GIT_AUTHOR_NAME: 'Vampire E2E',
+			GIT_AUTHOR_EMAIL: 'vampire-e2e@example.test',
+			GIT_COMMITTER_NAME: 'Vampire E2E',
+			GIT_COMMITTER_EMAIL: 'vampire-e2e@example.test'
+		}
+	});
+}
 
 async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
 	const { stdout } = await run('tmux', [
@@ -67,6 +79,29 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
 			socket.send(message);
 		});
 	});
+}
+
+async function dropWorkspaceEntry(
+	target: Locator,
+	entry: { path: string; kind: 'file' | 'directory' }
+): Promise<void> {
+	await target.evaluate((element, value) => {
+		const dataTransfer = new DataTransfer();
+		dataTransfer.setData('application/x-vampire-workspace-entry', JSON.stringify(value));
+		element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+		element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+	}, entry);
+}
+
+async function dragWorkspaceEntryOver(
+	target: Locator,
+	entry: { path: string; kind: 'file' | 'directory' }
+): Promise<void> {
+	await target.evaluate((element, value) => {
+		const dataTransfer = new DataTransfer();
+		dataTransfer.setData('application/x-vampire-workspace-entry', JSON.stringify(value));
+		element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+	}, entry);
 }
 
 function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): boolean {
@@ -616,6 +651,177 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
 	await expect(page.getByRole('alert')).toHaveCount(1);
 	await expect(page.locator('.editor-error')).toContainText('This file changed elsewhere. Reload it before saving.');
 	expect(await readFile(conflictFile, 'utf8')).toBe('external process content\n');
+});
+
+test('adds and moves files through repository menus and drop points', async ({ context, page }) => {
+	test.setTimeout(45_000);
+	const uploadDirectory = join(E2E_WORKSPACE_DIRECTORY, 'uploads');
+	const rootUpload = join(E2E_WORKSPACE_DIRECTORY, 'fresh-upload.bin');
+	const renamedConflict = join(E2E_WORKSPACE_DIRECTORY, 'conflict (1).txt');
+	const droppedUpload = join(uploadDirectory, 'dropped.txt');
+	const movableFile = join(E2E_WORKSPACE_DIRECTORY, 'move-me.txt');
+	const movedFile = join(uploadDirectory, 'move-me.txt');
+	const moveConflictSource = join(E2E_WORKSPACE_DIRECTORY, 'move-conflict.txt');
+	const moveConflictTarget = join(uploadDirectory, 'move-conflict.txt');
+	const renamedMoveTarget = join(uploadDirectory, 'move-conflict (1).txt');
+	const terminalDroppedFile = join(E2E_WORKSPACE_DIRECTORY, 'terminal-drop.txt');
+	await Promise.all([
+		rm(uploadDirectory, { recursive: true, force: true }),
+		rm(rootUpload, { force: true }),
+		rm(renamedConflict, { force: true }),
+		rm(terminalDroppedFile, { force: true }),
+		writeFile(movableFile, 'move this file\n', 'utf8'),
+		writeFile(moveConflictSource, 'move conflict source\n', 'utf8')
+	]);
+	await writeFile(join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt'), 'initial browser test content\n', 'utf8');
+
+	try {
+		await authenticate(context);
+		const session = await createSession(context);
+		sessionId = session.id;
+		await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+		await expectTerminalReady(page);
+		await page.getByRole('button', { name: 'Open repository' }).click();
+
+		await page.getByRole('button', { name: 'Add workspace item' }).click();
+		await page.getByRole('menuitem', { name: 'New folder' }).click();
+		const folderName = page.getByRole('textbox', { name: 'New folder name' });
+		await expect(folderName).toBeVisible();
+		await folderName.fill('uploads');
+		await folderName.press('Enter');
+		const folderShell = page.locator('.tree-row-shell.directory').filter({ hasText: 'uploads' }).first();
+		const folderRow = folderShell.getByRole('button', { name: 'Expand uploads' });
+		await expect(folderRow).toBeVisible();
+		await expect(folderRow).toHaveCSS('cursor', 'pointer');
+		await folderRow.click({ button: 'right' });
+		await expect(page.getByRole('menuitem', { name: 'New file' })).toBeVisible();
+		await expect(page.getByRole('menuitem', { name: 'New folder' })).toBeVisible();
+		await expect(page.getByRole('menuitem', { name: 'Insert path into terminal' })).toBeVisible();
+		await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+		await page.keyboard.press('Escape');
+
+		const movableRow = page.getByRole('button', { name: 'Open move-me.txt' });
+		const movableShell = movableRow.locator('..');
+		await expect(movableShell.getByRole('button', { name: 'Actions for file move-me.txt' })).toHaveCount(1);
+		await expect(movableShell.getByRole('button', { name: 'Delete file move-me.txt' })).toHaveCount(0);
+		await writeFile(moveConflictTarget, 'existing destination\n', 'utf8');
+
+		await dragWorkspaceEntryOver(folderShell, { path: 'move-me.txt', kind: 'file' });
+		await expect(folderShell.getByText('Move here', { exact: true })).toBeVisible();
+		await dropWorkspaceEntry(folderShell, { path: 'move-me.txt', kind: 'file' });
+		await expect.poll(() => readFile(movedFile, 'utf8').catch(() => '')).toBe('move this file\n');
+		await expect.poll(() => readFile(movableFile, 'utf8').then(() => true, () => false)).toBe(false);
+		await expect(page.getByRole('button', { name: 'Open uploads/move-me.txt' })).toBeVisible();
+
+		await dropWorkspaceEntry(folderShell, { path: 'move-conflict.txt', kind: 'file' });
+		await expect(page.getByRole('heading', { name: 'An item already exists' })).toBeVisible();
+		expect(await readFile(moveConflictTarget, 'utf8')).toBe('existing destination\n');
+		expect(await readFile(moveConflictSource, 'utf8')).toBe('move conflict source\n');
+		await page.getByRole('button', { name: 'Keep both' }).click();
+		await expect(page.getByRole('heading', { name: 'An item already exists' })).toBeHidden();
+		await expect.poll(() => readFile(renamedMoveTarget, 'utf8').catch(() => '')).toBe('move conflict source\n');
+		await expect.poll(() => readFile(moveConflictSource, 'utf8').then(() => true, () => false)).toBe(false);
+		expect(await readFile(moveConflictTarget, 'utf8')).toBe('existing destination\n');
+
+		const chooserPromise = page.waitForEvent('filechooser');
+		await page.getByRole('button', { name: 'Add workspace item' }).click();
+		await page.getByRole('menuitem', { name: 'Choose files…' }).click();
+		const chooser = await chooserPromise;
+		await chooser.setFiles([
+			{ name: 'fresh-upload.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0, 1, 2, 255]) },
+			{ name: 'conflict.txt', mimeType: 'text/plain', buffer: Buffer.from('uploaded conflict\n') }
+		]);
+
+		await expect(page.getByRole('heading', { name: '1 file already exists' })).toBeVisible();
+		await expect.poll(() => readFile(rootUpload).catch(() => Buffer.alloc(0))).toEqual(Buffer.from([0, 1, 2, 255]));
+		expect(await readFile(join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt'), 'utf8')).toBe('initial browser test content\n');
+		await page.getByRole('button', { name: 'Keep both' }).click();
+		await expect(page.getByRole('heading', { name: '1 file already exists' })).toBeHidden();
+		await expect.poll(() => readFile(renamedConflict, 'utf8').catch(() => '')).toBe('uploaded conflict\n');
+
+		await folderShell.evaluate((element) => {
+			const dataTransfer = new DataTransfer();
+			dataTransfer.items.add(new File(['dropped into folder\n'], 'dropped.txt', { type: 'text/plain' }));
+			element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+			element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await expect.poll(() => readFile(droppedUpload, 'utf8').catch(() => '')).toBe('dropped into folder\n');
+		await expect(folderShell.getByRole('button', { name: 'Collapse uploads' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Open uploads/dropped.txt' })).toBeVisible();
+		await expect(page.locator('.repository-upload-notice')).toContainText('Added 1 file.');
+
+		const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+		await terminal.evaluate((element) => {
+			const dataTransfer = new DataTransfer();
+			dataTransfer.items.add(new File(['terminal drop content\n'], 'terminal-drop.txt', { type: 'text/plain' }));
+			element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await expect(page.getByText('Copy to workspace and insert path', { exact: true })).toBeVisible();
+		await terminal.evaluate((element) => {
+			const dataTransfer = new DataTransfer();
+			dataTransfer.items.add(new File(['terminal drop content\n'], 'terminal-drop.txt', { type: 'text/plain' }));
+			element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await expect.poll(() => readFile(terminalDroppedFile, 'utf8').catch(() => '')).toBe('terminal drop content\n');
+		await expect(page.locator('.xterm-rows')).toContainText('terminal-drop.txt');
+	} finally {
+		await Promise.all([
+				rm(uploadDirectory, { recursive: true, force: true }),
+				rm(rootUpload, { force: true }),
+				rm(renamedConflict, { force: true }),
+				rm(terminalDroppedFile, { force: true }),
+				rm(movableFile, { force: true }),
+				rm(moveConflictSource, { force: true })
+			]);
+	}
+});
+
+test('discards tracked and untracked changes from the Git changes UI', async ({ context, page }) => {
+	test.setTimeout(45_000);
+	const gitDirectory = join(E2E_WORKSPACE_DIRECTORY, '.git');
+	const trackedFile = join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt');
+	const untrackedFile = join(E2E_WORKSPACE_DIRECTORY, 'scratch.txt');
+	await rm(gitDirectory, { recursive: true, force: true });
+	await writeFile(trackedFile, 'committed content\n', 'utf8');
+	await gitWorkspace('init', '--quiet');
+	await gitWorkspace('add', 'conflict.txt');
+	await gitWorkspace('commit', '--quiet', '-m', 'initial');
+	await writeFile(trackedFile, 'changed content\n', 'utf8');
+	await writeFile(untrackedFile, 'temporary content\n', 'utf8');
+
+	try {
+		await authenticate(context);
+		const session = await createSession(context);
+		sessionId = session.id;
+		await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+		await expectTerminalReady(page);
+		await page.getByRole('button', { name: 'Open repository' }).click();
+
+		await page.getByRole('button', { name: /Open diff for conflict\.txt/ }).click();
+		const viewer = page.getByRole('region', { name: 'Diff for conflict.txt' });
+		const editAction = viewer.getByRole('button', { name: 'Edit conflict.txt' });
+		await expect(editAction).toBeVisible();
+		await expect(editAction).toHaveAttribute('title', 'Edit file');
+
+		await viewer.getByRole('button', { name: 'Discard changes for conflict.txt' }).click();
+		await expect(page.getByRole('heading', { name: 'Discard Git changes?' })).toBeVisible();
+		await expect(page.getByText('will be restored to its HEAD version')).toBeVisible();
+		await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+		await expect.poll(() => readFile(trackedFile, 'utf8')).toBe('committed content\n');
+		await expect(viewer).toBeHidden();
+
+		await page.getByRole('button', { name: /Open diff for scratch\.txt/ }).hover();
+		await page.getByRole('button', { name: 'Discard changes for scratch.txt' }).click();
+		await expect(page.getByRole('heading', { name: 'Delete untracked file?' })).toBeVisible();
+		await expect(page.getByText('permanently deletes the file')).toBeVisible();
+		await page.getByRole('button', { name: 'Delete file', exact: true }).click();
+		await expect.poll(() => readFile(untrackedFile, 'utf8').then(() => true, () => false)).toBe(false);
+		await expect(page.getByText('The working tree is clean.')).toBeVisible();
+	} finally {
+		await rm(gitDirectory, { recursive: true, force: true });
+		await rm(untrackedFile, { force: true });
+		await writeFile(trackedFile, 'initial browser test content\n', 'utf8');
+	}
 });
 
 test('does not restart a slow file open while repository status refreshes', async ({ context, page }) => {

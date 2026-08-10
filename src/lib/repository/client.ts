@@ -1,9 +1,16 @@
 import { requestJson, requestResponse } from '$lib/client/request';
 import type {
+	RepositoryChange,
+	RepositoryDiscardResult,
 	RepositoryDiff,
 	RepositoryDirectoryListing,
 	RepositorySnapshot,
-	WorkspaceFile
+	WorkspaceEntryKind,
+	WorkspaceFile,
+	WorkspaceMoveConflict,
+	WorkspaceMoveResult,
+	WorkspaceUploadConflict,
+	WorkspaceUploadResult
 } from './types';
 
 type RepositoryEntryKind = 'file' | 'directory';
@@ -40,6 +47,18 @@ export class RepositoryClient {
 		return requestJson<RepositoryDiff>(pathUrl(`${this.#basePath}/diff`, path), signal ? { signal } : undefined, 'Unable to read this diff.');
 	}
 
+	discardChange(change: RepositoryChange): Promise<RepositoryDiscardResult> {
+		return requestJson<RepositoryDiscardResult>(`${this.#basePath}/discard`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				path: change.path,
+				status: change.status,
+				...(change.previousPath ? { previousPath: change.previousPath } : {})
+			})
+		}, 'The changes could not be discarded.');
+	}
+
 	mediaUrl(path: string): string {
 		return pathUrl(`${this.#basePath}/media`, path);
 	}
@@ -70,6 +89,28 @@ export class RepositoryClient {
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ path })
 		}, 'The folder could not be created.');
+	}
+
+	uploadFile(path: string, file: File, conflict: WorkspaceUploadConflict = 'reject'): Promise<WorkspaceUploadResult> {
+		const endpoint = `${this.#basePath}/upload?${new URLSearchParams({ path, conflict }).toString()}`;
+		return requestJson<WorkspaceUploadResult>(endpoint, {
+			method: 'POST',
+			headers: { 'content-type': file.type || 'application/octet-stream' },
+			body: file
+		}, 'The file could not be added.');
+	}
+
+	moveEntry(
+		path: string,
+		kind: WorkspaceEntryKind,
+		targetDirectory: string,
+		conflict: WorkspaceMoveConflict = 'reject'
+	): Promise<WorkspaceMoveResult> {
+		return requestJson<WorkspaceMoveResult>(`${this.#basePath}/move`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ path, kind, targetDirectory, conflict })
+		}, 'The entry could not be moved.');
 	}
 
 	async deleteEntry(path: string, kind: RepositoryEntryKind): Promise<void> {

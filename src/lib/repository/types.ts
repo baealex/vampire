@@ -4,10 +4,16 @@ export type RepositoryChange = {
 	previousPath?: string;
 };
 
+export type RepositoryDiscardResult = {
+	path: string;
+	untracked: boolean;
+};
+
 export type RepositorySnapshot = {
 	isGitRepository: boolean;
 	files: string[];
 	directories: string[];
+	ignored: string[];
 	changes: RepositoryChange[];
 	truncated: boolean;
 };
@@ -15,6 +21,7 @@ export type RepositorySnapshot = {
 export type RepositoryDirectoryListing = {
 	files: string[];
 	directories: string[];
+	ignored: string[];
 	truncated: boolean;
 };
 
@@ -31,6 +38,24 @@ export type WorkspaceFile = {
 	size: number;
 	modifiedAt: number;
 	version: string;
+};
+
+export type WorkspaceUploadConflict = 'reject' | 'overwrite' | 'rename';
+
+export type WorkspaceUploadResult = {
+	path: string;
+	size: number;
+	renamed: boolean;
+};
+
+export type WorkspaceEntryKind = 'file' | 'directory';
+export type WorkspaceMoveConflict = 'reject' | 'rename';
+
+export type WorkspaceMoveResult = {
+	fromPath: string;
+	path: string;
+	kind: WorkspaceEntryKind;
+	renamed: boolean;
 };
 
 export type DiffSection = {

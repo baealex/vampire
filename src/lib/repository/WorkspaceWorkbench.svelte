@@ -7,8 +7,12 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
 	import { isUiOverlayOpen } from '$lib/ui/overlay';
+	import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '$lib/workspace-entry-drag.ts';
+	import MoveConflictDialog from './MoveConflictDialog.svelte';
 	import RepositoryPanel from './RepositoryPanel.svelte';
 	import RepositoryViewer from './RepositoryViewer.svelte';
+	import UploadConflictDialog from './UploadConflictDialog.svelte';
+	import { uploadSelectionFromDataTransfer } from './upload';
 	import { RepositoryWorkspaceState } from './workspace-state.svelte';
 	import type { RepositorySelection, RepositoryTab } from './types';
 
@@ -63,6 +67,8 @@
 	} = $props();
 
 	let desktop = $state(false);
+	let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
+	let pathInsertionToken = 0;
 	const name = $derived(getProjectName(session.cwd));
 	const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
 	const repository = new RepositoryWorkspaceState(untrack(() => session.id), { isOpen: () => repositoryOpen });
@@ -116,6 +122,15 @@
 			onRepositoryPanelOpenChange(false);
 			onMobilePanelChange(undefined);
 		}
+	}
+
+	async function insertPathIntoTerminal(entry: WorkspaceEntryDragData) {
+		if (!desktop && !await closeRepository()) return;
+		pathInsertionRequest = { entries: [entry], token: ++pathInsertionToken };
+	}
+
+	async function addDroppedFilesToTerminal(dataTransfer: DataTransfer): Promise<WorkspaceEntryDragData[]> {
+		return repository.addFilesForTerminal(await uploadSelectionFromDataTransfer(dataTransfer));
 	}
 
 	$effect(() => {
@@ -193,6 +208,8 @@
 			worktreeCount={repository.worktreeCount}
 			onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
 			onToggleRepository={toggleRepository}
+			{pathInsertionRequest}
+			onExternalFileDrop={addDroppedFilesToTerminal}
 		>
 			{#if repository.selection}
 				<RepositoryViewer
@@ -202,6 +219,7 @@
 					initialFile={repository.openedFile}
 					onClose={() => repository.closeViewer()}
 					onEditFile={editRepositoryFile}
+					onRequestDiscardChange={(path) => repository.requestDiscardChange(path)}
 					onFileSaved={(file) => repository.handleFileSaved(file)}
 					onFileDirtyChange={(dirty) => repository.fileDirty = dirty}
 				/>
@@ -214,6 +232,10 @@
 		snapshot={repository.snapshot}
 		loading={repository.loading}
 		errorMessage={repository.errorMessage}
+		uploading={repository.uploading}
+		moving={repository.moving}
+		uploadNoticeKind={repository.uploadNoticeKind}
+		uploadNotice={repository.uploadNotice}
 		selected={repository.selection}
 		activeTab={repositoryTab}
 		open={repositoryOpen}
@@ -222,6 +244,11 @@
 		onCreateFile={createFile}
 		onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
 		onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
+		onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
+		onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
+		onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
+		onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
+		onUploadError={(message) => repository.reportUploadError(message)}
 		onClose={closeRepository}
 		onSelect={selectRepositoryItem}
 		onTabChange={onRepositoryTabChange}
@@ -246,6 +273,34 @@
 			busyLabel="Deleting…"
 			close={() => repository.deleteTarget = undefined}
 			onConfirm={() => repository.confirmDelete()}
+		/>
+	{/if}
+
+	{#if repository.uploadConflicts.length > 0}
+		<UploadConflictDialog
+			count={repository.uploadConflicts.length}
+			firstPath={repository.uploadConflicts[0]?.path ?? ''}
+			onResolve={(conflict) => repository.resolveUploadConflicts(conflict)}
+		/>
+	{/if}
+
+	{#if repository.moveConflict}
+		<MoveConflictDialog
+			path={repository.moveConflict.path}
+			kind={repository.moveConflict.kind}
+			targetDirectory={repository.moveConflict.targetDirectory}
+			onResolve={async (resolution) => { await repository.resolveMoveConflict(resolution); }}
+		/>
+	{/if}
+
+	{#if repository.discardTarget}
+		<ConfirmDialog
+			title={repository.discardChangeTitle(repository.discardTarget)}
+			description={repository.discardChangeDescription(repository.discardTarget)}
+			confirmLabel={repository.discardTarget.status === '??' ? 'Delete file' : 'Discard changes'}
+			busyLabel={repository.discardTarget.status === '??' ? 'Deleting…' : 'Discarding…'}
+			close={() => repository.discardTarget = undefined}
+			onConfirm={() => repository.confirmDiscardChange()}
 		/>
 	{/if}
 </section>

@@ -10,7 +10,13 @@
 	} from './terminal-runtime.ts';
 	import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '$lib/theme/theme.svelte';
 	import { isDesktopViewport } from '$lib/ui/layout';
-	import { parseWorkspaceEntryDrag, WORKSPACE_ENTRY_DRAG_TYPE, workspaceEntryDragText } from '$lib/workspace-entry-drag.ts';
+	import {
+		parseWorkspaceEntryDrag,
+		WORKSPACE_ENTRY_DRAG_TYPE,
+		workspaceEntryDragText,
+		type TerminalPathInsertionRequest,
+		type WorkspaceEntryDragData
+	} from '$lib/workspace-entry-drag.ts';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
@@ -19,6 +25,8 @@
 		onInputActivity = () => undefined,
 		onOutputActivity = () => undefined,
 		onRepositoryStatus = () => undefined,
+		pathInsertionRequest,
+		onExternalFileDrop = async () => [],
 		fontSize = $bindable(14),
 		minimumFontSize = 10,
 		maximumFontSize = 22,
@@ -29,6 +37,8 @@
 		onInputActivity?: (sessionId: string, timestamp: number) => void;
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
+		pathInsertionRequest?: TerminalPathInsertionRequest;
+		onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
 		fontSize?: number;
 		minimumFontSize?: number;
 		maximumFontSize?: number;
@@ -45,7 +55,10 @@
 	let openingVisible = $state(false);
 	let openingStage = $state<TerminalOpeningStage>('opening');
 	let directInputFocused = $state(false);
-	let terminalDropActive = $state(false);
+	let terminalDropKind = $state<'' | 'path' | 'files'>('');
+	let addingDroppedFiles = $state(false);
+	let droppedFileError = $state('');
+	let handledPathInsertionToken = 0;
 	const imagePaste = new TerminalImagePasteState(
 		untrack(() => sessionId),
 		untrack(() => terminalId),
@@ -74,35 +87,64 @@
 		if (isDesktopViewport()) directInputFocused = true;
 	}
 
-	function hasWorkspaceEntry(event: DragEvent): boolean {
-		return Array.from(event.dataTransfer?.types ?? []).includes(WORKSPACE_ENTRY_DRAG_TYPE);
+	function dataTransferTypes(event: DragEvent): string[] {
+		return Array.from(event.dataTransfer?.types ?? []);
 	}
 
 	function handleTerminalDragOver(event: DragEvent) {
-		if (!connected || !event.dataTransfer || !hasWorkspaceEntry(event)) return;
+		if (!connected || addingDroppedFiles || !event.dataTransfer) return;
+		const types = dataTransferTypes(event);
+		const kind = types.includes(WORKSPACE_ENTRY_DRAG_TYPE)
+			? 'path'
+			: types.includes('Files') ? 'files' : '';
+		if (!kind) return;
 		event.preventDefault();
 		event.dataTransfer.dropEffect = 'copy';
-		terminalDropActive = true;
+		terminalDropKind = kind;
 	}
 
 	function handleTerminalDragLeave() {
-		terminalDropActive = false;
+		terminalDropKind = '';
 	}
 
-	function handleTerminalDrop(event: DragEvent) {
-		terminalDropActive = false;
-		if (!connected) return;
+	async function handleTerminalDrop(event: DragEvent) {
+		terminalDropKind = '';
+		if (!connected || addingDroppedFiles || !event.dataTransfer) return;
 		const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
 		const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
-		if (!entry) return;
+		if (entry) {
+			event.preventDefault();
+			runtime?.focus();
+			runtime?.send(workspaceEntryDragText(entry));
+			return;
+		}
+		if (!dataTransferTypes(event).includes('Files')) return;
 		event.preventDefault();
-		runtime?.focus();
-		runtime?.send(workspaceEntryDragText(entry));
+		addingDroppedFiles = true;
+		droppedFileError = '';
+		try {
+			const entries = await onExternalFileDrop(event.dataTransfer);
+			if (entries.length === 0) return;
+			runtime?.focus();
+			runtime?.send(entries.map(workspaceEntryDragText).join(' '));
+		} catch (error) {
+			droppedFileError = error instanceof Error ? error.message : 'The dropped files could not be added.';
+		} finally {
+			addingDroppedFiles = false;
+		}
 	}
 
 	$effect(() => {
 		const size = fontSize;
 		untrack(() => runtime?.setFontSize(size));
+	});
+
+	$effect(() => {
+		const request = pathInsertionRequest;
+		if (!request || request.token === handledPathInsertionToken || !connected || !runtime) return;
+		handledPathInsertionToken = request.token;
+		runtime.focus();
+		runtime.send(request.entries.map(workspaceEntryDragText).join(' '));
 	});
 
 	onMount(() => {
@@ -142,7 +184,7 @@
 	<div class="terminal-frame">
 		<div
 			class="terminal"
-			class:path-drop-target={terminalDropActive}
+			class:path-drop-target={Boolean(terminalDropKind)}
 			class:direct-input={directInputFocused}
 			class:screen-ready={screenReady}
 			bind:this={terminalElement}
@@ -150,10 +192,15 @@
 			ondragenter={handleTerminalDragOver}
 			ondragover={handleTerminalDragOver}
 			ondragleave={handleTerminalDragLeave}
-			ondrop={handleTerminalDrop}
+			ondrop={(event) => void handleTerminalDrop(event)}
 			role="application"
 			aria-label="Interactive shell terminal"
 		></div>
+		{#if terminalDropKind}
+			<div class="terminal-drop-prompt" aria-hidden="true">
+				{terminalDropKind === 'files' ? 'Copy to workspace and insert path' : 'Insert path into terminal'}
+			</div>
+		{/if}
 		{#if !terminalError}
 			<ShellOpening
 				ready={screenReady}
@@ -180,6 +227,11 @@
 			{imagePaste.message}
 		</div>
 	{/if}
+	{#if addingDroppedFiles || droppedFileError}
+		<div class="terminal-file-drop-notice" class:error={Boolean(droppedFileError)} role={droppedFileError ? 'alert' : 'status'}>
+			{droppedFileError || 'Adding dropped files…'}
+		</div>
+	{/if}
 
 	<TerminalInputDock
 		{connected}
@@ -199,7 +251,7 @@
 </div>
 
 <style>
-	.terminal-body { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto; min-width: 0; min-height: 0; overflow: hidden; }
+	.terminal-body { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto auto; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal-frame { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 	.terminal { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: 0.35rem; touch-action: none; }
 	.terminal.path-drop-target { box-shadow: inset 0 0 0 2px var(--color-accent); }
@@ -208,6 +260,7 @@
 	.terminal :global(.xterm-viewport) { overflow-y: scroll; overscroll-behavior: contain; background: var(--color-terminal-background); -webkit-overflow-scrolling: touch; touch-action: none; }
 	.terminal :global(.composition-view) { background: var(--color-terminal-background); color: var(--color-terminal-foreground); }
 	.terminal :global(.xterm-scrollable-element) { height: 100%; touch-action: none; }
+	.terminal-drop-prompt { position: absolute; z-index: 3; left: 50%; bottom: 1rem; padding: 0.45rem 0.68rem; transform: translateX(-50%); border: 1px solid var(--color-accent); border-radius: var(--radius-pill); background: var(--color-panel); box-shadow: var(--shadow-popover); color: var(--color-text); font-size: var(--text-label); pointer-events: none; white-space: nowrap; }
 	.terminal-error, .terminal-connection-status, .image-paste-notice { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin: 0; padding: 0.45rem 0.75rem; font-size: var(--text-label); line-height: var(--leading-ui); text-align: center; }
 	.terminal-error { background: var(--color-danger-surface-strong); color: var(--color-danger-text); }
 	.terminal-connection-status { border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-raised); color: var(--color-text-secondary); }
@@ -216,6 +269,8 @@
 	.image-paste-notice { border-top: 1px solid var(--color-border); background: var(--color-success-surface); color: var(--color-success-text); }
 	.image-paste-notice.uploading { background: var(--color-warning-surface); color: var(--color-command); }
 	.image-paste-notice.error { background: var(--color-danger-surface-strong); color: var(--color-danger-text); }
+	.terminal-file-drop-notice { padding: 0.45rem 0.75rem; border-top: 1px solid var(--color-border); background: var(--color-warning-surface); color: var(--color-command); font-size: var(--text-label); line-height: var(--leading-ui); text-align: center; }
+	.terminal-file-drop-notice.error { background: var(--color-danger-surface-strong); color: var(--color-danger-text); }
 
 	@media (prefers-reduced-motion: reduce) {
 		.terminal :global(.xterm) { transition: none; }
