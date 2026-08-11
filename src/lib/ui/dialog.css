@@ -51,10 +51,14 @@
 }
 
 .vampire-dialog-title {
-	margin: 0.2rem 0 0;
+	margin: 0;
 	font-size: var(--text-heading);
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-tight);
+}
+
+.vampire-dialog-eyebrow + .vampire-dialog-title {
+	margin-top: 0.2rem;
 }
 
 .vampire-dialog-close {
@@ -178,4 +182,64 @@
 		border-left: 0;
 		border-radius: 1rem 1rem 0 0;
 	}
+
+	.vampire-dialog-content--inspect {
+		grid-template-rows: auto minmax(0, 1fr);
+		overflow: hidden;
+		gap: 0;
+		padding: 0;
+	}
+
+	.vampire-dialog-content--inspect .vampire-dialog-header {
+		align-items: center;
+		padding: 0.55rem max(0.85rem, env(safe-area-inset-right)) 0.55rem max(0.85rem, env(safe-area-inset-left));
+		border-bottom: 1px solid var(--color-border-subtle);
+	}
+
+	.vampire-dialog-content--inspect .vampire-dialog-body {
+		min-height: 0;
+		overflow-y: auto;
+		padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
+	}
+
+	.vampire-dialog-content--inspect .vampire-dialog-title {
+		color: var(--color-text-secondary);
+		font-size: var(--text-body);
+		font-weight: var(--weight-medium);
+	}
+}
+
+.vampire-dialog-content--sheet {
+	top: var(--vampire-sheet-top, auto);
+	bottom: var(--vampire-sheet-bottom, 0);
+	grid-template-rows: auto minmax(0, 1fr);
+	width: 100%;
+	height: var(--vampire-sheet-height, min(34rem, calc(100dvh - 0.5rem)));
+	max-height: none;
+	overflow: hidden;
+	transform: translateX(-50%);
+	gap: 0;
+	padding: 0;
+	border-right: 0;
+	border-bottom: 0;
+	border-left: 0;
+	border-radius: 1rem 1rem 0 0;
+}
+
+.vampire-dialog-content--sheet .vampire-dialog-header {
+	align-items: center;
+	padding: 0.55rem max(0.85rem, env(safe-area-inset-right)) 0.55rem max(0.85rem, env(safe-area-inset-left));
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.vampire-dialog-content--sheet .vampire-dialog-title {
+	color: var(--color-text-secondary);
+	font-size: var(--text-body);
+	font-weight: var(--weight-medium);
+}
+
+.vampire-dialog-content--sheet .vampire-dialog-body {
+	min-height: 0;
+	overflow: hidden;
+	gap: 0;
 }

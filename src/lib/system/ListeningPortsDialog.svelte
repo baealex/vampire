@@ -111,7 +111,7 @@
 	});
 </script>
 
-<DialogShell eyebrow="System" title="Listening ports" variant="inspect" {close}>
+<DialogShell title="Listening ports" variant="inspect" {close}>
 	{#snippet children()}
 		<div class="listening-ports">
 			<div class="listening-ports-toolbar">

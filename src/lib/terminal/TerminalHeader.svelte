@@ -3,6 +3,7 @@
 	import Network from '@lucide/svelte/icons/network';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
+	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import MemoryStick from '@lucide/svelte/icons/memory-stick';
 	import Microchip from '@lucide/svelte/icons/microchip';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
@@ -25,7 +26,12 @@
 		isGitRepository,
 		changeCount,
 		worktreeCount,
+		backgroundOpen,
+		backgroundCount,
+		backgroundPanelId,
+		backgroundTriggerId,
 		toggleRepository,
+		toggleBackground,
 		toggleNote,
 		noteEditor,
 		decreaseFontSize,
@@ -44,7 +50,12 @@
 		isGitRepository?: boolean;
 		changeCount: number;
 		worktreeCount: number;
+		backgroundOpen: boolean;
+		backgroundCount: number;
+		backgroundPanelId: string;
+		backgroundTriggerId: string;
 		toggleRepository: () => void;
+		toggleBackground: () => void;
 		toggleNote: () => void;
 		noteEditor?: Snippet;
 		decreaseFontSize: () => void;
@@ -121,6 +132,20 @@
 		{/if}
 		<div class="terminal-tools" role="group" aria-label="Terminal tools">
 			<button
+				id={backgroundTriggerId}
+				type="button"
+				class="background-button"
+				class:active={backgroundOpen}
+				onclick={toggleBackground}
+				aria-label={backgroundOpen ? 'Close background processes' : 'Open background processes'}
+				aria-expanded={backgroundOpen}
+				aria-controls={backgroundPanelId}
+				title="Background processes"
+			>
+				<SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
+				{#if backgroundCount > 0}<span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>{/if}
+			</button>
+			<button
 				type="button"
 				class="listening-ports-button"
 				class:active={listeningPortsOpen}
@@ -177,19 +202,20 @@
 	.system-metric b { font-weight: var(--weight-medium); }
 	.system-metric output { color: var(--color-text); font: inherit; }
 	.terminal-tools { display: flex; align-items: center; gap: 0.15rem; }
-	:global(.note-button), .listening-ports-button, .repository-button { position: relative; display: grid; place-items: center; min-width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--color-text-tertiary); font: inherit; cursor: pointer; }
-	:global(.note-button), .repository-button { width: 2.35rem; }
+	:global(.note-button), .background-button, .listening-ports-button, .repository-button { position: relative; display: grid; place-items: center; min-width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--color-text-tertiary); font: inherit; cursor: pointer; }
+	:global(.note-button), .background-button, .repository-button { width: 2.35rem; }
 	.listening-ports-button { grid-auto-flow: column; gap: 0.38rem; padding-inline: 0.55rem; font-size: var(--text-caption); font-weight: var(--weight-medium); }
-	:global(.note-button:hover), :global(.note-button.active), .listening-ports-button:hover, .listening-ports-button.active, .repository-button:hover { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
+	:global(.note-button:hover), :global(.note-button.active), .background-button:hover, .background-button.active, .listening-ports-button:hover, .listening-ports-button.active, .repository-button:hover { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
 	:global(.note-button.has-note) { color: var(--color-command); }
 	:global(.note-button.has-note::after) { position: absolute; top: 0.38rem; right: 0.38rem; width: 0.32rem; height: 0.32rem; border-radius: 50%; background: var(--color-accent); content: ""; }
-	.repository-button span { position: absolute; top: -0.25rem; right: -0.35rem; display: grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.24rem; border: 2px solid var(--color-panel); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-accent-ink); font-size: var(--text-nano); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+	.background-button span, .repository-button span { position: absolute; top: -0.25rem; right: -0.35rem; display: grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.24rem; border: 2px solid var(--color-panel); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-accent-ink); font-size: var(--text-nano); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
 	:global(.workspace-note-popover) { z-index: 60; width: min(30rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); outline: none; }
 
 	@media (min-width: 64rem) {
 		.terminal-header { grid-template-columns: minmax(0, 1fr) auto; }
 		.back-button { display: none; }
 		.terminal-identity { justify-items: start; }
+		.background-button { display: none; }
 	}
 
 	@media (max-width: 63.999rem) {
