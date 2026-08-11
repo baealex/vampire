@@ -115,3 +115,14 @@
 	font-size: var(--text-micro);
 	line-height: var(--leading-ui);
 }
+
+@media (pointer: coarse) {
+	.vampire-menu-trigger {
+		min-width: 2.75rem;
+		height: 2.75rem;
+	}
+
+	.vampire-menu-item {
+		min-height: 2.75rem;
+	}
+}

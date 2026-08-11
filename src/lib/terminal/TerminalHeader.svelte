@@ -11,6 +11,7 @@
 	import ListeningPortsDialog from '$lib/system/ListeningPortsDialog.svelte';
 	import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '$lib/system-metrics';
 	import TerminalDisplayMenu from './TerminalDisplayMenu.svelte';
+	import TerminalSystemMenu from './TerminalSystemMenu.svelte';
 
 	let {
 		projectName,
@@ -145,6 +146,10 @@
 				<SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
 				{#if backgroundCount > 0}<span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>{/if}
 			</button>
+			<TerminalSystemMenu
+				{systemMetrics}
+				openListeningPorts={() => listeningPortsOpen = true}
+			/>
 			<button
 				type="button"
 				class="listening-ports-button"
@@ -227,10 +232,11 @@
 	}
 
 	@media (max-width: 32rem) {
-		.terminal-header { grid-template-columns: 2.65rem minmax(0, 1fr) auto; }
-		.terminal-controls { gap: 0.35rem; }
-		.system-metric b { display: none; }
-		.listening-ports-button { width: 2.35rem; padding: 0; }
-		.listening-ports-button span { display: none; }
+		.terminal-header { grid-template-columns: 2.75rem minmax(0, 1fr) auto; gap: 0.35rem; padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right)); }
+		.back-button { width: 2.75rem; min-height: 2.75rem; }
+		.terminal-identity-title { gap: 0.2rem; }
+		.terminal-controls, .terminal-tools { gap: 0; }
+		.system-metrics, .listening-ports-button { display: none; }
+		:global(.note-button), .background-button, .repository-button { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; }
 	}
 </style>

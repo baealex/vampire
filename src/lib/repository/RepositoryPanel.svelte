@@ -328,7 +328,7 @@
 	@keyframes spin { to { transform: rotate(360deg); } }
 
 	@media (max-width: 79.999rem) {
-		.repository-panel { position: fixed; z-index: 40; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); transition: transform 180ms ease; }
+		.repository-panel { position: fixed; z-index: 40; width: min(23rem, calc(100% - 2.75rem)); height: 100dvh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); transition: transform 180ms ease; }
 	}
 
 	@media (prefers-reduced-motion: reduce) {

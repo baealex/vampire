@@ -97,6 +97,7 @@
 	@media (max-width: 63.999rem) {
 		.section-header { padding: 1rem; }
 		.session-order-toolbar { padding-inline: 1rem; }
+		.session-order-control button { min-height: 2.75rem; }
 		.navigator-close { display: grid; }
 	}
 
