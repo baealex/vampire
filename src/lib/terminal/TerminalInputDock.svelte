@@ -202,18 +202,18 @@
 	.input-dock { min-width: 0; border-top: 1px solid var(--color-border-subtle); background: var(--color-panel); box-shadow: var(--shadow-terminal-dock); }
 	.touch-toolbar { display: flex; gap: 0.3rem; min-width: 0; overflow-x: auto; padding: 0.45rem max(0.45rem, env(safe-area-inset-right)) 0.25rem max(0.45rem, env(safe-area-inset-left)); scrollbar-width: none; }
 	.touch-toolbar::-webkit-scrollbar { display: none; }
-	.touch-toolbar button { flex: 0 0 2.45rem; min-width: 2.45rem; min-height: 2.35rem; padding: 0 0.2rem; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-control-background); color: var(--color-text); font: inherit; font-size: var(--text-caption); font-weight: var(--weight-medium); cursor: pointer; touch-action: manipulation; }
+	.touch-toolbar button { flex: 0 0 2.75rem; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.2rem; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-control-background); color: var(--color-text); font: inherit; font-size: var(--text-caption); font-weight: var(--weight-medium); cursor: pointer; touch-action: manipulation; }
 	.touch-toolbar button:hover:not(:disabled) { background: var(--color-surface-hover); }
 	.touch-toolbar button:disabled { color: var(--color-text-disabled); cursor: default; }
-	.touch-toolbar .wide-key { flex-basis: 3.4rem; min-width: 3.4rem; }
+	.touch-toolbar .wide-key { flex-basis: 3.75rem; min-width: 3.75rem; }
 	.toolbar-divider { flex: 0 0 1px; align-self: stretch; margin: 0 0.15rem; background: var(--color-border); }
-	.composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem 2.5rem; align-items: end; gap: 0.2rem; min-width: 0; margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-left)); padding: 0.22rem; border: 1px solid var(--color-border); border-radius: 0.78rem; background: var(--color-control-background); }
+	.composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.75rem 2.75rem; align-items: end; gap: 0.2rem; min-width: 0; margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-left)); padding: 0.22rem; border: 1px solid var(--color-border); border-radius: 0.78rem; background: var(--color-control-background); }
 	.composer:focus-within { border-color: var(--color-accent); box-shadow: var(--shadow-accent-focus); }
 	.composer.drop-target { border-color: var(--color-accent); background: var(--color-surface-active); box-shadow: var(--shadow-accent-focus); }
 	.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 	.composer textarea { width: 100%; min-width: 0; min-height: var(--control-height-md); max-height: 8rem; padding: 0.58rem 0.62rem; overflow-y: auto; resize: none; border: 0; border-radius: var(--radius-sm); outline: none; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; line-height: var(--leading-ui); }
 	.composer textarea::placeholder { color: var(--color-field-placeholder); }
-	.composer button { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; padding: 0; border: 0; border-radius: 0.58rem; cursor: pointer; touch-action: manipulation; }
+	.composer button { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; padding: 0; border: 0; border-radius: 0.58rem; cursor: pointer; touch-action: manipulation; }
 	.image-button { background: transparent; color: var(--color-text-secondary); }
 	.image-button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
 	.send-button { background: var(--color-accent); color: var(--color-accent-ink); }
@@ -222,7 +222,8 @@
 
 	@media (min-width: 64rem) {
 		.touch-toolbar { display: none; }
-		.composer { margin: 0.6rem 0.75rem 0.7rem; }
+		.composer { grid-template-columns: minmax(0, 1fr) 2.5rem 2.5rem; margin: 0.6rem 0.75rem 0.7rem; }
 		.composer textarea { font-size: var(--text-body); }
+		.composer button { width: 2.5rem; height: 2.5rem; }
 	}
 </style>

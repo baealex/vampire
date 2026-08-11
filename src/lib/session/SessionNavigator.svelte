@@ -66,7 +66,11 @@
 	}
 </script>
 
-<div class="session-column" class:mobile-open={mobileOpen}>
+{#if mobileOpen && hasOpenSession}
+	<button class="session-scrim" type="button" aria-label="Close workspaces" onclick={onClose}></button>
+{/if}
+
+<div class="session-column" class:mobile-open={mobileOpen} class:standalone={!hasOpenSession}>
 	<section class="session-panel" aria-labelledby="workspaces-title">
 		<SessionNavigatorHeader
 			sessionCount={sessions.length}
@@ -114,6 +118,7 @@
 
 <style>
 	.session-column { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; gap: 1.25rem; min-width: 0; }
+	.session-scrim { display: none; }
 	.session-panel, .new-session-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 	.session-panel { min-width: 0; overflow: hidden; }
 	.new-session-panel { overflow: hidden; }
@@ -130,7 +135,9 @@
 	}
 
 	@media (max-width: 63.999rem) {
-		.session-column { position: fixed; z-index: 40; inset: 0 auto 0 0; display: flex; flex-direction: column; align-items: stretch; gap: 0; width: min(23rem, calc(100% - 2.5rem)); height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); overflow-y: auto; transform: translateX(-100%); border-right: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-navigation-panel); pointer-events: none; transition: transform 180ms ease, visibility 0s linear 180ms; visibility: hidden; }
+		.session-scrim { position: fixed; z-index: 39; inset: 0; display: block; padding: 0; border: 0; background: var(--color-backdrop); cursor: pointer; animation: session-scrim-in 180ms ease; }
+		.session-column { position: fixed; z-index: 40; inset: 0 auto 0 0; display: flex; flex-direction: column; align-items: stretch; gap: 0; width: min(23rem, calc(100% - 2.75rem)); height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); overflow-y: auto; transform: translateX(-100%); border-right: 1px solid var(--color-border-strong); background: var(--color-panel); box-shadow: var(--shadow-navigation-panel); pointer-events: none; transition: transform 180ms ease, visibility 0s linear 180ms; visibility: hidden; }
+		.session-column.standalone { width: 100%; }
 		.session-column.mobile-open { transform: translateX(0); pointer-events: auto; transition: transform 180ms ease; visibility: visible; }
 		.session-panel, .new-session-panel { width: 100%; border: 0; border-radius: 0; background: transparent; }
 		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
@@ -139,5 +146,8 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.session-column { transition: none; }
+		.session-scrim { animation: none; }
 	}
+
+	@keyframes session-scrim-in { from { opacity: 0; } }
 </style>

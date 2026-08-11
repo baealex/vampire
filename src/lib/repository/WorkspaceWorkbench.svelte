@@ -227,6 +227,10 @@
 		</Terminal>
 	</div>
 
+	{#if repositoryOpen && !desktop}
+		<button class="repository-scrim" type="button" aria-label="Dismiss repository panel" onclick={() => void closeRepository()}></button>
+	{/if}
+
 	<RepositoryPanel
 		projectName={name}
 		snapshot={repository.snapshot}
@@ -309,9 +313,16 @@
 	.workspace-workbench, .workspace-primary { width: 100%; min-width: 0; min-height: 0; }
 	.workspace-workbench { position: relative; height: 100dvh; overflow: hidden; }
 	.workspace-primary { position: relative; height: 100%; }
+	.repository-scrim { position: fixed; z-index: 39; inset: 0; padding: 0; border: 0; background: var(--color-backdrop); cursor: pointer; animation: repository-scrim-in 180ms ease; }
+
+	@keyframes repository-scrim-in { from { opacity: 0; } }
 
 	@media (min-width: 80rem) {
 		.workspace-workbench.repository-open .workspace-primary { width: auto; margin-right: 22rem; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.repository-scrim { animation: none; }
 	}
 
 </style>
