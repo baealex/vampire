@@ -1,6 +1,6 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
 import type { ManagedSession } from '$lib/session/types';
-import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '$lib/system-metrics';
+import type { SystemMetrics } from '$lib/system-metrics';
 import type { TmuxStatus } from '$lib/tmux-status';
 import { decodeWorkspaceServerMessage, type SessionChanges } from './workspace-protocol.ts';
 
@@ -15,7 +15,6 @@ type StatusResponse = {
 	authenticationRequired: boolean;
 	authenticated: boolean;
 	tmux: TmuxStatus;
-	system?: SystemMetrics;
 };
 
 type ConnectionStartOptions = {
@@ -42,7 +41,6 @@ export class WorkspaceConnectionState {
 	#workspaceSocket: WebSocket | undefined;
 	#workspaceReconnectTimer: number | undefined;
 	#workspaceFallbackTimer: number | undefined;
-	#systemFallbackTimer: number | undefined;
 	#workspaceSnapshotTimer: number | undefined;
 	#workspaceReconnectAttempt = 0;
 
@@ -57,10 +55,6 @@ export class WorkspaceConnectionState {
 		const refreshWhenVisible = () => {
 			if (document.hidden || !this.authenticated) return;
 			options.onVisible?.();
-			const socketState = this.#workspaceSocket?.readyState;
-			if (socketState !== WebSocket.OPEN && socketState !== WebSocket.CONNECTING) {
-				void this.refreshSystemMetrics();
-			}
 			this.#startWorkspaceStream(options, runVersion);
 		};
 		document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -121,7 +115,7 @@ export class WorkspaceConnectionState {
 		const authenticationVersion = this.#authenticationVersion;
 		this.#systemRequestInFlight = true;
 		try {
-			const metrics = await requestJson<SystemMetrics>('/api/system');
+			const metrics = await requestJson<SystemMetrics>('/api/system', { cache: 'no-store' });
 			if (this.authenticated && authenticationVersion === this.#authenticationVersion) this.systemMetrics = metrics;
 		} catch (error) {
 			if (isUnauthorized(error)) this.markUnauthenticated();
@@ -138,7 +132,6 @@ export class WorkspaceConnectionState {
 			this.authenticationRequired = status.authenticationRequired;
 			this.authenticated = status.authenticated;
 			this.tmuxStatus = status.tmux;
-			this.systemMetrics = status.system;
 			shouldRefreshSessions = status.authenticated;
 		} catch (error) {
 			if (runVersion === this.#runVersion && !signal.aborted) {
@@ -178,9 +171,7 @@ export class WorkspaceConnectionState {
 		socket.onmessage = (event) => {
 			const message = decodeWorkspaceServerMessage(event.data);
 			if (!message) return;
-			if (message.type === 'system-metrics') {
-				this.systemMetrics = message.metrics;
-			} else if (message.type === 'sessions-snapshot') {
+			if (message.type === 'sessions-snapshot') {
 				this.#stopWorkspaceFallback();
 				this.#stopWorkspaceSnapshotTimer();
 				options.onSessionEvent?.({ type: 'sessions-snapshot', sessions: message.sessions });
@@ -215,20 +206,11 @@ export class WorkspaceConnectionState {
 				void options.refreshSessions({ quiet: true });
 			}, 10_000);
 		}
-		if (this.#systemFallbackTimer === undefined) {
-			void this.refreshSystemMetrics();
-			this.#systemFallbackTimer = window.setInterval(() => {
-				if (runVersion !== this.#runVersion || document.hidden || !this.authenticated) return;
-				void this.refreshSystemMetrics();
-			}, SYSTEM_METRICS_INTERVAL_MS);
-		}
 	}
 
 	#stopWorkspaceFallback() {
 		if (this.#workspaceFallbackTimer !== undefined) window.clearInterval(this.#workspaceFallbackTimer);
-		if (this.#systemFallbackTimer !== undefined) window.clearInterval(this.#systemFallbackTimer);
 		this.#workspaceFallbackTimer = undefined;
-		this.#systemFallbackTimer = undefined;
 	}
 
 	#stopWorkspaceSnapshotTimer() {

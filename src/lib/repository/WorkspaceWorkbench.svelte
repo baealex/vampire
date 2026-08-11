@@ -34,6 +34,7 @@
 		onOutputActivity,
 		onTerminalPresentationChange = () => undefined,
 		systemMetrics,
+		refreshSystemMetrics,
 		mobilePanel,
 		onMobilePanelChange = () => undefined,
 		repositoryPanelOpen = false,
@@ -58,6 +59,7 @@
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
 		onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
 		systemMetrics?: SystemMetrics;
+		refreshSystemMetrics: () => Promise<void>;
 		mobilePanel?: MobilePanel;
 		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
 		repositoryPanelOpen?: boolean;
@@ -202,6 +204,7 @@
 			{onInputActivity}
 			{onOutputActivity}
 			{systemMetrics}
+			{refreshSystemMetrics}
 			{repositoryOpen}
 			isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
 			changeCount={repository.changeCount}

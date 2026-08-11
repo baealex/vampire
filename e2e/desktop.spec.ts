@@ -262,13 +262,13 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
 	const systemMetrics = page.locator('.terminal-header .system-metrics');
+	await expect(systemMetrics).toBeVisible();
+	await expect(systemMetrics.locator('.system-metric').first().locator('output')).toContainText('≈');
 	await expect(systemMetrics.locator('.system-metric').first()).toHaveAttribute(
 		'title',
-		/sampled average across all logical cores; refreshes about every 2 seconds/
+		/sampled average across all logical cores; refreshes about every 2 seconds/i
 	);
-	await expect(systemMetrics.locator('.system-metric').first().locator('output')).toContainText('≈');
-	await expect(systemMetrics.getByRole('button')).toHaveCount(0);
-	await expect(page.locator('.terminal-header .terminal-tools').getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
 	await page.getByRole('button', { name: 'Inspect listening ports' }).click();
 	await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
 	await expect(page.getByText('2 ports')).toBeVisible();

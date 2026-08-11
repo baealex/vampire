@@ -1,5 +1,4 @@
 import type { ManagedSession, SessionProcess, SessionTerminal } from '../session/types.ts';
-import type { SystemMetrics } from '../system-metrics.ts';
 
 export type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
@@ -8,7 +7,6 @@ export type WorkspaceServerMessage =
 	| { type: 'session-added'; session: ManagedSession }
 	| { type: 'session-updated'; id: string; changes: SessionChanges }
 	| { type: 'session-removed'; id: string }
-	| { type: 'system-metrics'; metrics: SystemMetrics }
 	| { type: 'error'; message: string };
 
 const SESSION_CHANGE_FIELDS = new Set([
@@ -119,14 +117,6 @@ export function isManagedSessionMessage(value: unknown): value is ManagedSession
 		&& typeof value.isGitRepository === 'boolean';
 }
 
-export function isSystemMetricsMessage(value: unknown): value is SystemMetrics {
-	return isRecord(value)
-		&& isFiniteNumber(value.cpuUsage)
-		&& isFiniteNumber(value.memoryUsage)
-		&& isFiniteNumber(value.memoryUsedBytes)
-		&& isFiniteNumber(value.memoryTotalBytes);
-}
-
 export function isSessionChangesMessage(value: unknown): value is SessionChanges {
 	if (!isRecord(value) || Object.keys(value).some((key) => !SESSION_CHANGE_FIELDS.has(key))) return false;
 	return (value.tmuxSession === undefined || typeof value.tmuxSession === 'string')
@@ -160,9 +150,6 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
 	}
 	if (value.type === 'session-removed' && typeof value.id === 'string') {
 		return { type: 'session-removed', id: value.id };
-	}
-	if (value.type === 'system-metrics' && isSystemMetricsMessage(value.metrics)) {
-		return { type: 'system-metrics', metrics: value.metrics };
 	}
 	if (value.type === 'error' && typeof value.message === 'string') {
 		return { type: 'error', message: value.message };
