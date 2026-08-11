@@ -31,13 +31,63 @@ const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
 const TERMINAL_RESIZE_SETTLE_MS = 1_000;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
+const TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES = [
+	'\u001b[?47l',
+	'\u001b[?1047l',
+	'\u001b[?1049l'
+] as const;
+const TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH = Math.max(
+	...TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES.map((sequence) => sequence.length)
+) - 1;
+const TERMINAL_PANE_STATE_FORMAT = [
+	'#{alternate_on}',
+	'#{alternate_saved_x}',
+	'#{alternate_saved_y}',
+	'#{bracket_paste_flag}',
+	'#{cursor_flag}',
+	'#{cursor_x}',
+	'#{cursor_y}',
+	'#{insert_flag}',
+	'#{keypad_cursor_flag}',
+	'#{keypad_flag}',
+	'#{origin_flag}',
+	'#{wrap_flag}',
+	'#{scroll_region_upper}',
+	'#{scroll_region_lower}'
+].join('\t');
 
 export interface TerminalSize {
 	columns: number;
 	rows: number;
 }
 
+export interface TerminalCursorPosition {
+	column: number;
+	row: number;
+}
+
+export interface TerminalPaneState {
+	alternateScreen: boolean;
+	alternateSavedCursor: TerminalCursorPosition;
+	bracketedPaste?: boolean;
+	cursor: TerminalCursorPosition;
+	cursorWrapPending: boolean;
+	cursorVisible: boolean;
+	insertMode: boolean;
+	keypadApplicationMode: boolean;
+	keypadCursorMode: boolean;
+	originMode: boolean;
+	scrollRegion: { top: number; bottom: number };
+	wraparoundMode: boolean;
+}
+
+export interface TerminalAlternateScreenExitState {
+	exited: boolean;
+	tail: string;
+}
+
 export type TerminalSizeController = (ignored: boolean) => Promise<void>;
+export type TerminalScreenSynchronizer = (geometry?: TerminalSize) => Promise<void>;
 
 export interface AttachTerminalOptions {
 	terminalId?: string;
@@ -47,7 +97,10 @@ export interface AttachTerminalOptions {
 	canReportTerminalColor?: () => boolean;
 	getGeometry?: () => TerminalSize | undefined;
 	sendGeometry?: boolean;
-	onAttached?: (setIgnoreSize: TerminalSizeController) => Promise<void> | void;
+	onAttached?: (
+		setIgnoreSize: TerminalSizeController,
+		synchronizeScreen: TerminalScreenSynchronizer
+	) => Promise<void> | void;
 	onActivate?: () => Promise<void> | void;
 	onGeometryChange?: (geometry: TerminalSize) => void;
 	onInput?: () => void;
@@ -60,6 +113,201 @@ export interface AttachTerminalOptions {
 export function terminalSnapshotHistoryLines(requested?: number): number {
 	if (!Number.isInteger(requested) || Number(requested) <= 0) return TERMINAL_SCROLLBACK_LINES.standard;
 	return Math.min(TERMINAL_SCROLLBACK_LINES.standard, Number(requested));
+}
+
+export function terminalAlternateScreenExitState(
+	previousTail: string,
+	output: string
+): TerminalAlternateScreenExitState {
+	const tail = previousTail.slice(-TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH);
+	const combined = `${tail}${output}`;
+	return {
+		// Search only positions whose sequence would end in the new output. This
+		// catches records split at any byte without detecting a short sequence from
+		// the retained tail for a second time.
+		exited: TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES.some((sequence) => combined.indexOf(
+			sequence,
+			Math.max(0, tail.length - sequence.length + 1)
+		) >= 0),
+		tail: combined.slice(-TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH)
+	};
+}
+
+export function terminalPaneState(
+	output: string,
+	geometry: TerminalSize
+): TerminalPaneState | undefined {
+	const value = output.endsWith('\n') ? output.slice(0, -1) : output;
+	const fields = value.split('\t');
+	if (fields.length !== 14) return undefined;
+	const flag = (index: number): boolean | undefined => {
+		if (fields[index] === '1') return true;
+		if (fields[index] === '0') return false;
+		return undefined;
+	};
+	const integer = (index: number): number | undefined => {
+		if (!/^\d+$/.test(fields[index] ?? '')) return undefined;
+		const parsed = Number(fields[index]);
+		return Number.isSafeInteger(parsed) ? parsed : undefined;
+	};
+	const alternateScreen = flag(0);
+	const alternateSavedColumn = integer(1);
+	const alternateSavedRow = integer(2);
+	// tmux 3.4 and older expand unknown formats to an empty field. Keep the
+	// remaining pane state usable when bracket_paste_flag is unavailable.
+	const bracketedPaste = fields[3] === '' ? undefined : flag(3);
+	const cursorVisible = flag(4);
+	const cursorColumn = integer(5);
+	const cursorRow = integer(6);
+	const insertMode = flag(7);
+	const keypadCursorMode = flag(8);
+	const keypadApplicationMode = flag(9);
+	const originMode = flag(10);
+	const wraparoundMode = flag(11);
+	const scrollTop = integer(12);
+	const scrollBottom = integer(13);
+	if (
+		alternateScreen === undefined
+		|| alternateSavedColumn === undefined
+		|| alternateSavedRow === undefined
+		|| (fields[3] !== '' && bracketedPaste === undefined)
+		|| cursorVisible === undefined
+		|| cursorColumn === undefined
+		|| cursorRow === undefined
+		|| insertMode === undefined
+		|| keypadCursorMode === undefined
+		|| keypadApplicationMode === undefined
+		|| originMode === undefined
+		|| wraparoundMode === undefined
+		|| scrollTop === undefined
+		|| scrollBottom === undefined
+		|| cursorColumn > geometry.columns
+		|| cursorRow >= geometry.rows
+		|| scrollTop >= geometry.rows
+		|| scrollBottom >= geometry.rows
+		|| scrollTop > scrollBottom
+		|| (cursorColumn === geometry.columns && !wraparoundMode)
+		|| (originMode && (cursorRow < scrollTop || cursorRow > scrollBottom))
+	) return undefined;
+	return {
+		alternateScreen,
+		// tmux keeps the saved main screen at its pre-alternate-screen geometry.
+		// When the pane shrinks behind a TUI these coordinates can legitimately
+		// exceed the active xterm grid. Clamp the provisional reconstruction; an
+		// exit-triggered capture then replaces it with tmux's exact reflowed screen.
+		alternateSavedCursor: {
+			column: Math.min(alternateSavedColumn, geometry.columns - 1),
+			row: Math.min(alternateSavedRow, geometry.rows - 1)
+		},
+		bracketedPaste,
+		cursor: { column: Math.min(cursorColumn, geometry.columns - 1), row: cursorRow },
+		cursorWrapPending: cursorColumn === geometry.columns,
+		cursorVisible,
+		insertMode,
+		keypadApplicationMode,
+		keypadCursorMode,
+		originMode,
+		scrollRegion: { top: scrollTop, bottom: scrollBottom },
+		wraparoundMode
+	};
+}
+
+function terminalCursorData(cursor: TerminalCursorPosition, rowOffset = 0): string {
+	return `\u001b[${cursor.row - rowOffset + 1};${cursor.column + 1}H`;
+}
+
+function terminalPaneModeData(state: TerminalPaneState, cursorRowOutput?: string): string {
+	const { top, bottom } = state.scrollRegion;
+	const applicationModes = [
+		state.keypadCursorMode ? '\u001b[?1h' : '\u001b[?1l',
+		state.keypadApplicationMode ? '\u001b=' : '\u001b>',
+		state.bracketedPaste === undefined
+			? ''
+			: state.bracketedPaste ? '\u001b[?2004h' : '\u001b[?2004l',
+		state.wraparoundMode ? '\u001b[?7h' : '\u001b[?7l',
+		`\u001b[${top + 1};${bottom + 1}r`,
+		state.originMode ? '\u001b[?6h' : '\u001b[?6l'
+	].join('');
+	const cursorVisibility = state.cursorVisible ? '\u001b[?25h' : '\u001b[?25l';
+	if (state.cursorWrapPending && cursorRowOutput !== undefined) {
+		// CUP clamps to the final visible column and cannot represent xterm's
+		// pending-autowrap cursor. Rewriting the captured physical row leaves the
+		// cursor one cell past its edge, matching tmux before the next character.
+		return [
+			'\u001b[4l',
+			applicationModes,
+			terminalCursorData({ column: 0, row: state.cursor.row }, state.originMode ? top : 0),
+			'\u001b[0m',
+			terminalRecordData(cursorRowOutput),
+			state.insertMode ? '\u001b[4h' : '\u001b[4l',
+			cursorVisibility
+		].join('');
+	}
+	return [
+		state.insertMode ? '\u001b[4h' : '\u001b[4l',
+		applicationModes,
+		terminalCursorData(state.cursor, state.originMode ? top : 0),
+		cursorVisibility
+	].join('');
+}
+
+function terminalRecordData(output: string): string {
+	return output.endsWith('\n') ? output.slice(0, -1) : output;
+}
+
+function terminalPhysicalRowData(output: string, row: number): string | undefined {
+	const value = terminalRecordData(output).split('\n')[row];
+	return value === '' || value === undefined ? undefined : value;
+}
+
+const TERMINAL_CAPTURE_WRITE_MODE = '\u001b[0m\u001b[4l\u001b[?7h';
+
+export function terminalSnapshotData(
+	output: string,
+	state?: TerminalPaneState,
+	savedMainOutput = '',
+	physicalOutput = ''
+): string {
+	// runControlCommand terminates command output with a record separator newline.
+	// Writing that separator into an exactly full xterm grid scrolls the screen by
+	// one row. Remove only the separator; real trailing blank pane rows remain.
+	const snapshot = terminalRecordData(output);
+	if (!state) return snapshot;
+	const cursorRowOutput = terminalPhysicalRowData(physicalOutput, state.cursor.row);
+	if (!state.alternateScreen) return `${snapshot}${terminalPaneModeData(state, cursorRowOutput)}`;
+	const mainScreen = terminalRecordData(savedMainOutput);
+	return [
+		mainScreen,
+		'\u001b[?6l\u001b[r',
+		terminalCursorData(state.alternateSavedCursor),
+		`\u001b[?1049h${TERMINAL_CAPTURE_WRITE_MODE}`,
+		snapshot,
+		terminalPaneModeData(state, cursorRowOutput)
+	].join('');
+}
+
+export function terminalScreenData(
+	output: string,
+	state?: TerminalPaneState,
+	savedMainOutput = '',
+	physicalOutput = ''
+): string {
+	// Replace only the visible grid so browser scrollback survives a redraw.
+	// Captures assume default rendition, insert off, and wrapping on; normalize
+	// those modes while writing cells and restore the tmux pane modes afterward.
+	const resetMainScreen = `\u001b[?1049l\u001b[?6l\u001b[r${TERMINAL_CAPTURE_WRITE_MODE}\u001b[2J\u001b[H`;
+	if (!state?.alternateScreen) {
+		return `${resetMainScreen}${terminalSnapshotData(output, state, '', physicalOutput)}`;
+	}
+	const cursorRowOutput = terminalPhysicalRowData(physicalOutput, state.cursor.row);
+	return [
+		resetMainScreen,
+		terminalRecordData(savedMainOutput),
+		terminalCursorData(state.alternateSavedCursor),
+		`\u001b[?1049h${TERMINAL_CAPTURE_WRITE_MODE}\u001b[2J\u001b[H`,
+		terminalRecordData(output),
+		terminalPaneModeData(state, cursorRowOutput)
+	].join('');
 }
 
 export function* terminalInputControlCommands(paneId: string, data: string): Generator<string> {
@@ -221,6 +469,7 @@ export async function attachTerminal(
 	let commandBlock: ControlCommandBlock | undefined;
 	let inputQueue: Promise<void> = Promise.resolve();
 	let pendingInputBytes = 0;
+	let preferredSize: TerminalSize | undefined = initialSize;
 	let requestedSize: TerminalSize | undefined = initialSize;
 	let appliedSize: string | undefined;
 	let currentGeometry = targetGeometry;
@@ -233,6 +482,9 @@ export async function attachTerminal(
 	let controlLineBuffer = Buffer.alloc(0);
 	const terminalDecoder = new TextDecoder();
 	let sizeIgnored = Boolean(options.ignoreSize);
+	let terminalControlSequenceTail = '';
+	let alternateScreenExitResyncPending = false;
+	let alternateScreenExitResyncRequested = false;
 
 	const rejectControlCommands = (error: unknown): void => {
 		attachedReject(error);
@@ -333,6 +585,8 @@ export async function attachTerminal(
 	};
 
 	const sendTerminalOutput = (output: string): void => {
+		const alternateScreenExit = terminalAlternateScreenExitState(terminalControlSequenceTail, output);
+		terminalControlSequenceTail = alternateScreenExit.tail;
 		const now = Date.now();
 		const locallyEligible = snapshotAcknowledged && syntheticOutputDepth === 0 && now >= syntheticOutputUntil;
 		const activity = isTerminalOutputActivity({
@@ -349,6 +603,7 @@ export async function attachTerminal(
 		if (!snapshotSent) return;
 		if (snapshotAcknowledged) {
 			message(socket, { type: 'output', data: output, activity, activityAt });
+			if (alternateScreenExit.exited) scheduleAlternateScreenExitResync();
 			return;
 		}
 
@@ -360,6 +615,7 @@ export async function attachTerminal(
 		}
 		pendingSnapshotOutput.push({ data: output, activity, activityAt });
 		pendingSnapshotOutputBytes += bytes;
+		if (alternateScreenExit.exited) scheduleAlternateScreenExitResync();
 	};
 
 	const acknowledgeSnapshot = (): void => {
@@ -369,7 +625,72 @@ export async function attachTerminal(
 		pendingSnapshotOutput = [];
 		pendingSnapshotOutputBytes = 0;
 		for (const output of pending) message(socket, { type: 'output', ...output });
+		if (alternateScreenExitResyncRequested) scheduleAlternateScreenExitResync();
 	};
+
+	async function resyncTerminalScreen(geometry?: TerminalSize): Promise<void> {
+		if (!snapshotSent || closed) return;
+		if (geometry) {
+			const expected = `${geometry.columns}x${geometry.rows}`;
+			let applied = false;
+			for (let attempt = 0; attempt < 100 && !closed; attempt += 1) {
+				const actual = await runControlCommand(
+					`display-message -p -t ${paneId} '#{pane_width}x#{pane_height}'`
+				);
+				if (actual.trim() === expected) {
+					applied = true;
+					break;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			if (!applied) throw new Error('Terminal geometry did not settle before screen synchronization.');
+		} else {
+			await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
+		}
+		const synchronizedGeometry = geometry ?? options.getGeometry?.() ?? currentGeometry;
+		// A capture contains cells, not terminal modes, the cursor, or the main
+		// screen saved behind an active TUI. Queue the related control commands so
+		// a browser can continue from the same terminal state after reconstruction.
+		const [snapshot, rawState, savedMainSnapshot, physicalSnapshot] = await Promise.all([
+			runControlCommand(`capture-pane -p -e -J -t ${paneId}`),
+			runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
+			runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
+			runControlCommand(`capture-pane -p -e -N -t ${paneId}`)
+		]);
+		message(socket, {
+			type: 'output',
+			data: terminalScreenData(
+				snapshot,
+				terminalPaneState(rawState, synchronizedGeometry),
+				savedMainSnapshot,
+				physicalSnapshot
+			),
+			activity: false,
+			activityAt: null
+		});
+	}
+
+	function scheduleAlternateScreenExitResync(): void {
+		if (!snapshotSent || closed) return;
+		alternateScreenExitResyncRequested = true;
+		if (!snapshotAcknowledged || alternateScreenExitResyncPending) return;
+		alternateScreenExitResyncPending = true;
+		setTimeout(() => {
+			void (async () => {
+				while (alternateScreenExitResyncRequested && !closed) {
+					alternateScreenExitResyncRequested = false;
+					await resyncTerminalScreen();
+				}
+			})()
+				.catch(() => {
+					if (!closed) socket.close(1013, 'terminal screen synchronization failed');
+				})
+				.finally(() => {
+					alternateScreenExitResyncPending = false;
+					if (alternateScreenExitResyncRequested) scheduleAlternateScreenExitResync();
+				});
+		}, 0);
+	}
 
 	const handleControlLine = (lineBuffer: Buffer): void => {
 		const output = parseTmuxControlOutput(lineBuffer, paneId, terminalDecoder);
@@ -474,22 +795,39 @@ export async function attachTerminal(
 	const setIgnoreSize = async (ignored: boolean): Promise<void> => {
 		if (closed) return;
 		if (!ignored && sizeIgnored) {
+			// Geometry broadcasts resize every xterm to the shared pane, so a passive
+			// browser may not send its unchanged fit again. Retain its last requested
+			// device size and restore that preference when it takes control.
+			requestedSize ??= preferredSize;
 			while (requestedSize && !closed) {
 				const next = requestedSize;
 				requestedSize = undefined;
 				const key = `${next.columns}x${next.rows}`;
-				if (key === appliedSize) continue;
-				await runControlCommand(`refresh-client -C ${key}`);
-				appliedSize = key;
+				const previousGeometry = currentGeometry;
 				currentGeometry = next;
+				// A control client can emit redraw output as soon as its size changes,
+				// even while tmux still marks it ignore-size. Every browser must resize
+				// before that output is allowed onto the shared terminal stream.
+				options.onGeometryChange?.(next);
+				try {
+					await runControlCommand(`refresh-client -C ${key}`);
+					appliedSize = key;
+				} catch (error) {
+					currentGeometry = previousGeometry;
+					options.onGeometryChange?.(previousGeometry);
+					throw error;
+				}
 			}
 			// Announce the geometry before tmux emits the redraw caused by this client
 			// becoming authoritative, so every browser renders the same grid.
 			options.onGeometryChange?.(currentGeometry);
-			await withSyntheticOutput(
-				() => runControlCommand('refresh-client -f !ignore-size'),
-				TERMINAL_RESIZE_SETTLE_MS
-			);
+			await withSyntheticOutput(async () => {
+				await runControlCommand('refresh-client -f !ignore-size');
+				// While ignore-size is set, -C updates only this client. Repeat it after
+				// promotion so the pane has reached the announced geometry before capture.
+				await runControlCommand(`refresh-client -C ${currentGeometry.columns}x${currentGeometry.rows}`);
+				await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
+			}, TERMINAL_RESIZE_SETTLE_MS);
 			sizeIgnored = false;
 		} else if (ignored && !sizeIgnored) {
 			await withSyntheticOutput(() => runControlCommand('refresh-client -f ignore-size'));
@@ -541,7 +879,8 @@ export async function attachTerminal(
 					await sendTerminalSubmission(input.data, input.bracketedPaste);
 				});
 			} else if (input.type === 'resize') {
-				requestedSize = { columns: input.columns, rows: input.rows };
+				preferredSize = { columns: input.columns, rows: input.rows };
+				requestedSize = preferredSize;
 				queueTerminalInput('', resizeControlClient);
 			}
 		} catch (error) {
@@ -550,13 +889,25 @@ export async function attachTerminal(
 	});
 
 	await attached;
-	await options.onAttached?.(setIgnoreSize);
+	await options.onAttached?.(setIgnoreSize, resyncTerminalScreen);
 	if (requestedSize) await resizeControlClient();
 	const snapshotGeometry = options.getGeometry?.() ?? currentGeometry;
 	if (options.sendGeometry) message(socket, { type: 'geometry', ...snapshotGeometry });
-	await runControlCommand(`capture-pane -p -e -S -${snapshotHistoryLines} -t ${paneId}`, (snapshot) => {
-		snapshotSent = true;
-		message(socket, { type: 'snapshot', data: snapshot });
+	const [snapshot, rawState, savedMainSnapshot, physicalSnapshot] = await Promise.all([
+		runControlCommand(`capture-pane -p -e -J -S -${snapshotHistoryLines} -t ${paneId}`),
+		runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
+		runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
+		runControlCommand(`capture-pane -p -e -N -t ${paneId}`)
+	]);
+	snapshotSent = true;
+	message(socket, {
+		type: 'snapshot',
+		data: terminalSnapshotData(
+			snapshot,
+			terminalPaneState(rawState, snapshotGeometry),
+			savedMainSnapshot,
+			physicalSnapshot
+		)
 	});
 	message(socket, { type: 'screen-ready' });
 	if (requestedSize) void resizeControlClient();
