@@ -20,7 +20,6 @@ import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '$lib/ui/layout';
 const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
-const ACTIVATION_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
 const DESKTOP_RESIZE_SETTLE_MS = 80;
 const COMPACT_RESIZE_SETTLE_MS = 180;
@@ -30,6 +29,8 @@ export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
 
 export interface TerminalRuntimeState {
 	connected: boolean;
+	controlSizeMismatch: boolean;
+	controlsTerminal: boolean | undefined;
 	directInputFocused: boolean;
 	error: string;
 	openingStage: TerminalOpeningStage;
@@ -64,7 +65,7 @@ interface DeferredTerminalSnapshot {
 }
 
 export class TerminalRuntime {
-	#activationNoticeAt = 0;
+	#entryClaimPending = true;
 	#composing = false;
 	#compositionSettleTimer: ReturnType<typeof setTimeout> | undefined;
 	#connection: TerminalConnection | undefined;
@@ -93,9 +94,12 @@ export class TerminalRuntime {
 	#resizeTimer: ReturnType<typeof setTimeout> | undefined;
 	#screenSync: TerminalScreenSync | undefined;
 	#sentSizeConnection = 0;
+	#sharedGeometry: TerminalSize | undefined;
 	#started = false;
 	#state: TerminalRuntimeState = {
 		connected: false,
+		controlSizeMismatch: false,
+		controlsTerminal: undefined,
 		directInputFocused: false,
 		error: '',
 		openingStage: 'opening',
@@ -134,20 +138,15 @@ export class TerminalRuntime {
 			this.#options.element,
 			() => this.#terminal,
 			{
-				onTap: () => {
-					this.activate();
-					this.focus();
-				}
+				onTap: () => this.focus()
 			}
 		);
 		void this.#openTerminal();
 	}
 
-	activate(): void {
-		const now = Date.now();
-		if (now - this.#activationNoticeAt < ACTIVATION_NOTICE_MS) return;
+	claimControl(): void {
+		this.#sendSize();
 		if (!this.#connection?.send({ type: 'activate' })) return;
-		this.#activationNoticeAt = now;
 		this.#reportTerminalTheme();
 	}
 
@@ -157,7 +156,6 @@ export class TerminalRuntime {
 
 	markComposerFocused(): void {
 		this.#updateState({ directInputFocused: false });
-		this.activate();
 	}
 
 	scrollToTop(): void {
@@ -169,14 +167,12 @@ export class TerminalRuntime {
 	}
 
 	send(data: string): void {
-		this.activate();
 		if (!this.#connection?.send({ type: 'input', data })) return;
 		this.#markInputActivity();
 	}
 
 	submit(data: string): boolean {
 		const terminal = this.#terminal;
-		this.activate();
 		if (!terminal || !this.#connection?.send({
 			type: 'submit',
 			data,
@@ -272,6 +268,7 @@ export class TerminalRuntime {
 			onReadyChange: (ready) => {
 				this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
 				if (!ready) return;
+				this.#entryClaimPending = false;
 				this.#reportTerminalTheme();
 				if (this.#openingDelay) clearTimeout(this.#openingDelay);
 				this.#openingDelay = undefined;
@@ -301,14 +298,16 @@ export class TerminalRuntime {
 				url.searchParams.set('columns', String(requestedSize.columns));
 				url.searchParams.set('rows', String(requestedSize.rows));
 			}
-			if (this.#canClaimControl()) url.searchParams.set('active', '1');
+			if (this.#entryClaimPending) url.searchParams.set('active', '1');
 			return url;
 		}, {
 			onOpen: () => {
 				if (this.#destroyed) return;
-				this.#activationNoticeAt = 0;
+				this.#sharedGeometry = undefined;
 				this.#updateState({
 					connected: true,
+					controlSizeMismatch: false,
+					controlsTerminal: undefined,
 					error: '',
 					openingStage: 'attaching',
 					outputPaused: false
@@ -328,6 +327,7 @@ export class TerminalRuntime {
 				if (message.type === 'geometry') {
 					this.#geometryConnectionId = context.id;
 					if (this.#legacyGeometryConnectionId === context.id) this.#legacyGeometryConnectionId = 0;
+					if (message.active !== undefined) this.#updateState({ controlsTerminal: message.active });
 					this.#applyGeometry({ columns: message.columns, rows: message.rows });
 				} else if (message.type === 'request-terminal-theme') {
 					this.#reportTerminalTheme();
@@ -372,11 +372,12 @@ export class TerminalRuntime {
 				this.#screenSync?.disconnect();
 				if (this.#destroyed) return;
 				if (retrying) {
-					this.#updateState({ connected: false, error: '' });
+					this.#updateState({ connected: false, controlsTerminal: undefined, error: '' });
 					return;
 				}
 				this.#updateState({
 					connected: false,
+					controlsTerminal: undefined,
 					reconnecting: false,
 					error: event.code === 1008 && event.reason === 'authentication expired'
 						? 'This terminal session is no longer authorized.'
@@ -386,7 +387,7 @@ export class TerminalRuntime {
 			onRetrying: () => this.#updateState({ reconnecting: true }),
 			onReconnectExhausted: () => this.#updateState({
 				reconnecting: false,
-				error: 'The terminal could not connect after several attempts. Try again.'
+				error: 'Could not reconnect to terminal.'
 			}),
 			onProtocolError: () => this.#updateState({ error: 'The terminal sent an unreadable response.' })
 		});
@@ -519,6 +520,8 @@ export class TerminalRuntime {
 	}
 
 	#applyGeometry(geometry: TerminalSize): void {
+		this.#sharedGeometry = geometry;
+		this.#updateControlSizeMismatch();
 		if (this.#composing) {
 			this.#deferredGeometry = geometry;
 			return;
@@ -539,6 +542,7 @@ export class TerminalRuntime {
 			: terminalSizeForVisibleArea(fitAddon);
 		if (!dimensions) return;
 		this.#requestedSize = dimensions;
+		this.#updateControlSizeMismatch();
 		const key = `${dimensions.columns}x${dimensions.rows}`;
 		if (!connection || (key === this.#lastSentSize && this.#sentSizeConnection === connection.connectionId)) return;
 		if (connection.send({ type: 'resize', ...dimensions })) {
@@ -609,7 +613,6 @@ export class TerminalRuntime {
 		this.#sendSize();
 		this.#connection?.setRetryEnabled(true);
 		if (this.#state.reconnecting) this.#connection?.retryNow(false);
-		if (this.#canClaimControl()) this.activate();
 		this.#scheduleResize(0);
 		this.#scheduleDisplayRefresh(true);
 	};
@@ -628,6 +631,17 @@ export class TerminalRuntime {
 		this.#reportTerminalTheme();
 		this.#scheduleDisplayRefresh(true);
 	};
+
+	#updateControlSizeMismatch(): void {
+		const preferred = this.#requestedSize;
+		const shared = this.#sharedGeometry;
+		this.#updateState({
+			controlSizeMismatch: this.#state.controlsTerminal === false
+				&& preferred !== undefined
+				&& shared !== undefined
+				&& (preferred.columns !== shared.columns || preferred.rows !== shared.rows)
+		});
+	}
 
 	#handleTerminalData(data: string): void {
 		const reports = parseTerminalColorReports(data);
