@@ -10,7 +10,7 @@ export type TerminalClientMessage =
 
 export type TerminalServerMessage =
 	| { type: 'snapshot'; data: string }
-	| { type: 'geometry'; columns: number; rows: number }
+	| { type: 'geometry'; columns: number; rows: number; active?: boolean }
 	| { type: 'request-terminal-theme' }
 	| { type: 'screen-ready' }
 	| { type: 'output'; data: string; activity: boolean; activityAt: number | null }
@@ -81,8 +81,10 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
 		value.type === 'geometry'
 		&& isIntegerBetween(value.columns, TERMINAL_GEOMETRY_LIMITS.minimumColumns, TERMINAL_GEOMETRY_LIMITS.maximumColumns)
 		&& isIntegerBetween(value.rows, TERMINAL_GEOMETRY_LIMITS.minimumRows, TERMINAL_GEOMETRY_LIMITS.maximumRows)
+		&& (value.active === undefined || typeof value.active === 'boolean')
 	) {
-		return { type: 'geometry', columns: Number(value.columns), rows: Number(value.rows) };
+		const geometry = { type: 'geometry' as const, columns: Number(value.columns), rows: Number(value.rows) };
+		return value.active === undefined ? geometry : { ...geometry, active: value.active };
 	}
 	if (value.type === 'request-terminal-theme' || value.type === 'screen-ready') return { type: value.type };
 	if (

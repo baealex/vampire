@@ -82,7 +82,11 @@ function sendTerminalMessage(socket: WebSocket, payload: TerminalServerMessage):
 function broadcastTerminalGeometry(state: SessionAttachmentState, geometry: TerminalSize): void {
 	for (const attachment of state.attachments) {
 		if (!attachment.released && attachment.supportsGeometry) {
-			sendTerminalMessage(attachment.socket, { type: 'geometry', ...geometry });
+			sendTerminalMessage(attachment.socket, {
+				type: 'geometry',
+				...geometry,
+				active: state.activeAttachment === attachment
+			});
 		}
 	}
 }
@@ -96,6 +100,7 @@ async function activateAttachment(
 	if (changed && attachment.supportsGeometry && !attachment.released) {
 		sendTerminalMessage(attachment.socket, { type: 'request-terminal-theme' });
 	}
+	if (changed && state.geometry) broadcastTerminalGeometry(state, state.geometry);
 }
 
 function requestedTerminalSize(url: URL): TerminalSize | undefined {
@@ -207,15 +212,15 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			canResize: () => state.activeAttachment === attachment && !attachment.released,
 			canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
 			getGeometry: () => state.geometry,
+			hasControl: () => state.activeAttachment === attachment && !attachment.released,
 			sendGeometry: context.supportsGeometry,
 			onAttached: async (setIgnoreSize, synchronizeScreen) => {
 				attachment.setIgnoreSize = setIgnoreSize;
 				attachment.synchronizeScreen = synchronizeScreen;
 				attachment.resolveReady();
 				if (attachment.released) return;
-				// A focused, visible page is the device the user is looking at, so its
-				// initial claim must take control even when another device is attached.
-				// Passive connections can still fill an otherwise unclaimed terminal.
+				// A newly entered workspace may explicitly claim control on its first
+				// attachment. Reconnects stay passive, but can fill an unclaimed terminal.
 				await activateAttachment(
 					state,
 					attachment,

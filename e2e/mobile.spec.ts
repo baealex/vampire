@@ -25,6 +25,27 @@ test.afterEach(async ({ context }) => {
 	sessionId = undefined;
 });
 
+test('keeps a terminal connection failure inside the mobile viewport', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+		socket.close({ code: 1008, reason: 'authentication expired' });
+	});
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	const terminalFrame = page.locator('.terminal-frame');
+	const connectionError = page.locator('.terminal-error');
+	await expect(connectionError).toContainText('This terminal session is no longer authorized.');
+	const [frameBox, errorBox] = await Promise.all([terminalFrame.boundingBox(), connectionError.boundingBox()]);
+	expect(frameBox).not.toBeNull();
+	expect(errorBox).not.toBeNull();
+	expect(errorBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
+	expect(errorBox!.y + errorBox!.height).toBeLessThanOrEqual(frameBox!.y + frameBox!.height + 1);
+	await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
+	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('keeps terminal IME input visible and focused while the mobile viewport resizes', async ({ context, page }) => {
 	test.setTimeout(60_000);
 	const sentTerminalMessages: Array<string | Buffer> = [];

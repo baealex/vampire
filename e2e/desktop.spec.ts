@@ -527,7 +527,7 @@ test('restores a pending-autowrap cursor before the next terminal character', as
 	}
 });
 
-test('fits the focused device and restores the previous controller when it disconnects', async ({ browser }) => {
+test('hands terminal layout between entered devices and restores it on disconnect', async ({ browser }) => {
 	test.setTimeout(60_000);
 	const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 	const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
@@ -573,6 +573,10 @@ test('fits the focused device and restores the previous controller when it disco
 		const phoneRender = await renderedTerminalGeometry(phonePage);
 		expect(phoneRender.screenWidth).toBeLessThanOrEqual(phoneRender.containerWidth);
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+		const desktopHandoff = desktopPage.getByText('Sized for another device');
+		const phoneHandoff = phonePage.getByText('Sized for another device');
+		await expect(desktopHandoff).toBeVisible();
+		await expect(phoneHandoff).toBeHidden();
 		const phoneComposer = phonePage.getByPlaceholder('Send to shell…');
 		await phoneComposer.fill('VAMP_TUI_MOBILE_INPUT');
 		await phoneComposer.press('Enter');
@@ -580,14 +584,16 @@ test('fits the focused device and restores the previous controller when it disco
 			.some((row) => row === 'VAMP_TUI_INPUT=VAMP_TUI_MOBILE_INPUT')).toBe(true);
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 
-		await desktopPage.waitForTimeout(800);
-		await activateTerminal(desktopPage);
+		await desktopPage.getByRole('button', { name: 'Use this device' }).click();
 		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect(desktopHandoff).toBeHidden();
+		await expect(phoneHandoff).toBeVisible();
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 
-		await phonePage.waitForTimeout(800);
-		await activateTerminal(phonePage);
+		await phonePage.getByRole('button', { name: 'Use this device' }).click();
 		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(phoneGeometry);
+		await expect(desktopHandoff).toBeVisible();
+		await expect(phoneHandoff).toBeHidden();
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 		await phoneComposer.fill("printf 'VAMP_AFTER_PHONE_HANDOFF\\n'");
 		await phoneComposer.press('Enter');
@@ -597,6 +603,7 @@ test('fits the focused device and restores the previous controller when it disco
 
 		await phonePage.close();
 		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect(desktopHandoff).toBeHidden();
 		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
 			.toBe(desktopGeometry.rows);
 		const restoredDesktopRender = await renderedTerminalGeometry(desktopPage);

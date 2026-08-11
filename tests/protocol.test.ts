@@ -88,6 +88,10 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 		{ type: 'geometry', columns: 120, rows: 40 }
 	);
 	assert.deepEqual(
+		decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'geometry', columns: 48, rows: 20, active: false })),
+		{ type: 'geometry', columns: 48, rows: 20, active: false }
+	);
+	assert.deepEqual(
 		decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'output', data: 'ready', activity: true, activityAt: 4_000 })),
 		{ type: 'output', data: 'ready', activity: true, activityAt: 4_000 }
 	);
@@ -97,6 +101,7 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 	);
 	assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":0,"rows":40}'), undefined);
+	assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":120,"rows":40,"active":"yes"}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"output","data":"ready","activity":true,"activityAt":null}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"repository-status","changeCount":-1,"worktreeCount":1}'), undefined);
 });

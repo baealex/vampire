@@ -96,6 +96,7 @@ export interface AttachTerminalOptions {
 	canResize?: () => boolean;
 	canReportTerminalColor?: () => boolean;
 	getGeometry?: () => TerminalSize | undefined;
+	hasControl?: () => boolean;
 	sendGeometry?: boolean;
 	onAttached?: (
 		setIgnoreSize: TerminalSizeController,
@@ -860,7 +861,6 @@ export async function attachTerminal(
 				acknowledgeSnapshot();
 			} else if (input.type === 'input') {
 				queueTerminalInput(input.data, async () => {
-					await options.onActivate?.();
 					options.onInput?.();
 					await sendControlInput(input.data);
 				});
@@ -874,7 +874,6 @@ export async function attachTerminal(
 				});
 			} else if (input.type === 'submit') {
 				queueTerminalInput(input.data, async () => {
-					await options.onActivate?.();
 					options.onInput?.();
 					await sendTerminalSubmission(input.data, input.bracketedPaste);
 				});
@@ -892,7 +891,11 @@ export async function attachTerminal(
 	await options.onAttached?.(setIgnoreSize, resyncTerminalScreen);
 	if (requestedSize) await resizeControlClient();
 	const snapshotGeometry = options.getGeometry?.() ?? currentGeometry;
-	if (options.sendGeometry) message(socket, { type: 'geometry', ...snapshotGeometry });
+	if (options.sendGeometry) message(socket, {
+		type: 'geometry',
+		...snapshotGeometry,
+		...(options.hasControl ? { active: options.hasControl() } : {})
+	});
 	const [snapshot, rawState, savedMainSnapshot, physicalSnapshot] = await Promise.all([
 		runControlCommand(`capture-pane -p -e -J -S -${snapshotHistoryLines} -t ${paneId}`),
 		runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
