@@ -328,6 +328,7 @@
 						repositoryTab={repositoryTab}
 						onRepositoryTabChange={setRepositoryTab}
 						systemMetrics={connection.systemMetrics}
+						refreshSystemMetrics={() => connection.refreshSystemMetrics()}
 					/>
 				{/key}
 			{:else if workspace.requestedSessionId && workspace.sessionsLoaded}

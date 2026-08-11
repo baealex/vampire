@@ -5,7 +5,6 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { readSessionAgentStates } from '../src/lib/server/agent-activity.ts';
 import { listManagedSessions } from '../src/lib/server/session-registry.ts';
 import { listTmuxSessionActivity, type TmuxProcessHint, type TmuxSessionActivity, type TmuxTerminal } from '../src/lib/server/tmux.ts';
-import { getSystemMetrics } from '../src/lib/server/system-metrics.ts';
 import {
 	encodeWorkspaceServerMessage,
 	type SessionChanges,
@@ -13,7 +12,6 @@ import {
 } from '../src/lib/app/workspace-protocol.ts';
 import type { AgentState } from '../src/lib/session/agent.ts';
 import type { ManagedSession } from '../src/lib/session/types.ts';
-import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '../src/lib/system-metrics.ts';
 import {
 	authorizeWebSocketUpgrade,
 	installWebSocketHeartbeat,
@@ -93,13 +91,6 @@ function equalStrings(left: string[] | undefined, right: string[] | undefined): 
 		&& Array.isArray(right)
 		&& left.length === right.length
 		&& left.every((value, index) => value === right[index]);
-}
-
-function systemMetricsChanged(previous: SystemMetrics | undefined, next: SystemMetrics): boolean {
-	return !previous
-		|| previous.cpuUsage !== next.cpuUsage
-		|| previous.memoryUsage !== next.memoryUsage
-		|| previous.memoryTotalBytes !== next.memoryTotalBytes;
 }
 
 function sessionChanges(previous: ManagedSession, next: ManagedSession): SessionChanges {
@@ -254,8 +245,6 @@ class WorkspaceStatusHub {
 	#activityRefreshPromise: Promise<void> | undefined;
 	#refreshTimer: NodeJS.Timeout | undefined;
 	#activityRefreshTimer: NodeJS.Timeout | undefined;
-	#metricsTimer: NodeJS.Timeout | undefined;
-	#metrics: SystemMetrics | undefined;
 	#suppressedActivity = new Map<string, ActivitySuppression>();
 	#pendingAgentStates = new Map<string, PendingAgentState>();
 
@@ -300,15 +289,8 @@ class WorkspaceStatusHub {
 		try {
 			await this.#refresh();
 			if (socket.readyState !== 1) return;
-			const previousMetrics = this.#metrics;
-			const metrics = getSystemMetrics();
-			this.#metrics = metrics;
 			send(socket, { type: 'sessions-snapshot', sessions: [...this.#sessions!.values()] });
-			send(socket, { type: 'system-metrics', metrics });
 			this.#clients.add(socket);
-			if (previousMetrics && systemMetricsChanged(previousMetrics, metrics)) {
-				this.#broadcast({ type: 'system-metrics', metrics }, socket);
-			}
 			socket.once('close', () => this.unsubscribe(socket));
 			this.#startPolling();
 		} catch {
@@ -322,12 +304,9 @@ class WorkspaceStatusHub {
 		if (this.#clients.size > 0) return;
 		if (this.#refreshTimer !== undefined) clearInterval(this.#refreshTimer);
 		if (this.#activityRefreshTimer !== undefined) clearInterval(this.#activityRefreshTimer);
-		if (this.#metricsTimer !== undefined) clearInterval(this.#metricsTimer);
 		this.#refreshTimer = undefined;
 		this.#activityRefreshTimer = undefined;
-		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
-		this.#metrics = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 	}
@@ -335,12 +314,9 @@ class WorkspaceStatusHub {
 	close(): void {
 		if (this.#refreshTimer !== undefined) clearInterval(this.#refreshTimer);
 		if (this.#activityRefreshTimer !== undefined) clearInterval(this.#activityRefreshTimer);
-		if (this.#metricsTimer !== undefined) clearInterval(this.#metricsTimer);
 		this.#refreshTimer = undefined;
 		this.#activityRefreshTimer = undefined;
-		this.#metricsTimer = undefined;
 		this.#sessions = undefined;
-		this.#metrics = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 		for (const socket of this.#clients) socket.close(1001, 'server shutting down');
@@ -356,13 +332,6 @@ class WorkspaceStatusHub {
 			SESSION_ACTIVITY_REFRESH_INTERVAL_MS
 		);
 		this.#activityRefreshTimer.unref();
-		this.#metricsTimer = setInterval(() => {
-			const metrics = getSystemMetrics();
-			if (!systemMetricsChanged(this.#metrics, metrics)) return;
-			this.#metrics = metrics;
-			this.#broadcast({ type: 'system-metrics', metrics });
-		}, SYSTEM_METRICS_INTERVAL_MS);
-		this.#metricsTimer.unref();
 	}
 
 	async #refresh(): Promise<void> {

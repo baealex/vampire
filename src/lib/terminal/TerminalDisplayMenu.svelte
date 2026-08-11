@@ -30,7 +30,6 @@
 		align="end"
 		triggerClass="vampire-menu-trigger terminal-display-trigger"
 		triggerLabel="Terminal display settings"
-		triggerTitle="Display settings"
 	>
 		{#snippet trigger()}
 			<Type size={17} strokeWidth={1.8} aria-hidden="true" />
@@ -64,5 +63,5 @@
 
 <style>
 	:global(.terminal-display-trigger) { width: 2.35rem; height: 2.35rem; border: 1px solid transparent; border-radius: var(--radius-control); }
-	:global(.terminal-display-trigger:hover), :global(.terminal-display-trigger:focus-visible), :global(.terminal-display-trigger[data-state='open']) { border-color: var(--color-border); background: var(--color-surface-selected); color: var(--color-text); }
+	:global(.terminal-display-trigger:hover), :global(.terminal-display-trigger:focus-visible), :global(.terminal-display-trigger[data-state='open']) { border-color: var(--color-border-strong); background: transparent; color: var(--color-text); outline: none; }
 </style>

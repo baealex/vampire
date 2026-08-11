@@ -191,6 +191,9 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
+	await expect(page.locator('.terminal-header .system-metrics')).toBeVisible();
+	await expect(page.locator('.terminal-header .system-metric').first().locator('output')).toContainText('≈');
+	await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
 	const terminalTypography = await page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
 		const rows = terminal.querySelector<HTMLElement>('.xterm-rows');
 		return {

@@ -34,6 +34,7 @@
 		pathInsertionRequest,
 		onExternalFileDrop = async () => [],
 		systemMetrics,
+		refreshSystemMetrics,
 		children
 	}: {
 		session: ManagedSession;
@@ -60,6 +61,7 @@
 		pathInsertionRequest?: TerminalPathInsertionRequest;
 		onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
 		systemMetrics?: SystemMetrics;
+		refreshSystemMetrics: () => Promise<void>;
 		children?: Snippet;
 	} = $props();
 
@@ -120,6 +122,7 @@
 			{minimumFontSize}
 			{maximumFontSize}
 			{systemMetrics}
+			{refreshSystemMetrics}
 			{close}
 			{repositoryOpen}
 			{isGitRepository}
