@@ -199,24 +199,56 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 	await page.getByRole('button', { name: 'Scroll to terminal bottom' }).click();
 	await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
 
-	const runBackground = page.getByRole('button', { name: 'Run background command' });
-	await expect(runBackground).toBeVisible();
-	await expect.poll(() => page.evaluate(() => {
-		const bar = document.querySelector<HTMLElement>('.background-bar');
-		const toggle = document.querySelector<HTMLElement>('.background-toggle');
-		if (!bar || !toggle) return false;
-		const barBox = bar.getBoundingClientRect();
-		const toggleBox = toggle.getBoundingClientRect();
-		return Math.abs(barBox.left - toggleBox.left) < 1 && Math.abs(barBox.right - toggleBox.right) < 1;
-	})).toBe(true);
-	await runBackground.click();
-	await page.getByRole('textbox', { name: 'Background command' }).fill('sleep 30');
-	await page.getByRole('button', { name: 'Run', exact: true }).click();
-	const stopBackground = page.getByRole('button', { name: 'Stop sleep 30' });
+	const openBackground = page.getByRole('button', { name: 'Open background processes' });
+	await expect(openBackground).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Run background command' })).toHaveCount(0);
+	await openBackground.click();
+	const backgroundSheet = page.getByRole('dialog', { name: 'Background processes' });
+	const backgroundTitle = backgroundSheet.getByRole('heading', { name: 'Background processes' });
+	await expect(backgroundSheet).toBeVisible();
+	await expect(page.getByRole('textbox', { name: 'Background command' })).toHaveCount(0);
+	await backgroundSheet.getByRole('button', { name: 'Run background command' }).click();
+	const backgroundCommand = page.getByRole('textbox', { name: 'Background command' });
+	await expect(backgroundCommand).toBeFocused();
+	await page.setViewportSize({ width: 412, height: 640 });
+	await expect(backgroundCommand).toBeFocused();
+	const sheetHeightBeforeOutput = await backgroundSheet.evaluate((sheet) => sheet.getBoundingClientRect().height);
+	const backgroundCommandValue = 'seq 1 300; sleep 30';
+	await backgroundCommand.fill(backgroundCommandValue);
+	await backgroundSheet.getByRole('button', { name: 'Run', exact: true }).click();
+	await expect(backgroundCommand).toHaveCount(0);
+	const output = backgroundSheet
+		.getByRole('region', { name: `Output for ${backgroundCommandValue}` })
+		.locator('pre');
+	await expect(output).toContainText('300');
+	const stopBackground = page.getByRole('button', { name: `Stop ${backgroundCommandValue}` });
 	await expect(stopBackground).toBeVisible();
-	await expect.poll(() => stopBackground.evaluate((button) => button.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+	const titleTopBeforeScroll = await backgroundTitle.evaluate((title) => title.getBoundingClientRect().top);
+	const sheetLayout = await backgroundSheet.evaluate((sheet) => {
+		const bounds = sheet.getBoundingClientRect();
+		const viewport = window.visualViewport;
+		const top = viewport?.offsetTop ?? 0;
+		const bottom = top + (viewport?.height ?? window.innerHeight);
+		return {
+			fitsViewport: bounds.top >= top - 1 && bounds.bottom <= bottom + 1,
+			height: bounds.height
+		};
+	});
+	const outputScrolls = await output.evaluate((terminalOutput) => {
+		terminalOutput.scrollTop = terminalOutput.scrollHeight;
+		return terminalOutput.scrollHeight > terminalOutput.clientHeight && terminalOutput.scrollTop > 0;
+	});
+	expect(sheetLayout.fitsViewport).toBe(true);
+	expect(Math.abs(sheetLayout.height - sheetHeightBeforeOutput)).toBeLessThan(1);
+	expect(outputScrolls).toBe(true);
+	const titleTopAfterScroll = await backgroundTitle.evaluate((title) => title.getBoundingClientRect().top);
+	expect(Math.abs(titleTopAfterScroll - titleTopBeforeScroll)).toBeLessThan(1);
 	await stopBackground.click();
 	await expect(stopBackground).toBeHidden();
+	await backgroundSheet.getByRole('button', { name: 'Close background manager' }).click();
+	await expect(backgroundSheet).toBeHidden();
+	await expect(openBackground).toBeFocused();
+	await page.setViewportSize({ width: 412, height: 915 });
 
 	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 

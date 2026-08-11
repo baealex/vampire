@@ -66,12 +66,15 @@
 	let viewportStyle = $state('');
 	let terminalFontSize = $state(14);
 	let noteOpen = $state(false);
+	let backgroundOpen = $state(false);
 	const minimumFontSize = 10;
 	const maximumFontSize = 22;
 	const projectName = $derived(session.cwd.replace(/\/+$/, '').split('/').pop() || session.cwd);
 	const orderedTerminals = $derived([...session.terminals].sort((left, right) => left.index - right.index));
 	const mainTerminal = $derived(orderedTerminals[0]);
 	const backgroundProcesses = $derived(orderedTerminals.slice(1));
+	const backgroundPanelId = $derived(`background-manager-${session.id}`);
+	const backgroundTriggerId = $derived(`background-trigger-${session.id}`);
 
 	function changeTerminalFontSize(delta: number) {
 		terminalFontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, terminalFontSize + delta));
@@ -122,7 +125,12 @@
 			{isGitRepository}
 			{changeCount}
 			{worktreeCount}
+			{backgroundOpen}
+			backgroundCount={backgroundProcesses.length}
+			{backgroundPanelId}
+			{backgroundTriggerId}
 			toggleRepository={onToggleRepository}
+			toggleBackground={() => backgroundOpen = !backgroundOpen}
 			toggleNote={() => noteOpen = !noteOpen}
 			decreaseFontSize={() => changeTerminalFontSize(-1)}
 			increaseFontSize={() => changeTerminalFontSize(1)}
@@ -159,7 +167,10 @@
 	{/key}
 
 	<BackgroundProcesses
-		sessionId={session.id}
+		open={backgroundOpen}
+		onOpenChange={(open) => backgroundOpen = open}
+		panelId={backgroundPanelId}
+		triggerId={backgroundTriggerId}
 		processes={backgroundProcesses}
 		favoriteCommands={session.favoriteCommands}
 		starting={startingBackground}
