@@ -46,6 +46,95 @@ async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number;
 	return { columns, rows };
 }
 
+async function tmuxPaneCursor(tmuxSession: string): Promise<{ column: number; row: number }> {
+	const { stdout } = await run('tmux', [
+		'display-message',
+		'-p',
+		'-t',
+		tmuxSession,
+		'#{cursor_x}\t#{cursor_y}'
+	]);
+	const [column, row] = stdout.trim().split('\t').map(Number);
+	return { column, row };
+}
+
+async function renderedTerminalGeometry(page: Page): Promise<{
+	containerWidth: number;
+	rows: number;
+	screenWidth: number;
+}> {
+	return page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
+		const rows = terminal.querySelector('.xterm-rows');
+		const screen = terminal.querySelector<HTMLElement>('.xterm-screen');
+		return {
+			containerWidth: terminal.getBoundingClientRect().width,
+			rows: rows?.childElementCount ?? 0,
+			screenWidth: screen?.getBoundingClientRect().width ?? 0
+		};
+	});
+}
+
+function normalizeTerminalRows(rows: string[]): string[] {
+	return rows.map((row) => row.replace(/\s+$/u, ''));
+}
+
+async function tmuxPaneRows(tmuxSession: string): Promise<string[]> {
+	const { stdout } = await run('tmux', ['capture-pane', '-p', '-t', tmuxSession]);
+	const rows = stdout.replace(/\r/g, '').split('\n');
+	if (rows.at(-1) === '') rows.pop();
+	return normalizeTerminalRows(rows);
+}
+
+async function renderedTerminalRows(page: Page): Promise<string[]> {
+	await page.locator('.xterm-viewport').evaluate((viewport) => {
+		viewport.scrollTop = viewport.scrollHeight;
+	});
+	return normalizeTerminalRows(await page.locator('.xterm-rows > div').allTextContents());
+}
+
+function terminalRowsMismatch(expected: string[], rendered: string[], device: number): string {
+	const rowCount = Math.max(expected.length, rendered.length);
+	for (let index = 0; index < rowCount; index += 1) {
+		if (rendered[index] !== expected[index]) {
+			return `device ${device}, row ${index + 1}: tmux=${JSON.stringify(expected[index])}, xterm=${JSON.stringify(rendered[index])}`;
+		}
+	}
+	return '';
+}
+
+async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]): Promise<void> {
+	await expect.poll(async () => {
+		const [expected, ...rendered] = await Promise.all([
+			tmuxPaneRows(tmuxSession),
+			...pages.map(renderedTerminalRows)
+		]);
+		return rendered.map((rows, index) => terminalRowsMismatch(expected, rows, index + 1))
+			.filter(Boolean)
+			.join('\n');
+	}).toBe('');
+	const expected = await tmuxPaneRows(tmuxSession);
+	for (const page of pages) expect(await renderedTerminalRows(page)).toEqual(expected);
+}
+
+async function activateTerminal(page: Page): Promise<void> {
+	await page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
+		terminal.dispatchEvent(new PointerEvent('pointerdown', {
+			bubbles: true,
+			cancelable: true,
+			pointerType: 'mouse',
+			isPrimary: true
+		}));
+	});
+}
+
+async function fillTerminalWithNumberedRows(tmuxSession: string): Promise<void> {
+	const command = "clear; i=1; while [ $i -le 300 ]; do printf 'VAMP_ROW_%03d\\n' \"$i\"; i=$((i + 1)); done";
+	await run('tmux', ['send-keys', '-t', tmuxSession, '-l', '--', command]);
+	await run('tmux', ['send-keys', '-t', tmuxSession, 'Enter']);
+	await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === 'VAMP_ROW_300'))
+		.toBe(true);
+}
+
 interface ObservedTerminalMessage {
 	direction: 'client' | 'server';
 	slot?: number;
@@ -399,7 +488,46 @@ test('publishes output sent immediately after terminal resize to other devices',
 	}
 });
 
-test('keeps viewer geometry stable until that device explicitly takes control', async ({ browser }) => {
+test('restores a pending-autowrap cursor before the next terminal character', async ({ browser }) => {
+	test.setTimeout(45_000);
+	const firstContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+	const secondContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+	try {
+		await authenticate(firstContext);
+		await authenticate(secondContext);
+		createdSession = await createSession(firstContext);
+		const firstPage = await firstContext.newPage();
+		const secondPage = await secondContext.newPage();
+		await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(firstPage);
+		const geometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+		const fullRow = 'W'.repeat(geometry.columns);
+		const firstComposer = firstPage.getByPlaceholder('Send to shell…');
+		await firstComposer.fill(
+			`printf '${fullRow}'; IFS= read -r value; printf '\\nVAMP_WRAP_INPUT=%s\\n' "$value"`
+		);
+		await firstComposer.press('Enter');
+		await expect.poll(() => tmuxPaneCursor(createdSession!.tmuxSession))
+			.toMatchObject({ column: geometry.columns });
+
+		await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(secondPage);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(geometry);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, firstPage, secondPage);
+		const secondComposer = secondPage.getByPlaceholder('Send to shell…');
+		await secondComposer.fill('Z');
+		await secondComposer.press('Enter');
+		await expect.poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession))
+			.some((row) => row === 'VAMP_WRAP_INPUT=Z')).toBe(true);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, firstPage, secondPage);
+	} finally {
+		await removeSession(firstContext, createdSession?.id);
+		await Promise.all([firstContext.close(), secondContext.close()]);
+	}
+});
+
+test('fits the focused device and restores the previous controller when it disconnects', async ({ browser }) => {
 	test.setTimeout(60_000);
 	const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 	const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
@@ -408,14 +536,13 @@ test('keeps viewer geometry stable until that device explicitly takes control', 
 		await authenticate(desktopContext);
 		await authenticate(phoneContext);
 		createdSession = await createSession(desktopContext);
+		await fillTerminalWithNumberedRows(createdSession.tmuxSession);
 		const desktopPage = await desktopContext.newPage();
 		const phonePage = await phoneContext.newPage();
 		await desktopPage.addInitScript(() => {
 			Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
 		});
 		await phonePage.addInitScript(() => {
-			// A visible and focused new connection may ask for initial control, but it
-			// must remain a viewer while another device already owns the terminal.
 			Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
 		});
 
@@ -424,26 +551,62 @@ test('keeps viewer geometry stable until that device explicitly takes control', 
 		const desktopRows = await desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
 		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows).toBe(desktopRows);
 		const desktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+		const initialDesktopRender = await renderedTerminalGeometry(desktopPage);
+		expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+		const desktopComposer = desktopPage.getByPlaceholder('Send to shell…');
+		const alternateScreenCommand = "printf '\\033[?1049h\\033[2J\\033[8;20HVAMP_TUI_READY\\033[12;7H'; IFS= read -r value; printf '\\033[?1049lVAMP_TUI_INPUT=%s\\n' \"$value\"";
+		await desktopComposer.fill(alternateScreenCommand);
+		await desktopComposer.press('Enter');
+		await expect.poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession))
+			.some((row) => row.includes('VAMP_TUI_READY'))).toBe(true);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
 
 		await phonePage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
 		await expectTerminalReady(phonePage);
-		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
-		await expect.poll(() => phonePage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
-			.toBe(desktopGeometry.rows);
-
-		await phonePage.getByRole('application', { name: 'Interactive shell terminal' }).click({
-			position: { x: 80, y: 80 }
-		});
 		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows)
 			.toBeLessThan(desktopGeometry.rows);
 		const phoneGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
 		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
 			.toBe(phoneGeometry.rows);
+		await expect.poll(() => renderedTerminalGeometry(phonePage)).toMatchObject({ rows: phoneGeometry.rows });
+		const phoneRender = await renderedTerminalGeometry(phonePage);
+		expect(phoneRender.screenWidth).toBeLessThanOrEqual(phoneRender.containerWidth);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+		const phoneComposer = phonePage.getByPlaceholder('Send to shell…');
+		await phoneComposer.fill('VAMP_TUI_MOBILE_INPUT');
+		await phoneComposer.press('Enter');
+		await expect.poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession))
+			.some((row) => row === 'VAMP_TUI_INPUT=VAMP_TUI_MOBILE_INPUT')).toBe(true);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+
+		await desktopPage.waitForTimeout(800);
+		await activateTerminal(desktopPage);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+
+		await phonePage.waitForTimeout(800);
+		await activateTerminal(phonePage);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(phoneGeometry);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+		await phoneComposer.fill("printf 'VAMP_AFTER_PHONE_HANDOFF\\n'");
+		await phoneComposer.press('Enter');
+		await expect.poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession))
+			.some((row) => row === 'VAMP_AFTER_PHONE_HANDOFF')).toBe(true);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 
 		await phonePage.close();
 		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
 		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
 			.toBe(desktopGeometry.rows);
+		const restoredDesktopRender = await renderedTerminalGeometry(desktopPage);
+		expect(restoredDesktopRender.screenWidth).toBeLessThanOrEqual(restoredDesktopRender.containerWidth);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+		await desktopComposer.fill("printf 'VAMP_AFTER_DESKTOP_RESTORE\\n'");
+		await desktopComposer.press('Enter');
+		await expect.poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession))
+			.some((row) => row === 'VAMP_AFTER_DESKTOP_RESTORE')).toBe(true);
+		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
 	} finally {
 		await removeSession(desktopContext, createdSession?.id);
 		await Promise.all([desktopContext.close(), phoneContext.close()]);
@@ -477,13 +640,6 @@ test('re-reports each device theme whenever terminal control changes', async ({ 
 
 		await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
 		await expectTerminalReady(secondPage);
-		expect(secondMessages.some(
-			(message) => message.direction === 'server' && message.type === 'request-terminal-theme'
-		)).toBe(false);
-
-		await secondPage.getByRole('application', { name: 'Interactive shell terminal' }).click({
-			position: { x: 80, y: 80 }
-		});
 		await expect.poll(() => reportedThemeAfterLatestRequest(secondMessages)).toBe(true);
 
 		await secondPage.close();

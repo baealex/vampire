@@ -34,7 +34,7 @@ test('hands terminal control over only when explicitly activated', async () => {
 	assert.deepEqual(events, ['desktop:control', 'phone:control', 'desktop:viewer', 'phone:control']);
 });
 
-test('does not let a newly attached or reconnecting viewer take an existing controller', async () => {
+test('does not let a passive attachment take an existing controller', async () => {
 	const events: string[] = [];
 	const state = createTerminalAttachmentState<ReturnType<typeof attachment>>();
 	const desktop = attachment('desktop', events);
@@ -51,7 +51,7 @@ test('does not let a newly attached or reconnecting viewer take an existing cont
 	assert.equal(state.activeAttachment, reconnectingPhone);
 });
 
-test('does not promote a background viewer when the controller disconnects', async () => {
+test('promotes a remaining viewer when the controller disconnects', async () => {
 	const events: string[] = [];
 	const state = createTerminalAttachmentState<ReturnType<typeof attachment>>();
 	const desktop = attachment('desktop', events);
@@ -60,11 +60,13 @@ test('does not promote a background viewer when the controller disconnects', asy
 	state.attachments.add(phone);
 	await activateTerminalAttachment(state, desktop);
 
-	releaseTerminalAttachment(state, desktop);
+	const fallback = releaseTerminalAttachment(state, desktop);
+	assert.equal(fallback, phone);
+	if (fallback) await activateTerminalAttachment(state, fallback);
 
-	assert.equal(state.activeAttachment, undefined);
+	assert.equal(state.activeAttachment, phone);
 	assert.equal(state.attachments.has(phone), true);
-	assert.deepEqual(events, ['desktop:control']);
+	assert.deepEqual(events, ['desktop:control', 'phone:control']);
 });
 
 test('restores the most recent previous controller when the current one disconnects', async () => {
@@ -87,6 +89,36 @@ test('restores the most recent previous controller when the current one disconne
 		'phone:control',
 		'desktop:viewer',
 		'desktop:control'
+	]);
+});
+
+test('synchronizes every screen only after the previous controller relinquishes size', async () => {
+	const events: string[] = [];
+	const state = createTerminalAttachmentState<ManagedTerminalAttachment>();
+	const managed = (name: string, geometry: { columns: number; rows: number }): ManagedTerminalAttachment => ({
+		released: false,
+		setIgnoreSize: async (ignored) => {
+			events.push(`${name}:${ignored ? 'viewer' : 'control'}`);
+			if (!ignored) state.geometry = geometry;
+		},
+		synchronizeScreen: async (shared) => {
+			events.push(`${name}:sync:${shared?.columns}x${shared?.rows}`);
+		}
+	});
+	const desktop = managed('desktop', { columns: 120, rows: 40 });
+	const phone = managed('phone', { columns: 48, rows: 20 });
+	state.attachments.add(desktop);
+	state.attachments.add(phone);
+	await activateTerminalAttachment(state, desktop);
+	events.length = 0;
+
+	await activateTerminalAttachment(state, phone);
+
+	assert.deepEqual(events, [
+		'phone:control',
+		'desktop:viewer',
+		'desktop:sync:48x20',
+		'phone:sync:48x20'
 	]);
 });
 

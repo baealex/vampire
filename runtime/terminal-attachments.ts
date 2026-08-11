@@ -6,6 +6,7 @@ export interface TerminalGeometry {
 export interface ManagedTerminalAttachment {
 	released: boolean;
 	setIgnoreSize?: (ignored: boolean) => Promise<void>;
+	synchronizeScreen?: (geometry?: TerminalGeometry) => Promise<void>;
 }
 
 export interface TerminalAttachmentState<T extends ManagedTerminalAttachment> {
@@ -48,6 +49,11 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
 				// This avoids a transient tmux state with no size-owning client.
 				await attachment.setIgnoreSize(false);
 				if (previous && !previous.released && previous.setIgnoreSize) await previous.setIgnoreSize(true);
+				// tmux resolves the pane size only after the former controller stops
+				// contributing. Rebuild every browser against that settled shared grid.
+				await Promise.all([...state.attachments]
+					.filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
+					.map((candidate) => candidate.synchronizeScreen?.(state.geometry)));
 				state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
 				state.controlHistory.push(attachment);
 				return true;
@@ -76,9 +82,11 @@ export function releaseTerminalAttachment<T extends ManagedTerminalAttachment>(
 	state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
 	if (!wasActive) return undefined;
 	state.activeAttachment = undefined;
-	// tmux falls back to a remaining client when its controller disconnects. Restore
-	// only a device that previously held control so server and browser geometry agree.
-	return state.controlHistory.findLast((candidate) => !candidate.released && Boolean(candidate.setIgnoreSize));
+	// Prefer the most recent previous controller, but never leave a live terminal
+	// without a size-owning client. A viewer already has its latest requested size,
+	// so promoting it keeps tmux and every browser on the same geometry.
+	return state.controlHistory.findLast((candidate) => !candidate.released && Boolean(candidate.setIgnoreSize))
+		?? [...state.attachments].findLast((candidate) => !candidate.released && Boolean(candidate.setIgnoreSize));
 }
 
 export function updateTerminalGeometry<T extends ManagedTerminalAttachment>(

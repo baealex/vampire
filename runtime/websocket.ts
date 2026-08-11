@@ -12,7 +12,12 @@ import {
 	type ManagedTerminalAttachment,
 	type TerminalAttachmentState
 } from './terminal-attachments.ts';
-import { attachTerminal, type TerminalSize, type TerminalSizeController } from './terminal.ts';
+import {
+	attachTerminal,
+	type TerminalScreenSynchronizer,
+	type TerminalSize,
+	type TerminalSizeController
+} from './terminal.ts';
 import { recordWorkspaceSessionOutput, suppressWorkspaceSessionActivity } from './workspace-websocket.ts';
 import {
 	encodeTerminalServerMessage,
@@ -39,6 +44,7 @@ interface TerminalAttachment extends ManagedTerminalAttachment {
 	readyPromise: Promise<void>;
 	resolveReady: () => void;
 	setIgnoreSize?: TerminalSizeController;
+	synchronizeScreen?: TerminalScreenSynchronizer;
 }
 
 interface SessionAttachmentState extends TerminalAttachmentState<TerminalAttachment> {
@@ -181,7 +187,8 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			released: false,
 			readyPromise,
 			resolveReady,
-			setIgnoreSize: undefined
+			setIgnoreSize: undefined,
+			synchronizeScreen: undefined
 		};
 		state.attachments.add(attachment);
 		const releaseAttachment = () => {
@@ -201,12 +208,19 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
 			getGeometry: () => state.geometry,
 			sendGeometry: context.supportsGeometry,
-			onAttached: async (setIgnoreSize) => {
+			onAttached: async (setIgnoreSize, synchronizeScreen) => {
 				attachment.setIgnoreSize = setIgnoreSize;
+				attachment.synchronizeScreen = synchronizeScreen;
 				attachment.resolveReady();
-				if (context.claimControl && !attachment.released) {
-					await activateAttachment(state, attachment, { onlyIfUnclaimed: true });
-				}
+				if (attachment.released) return;
+				// A focused, visible page is the device the user is looking at, so its
+				// initial claim must take control even when another device is attached.
+				// Passive connections can still fill an otherwise unclaimed terminal.
+				await activateAttachment(
+					state,
+					attachment,
+					context.claimControl ? {} : { onlyIfUnclaimed: true }
+				);
 			},
 			onActivate: async () => {
 				await attachment.readyPromise;
