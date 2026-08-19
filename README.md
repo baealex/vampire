@@ -66,6 +66,8 @@ claude
 
 The process keeps running in tmux when you close the browser. Reopen the workspace from any device to continue.
 
+If a workspace should start with a particular command when its main session is reopened, open the workspace actions menu and choose **Manage launch profiles**. A profile stores a command; saving it does not run anything in the current session. Select a default profile and enable **Auto-start on reopen** if Vampire should enter that command into the new shell automatically. Profiles do not create additional terminals.
+
 On tmux 3.7a or newer, Vampire answers terminal color probes with the active browser theme. Older tmux versions remain supported but cannot relay these probes. Start a TUI after the terminal is connected so it can detect the correct palette. Some TUIs, including Codex, cache that palette for the lifetime of the process; after switching between light and dark, exit and resume the TUI once to refresh application-drawn RGB backgrounds.
 
 Use the **Background** bar below the terminal to run a development server or watcher without touching the main session. Background commands keep running when the browser disconnects, expose read-only output, and can be stopped directly from the bar. Completed commands can be run again or deleted, and commands you explicitly star are saved per workspace for later use. Vampire never adds commands to favorites automatically, so a command containing a token or password is not persisted in the workspace registry unless you choose to star it.

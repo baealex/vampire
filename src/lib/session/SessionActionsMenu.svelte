@@ -2,6 +2,7 @@
 	import { DropdownMenu } from 'bits-ui';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import LogOut from '@lucide/svelte/icons/log-out';
+	import Settings2 from '@lucide/svelte/icons/settings-2';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import DropdownMenuShell from '$lib/ui/DropdownMenuShell.svelte';
 	import type { ManagedSession } from './types';
@@ -13,7 +14,8 @@
 		onOpenChange,
 		action,
 		closeSession,
-		remove
+		remove,
+		onSettings
 	}: {
 		session: ManagedSession;
 		open?: boolean;
@@ -21,6 +23,7 @@
 		action?: 'restart' | 'close' | 'remove';
 		closeSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		remove: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
+		onSettings: (session: ManagedSession) => void;
 	} = $props();
 
 	let confirming = $state<'close' | 'remove'>();
@@ -101,6 +104,11 @@
 				{#if confirmError}<p class="vampire-menu-error" role="alert">{confirmError}</p>{/if}
 			</div>
 		{:else}
+			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onSettings(session)}>
+				<Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
+				Manage launch profiles
+			</DropdownMenu.Item>
+			<DropdownMenu.Separator class="vampire-menu-separator" />
 			{#if session.state === 'running'}
 				<DropdownMenu.Item class="vampire-menu-item" disabled={Boolean(action)} onSelect={(event) => requestConfirmation(event, 'close')}>
 					<LogOut size={16} strokeWidth={1.8} aria-hidden="true" />

@@ -7,10 +7,16 @@ import {
 } from './view.ts';
 import { SessionActivityController } from './activity-controller.ts';
 import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
-import type { ManagedSession, SessionOrderMode, SessionTerminal } from './types.ts';
+import type { LaunchProfile, ManagedSession, SessionOrderMode, SessionTerminal } from './types.ts';
 
 type RefreshOptions = { quiet?: boolean };
 type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
+
+export type LaunchProfileSettings = {
+	launchProfiles: LaunchProfile[];
+	defaultLaunchProfileId: string | null;
+	autoStartDefaultProfile: boolean;
+};
 
 type SessionWorkspaceStateOptions = {
 	navigate: (path: string) => void;
@@ -279,6 +285,25 @@ export class SessionWorkspaceState {
 			});
 		this.#sessionNoteRequests.set(sessionId, request);
 		return request;
+	}
+
+	async updateLaunchProfiles(sessionId: string, settings: LaunchProfileSettings): Promise<{ ok: boolean; error?: string }> {
+		try {
+			const data = await requestJson<LaunchProfileSettings>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/launch-profiles`,
+				{
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify(settings)
+				},
+				'Unable to save the launch profiles'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId ? { ...session, ...data } : session);
+			return { ok: true };
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			return { ok: false, error: error instanceof Error ? error.message : 'Unable to save the launch profiles' };
+		}
 	}
 
 	async startBackgroundProcess(sessionId: string, command: string): Promise<SessionTerminal | undefined> {

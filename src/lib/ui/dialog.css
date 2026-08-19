@@ -10,13 +10,14 @@
 	z-index: 51;
 	top: 50%;
 	left: 50%;
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	width: min(calc(100% - 2rem), 28rem);
 	max-height: calc(100dvh - 2rem);
-	overflow-y: auto;
+	overflow: hidden;
 	transform: translate(-50%, -50%);
-	gap: 1rem;
-	padding: 1.1rem;
+	gap: 0;
+	padding: 0;
 	border: 1px solid var(--color-border-strong);
 	border-radius: 0.9rem;
 	background: var(--color-surface-overlay);
@@ -37,9 +38,11 @@
 
 .vampire-dialog-header {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
+	padding: 1.1rem max(1.1rem, env(safe-area-inset-right)) 0.85rem max(1.1rem, env(safe-area-inset-left));
+	border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .vampire-dialog-eyebrow {
@@ -87,8 +90,20 @@
 
 .vampire-dialog-body {
 	display: grid;
+	flex: 1 1 auto;
+	min-height: 0;
 	min-width: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	gap: 1rem;
+	padding: 1rem max(1.1rem, env(safe-area-inset-right)) max(1.1rem, env(safe-area-inset-bottom)) max(1.1rem, env(safe-area-inset-left));
+}
+
+.vampire-dialog-footer {
+	flex: 0 0 auto;
+	min-width: 0;
+	padding: 0.85rem max(1.1rem, env(safe-area-inset-right)) max(1.1rem, env(safe-area-inset-bottom)) max(1.1rem, env(safe-area-inset-left));
+	border-top: 1px solid var(--color-border-subtle);
 }
 
 .vampire-dialog-description {
@@ -176,7 +191,7 @@
 		width: 100%;
 		max-height: calc(100dvh - 1rem);
 		transform: translateX(-50%);
-		padding: 1.1rem max(1.1rem, env(safe-area-inset-right)) max(1.1rem, env(safe-area-inset-bottom)) max(1.1rem, env(safe-area-inset-left));
+		padding: 0;
 		border-right: 0;
 		border-bottom: 0;
 		border-left: 0;
@@ -184,7 +199,6 @@
 	}
 
 	.vampire-dialog-content--inspect {
-		grid-template-rows: auto minmax(0, 1fr);
 		overflow: hidden;
 		gap: 0;
 		padding: 0;
@@ -202,6 +216,10 @@
 		padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
 	}
 
+	.vampire-dialog-content--inspect .vampire-dialog-footer {
+		padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
+	}
+
 	.vampire-dialog-content--inspect .vampire-dialog-title {
 		color: var(--color-text-secondary);
 		font-size: var(--text-body);
@@ -212,7 +230,8 @@
 .vampire-dialog-content--sheet {
 	top: var(--vampire-sheet-top, auto);
 	bottom: var(--vampire-sheet-bottom, 0);
-	grid-template-rows: auto minmax(0, 1fr);
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
 	width: 100%;
 	height: var(--vampire-sheet-height, min(34rem, calc(100dvh - 0.5rem)));
 	max-height: none;
@@ -242,4 +261,9 @@
 	min-height: 0;
 	overflow: hidden;
 	gap: 0;
+	padding: 0;
+}
+
+.vampire-dialog-content--sheet .vampire-dialog-footer {
+	padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom));
 }

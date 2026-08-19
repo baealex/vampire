@@ -6,6 +6,7 @@ import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repos
 import {
 	activateTerminalAttachment,
 	createTerminalAttachmentState,
+	fallbackTerminalAttachment,
 	releaseTerminalAttachment,
 	terminalAttachmentKey,
 	updateTerminalGeometry,
@@ -35,6 +36,8 @@ import {
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 72 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const FALLBACK_ACTIVATION_RETRY_MS = 250;
+const FALLBACK_ACTIVATION_ATTEMPTS = 3;
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TERMINAL_ID_PATTERN = /^@\d+$/;
 
@@ -56,6 +59,7 @@ interface TerminalConnectionContext {
 	terminalId?: string;
 	initialSize?: TerminalSize;
 	historyLines?: number;
+	lazyHistory: boolean;
 	claimControl: boolean;
 	supportsGeometry: boolean;
 	expiresAt?: number;
@@ -101,6 +105,30 @@ async function activateAttachment(
 		sendTerminalMessage(attachment.socket, { type: 'request-terminal-theme' });
 	}
 	if (changed && state.geometry) broadcastTerminalGeometry(state, state.geometry);
+}
+
+function promoteFallbackAttachment(state: SessionAttachmentState, attempt = 0): void {
+	if (state.activeAttachment) return;
+	const fallback = fallbackTerminalAttachment(state);
+	if (!fallback) return;
+	const retryIfUnclaimed = () => {
+		if (state.activeAttachment) return;
+		if (fallback.released) {
+			promoteFallbackAttachment(state, attempt);
+			return;
+		}
+		if (attempt + 1 >= FALLBACK_ACTIVATION_ATTEMPTS) {
+			if (state.geometry) broadcastTerminalGeometry(state, state.geometry);
+			return;
+		}
+		const timer = setTimeout(
+			() => promoteFallbackAttachment(state, attempt + 1),
+			FALLBACK_ACTIVATION_RETRY_MS
+		);
+		timer.unref();
+	};
+	void activateAttachment(state, fallback, { onlyIfUnclaimed: true })
+		.then(retryIfUnclaimed, retryIfUnclaimed);
 }
 
 function requestedTerminalSize(url: URL): TerminalSize | undefined {
@@ -157,6 +185,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 		}
 		const initialSize = requestedTerminalSize(url);
 		const historyLines = requestedTerminalHistory(url);
+		const lazyHistory = url.searchParams.get('history-mode') === 'lazy';
 		const claimControl = url.searchParams.get('active') === '1';
 		const supportsGeometry = Number(url.searchParams.get('protocol')) >= TERMINAL_PROTOCOL_VERSION;
 		terminalSockets.handleUpgrade(request, socket, head, (websocket) => {
@@ -165,6 +194,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 				terminalId,
 				initialSize,
 				historyLines,
+				lazyHistory,
 				claimControl,
 				supportsGeometry,
 				expiresAt: authorization.expiresAt
@@ -193,13 +223,18 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 			readyPromise,
 			resolveReady,
 			setIgnoreSize: undefined,
-			synchronizeScreen: undefined
+			synchronizeScreen: undefined,
+			terminate: () => {
+				if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+			}
 		};
 		state.attachments.add(attachment);
 		const releaseAttachment = () => {
 			attachment.resolveReady();
+			const wasActive = state.activeAttachment === attachment;
 			const fallback = releaseTerminalAttachment(state, attachment);
-			if (fallback) void activateAttachment(state, fallback).catch(() => undefined);
+			if (wasActive && state.geometry) broadcastTerminalGeometry(state, state.geometry);
+			if (fallback) promoteFallbackAttachment(state);
 			if (state.attachments.size === 0) sessionAttachmentStates.delete(attachmentKey);
 		};
 		socket.once('close', releaseAttachment);
@@ -208,6 +243,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 		void attachTerminal(socket, context.sessionId, context.initialSize, {
 			terminalId: context.terminalId,
 			historyLines: context.historyLines,
+			lazyHistory: context.lazyHistory,
 			ignoreSize: true,
 			canResize: () => state.activeAttachment === attachment && !attachment.released,
 			canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,

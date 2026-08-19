@@ -219,7 +219,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 		Array.from(rows.children).some((row) => row.textContent?.trim() === expected), value);
 	await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
 	await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
-	await expect.poll(() => hasVisibleOutputLine('200')).toBe(false);
+	await expect.poll(() => hasVisibleOutputLine('1')).toBe(true);
 	await page.getByRole('button', { name: 'Scroll to terminal bottom' }).click();
 	await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
 

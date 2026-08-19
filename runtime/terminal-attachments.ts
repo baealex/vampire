@@ -7,6 +7,7 @@ export interface ManagedTerminalAttachment {
 	released: boolean;
 	setIgnoreSize?: (ignored: boolean) => Promise<void>;
 	synchronizeScreen?: (geometry?: TerminalGeometry) => Promise<void>;
+	terminate?: () => void;
 }
 
 export interface TerminalAttachmentState<T extends ManagedTerminalAttachment> {
@@ -37,6 +38,7 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
 		.then(async () => {
 			if (attachment.released || !attachment.setIgnoreSize) return false;
 			const previous = state.activeAttachment;
+			let unhealthyPrevious: T | undefined;
 			if (options.onlyIfUnclaimed && previous && previous !== attachment) return false;
 			if (previous === attachment) {
 				await attachment.setIgnoreSize(false);
@@ -48,15 +50,6 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
 				// Make the new controller authoritative before removing the previous one.
 				// This avoids a transient tmux state with no size-owning client.
 				await attachment.setIgnoreSize(false);
-				if (previous && !previous.released && previous.setIgnoreSize) await previous.setIgnoreSize(true);
-				// tmux resolves the pane size only after the former controller stops
-				// contributing. Rebuild every browser against that settled shared grid.
-				await Promise.all([...state.attachments]
-					.filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
-					.map((candidate) => candidate.synchronizeScreen?.(state.geometry)));
-				state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
-				state.controlHistory.push(attachment);
-				return true;
 			} catch (error) {
 				const fallback = previous && !previous.released && previous.setIgnoreSize ? previous : undefined;
 				state.activeAttachment = fallback;
@@ -66,6 +59,30 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
 				]);
 				throw error;
 			}
+			if (attachment.released || state.activeAttachment !== attachment) return false;
+			if (previous && !previous.released && previous.setIgnoreSize) {
+				try {
+					await previous.setIgnoreSize(true);
+				} catch {
+					// Once the new controller owns a size, an unhealthy former controller
+					// must not roll the terminal back to an ownerless state. Disconnect it
+					// so tmux cannot keep considering its stale geometry.
+					unhealthyPrevious = previous;
+					previous.terminate?.();
+				}
+			}
+			if (attachment.released || state.activeAttachment !== attachment) return false;
+			// A browser that misses a redraw can recover independently. Layout
+			// ownership must survive a transient synchronization failure.
+			await Promise.allSettled([...state.attachments]
+				.filter((candidate) => candidate !== unhealthyPrevious
+					&& !candidate.released
+					&& Boolean(candidate.synchronizeScreen))
+				.map((candidate) => candidate.synchronizeScreen?.(state.geometry)));
+			if (attachment.released || state.activeAttachment !== attachment) return false;
+			state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
+			state.controlHistory.push(attachment);
+			return true;
 		});
 	state.activationQueue = activation.then(() => undefined, () => undefined);
 	return activation;
@@ -82,6 +99,12 @@ export function releaseTerminalAttachment<T extends ManagedTerminalAttachment>(
 	state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
 	if (!wasActive) return undefined;
 	state.activeAttachment = undefined;
+	return fallbackTerminalAttachment(state);
+}
+
+export function fallbackTerminalAttachment<T extends ManagedTerminalAttachment>(
+	state: TerminalAttachmentState<T>
+): T | undefined {
 	// Prefer the most recent previous controller, but never leave a live terminal
 	// without a size-owning client. A viewer already has its latest requested size,
 	// so promoting it keeps tmux and every browser on the same geometry.

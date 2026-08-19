@@ -14,6 +14,7 @@
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
 	import type { RepositoryTab } from '$lib/repository/types';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
+	import WorkspaceSettings from '$lib/session/WorkspaceSettings.svelte';
 	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
 	import { projectName } from '$lib/session/view';
@@ -24,6 +25,7 @@
 	let mobilePanel = $state<MobilePanel | undefined>(undefined);
 	let repositoryPanelOpen = $state(false);
 	let repositoryTab = $state<RepositoryTab>('changes');
+	let workspaceSettingsOpen = $state(false);
 	let presentedTerminalSessionId = $state<string | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
 	let previewTmuxUnavailable = $state(false);
@@ -45,7 +47,8 @@
 		return workspace.requestedSessionId === sessionId
 			&& presentedTerminalSessionId === sessionId
 			&& document.visibilityState === 'visible'
-			&& mobilePanel === undefined;
+			&& mobilePanel === undefined
+			&& !workspaceSettingsOpen;
 	}
 
 	function setTerminalPresentation(sessionId: string, presented: boolean) {
@@ -96,14 +99,26 @@
 	async function logout() {
 		if (!await connection.logout()) return;
 		workspace.reset();
+		workspaceSettingsOpen = false;
 		repositoryPanelOpen = false;
 		mobilePanel = 'sessions';
 		pushState('/', {});
 	}
 
 	function openSession(session: ManagedSession) {
+		workspaceSettingsOpen = false;
 		workspace.openSession(session);
 		restorePanelAfterWorkspaceChange();
+	}
+
+	function openWorkspaceSettings(session: ManagedSession) {
+		if (workspace.requestedSessionId !== session.id) {
+			workspace.openSession(session);
+			restorePanelAfterWorkspaceChange();
+		}
+		repositoryPanelOpen = false;
+		mobilePanel = undefined;
+		workspaceSettingsOpen = true;
 	}
 
 	async function createSession() {
@@ -111,6 +126,7 @@
 	}
 
 	function clearActiveSession() {
+		workspaceSettingsOpen = false;
 		mobilePanel = 'sessions';
 		workspace.clearActiveSession();
 	}
@@ -170,6 +186,11 @@
 	function handleOverlayKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		if (isUiOverlayOpen()) return;
+		if (workspaceSettingsOpen) {
+			event.preventDefault();
+			workspaceSettingsOpen = false;
+			return;
+		}
 		if (mobilePanel === 'sessions' && workspace.hasOpenSession) {
 			event.preventDefault();
 			closeSessionNavigator();
@@ -266,6 +287,7 @@
 				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
 				onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
 				onOpen={openSession}
+				onSettings={openWorkspaceSettings}
 				sessionAction={workspace.sessionAction}
 				onCloseSession={closeSession}
 				onRemoveSession={removeSession}
@@ -331,6 +353,13 @@
 						refreshSystemMetrics={() => connection.refreshSystemMetrics()}
 					/>
 				{/key}
+				{#if workspaceSettingsOpen}
+						<WorkspaceSettings
+							session={workspace.activeSession}
+							onClose={() => workspaceSettingsOpen = false}
+							onSave={(settings) => workspace.updateLaunchProfiles(workspace.activeSession!.id, settings)}
+						/>
+				{/if}
 			{:else if workspace.requestedSessionId && workspace.sessionsLoaded}
 				<section class="unavailable-sheet" aria-labelledby="missing-session-title">
 					<header class="unavailable-header">

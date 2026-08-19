@@ -16,6 +16,7 @@ type Listener = (event: any) => void;
 function fixture() {
 	const listeners = new Map<string, Listener[]>();
 	const scrollLines: number[] = [];
+	const scrollAttempts: number[] = [];
 	let selectionCleared = 0;
 	let scrollStarted = 0;
 	let tapped = 0;
@@ -42,6 +43,7 @@ function fixture() {
 		clearSelection(): void;
 		scrollLines(lines: number): void;
 	}, {
+		onScrollAttempt: (lines) => scrollAttempts.push(lines),
 		onScrollStart: () => { scrollStarted += 1; },
 		onTap: () => { tapped += 1; }
 	});
@@ -50,6 +52,7 @@ function fixture() {
 	};
 	return {
 		fire,
+		scrollAttempts,
 		scrollLines,
 		get capturedPointer() { return capturedPointer; },
 		get tapped() { return tapped; },
@@ -117,7 +120,19 @@ test('turns an intentional drag into terminal scroll and suppresses its click', 
 	assert.equal(target.scrollStarted, 1);
 	assert.equal(target.tapped, 0);
 	assert.equal(target.selectionCleared, 1);
+	assert.deepEqual(target.scrollAttempts, [2, 2]);
 	assert.deepEqual(target.scrollLines, [2, 2]);
 	assert.equal(mouse.defaultPrevented, true);
 	assert.equal(mouse.propagationStopped, true);
+});
+
+test('reports a downward drag as an attempt to reveal older terminal rows', () => {
+	const target = fixture();
+	target.fire('pointerdown', pointer({ clientY: 40 }));
+	const drag = pointer({ clientY: 62 });
+	target.fire('pointermove', drag);
+
+	assert.equal(drag.defaultPrevented, true);
+	assert.deepEqual(target.scrollAttempts, [-2]);
+	assert.deepEqual(target.scrollLines, [-2]);
 });

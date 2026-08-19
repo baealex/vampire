@@ -1,5 +1,11 @@
 import type { AgentState } from './agent.ts';
 
+export type LaunchProfile = {
+	id: string;
+	name: string;
+	command: string;
+};
+
 export type SessionProcess = {
 	kind: 'shell' | 'command';
 	label: string;
@@ -26,6 +32,9 @@ export type ManagedSession = {
 	lastActiveAt: number;
 	notePreview: string;
 	favoriteCommands: string[];
+	launchProfiles: LaunchProfile[];
+	defaultLaunchProfileId: string | null;
+	autoStartDefaultProfile: boolean;
 	lastOutputAt: number | null;
 	state: 'running' | 'missing';
 	attachedClients: number;

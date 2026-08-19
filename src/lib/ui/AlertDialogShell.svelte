@@ -8,13 +8,15 @@
 		title,
 		close,
 		closeDisabled = false,
-		children
+		children,
+		footer
 	}: {
 		eyebrow?: string;
 		title: string;
 		close: () => void;
 		closeDisabled?: boolean;
 		children?: Snippet;
+		footer?: Snippet;
 	} = $props();
 
 	function handleOpenChange(open: boolean) {
@@ -38,6 +40,11 @@
 			<div class="vampire-dialog-body">
 				{@render children?.()}
 			</div>
+			{#if footer}
+				<footer class="vampire-dialog-footer">
+					{@render footer()}
+				</footer>
+			{/if}
 		</AlertDialog.Content>
 	</AlertDialog.Portal>
 </AlertDialog.Root>

@@ -1,15 +1,21 @@
 import { isTerminalColorSlot, isTerminalRgbColor, type TerminalColorSlot } from './color-report.ts';
 
+export interface TerminalHistoryState {
+	loaded: number;
+	available: number;
+}
+
 export type TerminalClientMessage =
 	| { type: 'activate' }
 	| { type: 'snapshot-ready' }
+	| { type: 'load-history'; lines: number }
 	| { type: 'input'; data: string }
 	| { type: 'submit'; data: string; bracketedPaste: boolean }
 	| { type: 'terminal-color'; slot: TerminalColorSlot; color: string }
 	| { type: 'resize'; columns: number; rows: number };
 
 export type TerminalServerMessage =
-	| { type: 'snapshot'; data: string }
+	| { type: 'snapshot'; data: string; history?: TerminalHistoryState }
 	| { type: 'geometry'; columns: number; rows: number; active?: boolean }
 	| { type: 'request-terminal-theme' }
 	| { type: 'screen-ready' }
@@ -21,9 +27,9 @@ export const TERMINAL_PROTOCOL_VERSION = 2;
 
 export const TERMINAL_SIZE_LIMITS = {
 	minimumColumns: 20,
-	maximumColumns: 240,
+	maximumColumns: 512,
 	minimumRows: 5,
-	maximumRows: 120
+	maximumRows: 256
 };
 
 export const TERMINAL_GEOMETRY_LIMITS = {
@@ -38,6 +44,11 @@ export const TERMINAL_SCROLLBACK_LINES = {
 	standard: 10_000
 } as const;
 
+export const TERMINAL_HISTORY_CHUNK_LINES = {
+	reduced: 250,
+	standard: 500
+} as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -49,6 +60,10 @@ function isIntegerBetween(value: unknown, minimum: number, maximum: number): boo
 export function parseTerminalClientMessage(value: unknown): TerminalClientMessage | undefined {
 	if (!isRecord(value)) return undefined;
 	if (value.type === 'activate' || value.type === 'snapshot-ready') return { type: value.type };
+	if (
+		value.type === 'load-history'
+		&& isIntegerBetween(value.lines, 1, TERMINAL_SCROLLBACK_LINES.standard)
+	) return { type: 'load-history', lines: Number(value.lines) };
 	if (value.type === 'input' && typeof value.data === 'string') return { type: 'input', data: value.data };
 	if (
 		value.type === 'terminal-color'
@@ -76,7 +91,23 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
 
 export function parseTerminalServerMessage(value: unknown): TerminalServerMessage | undefined {
 	if (!isRecord(value)) return undefined;
-	if (value.type === 'snapshot' && typeof value.data === 'string') return { type: 'snapshot', data: value.data };
+	if (value.type === 'snapshot' && typeof value.data === 'string') {
+		if (value.history === undefined) return { type: 'snapshot', data: value.data };
+		if (
+			!isRecord(value.history)
+			|| !isIntegerBetween(value.history.loaded, 0, TERMINAL_SCROLLBACK_LINES.standard)
+			|| !isIntegerBetween(value.history.available, 0, TERMINAL_SCROLLBACK_LINES.standard)
+			|| Number(value.history.loaded) > Number(value.history.available)
+		) return undefined;
+		return {
+			type: 'snapshot',
+			data: value.data,
+			history: {
+				loaded: Number(value.history.loaded),
+				available: Number(value.history.available)
+			}
+		};
+	}
 	if (
 		value.type === 'geometry'
 		&& isIntegerBetween(value.columns, TERMINAL_GEOMETRY_LIMITS.minimumColumns, TERMINAL_GEOMETRY_LIMITS.maximumColumns)

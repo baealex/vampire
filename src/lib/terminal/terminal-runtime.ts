@@ -12,7 +12,12 @@ import {
 	terminalSizeForVisibleArea,
 	type TerminalSize
 } from './fit.ts';
-import { TERMINAL_PROTOCOL_VERSION, TERMINAL_SCROLLBACK_LINES } from './protocol.ts';
+import {
+	TERMINAL_HISTORY_CHUNK_LINES,
+	TERMINAL_PROTOCOL_VERSION,
+	TERMINAL_SCROLLBACK_LINES,
+	type TerminalHistoryState
+} from './protocol.ts';
 import { TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT, TerminalScreenSync } from './screen-sync.ts';
 import { installTerminalTouchScroll } from './touch-scroll.ts';
 import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '$lib/ui/layout';
@@ -60,8 +65,16 @@ export interface TerminalRuntimeOptions {
 interface DeferredTerminalSnapshot {
 	context: TerminalConnectionContext;
 	data: string;
+	history?: TerminalHistoryState;
 	output: string;
 	screenReady: boolean;
+}
+
+interface TerminalHistoryAnchor {
+	baseY: number;
+	viewportY: number;
+	revealLines: number;
+	toTop: boolean;
 }
 
 export class TerminalRuntime {
@@ -78,6 +91,13 @@ export class TerminalRuntime {
 	#fit: FitAddon | undefined;
 	#fontSize: number;
 	#geometryConnectionId = 0;
+	#historyAnchor: TerminalHistoryAnchor | undefined;
+	#historyAvailable = 0;
+	#historyChunkLines: number = TERMINAL_HISTORY_CHUNK_LINES.standard;
+	#historyEnabled = false;
+	#historyLoadPending = false;
+	#historyLoaded = 0;
+	#historyMaximum: number = TERMINAL_SCROLLBACK_LINES.standard;
 	#inputDisposable: { dispose(): void } | undefined;
 	#inputNoticeAt = 0;
 	#lastOutputActivityNotice = 0;
@@ -93,6 +113,7 @@ export class TerminalRuntime {
 	#resizeFrame: number | undefined;
 	#resizeTimer: ReturnType<typeof setTimeout> | undefined;
 	#screenSync: TerminalScreenSync | undefined;
+	#scrollDisposable: { dispose(): void } | undefined;
 	#sentSizeConnection = 0;
 	#sharedGeometry: TerminalSize | undefined;
 	#started = false;
@@ -134,10 +155,16 @@ export class TerminalRuntime {
 		window.addEventListener('online', this.#handleOnline);
 		window.addEventListener(this.#options.themeChangeEvent, this.#handleThemeChange);
 		document.addEventListener('visibilitychange', this.#handleVisibilityChange);
+		this.#options.element.addEventListener('wheel', this.#handleTerminalWheel, { passive: true });
 		this.#removeTouchScroll = installTerminalTouchScroll(
 			this.#options.element,
 			() => this.#terminal,
 			{
+				onScrollAttempt: (lines) => {
+					if (lines < 0 && this.#terminal?.buffer.active.viewportY === 0) {
+						this.#requestHistory({ revealLines: lines });
+					}
+				},
 				onTap: () => this.focus()
 			}
 		);
@@ -159,7 +186,7 @@ export class TerminalRuntime {
 	}
 
 	scrollToTop(): void {
-		this.#terminal?.scrollToTop();
+		if (!this.#requestHistory({ toTop: true, loadAll: true })) this.#terminal?.scrollToTop();
 	}
 
 	scrollToBottom(): void {
@@ -208,6 +235,7 @@ export class TerminalRuntime {
 		window.removeEventListener('online', this.#handleOnline);
 		window.removeEventListener(this.#options.themeChangeEvent, this.#handleThemeChange);
 		document.removeEventListener('visibilitychange', this.#handleVisibilityChange);
+		this.#options.element.removeEventListener('wheel', this.#handleTerminalWheel);
 		this.#removeTouchScroll();
 		this.#removeInputLifecycle();
 		if (this.#outputActivityTimer) clearTimeout(this.#outputActivityTimer);
@@ -220,6 +248,7 @@ export class TerminalRuntime {
 		this.#setOutputActive(false);
 		this.#resizeObserver?.disconnect();
 		this.#inputDisposable?.dispose();
+		this.#scrollDisposable?.dispose();
 		this.#connection?.stop();
 		this.#screenSync?.dispose();
 		this.#terminal?.dispose();
@@ -234,6 +263,10 @@ export class TerminalRuntime {
 		const scrollback = this.#touchLayout
 			? TERMINAL_SCROLLBACK_LINES.reduced
 			: TERMINAL_SCROLLBACK_LINES.standard;
+		this.#historyMaximum = scrollback;
+		this.#historyChunkLines = this.#touchLayout
+			? TERMINAL_HISTORY_CHUNK_LINES.reduced
+			: TERMINAL_HISTORY_CHUNK_LINES.standard;
 		const savedFontSize = Number(window.localStorage.getItem(TERMINAL_FONT_SIZE_KEY));
 		this.#fontSize = Number.isFinite(savedFontSize)
 			&& savedFontSize >= this.#options.minimumFontSize
@@ -283,12 +316,19 @@ export class TerminalRuntime {
 			return false;
 		});
 		this.#inputDisposable = terminal.onData((data) => this.#handleTerminalData(data));
+		this.#scrollDisposable = terminal.onScroll((viewportY) => {
+			if (viewportY === 0) this.#requestHistory();
+		});
 
-		const initialSize = fitTerminalToVisibleArea(fitAddon);
+		const initialSize = fitTerminalToVisibleArea(
+			fitAddon,
+			(columns, rows) => terminal.resize(columns, rows)
+		);
 		this.#requestedSize = initialSize;
 		const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
 		websocketUrl.searchParams.set('session', this.#options.sessionId);
 		websocketUrl.searchParams.set('history', String(scrollback));
+		websocketUrl.searchParams.set('history-mode', 'lazy');
 		websocketUrl.searchParams.set('protocol', String(TERMINAL_PROTOCOL_VERSION));
 		if (this.#options.terminalId) websocketUrl.searchParams.set('terminal', this.#options.terminalId);
 		this.#connection = new TerminalConnection(() => {
@@ -337,11 +377,12 @@ export class TerminalRuntime {
 						this.#deferredSnapshot = {
 							context,
 							data: message.data,
+							history: message.history,
 							output: '',
 							screenReady: false
 						};
 					} else {
-						this.#beginSnapshot(message.data, context);
+						this.#beginSnapshot(message.data, context, message.history);
 					}
 				} else if (message.type === 'screen-ready') {
 					this.#connection?.markReady(context);
@@ -369,6 +410,7 @@ export class TerminalRuntime {
 			onDisconnect: (event, retrying) => {
 				this.#setOutputActive(false);
 				this.#deferredSnapshot = undefined;
+				this.#resetHistoryLoading();
 				this.#screenSync?.disconnect();
 				if (this.#destroyed) return;
 				if (retrying) {
@@ -450,11 +492,102 @@ export class TerminalRuntime {
 		}, 0);
 	}
 
-	#beginSnapshot(data: string, context: TerminalConnectionContext): void {
+	#requestHistory({
+		revealLines = 0,
+		toTop = false,
+		loadAll = false
+	}: {
+		revealLines?: number;
+		toTop?: boolean;
+		loadAll?: boolean;
+	} = {}): boolean {
+		const terminal = this.#terminal;
+		const connection = this.#connection;
+		if (
+			!terminal
+			|| !connection
+			|| !this.#state.connected
+			|| !this.#state.screenReady
+			|| !this.#historyEnabled
+			|| this.#historyLoadPending
+			|| this.#historyLoaded >= this.#historyAvailable
+			|| terminal.buffer.active.type !== 'normal'
+		) return false;
+		const buffer = terminal.buffer.active;
+		// xterm has no supported API for prepending rows. Request a cumulative
+		// snapshot and rebuild it while retaining the user's visual anchor.
+		const representedLines = Math.max(this.#historyLoaded, buffer.baseY);
+		const lines = loadAll
+			? this.#historyMaximum
+			: Math.min(this.#historyMaximum, representedLines + this.#historyChunkLines);
+		if (lines <= 0) return false;
+		this.#historyAnchor = {
+			baseY: buffer.baseY,
+			viewportY: buffer.viewportY,
+			revealLines,
+			toTop
+		};
+		this.#historyLoadPending = true;
+		if (connection.send({ type: 'load-history', lines })) return true;
+		this.#historyAnchor = undefined;
+		this.#historyLoadPending = false;
+		return false;
+	}
+
+	#restoreHistorySnapshot(history: TerminalHistoryState | undefined): void {
+		const terminal = this.#terminal;
+		const anchor = this.#historyAnchor;
+		this.#historyEnabled = Boolean(history);
+		this.#historyLoaded = history?.loaded ?? 0;
+		this.#historyAvailable = history?.available ?? 0;
+		if (terminal && anchor && terminal.buffer.active.type === 'normal') {
+			const buffer = terminal.buffer.active;
+			const addedLines = Math.max(0, buffer.baseY - anchor.baseY);
+			const target = anchor.toTop
+				? 0
+				: Math.max(0, Math.min(buffer.baseY, anchor.viewportY + addedLines + anchor.revealLines));
+			terminal.scrollToLine(target);
+		}
+		this.#historyAnchor = undefined;
+		this.#historyLoadPending = false;
+	}
+
+	#resetHistoryLoading(): void {
+		this.#historyAnchor = undefined;
+		this.#historyAvailable = 0;
+		this.#historyEnabled = false;
+		this.#historyLoadPending = false;
+		this.#historyLoaded = 0;
+	}
+
+	#beginSnapshot(
+		data: string,
+		context: TerminalConnectionContext,
+		history?: TerminalHistoryState
+	): void {
 		if (!context.isCurrent()) return;
+		const anchor = this.#historyAnchor;
+		const buffer = this.#terminal?.buffer.active;
+		if (
+			history
+			&& this.#historyLoadPending
+			&& anchor
+			&& buffer?.type === 'normal'
+			&& history.loaded <= this.#historyLoaded
+		) {
+			this.#historyEnabled = true;
+			this.#historyLoaded = history.loaded;
+			this.#historyAvailable = history.available;
+			if (anchor.toTop) this.#terminal?.scrollToTop();
+			this.#historyAnchor = undefined;
+			this.#historyLoadPending = false;
+			context.send({ type: 'snapshot-ready' });
+			return;
+		}
 		this.#screenSync?.beginSnapshot(data, {
 			isCurrent: context.isCurrent,
-			acknowledge: () => context.send({ type: 'snapshot-ready' })
+			acknowledge: () => context.send({ type: 'snapshot-ready' }),
+			onRestored: () => this.#restoreHistorySnapshot(history)
 		});
 	}
 
@@ -471,7 +604,7 @@ export class TerminalRuntime {
 		const snapshot = this.#deferredSnapshot;
 		this.#deferredSnapshot = undefined;
 		if (!snapshot?.context.isCurrent()) return;
-		this.#beginSnapshot(snapshot.data, snapshot.context);
+		this.#beginSnapshot(snapshot.data, snapshot.context, snapshot.history);
 		if (snapshot.output) this.#screenSync?.pushOutput(snapshot.output);
 		if (snapshot.screenReady) this.#screenSync?.markScreenReady();
 	}
@@ -538,7 +671,10 @@ export class TerminalRuntime {
 		if (!fitAddon) return;
 		const connection = this.#connection;
 		const dimensions = connection && this.#legacyGeometryConnectionId === connection.connectionId
-			? fitTerminalToVisibleArea(fitAddon)
+			? fitTerminalToVisibleArea(
+				fitAddon,
+				(columns, rows) => this.#terminal?.resize(columns, rows)
+			)
 			: terminalSizeForVisibleArea(fitAddon);
 		if (!dimensions) return;
 		this.#requestedSize = dimensions;
@@ -602,6 +738,21 @@ export class TerminalRuntime {
 			this.#refreshTerminalDisplay(clear);
 		});
 	}
+
+	#handleTerminalWheel = (event: WheelEvent): void => {
+		const terminal = this.#terminal;
+		if (!terminal || event.deltaY >= 0 || terminal.buffer.active.viewportY !== 0) return;
+		const screenHeight = terminal.element
+			?.querySelector<HTMLElement>('.xterm-screen')
+			?.getBoundingClientRect().height;
+		const rowHeight = screenHeight && terminal.rows > 0 ? screenHeight / terminal.rows : 16;
+		const requestedLines = event.deltaMode === 2
+			? Math.ceil(Math.abs(event.deltaY) * terminal.rows)
+			: event.deltaMode === 1
+				? Math.ceil(Math.abs(event.deltaY))
+				: Math.ceil(Math.abs(event.deltaY) / rowHeight);
+		this.#requestHistory({ revealLines: -Math.min(terminal.rows, Math.max(1, requestedLines)) });
+	};
 
 	#handleVisibilityChange = (): void => {
 		const visible = document.visibilityState === 'visible';

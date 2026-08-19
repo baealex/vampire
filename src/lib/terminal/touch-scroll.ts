@@ -6,6 +6,7 @@ interface TouchScrollableTerminal {
 }
 
 type TerminalTouchScrollOptions = {
+	onScrollAttempt?: (lines: number) => void;
 	onScrollStart?: () => void;
 	onTap?: () => void;
 };
@@ -72,6 +73,7 @@ export function installTerminalTouchScroll(
 		const lines = Math.trunc(remainder / rowHeight);
 		if (lines !== 0) {
 			remainder -= lines * rowHeight;
+			options.onScrollAttempt?.(lines);
 			terminal.scrollLines(lines);
 		}
 		event.preventDefault();

@@ -21,6 +21,12 @@ export default defineConfig({
 			use: { ...devices['Desktop Chrome'] }
 		},
 		{
+			name: 'terminal-handoff-firefox',
+			testMatch: '**/desktop.spec.ts',
+			grep: /hands terminal layout between entered devices and restores it on disconnect/,
+			use: { ...devices['Desktop Firefox'] }
+		},
+		{
 			name: 'mobile-chromium',
 			testMatch: '**/mobile.spec.ts',
 			use: { ...devices['Pixel 7'] }

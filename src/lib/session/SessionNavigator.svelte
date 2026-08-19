@@ -29,6 +29,7 @@
 		sessionAction,
 		onCloseSession,
 		onRemoveSession,
+		onSettings,
 		onCreate
 	}: {
 		sessions: ManagedSession[];
@@ -53,6 +54,7 @@
 		sessionAction?: 'restart' | 'close' | 'remove';
 		onCloseSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onRemoveSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
+		onSettings: (session: ManagedSession) => void;
 		onCreate: () => void;
 	} = $props();
 
@@ -93,6 +95,7 @@
 			{sessionAction}
 			{onCloseSession}
 			{onRemoveSession}
+			{onSettings}
 			onNewSession={openNewSession}
 		/>
 	</section>

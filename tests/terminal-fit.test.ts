@@ -31,6 +31,17 @@ test('fits and reports a stable terminal size', () => {
 	assert.equal(harness.fits, 1);
 });
 
+test('caps an oversized terminal before it reaches the wire protocol', () => {
+	const harness = createFitAddon({ cols: 900, rows: 400 });
+	let resized: TerminalFitDimensions | undefined;
+	assert.deepEqual(
+		fitTerminalToVisibleArea(harness.addon, (cols, rows) => { resized = { cols, rows }; }),
+		{ columns: 512, rows: 256 }
+	);
+	assert.equal(harness.fits, 0);
+	assert.deepEqual(resized, { cols: 512, rows: 256 });
+});
+
 test('measures a viewer without changing its authoritative terminal geometry', () => {
 	const harness = createFitAddon({ cols: 52, rows: 18 });
 	assert.deepEqual(terminalSizeForVisibleArea(harness.addon), { columns: 52, rows: 18 });

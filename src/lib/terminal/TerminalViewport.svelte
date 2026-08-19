@@ -207,12 +207,14 @@
 				{terminalDropKind === 'files' ? 'Copy to workspace and insert path' : 'Insert path into terminal'}
 			</div>
 		{/if}
-		{#if connected && screenReady && controlsTerminal === false && controlSizeMismatch}
+		{#if connected && screenReady && controlsTerminal === false}
 			<div class="terminal-control-handoff" role="status" aria-live="polite">
 				<span class="terminal-status-icon control" aria-hidden="true">
 					<MonitorSmartphone size={16} strokeWidth={1.8} />
 				</span>
-				<span class="terminal-control-label">Sized for another device</span>
+				<span class="terminal-control-label">
+					{controlSizeMismatch ? 'Sized for another device' : 'Layout controlled by another device'}
+				</span>
 				<button type="button" onclick={() => runtime?.claimControl()}>Use this device</button>
 			</div>
 		{/if}

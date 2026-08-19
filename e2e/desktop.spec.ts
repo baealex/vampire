@@ -127,16 +127,21 @@ async function activateTerminal(page: Page): Promise<void> {
 	});
 }
 
-async function fillTerminalWithNumberedRows(tmuxSession: string): Promise<void> {
-	const command = "clear; i=1; while [ $i -le 300 ]; do printf 'VAMP_ROW_%03d\\n' \"$i\"; i=$((i + 1)); done";
+async function fillTerminalWithNumberedRows(tmuxSession: string, count = 300): Promise<void> {
+	const command = `clear; i=1; while [ $i -le ${count} ]; do printf 'VAMP_ROW_%03d\\n' "$i"; i=$((i + 1)); done`;
 	await run('tmux', ['send-keys', '-t', tmuxSession, '-l', '--', command]);
 	await run('tmux', ['send-keys', '-t', tmuxSession, 'Enter']);
-	await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === 'VAMP_ROW_300'))
+	const finalRow = `VAMP_ROW_${String(count).padStart(3, '0')}`;
+	await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === finalRow))
 		.toBe(true);
 }
 
 interface ObservedTerminalMessage {
 	direction: 'client' | 'server';
+	historyAvailable?: number;
+	historyLoaded?: number;
+	lines?: number;
+	snapshotData?: string;
 	slot?: number;
 	type?: string;
 }
@@ -147,11 +152,18 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
 		const record = (direction: ObservedTerminalMessage['direction'], message: string | Buffer) => {
 			try {
 				const value = JSON.parse(typeof message === 'string' ? message : message.toString()) as {
+					history?: { available?: unknown; loaded?: unknown };
+					data?: unknown;
+					lines?: unknown;
 					slot?: unknown;
 					type?: unknown;
 				};
 				messages.push({
 					direction,
+					...(typeof value.history?.available === 'number' ? { historyAvailable: value.history.available } : {}),
+					...(typeof value.history?.loaded === 'number' ? { historyLoaded: value.history.loaded } : {}),
+					...(typeof value.lines === 'number' ? { lines: value.lines } : {}),
+					...(value.type === 'snapshot' && typeof value.data === 'string' ? { snapshotData: value.data } : {}),
 					...(typeof value.type === 'string' ? { type: value.type } : {}),
 					...(typeof value.slot === 'number' ? { slot: value.slot } : {})
 				});
@@ -289,6 +301,85 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 	await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
 
+test('manages a launch profile and auto-starts it when the session reopens', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	const profileCommand = "printf 'launch-profile-marker\\n'";
+	const profileResponse = await context.request.put(`/api/sessions/${encodeURIComponent(session.id)}/launch-profiles`, {
+		data: {
+			launchProfiles: [{ id: 'profile-codex', name: 'Codex', command: profileCommand }],
+			defaultLaunchProfileId: 'profile-codex',
+			autoStartDefaultProfile: true
+		}
+	});
+	expect(profileResponse.ok()).toBe(true);
+	const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+	expect(closeResponse.ok()).toBe(true);
+	const restartResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}`);
+	expect(restartResponse.ok()).toBe(true);
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
+	const actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+	await expect(actions).toBeVisible();
+	await actions.click();
+	await page.getByRole('menuitem', { name: 'Manage launch profiles' }).click();
+	await expect(page.getByRole('heading', { name: 'Launch profiles' })).toBeVisible();
+	const launchProfileDialog = page.getByRole('dialog', { name: 'Launch profiles' });
+	await expect(launchProfileDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
+	await expect(launchProfileDialog.locator('.vampire-dialog-footer')).toBeVisible();
+	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
+	await expect(page.locator('input[type="checkbox"]')).toBeChecked();
+	await page.getByRole('button', { name: 'Close', exact: true }).click();
+});
+
+test('keeps the new workspace dialog header fixed while browsing folders', async ({ context, page }) => {
+	await authenticate(context);
+	await page.route('**/api/workspace-directories*', async (route) => {
+		const directories = Array.from({ length: 80 }, (_, index) => ({
+			name: `folder-${String(index + 1).padStart(2, '0')}`,
+			path: `/workspace/folder-${String(index + 1).padStart(2, '0')}`
+		}));
+		await route.fulfill({
+			json: {
+				roots: [{ id: 'root', label: 'Workspace', path: '/workspace' }],
+				current: { rootId: 'root', label: 'Workspace', path: '/workspace' },
+				parentPath: null,
+				directories,
+				truncated: true
+			}
+		});
+	});
+
+	await page.setViewportSize({ width: 412, height: 640 });
+	await page.goto('/');
+	await page.locator('.new-session-toggle').click();
+	const dialog = page.getByRole('dialog', { name: 'Open a project' });
+	const body = dialog.locator('.vampire-dialog-body');
+	const header = dialog.locator('.vampire-dialog-header');
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByRole('button', { name: /folder-80/ })).toBeVisible();
+
+	const before = await header.boundingBox();
+	const scrollInfo = await body.evaluate((element) => {
+		element.scrollTop = element.scrollHeight;
+		return {
+			scrollHeight: element.scrollHeight,
+			clientHeight: element.clientHeight,
+			scrollTop: element.scrollTop
+		};
+	});
+	const after = await header.boundingBox();
+	expect(scrollInfo.scrollHeight).toBeGreaterThan(scrollInfo.clientHeight);
+	expect(scrollInfo.scrollTop).toBeGreaterThan(0);
+	expect(before).not.toBeNull();
+	expect(after).not.toBeNull();
+	expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1);
+	await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+});
+
 test('reconnects the terminal after a transient WebSocket close', async ({ context, page }) => {
 	await authenticate(context);
 	const session = await createSession(context);
@@ -321,6 +412,95 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
 	await expect(page.getByText('Reconnecting to terminal…')).toBeHidden({ timeout: 15_000 });
 	await expectTerminalReady(page);
 	expect(connectionCount).toBe(2);
+});
+
+test('loads retained terminal history only after an upward scroll', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await fillTerminalWithNumberedRows(session.tmuxSession, 900);
+	const messages: ObservedTerminalMessage[] = [];
+	await observeTerminalMessages(page, messages);
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	await expect.poll(() => messages.find(
+		(message) => message.direction === 'server' && message.type === 'snapshot'
+	)).toMatchObject({ historyLoaded: 0 });
+	const initialSnapshot = messages.find(
+		(message) => message.direction === 'server' && message.type === 'snapshot'
+	);
+	expect(initialSnapshot?.historyAvailable).toBeGreaterThan(0);
+	expect(initialSnapshot?.snapshotData?.split('\n').length).toBeLessThan(100);
+	expect(initialSnapshot?.snapshotData).not.toContain('VAMP_ROW_001');
+	expect(messages.some((message) => message.direction === 'client' && message.type === 'load-history')).toBe(false);
+
+	const visibleNumberedRows = () => page.locator('.xterm-rows > div').allTextContents().then((rows) => rows
+		.map((row) => /^VAMP_ROW_(\d+)$/u.exec(row.trim()))
+		.filter((match): match is RegExpExecArray => Boolean(match))
+		.map((match) => Number(match[1])));
+	const initialRows = await visibleNumberedRows();
+	expect(initialRows.length).toBeGreaterThan(0);
+	const initialMinimum = Math.min(...initialRows);
+
+	await page.locator('.xterm-screen').hover();
+	await page.mouse.wheel(0, -240);
+	await expect.poll(() => messages.find(
+		(message) => message.direction === 'client' && message.type === 'load-history'
+	)).toMatchObject({ lines: 500 });
+	await expect.poll(() => messages.filter(
+		(message) => message.direction === 'server' && message.type === 'snapshot'
+	).at(-1)).toMatchObject({ historyLoaded: 500, historyAvailable: initialSnapshot?.historyAvailable });
+	await expect.poll(async () => {
+		const rows = await visibleNumberedRows();
+		return rows.length > 0 ? Math.min(...rows) : initialMinimum;
+	}).toBeLessThan(initialMinimum);
+
+	for (let index = 0; index < 200; index += 1) await page.mouse.wheel(0, -240);
+	await expect.poll(() => messages.filter(
+		(message) => message.direction === 'client' && message.type === 'load-history'
+	).length).toBe(2);
+	expect(messages.filter(
+		(message) => message.direction === 'client' && message.type === 'load-history'
+	).map((message) => message.lines)).toEqual([500, 1_000]);
+	await expect.poll(() => messages.filter(
+		(message) => message.direction === 'server' && message.type === 'snapshot'
+	).at(-1)).toMatchObject({
+		historyLoaded: initialSnapshot?.historyAvailable,
+		historyAvailable: initialSnapshot?.historyAvailable
+	});
+});
+
+test('preserves alternate-screen row backgrounds after returning to a session', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	const command = "printf '\\033[?1049h\\033[2J\\033[H\\033[1;1H\\033[48;2;60;60;60m\\033[2K\\033[1;20H\\033[38;2;240;240;240mtop-background\\033[0m\\033[4;1H\\033[48;2;60;60;60m\\033[2K\\033[4;20H\\033[38;2;240;240;240mmiddle-background\\033[0m\\033[8;1H\\033[48;2;60;60;60m\\033[2K\\033[8;20H\\033[38;2;240;240;240mbottom-background\\033[0m'";
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', command]);
+	await run('tmux', ['send-keys', '-t', session.tmuxSession, 'C-m']);
+	await expect.poll(async () => (await tmuxPaneRows(session.tmuxSession)).some(
+		(row) => row.includes('top-background') && !row.includes('printf')
+	)).toBe(true);
+	await expect(page.locator('.xterm-rows')).toContainText('top-background');
+	await expect(page.locator('.xterm-rows')).toContainText('middle-background');
+	await expect(page.locator('.xterm-rows')).toContainText('bottom-background');
+	await page.waitForTimeout(600);
+	const backgroundRows = [0, 3, 7].map((row) => page.locator('.xterm-rows > div').nth(row));
+	const before = await Promise.all(backgroundRows.map((row) => row.innerHTML()));
+	for (const row of before) expect(row).toContain('background-color:#3c3c3c');
+
+	await page.goto('/');
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	await expect(page.locator('.xterm-rows')).toContainText('top-background');
+	await expect(page.locator('.xterm-rows')).toContainText('middle-background');
+	await expect(page.locator('.xterm-rows')).toContainText('bottom-background');
+	await page.waitForTimeout(600);
+	const after = await Promise.all(backgroundRows.map((row) => row.innerHTML()));
+	expect(after).toEqual(before);
 });
 
 test('keeps geometry messages away from a pre-geometry browser tab', async ({ context, page }) => {
@@ -527,9 +707,40 @@ test('restores a pending-autowrap cursor before the next terminal character', as
 	}
 });
 
+test('offers layout takeover when another same-sized device has control', async ({ browser }) => {
+	const firstContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
+	const secondContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
+	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+	try {
+		await authenticate(firstContext);
+		await authenticate(secondContext);
+		createdSession = await createSession(firstContext);
+		const firstPage = await firstContext.newPage();
+		const secondPage = await secondContext.newPage();
+		await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(firstPage);
+		const geometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+
+		await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+		await expectTerminalReady(secondPage);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(geometry);
+		const firstTakeover = firstPage.getByRole('button', { name: 'Use this device' });
+		const secondTakeover = secondPage.getByRole('button', { name: 'Use this device' });
+		await expect(firstTakeover).toBeVisible();
+		await expect(secondTakeover).toBeHidden();
+
+		await firstTakeover.click();
+		await expect(firstTakeover).toBeHidden();
+		await expect(secondTakeover).toBeVisible();
+	} finally {
+		await removeSession(firstContext, createdSession?.id);
+		await Promise.all([firstContext.close(), secondContext.close()]);
+	}
+});
+
 test('hands terminal layout between entered devices and restores it on disconnect', async ({ browser }) => {
 	test.setTimeout(60_000);
-	const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+	const desktopContext = await browser.newContext({ viewport: { width: 2_560, height: 1_400 } });
 	const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
 	let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
 	try {
@@ -551,6 +762,7 @@ test('hands terminal layout between entered devices and restores it on disconnec
 		const desktopRows = await desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
 		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows).toBe(desktopRows);
 		const desktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+		expect(desktopGeometry.columns).toBeGreaterThan(240);
 		const initialDesktopRender = await renderedTerminalGeometry(desktopPage);
 		expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
@@ -585,7 +797,9 @@ test('hands terminal layout between entered devices and restores it on disconnec
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 
 		await desktopPage.getByRole('button', { name: 'Use this device' }).click();
-		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).columns).toBeGreaterThan(240);
+		await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows).toBe(desktopGeometry.rows);
+		const restoredDesktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
 		await expect(desktopHandoff).toBeHidden();
 		await expect(phoneHandoff).toBeVisible();
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
@@ -602,10 +816,10 @@ test('hands terminal layout between entered devices and restores it on disconnec
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
 
 		await phonePage.close();
-		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(desktopGeometry);
+		await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(restoredDesktopGeometry);
 		await expect(desktopHandoff).toBeHidden();
 		await expect.poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
-			.toBe(desktopGeometry.rows);
+			.toBe(restoredDesktopGeometry.rows);
 		const restoredDesktopRender = await renderedTerminalGeometry(desktopPage);
 		expect(restoredDesktopRender.screenWidth).toBeLessThanOrEqual(restoredDesktopRender.containerWidth);
 		await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);

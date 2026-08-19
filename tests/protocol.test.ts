@@ -22,6 +22,9 @@ function managedSession(overrides: Record<string, unknown> = {}): ManagedSession
 		lastActiveAt: 2,
 		notePreview: '',
 		favoriteCommands: ['pnpm dev'],
+		launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
+		defaultLaunchProfileId: 'codex',
+		autoStartDefaultProfile: false,
 		state: 'running',
 		lastOutputAt: 3,
 		attachedClients: 1,
@@ -63,6 +66,14 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
 		{ type: 'resize', columns: 120, rows: 40 }
 	);
 	assert.deepEqual(
+		decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 257, rows: 57 })),
+		{ type: 'resize', columns: 257, rows: 57 }
+	);
+	assert.deepEqual(
+		decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'load-history', lines: 500 })),
+		{ type: 'load-history', lines: 500 }
+	);
+	assert.deepEqual(
 		decodeTerminalClientMessage(encodeTerminalClientMessage({
 			type: 'terminal-color',
 			slot: 11,
@@ -71,6 +82,9 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
 		{ type: 'terminal-color', slot: 11, color: '#fbfafa' }
 	);
 	assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":19,"rows":40}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":513,"rows":40}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"load-history","lines":0}'), undefined);
+	assert.equal(decodeTerminalClientMessage('{"type":"load-history","lines":10001}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"input","data":12}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello"}'), undefined);
 	assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
@@ -79,6 +93,14 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
 });
 
 test('round-trips valid terminal server messages and rejects incomplete payloads', () => {
+	assert.deepEqual(
+		decodeTerminalServerMessage(encodeTerminalServerMessage({
+			type: 'snapshot',
+			data: 'screen',
+			history: { loaded: 500, available: 1_200 }
+		})),
+		{ type: 'snapshot', data: 'screen', history: { loaded: 500, available: 1_200 } }
+	);
 	assert.deepEqual(
 		decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'request-terminal-theme' })),
 		{ type: 'request-terminal-theme' }
@@ -100,6 +122,7 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 		{ type: 'repository-status', changeCount: 2, worktreeCount: 1 }
 	);
 	assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
+	assert.equal(decodeTerminalServerMessage('{"type":"snapshot","data":"screen","history":{"loaded":6,"available":5}}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":0,"rows":40}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":120,"rows":40,"active":"yes"}'), undefined);
 	assert.equal(decodeTerminalServerMessage('{"type":"output","data":"ready","activity":true,"activityAt":null}'), undefined);

@@ -7,6 +7,7 @@ import {
 	terminalAlternateScreenExitState,
 	terminalColorControlCommand,
 	terminalActivityTimestamp,
+	terminalAvailableHistoryLines,
 	terminalInputControlCommands,
 	terminalPaneState,
 	terminalScreenData,
@@ -51,6 +52,13 @@ test('bounds terminal snapshots to the retained client history', () => {
 	assert.equal(terminalSnapshotHistoryLines(50_000), 10_000);
 	assert.equal(terminalSnapshotHistoryLines(-1), 10_000);
 	assert.equal(terminalSnapshotHistoryLines(Number.NaN), 10_000);
+});
+
+test('parses available tmux history within the client retention limit', () => {
+	assert.equal(terminalAvailableHistoryLines('750\n', 4_000), 750);
+	assert.equal(terminalAvailableHistoryLines('12000\n', 10_000), 10_000);
+	assert.equal(terminalAvailableHistoryLines('invalid\n', 10_000), 0);
+	assert.equal(terminalAvailableHistoryLines('-1\n', 10_000), 0);
 });
 
 test('removes only the control record separator from a terminal snapshot', () => {

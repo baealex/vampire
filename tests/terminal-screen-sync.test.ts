@@ -193,6 +193,22 @@ test('restores a large snapshot in bounded render batches', () => {
 	assert.equal(harness.writes[1].data, 'tail');
 });
 
+test('reports snapshot restoration before acknowledging the server', () => {
+	const harness = createHarness();
+	const events: string[] = [];
+	harness.sync.beginSnapshot('snapshot', {
+		isCurrent: () => true,
+		onRestored: () => events.push('restored'),
+		acknowledge: () => { events.push('acknowledged'); return true; }
+	});
+	assert.deepEqual(events, []);
+	harness.writes[0].complete();
+	assert.deepEqual(events, ['restored']);
+	harness.scheduler.flushFrame();
+	harness.scheduler.flushFrame();
+	assert.deepEqual(events, ['restored', 'acknowledged']);
+});
+
 test('pauses output once the bounded backlog is exhausted', () => {
 	const harness = createHarness();
 	assert.equal(harness.sync.pushOutput('x'.repeat(TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT)), true);

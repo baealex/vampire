@@ -30,6 +30,9 @@ const UNBRACKETED_SUBMIT_SETTLE_MS = 140;
 const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
 const TERMINAL_RESIZE_SETTLE_MS = 1_000;
+const TERMINAL_REDRAW_QUIET_MS = 40;
+const TERMINAL_REDRAW_SETTLE_LIMIT_MS = 200;
+const TERMINAL_REDRAW_POLL_MS = 10;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
 const TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES = [
 	'\u001b[?47l',
@@ -92,6 +95,7 @@ export type TerminalScreenSynchronizer = (geometry?: TerminalSize) => Promise<vo
 export interface AttachTerminalOptions {
 	terminalId?: string;
 	historyLines?: number;
+	lazyHistory?: boolean;
 	ignoreSize?: boolean;
 	canResize?: () => boolean;
 	canReportTerminalColor?: () => boolean;
@@ -114,6 +118,12 @@ export interface AttachTerminalOptions {
 export function terminalSnapshotHistoryLines(requested?: number): number {
 	if (!Number.isInteger(requested) || Number(requested) <= 0) return TERMINAL_SCROLLBACK_LINES.standard;
 	return Math.min(TERMINAL_SCROLLBACK_LINES.standard, Number(requested));
+}
+
+export function terminalAvailableHistoryLines(output: string, maximum: number): number {
+	const value = Number(output.trim());
+	if (!Number.isInteger(value) || value <= 0) return 0;
+	return Math.min(maximum, value);
 }
 
 export function terminalAlternateScreenExitState(
@@ -262,6 +272,16 @@ function terminalPhysicalRowData(output: string, row: number): string | undefine
 }
 
 const TERMINAL_CAPTURE_WRITE_MODE = '\u001b[0m\u001b[4l\u001b[?7h';
+
+function terminalCaptureFlag(state: TerminalPaneState | undefined): '-J' | '-N' {
+	// -J implies -T and drops trailing cells that may carry a background.
+	return state?.alternateScreen ? '-N' : '-J';
+}
+
+function terminalPhysicalCaptureData(output: string): string {
+	// -N returns physical rows; CR keeps each reconstructed row anchored at column 0.
+	return output.replace(/\r?\n/gu, '\r\n');
+}
 
 export function terminalSnapshotData(
 	output: string,
@@ -484,8 +504,10 @@ export async function attachTerminal(
 	const terminalDecoder = new TextDecoder();
 	let sizeIgnored = Boolean(options.ignoreSize);
 	let terminalControlSequenceTail = '';
+	let terminalOutputVersion = 0;
 	let alternateScreenExitResyncPending = false;
 	let alternateScreenExitResyncRequested = false;
+	let historyCapturePending = false;
 
 	const rejectControlCommands = (error: unknown): void => {
 		attachedReject(error);
@@ -530,6 +552,32 @@ export async function attachTerminal(
 			.catch(() => false);
 		return terminalColorReportSupport;
 	};
+	const captureTerminalSnapshot = async (requestedHistoryLines: number, geometry: TerminalSize) => {
+		const [rawState, rawHistorySize] = await Promise.all([
+			runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
+			runControlCommand(`display-message -p -t ${paneId} '#{history_size}'`)
+		]);
+		const state = terminalPaneState(rawState, geometry);
+		const availableHistory = terminalAvailableHistoryLines(rawHistorySize, snapshotHistoryLines);
+		const loadedHistory = state?.alternateScreen
+			? 0
+			: Math.min(
+				availableHistory,
+				Math.max(0, Math.min(snapshotHistoryLines, requestedHistoryLines))
+			);
+		const captureFlag = terminalCaptureFlag(state);
+		const historyFlag = captureFlag === '-J' && loadedHistory > 0 ? ` -S -${loadedHistory}` : '';
+		const [snapshot, savedMainSnapshot, physicalSnapshot] = await Promise.all([
+			runControlCommand(`capture-pane -p -e ${captureFlag}${historyFlag} -t ${paneId}`),
+			runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
+			runControlCommand(`capture-pane -p -e -N -t ${paneId}`)
+		]);
+		const snapshotData = captureFlag === '-N' ? terminalPhysicalCaptureData(snapshot) : snapshot;
+		return {
+			data: terminalSnapshotData(snapshotData, state, savedMainSnapshot, physicalSnapshot),
+			history: { loaded: loadedHistory, available: availableHistory }
+		};
+	};
 
 	const sendControlInput = async (data: string): Promise<void> => {
 		for (const command of terminalInputControlCommands(paneId, data)) {
@@ -565,11 +613,31 @@ export async function attachTerminal(
 			});
 	};
 
+	const waitForTerminalRedraw = async (): Promise<void> => {
+		const deadline = Date.now() + TERMINAL_REDRAW_SETTLE_LIMIT_MS;
+		let observedVersion = terminalOutputVersion;
+		let quietSince = Date.now();
+		while (!closed && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, TERMINAL_REDRAW_POLL_MS));
+			if (terminalOutputVersion !== observedVersion) {
+				observedVersion = terminalOutputVersion;
+				quietSince = Date.now();
+				continue;
+			}
+			if (Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS) return;
+		}
+	};
+
 	const withSyntheticOutput = async <T>(operation: () => Promise<T>, settleMs = SYNTHETIC_OUTPUT_SETTLE_MS): Promise<T> => {
 		syntheticOutputDepth += 1;
 		options.onSyntheticOutput?.(Date.now() + settleMs);
 		try {
-			return await operation();
+			const result = await operation();
+			// tmux may finish the resize command before its control-mode redraw
+			// notifications arrive. Capturing immediately can therefore restore the
+			// previous device's grid after the pane already has its new geometry.
+			await waitForTerminalRedraw();
+			return result;
 		} finally {
 			try {
 				const activity = terminalActivityTimestamp(await runControlCommand(
@@ -627,6 +695,25 @@ export async function attachTerminal(
 		pendingSnapshotOutputBytes = 0;
 		for (const output of pending) message(socket, { type: 'output', ...output });
 		if (alternateScreenExitResyncRequested) scheduleAlternateScreenExitResync();
+	};
+
+	const loadTerminalHistory = async (lines: number): Promise<void> => {
+		if (closed) return;
+		snapshotSent = false;
+		snapshotAcknowledged = false;
+		pendingSnapshotOutput = [];
+		pendingSnapshotOutputBytes = 0;
+		try {
+			const geometry = options.getGeometry?.() ?? currentGeometry;
+			const snapshot = await captureTerminalSnapshot(lines, geometry);
+			if (closed) return;
+			snapshotSent = true;
+			message(socket, { type: 'snapshot', data: snapshot.data, history: snapshot.history });
+			message(socket, { type: 'screen-ready' });
+		} catch (error) {
+			if (!closed) socket.close(1013, 'terminal history synchronization failed');
+			throw error;
+		}
 	};
 
 	async function resyncTerminalScreen(geometry?: TerminalSize): Promise<void> {
@@ -696,6 +783,7 @@ export async function attachTerminal(
 	const handleControlLine = (lineBuffer: Buffer): void => {
 		const output = parseTmuxControlOutput(lineBuffer, paneId, terminalDecoder);
 		if (output !== undefined) {
+			terminalOutputVersion += 1;
 			sendTerminalOutput(output);
 			return;
 		}
@@ -859,6 +947,17 @@ export async function attachTerminal(
 				});
 			} else if (input.type === 'snapshot-ready') {
 				acknowledgeSnapshot();
+			} else if (input.type === 'load-history') {
+				if (options.lazyHistory && snapshotAcknowledged && !historyCapturePending) {
+					historyCapturePending = true;
+					queueTerminalInput('', async () => {
+						try {
+							await loadTerminalHistory(input.lines);
+						} finally {
+							historyCapturePending = false;
+						}
+					});
+				}
 			} else if (input.type === 'input') {
 				queueTerminalInput(input.data, async () => {
 					options.onInput?.();
@@ -896,21 +995,12 @@ export async function attachTerminal(
 		...snapshotGeometry,
 		...(options.hasControl ? { active: options.hasControl() } : {})
 	});
-	const [snapshot, rawState, savedMainSnapshot, physicalSnapshot] = await Promise.all([
-		runControlCommand(`capture-pane -p -e -J -S -${snapshotHistoryLines} -t ${paneId}`),
-		runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
-		runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
-		runControlCommand(`capture-pane -p -e -N -t ${paneId}`)
-	]);
+	const snapshot = await captureTerminalSnapshot(options.lazyHistory ? 0 : snapshotHistoryLines, snapshotGeometry);
 	snapshotSent = true;
 	message(socket, {
 		type: 'snapshot',
-		data: terminalSnapshotData(
-			snapshot,
-			terminalPaneState(rawState, snapshotGeometry),
-			savedMainSnapshot,
-			physicalSnapshot
-		)
+		data: snapshot.data,
+		...(options.lazyHistory ? { history: snapshot.history } : {})
 	});
 	message(socket, { type: 'screen-ready' });
 	if (requestedSize) void resizeControlClient();

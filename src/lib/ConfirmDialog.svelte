@@ -45,18 +45,21 @@
 			</span>
 			<AlertDialog.Description class="confirm-dialog-description">{description}</AlertDialog.Description>
 		</div>
-
-		<div class="vampire-dialog-actions">
-			<AlertDialog.Cancel class="vampire-dialog-secondary-button" disabled={action}>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action
-				class="vampire-dialog-danger-button"
-				disabled={action}
-				onclick={(event) => { event.preventDefault(); void confirm(); }}
-			>
-				{action ? busyLabel : confirmLabel}
-			</AlertDialog.Action>
+	{/snippet}
+	{#snippet footer()}
+		<div class="confirm-dialog-footer">
+			<div class="vampire-dialog-actions">
+				<AlertDialog.Cancel class="vampire-dialog-secondary-button" disabled={action}>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					class="vampire-dialog-danger-button"
+					disabled={action}
+					onclick={(event) => { event.preventDefault(); void confirm(); }}
+				>
+					{action ? busyLabel : confirmLabel}
+				</AlertDialog.Action>
+			</div>
+			{#if errorMessage}<p class="error" role="alert">{errorMessage}</p>{/if}
 		</div>
-		{#if errorMessage}<p class="error" role="alert">{errorMessage}</p>{/if}
 	{/snippet}
 </AlertDialogShell>
 
@@ -64,5 +67,6 @@
 	.confirm-dialog-message { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.65rem; padding: 0.1rem 0; }
 	.confirm-dialog-icon { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; margin-top: 0.05rem; border-radius: 50%; background: var(--color-danger-surface); color: var(--color-danger-text); }
 	.confirm-dialog-message :global(.confirm-dialog-description) { margin: 0; overflow-wrap: anywhere; color: var(--color-text-secondary); font-size: var(--text-body); line-height: var(--leading-body); }
+	.confirm-dialog-footer { display: grid; gap: 0.55rem; }
 	.error { margin: 0; color: var(--color-danger-text); font-size: var(--text-label); line-height: var(--leading-ui); }
 </style>

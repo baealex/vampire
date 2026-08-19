@@ -1,4 +1,5 @@
 import type { ManagedSession, SessionProcess, SessionTerminal } from '../session/types.ts';
+import { isLaunchProfile } from '../session/launch-profiles.ts';
 
 export type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
@@ -16,6 +17,9 @@ const SESSION_CHANGE_FIELDS = new Set([
 	'lastActiveAt',
 	'notePreview',
 	'favoriteCommands',
+	'launchProfiles',
+	'defaultLaunchProfileId',
+	'autoStartDefaultProfile',
 	'state',
 	'lastOutputAt',
 	'attachedClients',
@@ -106,6 +110,10 @@ export function isManagedSessionMessage(value: unknown): value is ManagedSession
 		&& typeof value.notePreview === 'string'
 		&& Array.isArray(value.favoriteCommands)
 		&& value.favoriteCommands.every((command) => typeof command === 'string')
+		&& Array.isArray(value.launchProfiles)
+		&& value.launchProfiles.every(isLaunchProfile)
+		&& (value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
+		&& typeof value.autoStartDefaultProfile === 'boolean'
 		&& (value.state === 'running' || value.state === 'missing')
 		&& (value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& Number.isInteger(value.attachedClients)
@@ -128,6 +136,9 @@ export function isSessionChangesMessage(value: unknown): value is SessionChanges
 			Array.isArray(value.favoriteCommands)
 			&& value.favoriteCommands.every((command) => typeof command === 'string')
 		))
+		&& (value.launchProfiles === undefined || (Array.isArray(value.launchProfiles) && value.launchProfiles.every(isLaunchProfile)))
+		&& (value.defaultLaunchProfileId === undefined || value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
+		&& (value.autoStartDefaultProfile === undefined || typeof value.autoStartDefaultProfile === 'boolean')
 		&& (value.state === undefined || value.state === 'running' || value.state === 'missing')
 		&& (value.lastOutputAt === undefined || value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& (value.attachedClients === undefined || (Number.isInteger(value.attachedClients) && Number(value.attachedClients) >= 0))

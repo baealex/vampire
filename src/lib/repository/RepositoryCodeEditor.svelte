@@ -155,6 +155,7 @@
 			extensions: [
 				themeCompartment.of(editorTheme(themeState.current === 'dark')),
 				lineNumbers(),
+				EditorView.lineWrapping,
 				drawSelection(),
 				highlightActiveLine(),
 				history(),

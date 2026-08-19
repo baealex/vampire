@@ -31,6 +31,9 @@ const SESSION_FIELDS = [
 	'lastActiveAt',
 	'notePreview',
 	'favoriteCommands',
+	'launchProfiles',
+	'defaultLaunchProfileId',
+	'autoStartDefaultProfile',
 	'state',
 	'lastOutputAt',
 	'attachedClients',
@@ -93,6 +96,21 @@ function equalStrings(left: string[] | undefined, right: string[] | undefined): 
 		&& left.every((value, index) => value === right[index]);
 }
 
+function equalLaunchProfiles(
+	left: ManagedSession['launchProfiles'] | undefined,
+	right: ManagedSession['launchProfiles'] | undefined
+): boolean {
+	return Array.isArray(left)
+		&& Array.isArray(right)
+		&& left.length === right.length
+		&& left.every((profile, index) => {
+			const candidate = right[index];
+			return profile.id === candidate?.id
+				&& profile.name === candidate?.name
+				&& profile.command === candidate?.command;
+		});
+}
+
 function sessionChanges(previous: ManagedSession, next: ManagedSession): SessionChanges {
 	const changes: SessionChanges = {};
 	for (const field of SESSION_FIELDS) {
@@ -102,6 +120,8 @@ function sessionChanges(previous: ManagedSession, next: ManagedSession): Session
 				? equalTerminals(previous[field], next[field])
 				: field === 'favoriteCommands'
 					? equalStrings(previous[field], next[field])
+					: field === 'launchProfiles'
+						? equalLaunchProfiles(previous[field], next[field])
 					: previous[field] === next[field];
 		if (!equal) (changes as Record<string, unknown>)[field] = next[field];
 	}

@@ -6,7 +6,9 @@ import {
 	killTmuxBackgroundProcess,
 	killTmuxSession,
 	listTmuxSessions,
+	sendTmuxInput,
 	type TmuxProcessHint,
+	type TmuxSession,
 	type TmuxTerminal
 } from './tmux.ts';
 import { isGitRepository as readIsGitRepository } from './repository.ts';
@@ -20,6 +22,11 @@ import {
 } from './session-store.ts';
 import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.ts';
 import type { AgentState } from '../session/agent.ts';
+import {
+	isLaunchProfileList,
+	normalizeLaunchProfiles
+} from '../session/launch-profiles.ts';
+import type { LaunchProfile } from '../session/types.ts';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
 export const MAX_BACKGROUND_PROCESSES = 8;
@@ -47,7 +54,7 @@ export class SessionLaunchError extends Error {
 	}
 }
 
-export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit';
+export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit' | 'invalid-launch-profiles';
 
 export class SessionMutationError extends Error {
 	readonly reason: SessionMutationErrorReason;
@@ -163,7 +170,10 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			createdAt: Date.now(),
 			lastActiveAt: Date.now(),
 			note: '',
-			favoriteCommands: []
+			favoriteCommands: [],
+			launchProfiles: [],
+			defaultLaunchProfileId: null,
+			autoStartDefaultProfile: false
 		};
 		const current = await readState();
 		await writeState({ ...current, sessions: [...current.sessions, stored] });
@@ -187,6 +197,9 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			createdAt: stored.createdAt,
 			lastActiveAt: stored.lastActiveAt,
 			favoriteCommands: stored.favoriteCommands,
+			launchProfiles: stored.launchProfiles,
+			defaultLaunchProfileId: stored.defaultLaunchProfileId,
+			autoStartDefaultProfile: stored.autoStartDefaultProfile,
 			notePreview: createSessionNotePreview(stored.note),
 			state: 'running',
 			lastOutputAt: tmux.lastOutputAt,
@@ -216,6 +229,9 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				createdAt: stored.createdAt,
 				lastActiveAt: stored.lastActiveAt,
 				favoriteCommands: stored.favoriteCommands,
+				launchProfiles: stored.launchProfiles,
+				defaultLaunchProfileId: stored.defaultLaunchProfileId,
+				autoStartDefaultProfile: stored.autoStartDefaultProfile,
 				notePreview: createSessionNotePreview(stored.note),
 				state: 'running',
 				lastOutputAt: existingTmux.lastOutputAt,
@@ -240,6 +256,13 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		const sessions = [...state.sessions];
 		sessions[index] = restarted;
 		await writeState({ ...state, sessions });
+		if (restarted.autoStartDefaultProfile) {
+			try {
+				await sendDefaultLaunchProfile(restarted, restartedTmux);
+			} catch {
+				// Keep the shell available when an optional auto-start command cannot be sent.
+			}
+		}
 		return {
 			id: restarted.id,
 			tmuxSession: restarted.tmuxSession,
@@ -247,6 +270,9 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			createdAt: restarted.createdAt,
 			lastActiveAt: restarted.lastActiveAt,
 			favoriteCommands: restarted.favoriteCommands,
+			launchProfiles: restarted.launchProfiles,
+			defaultLaunchProfileId: restarted.defaultLaunchProfileId,
+			autoStartDefaultProfile: restarted.autoStartDefaultProfile,
 			notePreview: createSessionNotePreview(restarted.note),
 			state: 'running',
 			lastOutputAt: restartedTmux.lastOutputAt,
@@ -257,6 +283,54 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			isGitRepository: gitRepository
 		};
 	});
+}
+
+export type LaunchProfileSettings = {
+	launchProfiles: LaunchProfile[];
+	defaultLaunchProfileId: string | null;
+	autoStartDefaultProfile: boolean;
+};
+
+function validateLaunchProfileSettings(input: LaunchProfileSettings): LaunchProfileSettings {
+	if (!isLaunchProfileList(input.launchProfiles)) {
+		throw new SessionMutationError('invalid-launch-profiles', 'Launch profiles must contain valid names and single-line commands.');
+	}
+	const launchProfiles = normalizeLaunchProfiles(input.launchProfiles);
+	const defaultLaunchProfileId = input.defaultLaunchProfileId?.trim() ?? null;
+	if (defaultLaunchProfileId !== null && !launchProfiles.some((profile) => profile.id === defaultLaunchProfileId)) {
+		throw new SessionMutationError('invalid-launch-profiles', 'The default launch profile was not found.');
+	}
+	return {
+		launchProfiles,
+		defaultLaunchProfileId,
+		autoStartDefaultProfile: input.autoStartDefaultProfile && defaultLaunchProfileId !== null
+	};
+}
+
+export async function updateManagedLaunchProfiles(id: string, input: LaunchProfileSettings): Promise<LaunchProfileSettings> {
+	return exclusively(async () => {
+		const settings = validateLaunchProfileSettings(input);
+		const state = await readState();
+		const index = state.sessions.findIndex((session) => session.id === id);
+		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const sessions = [...state.sessions];
+		sessions[index] = { ...sessions[index], ...settings };
+		await writeState({ ...state, sessions });
+		return settings;
+	});
+}
+
+async function sendDefaultLaunchProfile(
+	stored: StoredSession,
+	running: TmuxSession
+): Promise<void> {
+	const profile = stored.defaultLaunchProfileId
+		? stored.launchProfiles.find((candidate) => candidate.id === stored.defaultLaunchProfileId)
+		: undefined;
+	const mainTerminal = running.terminals[0];
+	if (!profile || !mainTerminal) return;
+	await sendTmuxInput(stored.tmuxSession, `${profile.command}\n`);
 }
 
 export async function createManagedBackgroundProcess(id: string, command: string): Promise<TmuxTerminal> {

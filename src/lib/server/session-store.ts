@@ -3,6 +3,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { errorHasCode } from './path-policy.ts';
+import { normalizeLaunchProfiles } from '../session/launch-profiles.ts';
+import type { LaunchProfile } from '../session/types.ts';
 
 export const SESSION_STATE_VERSION = 1;
 export const BACKGROUND_COMMAND_MAX_LENGTH = 1_000;
@@ -16,6 +18,9 @@ export interface StoredSession {
 	lastActiveAt: number;
 	note: string;
 	favoriteCommands: string[];
+	launchProfiles: LaunchProfile[];
+	defaultLaunchProfileId: string | null;
+	autoStartDefaultProfile: boolean;
 }
 
 export interface SessionStore {
@@ -52,7 +57,10 @@ function isStoredSession(value: unknown): value is Record<string, unknown> & Pic
 		&& (value.favoriteCommands === undefined || (
 			Array.isArray(value.favoriteCommands)
 			&& value.favoriteCommands.every((command) => typeof command === 'string')
-		));
+		))
+		&& (value.launchProfiles === undefined || Array.isArray(value.launchProfiles))
+		&& (value.defaultLaunchProfileId === undefined || value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
+		&& (value.autoStartDefaultProfile === undefined || typeof value.autoStartDefaultProfile === 'boolean');
 }
 
 function normalizeFavoriteCommands(value: unknown): string[] {
@@ -73,15 +81,25 @@ function parseSessionStore(value: unknown): SessionStore {
 
 	return {
 		version: SESSION_STATE_VERSION,
-		sessions: value.sessions.map((session) => ({
-			id: session.id,
-			tmuxSession: session.tmuxSession,
-			cwd: session.cwd,
-			createdAt: session.createdAt,
-			lastActiveAt: typeof session.lastActiveAt === 'number' ? session.lastActiveAt : session.createdAt,
-			note: typeof session.note === 'string' ? session.note : '',
-			favoriteCommands: normalizeFavoriteCommands(session.favoriteCommands)
-		}))
+		sessions: value.sessions.map((session) => {
+			const launchProfiles = normalizeLaunchProfiles(session.launchProfiles);
+			const defaultLaunchProfileId = typeof session.defaultLaunchProfileId === 'string'
+				&& launchProfiles.some((profile) => profile.id === session.defaultLaunchProfileId)
+				? session.defaultLaunchProfileId
+				: null;
+			return {
+				id: session.id,
+				tmuxSession: session.tmuxSession,
+				cwd: session.cwd,
+				createdAt: session.createdAt,
+				lastActiveAt: typeof session.lastActiveAt === 'number' ? session.lastActiveAt : session.createdAt,
+				note: typeof session.note === 'string' ? session.note : '',
+				favoriteCommands: normalizeFavoriteCommands(session.favoriteCommands),
+				launchProfiles,
+				defaultLaunchProfileId,
+				autoStartDefaultProfile: session.autoStartDefaultProfile === true
+			};
+		})
 	};
 }
 

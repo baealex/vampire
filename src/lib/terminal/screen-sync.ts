@@ -14,6 +14,7 @@ function terminalBatchEnd(data: string): number {
 export interface TerminalSnapshotContext {
 	isCurrent: () => boolean;
 	acknowledge: () => boolean;
+	onRestored?: () => void;
 }
 
 export interface TerminalScreenAdapter {
@@ -142,10 +143,7 @@ export class TerminalScreenSync {
 	#writeSnapshotBatch(version: number, context: TerminalSnapshotContext): void {
 		if (!this.#snapshotIsCurrent(version, context) || this.#snapshotWriteInFlight) return;
 		if (!this.#pendingSnapshot) {
-			this.#terminalReady = true;
-			this.#scheduleOutputWrite();
-			this.#revealSettledTerminal();
-			this.#scheduleAcknowledgement(version, context);
+			this.#finishSnapshotWrite(version, context);
 			return;
 		}
 		const batchEnd = terminalBatchEnd(this.#pendingSnapshot);
@@ -156,10 +154,7 @@ export class TerminalScreenSync {
 			if (!this.#snapshotIsCurrent(version, context)) return;
 			this.#snapshotWriteInFlight = false;
 			if (!this.#pendingSnapshot) {
-				this.#terminalReady = true;
-				this.#scheduleOutputWrite();
-				this.#revealSettledTerminal();
-				this.#scheduleAcknowledgement(version, context);
+				this.#finishSnapshotWrite(version, context);
 				return;
 			}
 			this.#snapshotFrame = this.#requestFrame(() => {
@@ -167,6 +162,15 @@ export class TerminalScreenSync {
 				this.#writeSnapshotBatch(version, context);
 			});
 		});
+	}
+
+	#finishSnapshotWrite(version: number, context: TerminalSnapshotContext): void {
+		if (!this.#snapshotIsCurrent(version, context)) return;
+		context.onRestored?.();
+		this.#terminalReady = true;
+		this.#scheduleOutputWrite();
+		this.#revealSettledTerminal();
+		this.#scheduleAcknowledgement(version, context);
 	}
 
 	#writeOutputBatch(): void {

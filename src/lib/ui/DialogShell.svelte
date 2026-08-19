@@ -12,7 +12,8 @@
 		contentId,
 		closeLabel = 'Close',
 		onCloseAutoFocus,
-		children
+		children,
+		footer
 	}: {
 		eyebrow?: string;
 		title: string;
@@ -23,6 +24,7 @@
 		closeLabel?: string;
 		onCloseAutoFocus?: (event: Event) => void;
 		children?: Snippet;
+		footer?: Snippet;
 	} = $props();
 	let sheetStyle = $state('');
 
@@ -78,6 +80,11 @@
 			<div class="vampire-dialog-body">
 				{@render children?.()}
 			</div>
+			{#if footer}
+				<footer class="vampire-dialog-footer">
+					{@render footer()}
+				</footer>
+			{/if}
 		</Dialog.Content>
 	</Dialog.Portal>
 </Dialog.Root>
