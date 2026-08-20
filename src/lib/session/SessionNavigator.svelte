@@ -111,7 +111,7 @@
 
 	<section class="new-session-panel" aria-labelledby="new-workspace-title">
 		<button class="new-session-toggle" type="button" onclick={openNewSession}>
-			<span class="new-session-toggle__icon" aria-hidden="true"><Plus size={18} strokeWidth={2.3} /></span>
+			<span class="new-session-toggle__icon" aria-hidden="true"><Plus size={14} strokeWidth={2.1} /></span>
 			<strong id="new-workspace-title">New workspace</strong>
 		</button>
 	</section>
@@ -134,16 +134,17 @@
 	.session-panel, .new-session-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 	.session-panel { min-width: 0; overflow: hidden; }
 	.new-session-panel { overflow: hidden; }
-	.new-session-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.8rem; width: 100%; min-height: 4.6rem; padding: 0.9rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+	.new-session-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.65rem; width: 100%; min-height: 3.5rem; padding: 0.5rem 1rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 	.new-session-toggle:hover { background: var(--color-surface-raised); }
-	.new-session-toggle__icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--color-accent); color: var(--color-accent-ink); }
-	.new-session-toggle strong { font-size: var(--text-body); font-weight: var(--weight-medium); }
+	.new-session-toggle__icon { display: grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--color-accent); color: var(--color-accent-ink); }
+	.new-session-toggle strong { font-size: var(--text-label); font-weight: var(--weight-medium); }
 
 	@media (min-width: 64rem) {
 		.session-column { display: flex; flex-direction: column; gap: 0; min-width: 0; height: 100%; overflow: hidden; border-right: 1px solid var(--color-border); background: var(--color-panel); }
 		.session-panel, .new-session-panel { width: 100%; border: 0; border-radius: 0; background: transparent; }
 		.session-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 		.new-session-panel { position: relative; z-index: 1; flex: 0 0 auto; border-top: 1px solid var(--color-border); background: var(--color-panel); }
+		.new-session-toggle { min-height: 3.25rem; padding-block: 0.4rem; }
 	}
 
 	@media (max-width: 63.999rem) {

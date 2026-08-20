@@ -77,12 +77,12 @@
 </div>
 
 <style>
-	.section-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 3.75rem; padding: 0.75rem 1.35rem; }
+	.section-header { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; min-height: 3.25rem; padding: 0.65rem 1rem; }
 	.section-header h1 { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.session-panel-title { display: flex; flex: 1 1 auto; align-items: center; gap: 0.45rem; min-width: 0; }
 	.section-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; }
-	.session-count { display: grid; place-items: center; min-width: 1.4rem; height: 1.4rem; border: 1px solid var(--color-border); border-radius: var(--radius-pill); background: transparent; color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
-	.session-order-toolbar { display: flex; align-items: center; gap: 0.55rem; min-width: 0; padding: 0.15rem 1.35rem 0.75rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
+	.session-count { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 1.85rem; height: 1.4rem; padding: 0 0.42rem; border: 1px solid var(--color-border); border-radius: var(--radius-pill); background: transparent; color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+	.session-order-toolbar { display: flex; align-items: center; gap: 0.45rem; min-width: 0; padding: 0 1rem 0.6rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
 	.session-order-control { display: inline-flex; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-sunken); }
 	.session-order-control button { min-height: 1.8rem; padding: 0 0.55rem; border: 0; border-right: 1px solid var(--color-border); background: transparent; color: var(--color-text-tertiary); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
 	.session-order-control button:last-child { border-right: 0; }
@@ -92,24 +92,13 @@
 	.session-order-help.error { color: var(--color-danger-text); }
 	.navigator-close { display: none; }
 
-	@media (min-width: 64rem) {
-		.section-header { padding: 1rem; }
-		.session-order-toolbar { padding-inline: 1rem; }
-	}
-
 	@media (max-width: 63.999rem) {
-		.section-header { padding: 1rem; }
-		.session-order-toolbar { padding-inline: 1rem; }
 		.session-order-control button { min-height: 2.75rem; }
 		.navigator-close { display: grid; }
 	}
 
-	@media (max-width: 46rem) {
-		.section-header { padding-inline: 1rem; }
-	}
-
 	@media (max-width: 24rem) {
-		.section-header { align-items: flex-start; flex-wrap: wrap; min-height: 0; gap: 0.5rem 0.75rem; padding-block: 0.75rem; }
+		.section-header { align-items: flex-start; flex-wrap: wrap; min-height: 0; gap: 0.4rem 0.65rem; padding-block: 0.6rem; }
 		.session-panel-title, .section-actions { flex-basis: 100%; }
 		.section-actions { justify-content: flex-end; }
 	}
