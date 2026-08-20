@@ -16,6 +16,7 @@
 		mobileOpen,
 		errorMessage,
 		sessionOrderMode,
+		workspacePreferencesError,
 		newSessionOpen = $bindable(),
 		cwd = $bindable(),
 		starting,
@@ -30,6 +31,8 @@
 		onCloseSession,
 		onRemoveSession,
 		onSettings,
+		onAlias,
+		onNewWorktree,
 		onCreate
 	}: {
 		sessions: ManagedSession[];
@@ -41,6 +44,7 @@
 		mobileOpen: boolean;
 		errorMessage: string;
 		sessionOrderMode: SessionOrderMode;
+		workspacePreferencesError: string;
 		newSessionOpen: boolean;
 		cwd: string;
 		starting: boolean;
@@ -55,6 +59,8 @@
 		onCloseSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onRemoveSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onSettings: (session: ManagedSession) => void;
+		onAlias: (session: ManagedSession) => void;
+		onNewWorktree: (session: ManagedSession) => void;
 		onCreate: () => void;
 	} = $props();
 
@@ -79,6 +85,7 @@
 			{authenticationRequired}
 			{hasOpenSession}
 			{sessionOrderMode}
+			{workspacePreferencesError}
 			{onLogout}
 			{onClose}
 			{onOrderModeChange}
@@ -96,6 +103,8 @@
 			{onCloseSession}
 			{onRemoveSession}
 			{onSettings}
+			{onAlias}
+			{onNewWorktree}
 			onNewSession={openNewSession}
 		/>
 	</section>

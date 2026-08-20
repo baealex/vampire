@@ -4,6 +4,7 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import DialogShell from '$lib/ui/DialogShell.svelte';
 	import type { LaunchProfile, ManagedSession } from './types.ts';
+	import { workspaceName as getWorkspaceName } from './view.ts';
 	import type { LaunchProfileSettings } from './workspace-state.svelte.ts';
 
 	let {
@@ -22,7 +23,7 @@
 	let initializedSessionId: string | undefined;
 	let saving = $state(false);
 	let savingError = $state('');
-	const workspaceName = $derived(session.cwd.replace(/\/+$/, '').split('/').pop() || session.cwd);
+	const workspaceName = $derived(getWorkspaceName(session));
 	const hasUnsavedChanges = $derived(
 		JSON.stringify(profiles) !== JSON.stringify(session.launchProfiles)
 			|| defaultProfileId !== session.defaultLaunchProfileId

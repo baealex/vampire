@@ -1,18 +1,28 @@
-import type { ManagedSession, SessionProcess, SessionTerminal } from '../session/types.ts';
+import type {
+	ManagedSession,
+	SessionProcess,
+	SessionTerminal,
+	WorkspacePreferences
+} from '../session/types.ts';
 import { isLaunchProfile } from '../session/launch-profiles.ts';
 
 export type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
 export type WorkspaceServerMessage =
-	| { type: 'sessions-snapshot'; sessions: ManagedSession[] }
+	| { type: 'sessions-snapshot'; sessions: ManagedSession[]; preferences?: WorkspacePreferences | null }
 	| { type: 'session-added'; session: ManagedSession }
 	| { type: 'session-updated'; id: string; changes: SessionChanges }
 	| { type: 'session-removed'; id: string }
+	| { type: 'workspace-preferences-updated'; preferences: WorkspacePreferences | null }
 	| { type: 'error'; message: string };
 
 const SESSION_CHANGE_FIELDS = new Set([
 	'tmuxSession',
 	'cwd',
+	'workspaceKind',
+	'repositoryPath',
+	'workspaceLabel',
+	'worktreeBranch',
 	'createdAt',
 	'lastActiveAt',
 	'notePreview',
@@ -26,7 +36,8 @@ const SESSION_CHANGE_FIELDS = new Set([
 	'foregroundProcess',
 	'terminals',
 	'agentState',
-	'isGitRepository'
+	'isGitRepository',
+	'workspaceAvailable'
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,6 +46,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isWorkspacePreferences(value: unknown): value is WorkspacePreferences {
+	return isRecord(value)
+		&& (value.sessionOrderMode === 'activity' || value.sessionOrderMode === 'manual')
+		&& Array.isArray(value.manualSessionOrder)
+		&& value.manualSessionOrder.every((id) => typeof id === 'string');
 }
 
 function isForegroundProcess(value: unknown): value is SessionProcess | null {
@@ -105,6 +123,10 @@ export function isManagedSessionMessage(value: unknown): value is ManagedSession
 		&& typeof value.id === 'string'
 		&& typeof value.tmuxSession === 'string'
 		&& typeof value.cwd === 'string'
+		&& (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree')
+		&& (value.repositoryPath === undefined || typeof value.repositoryPath === 'string')
+		&& (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string')
+		&& (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string')
 		&& isFiniteNumber(value.createdAt)
 		&& isFiniteNumber(value.lastActiveAt)
 		&& typeof value.notePreview === 'string'
@@ -122,13 +144,18 @@ export function isManagedSessionMessage(value: unknown): value is ManagedSession
 		&& Array.isArray(value.terminals)
 		&& value.terminals.every(isSessionTerminal)
 		&& (value.agentState === undefined || value.agentState === null || value.agentState === 'working' || value.agentState === 'waiting')
-		&& typeof value.isGitRepository === 'boolean';
+		&& typeof value.isGitRepository === 'boolean'
+		&& (value.workspaceAvailable === undefined || typeof value.workspaceAvailable === 'boolean');
 }
 
 export function isSessionChangesMessage(value: unknown): value is SessionChanges {
 	if (!isRecord(value) || Object.keys(value).some((key) => !SESSION_CHANGE_FIELDS.has(key))) return false;
 	return (value.tmuxSession === undefined || typeof value.tmuxSession === 'string')
 		&& (value.cwd === undefined || typeof value.cwd === 'string')
+		&& (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree')
+		&& (value.repositoryPath === undefined || typeof value.repositoryPath === 'string')
+		&& (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string')
+		&& (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string')
 		&& (value.createdAt === undefined || isFiniteNumber(value.createdAt))
 		&& (value.lastActiveAt === undefined || isFiniteNumber(value.lastActiveAt))
 		&& (value.notePreview === undefined || typeof value.notePreview === 'string')
@@ -145,13 +172,21 @@ export function isSessionChangesMessage(value: unknown): value is SessionChanges
 		&& (value.foregroundProcess === undefined || isForegroundProcess(value.foregroundProcess))
 		&& (value.terminals === undefined || (Array.isArray(value.terminals) && value.terminals.every(isSessionTerminalUpdate)))
 		&& (value.agentState === undefined || value.agentState === null || value.agentState === 'working' || value.agentState === 'waiting')
-		&& (value.isGitRepository === undefined || typeof value.isGitRepository === 'boolean');
+		&& (value.isGitRepository === undefined || typeof value.isGitRepository === 'boolean')
+		&& (value.workspaceAvailable === undefined || typeof value.workspaceAvailable === 'boolean');
 }
 
 export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMessage | undefined {
 	if (!isRecord(value)) return undefined;
-	if (value.type === 'sessions-snapshot' && Array.isArray(value.sessions) && value.sessions.every(isManagedSessionMessage)) {
-		return { type: 'sessions-snapshot', sessions: value.sessions };
+	if (value.type === 'sessions-snapshot'
+		&& Array.isArray(value.sessions)
+		&& value.sessions.every(isManagedSessionMessage)
+		&& (value.preferences === undefined || value.preferences === null || isWorkspacePreferences(value.preferences))) {
+		return {
+			type: 'sessions-snapshot',
+			sessions: value.sessions,
+			...(value.preferences !== undefined ? { preferences: value.preferences } : {})
+		};
 	}
 	if (value.type === 'session-added' && isManagedSessionMessage(value.session)) {
 		return { type: 'session-added', session: value.session };
@@ -161,6 +196,10 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
 	}
 	if (value.type === 'session-removed' && typeof value.id === 'string') {
 		return { type: 'session-removed', id: value.id };
+	}
+	if (value.type === 'workspace-preferences-updated'
+		&& (value.preferences === null || isWorkspacePreferences(value.preferences))) {
+		return { type: 'workspace-preferences-updated', preferences: value.preferences };
 	}
 	if (value.type === 'error' && typeof value.message === 'string') {
 		return { type: 'error', message: value.message };

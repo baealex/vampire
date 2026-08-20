@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Popover } from 'bits-ui';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import Network from '@lucide/svelte/icons/network';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
@@ -15,6 +16,9 @@
 	let {
 		projectName,
 		cwd,
+		isWorktree,
+		repositoryName,
+		worktreeBranch,
 		hasNote,
 		noteOpen,
 		fontSize,
@@ -25,6 +29,7 @@
 		close,
 		repositoryOpen,
 		isGitRepository,
+		workspaceAvailable,
 		changeCount,
 		worktreeCount,
 		backgroundOpen,
@@ -40,6 +45,9 @@
 	}: {
 		projectName: string;
 		cwd: string;
+		isWorktree: boolean;
+		repositoryName: string;
+		worktreeBranch?: string;
 		hasNote: boolean;
 		noteOpen: boolean;
 		fontSize: number;
@@ -50,6 +58,7 @@
 		close: () => void;
 		repositoryOpen: boolean;
 		isGitRepository?: boolean;
+		workspaceAvailable: boolean;
 		changeCount: number;
 		worktreeCount: number;
 		backgroundOpen: boolean;
@@ -106,6 +115,15 @@
 	<div class="terminal-identity">
 		<div class="terminal-identity-title">
 			<strong>{projectName}</strong>
+			{#if isWorktree}
+				<span class="worktree-badge" title={`${repositoryName}${worktreeBranch ? ` · ${worktreeBranch}` : ''}`}>
+					<GitBranch size={11} strokeWidth={1.9} aria-hidden="true" />
+					Worktree
+				</span>
+			{/if}
+			{#if !workspaceAvailable}
+				<span class="working-copy-missing" title="The working directory was removed outside Vampire">Working copy missing</span>
+			{/if}
 			{#if isGitRepository && worktreeCount > 1}
 				<span class="worktree-count" title="Git worktrees in this repository">{worktreeCount > 99 ? '99+' : worktreeCount} worktrees</span>
 			{/if}
@@ -214,6 +232,8 @@
 	.terminal-identity-title strong { min-width: 0; overflow: hidden; font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.terminal-identity > span { max-width: 100%; overflow: hidden; color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: var(--text-caption); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
 	.worktree-count { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-border); border-radius: var(--radius-pill); color: var(--color-text-tertiary); font-size: var(--text-nano); font-variant-numeric: tabular-nums; line-height: 1.25; }
+	.worktree-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding: 0.08rem 0.32rem; border: 1px solid var(--color-accent); border-radius: var(--radius-pill); color: var(--color-accent); font-size: var(--text-nano); line-height: 1.25; }
+	.working-copy-missing { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-warning-accent); border-radius: var(--radius-pill); color: var(--color-warning-accent); font-size: var(--text-nano); line-height: 1.25; }
 	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; min-width: max-content; }
 	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-overlay); color: var(--color-text-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 	.system-metric { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 1.9rem; padding: 0 0.42rem; white-space: nowrap; }
@@ -259,7 +279,7 @@
 	}
 
 	@media (max-width: 22rem) {
-		.terminal-identity-title strong, .system-metric :global(svg), .worktree-count { display: none; }
+		.terminal-identity-title strong, .system-metric :global(svg), .worktree-count, .working-copy-missing { display: none; }
 		.system-metric { gap: 0; padding-inline: 0.28rem; }
 	}
 </style>

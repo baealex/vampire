@@ -2,7 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import Terminal from '$lib/Terminal.svelte';
 	import type { ManagedSession, MobilePanel, SessionTerminal } from '$lib/session/types';
-	import { projectName as getProjectName } from '$lib/session/view';
+	import { workspaceName } from '$lib/session/view';
 	import type { SystemMetrics } from '$lib/system-metrics';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
@@ -71,7 +71,7 @@
 	let desktop = $state(false);
 	let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
 	let pathInsertionToken = 0;
-	const name = $derived(getProjectName(session.cwd));
+	const name = $derived(workspaceName(session));
 	const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
 	const repository = new RepositoryWorkspaceState(untrack(() => session.id), { isOpen: () => repositoryOpen });
 

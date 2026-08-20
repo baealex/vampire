@@ -101,6 +101,18 @@ test('counts the main and linked Git worktrees without scanning their files', as
 	assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
 });
 
+test('does not count a deleted worktree that only remains in Git metadata', async (t) => {
+	const directory = await createRepository(t);
+	const worktreeParent = await mkdtemp(join(tmpdir(), 'vampire-worktrees-'));
+	const linkedWorktree = join(worktreeParent, 'linked');
+	t.after(() => rm(worktreeParent, { recursive: true, force: true }));
+
+	await git(directory, 'worktree', 'add', '--quiet', '-b', 'deleted-worktree-test', linkedWorktree);
+	assert.equal((await readRepositorySummary(directory)).worktreeCount, 2);
+	await rm(linkedWorktree, { recursive: true, force: true });
+	assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
+});
+
 test('returns staged, working tree, and untracked diff sections', async (t) => {
 	const directory = await createRepository(t);
 	await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\n');

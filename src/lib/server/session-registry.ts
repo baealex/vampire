@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import {
 	captureTmuxBackgroundOutput,
 	createTmuxSession,
@@ -21,14 +22,21 @@ import {
 	writeSessionStore as writeState
 } from './session-store.ts';
 import { resolveAllowedWorkspaceDirectory, resolveExistingWorkspaceDirectory, WorkspaceRootError } from './workspace-roots.ts';
+import {
+	createGitWorktree,
+	GitWorktreeError,
+	removeManagedGitWorktree,
+	rollbackGitWorktree
+} from './git-worktree.ts';
 import type { AgentState } from '../session/agent.ts';
 import {
 	isLaunchProfileList,
 	normalizeLaunchProfiles
 } from '../session/launch-profiles.ts';
-import type { LaunchProfile } from '../session/types.ts';
+import type { LaunchProfile, WorkspacePreferences } from '../session/types.ts';
 
 export const SESSION_NOTE_MAX_LENGTH = 4_000;
+export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
 export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS };
 
@@ -41,6 +49,7 @@ export interface ManagedSession extends Omit<StoredSession, 'note'> {
 	terminals: TmuxTerminal[];
 	agentState: AgentState;
 	isGitRepository: boolean;
+	workspaceAvailable: boolean;
 }
 
 export type SessionLaunchErrorReason = 'invalid-cwd' | 'tmux-launch-failed';
@@ -54,7 +63,7 @@ export class SessionLaunchError extends Error {
 	}
 }
 
-export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit' | 'invalid-launch-profiles';
+export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'worktree-cleanup-failed' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit' | 'invalid-launch-profiles' | 'invalid-workspace-alias' | 'invalid-workspace-preferences';
 
 export class SessionMutationError extends Error {
 	readonly reason: SessionMutationErrorReason;
@@ -105,12 +114,67 @@ async function detectGitRepository(cwd: string): Promise<boolean> {
 	}
 }
 
-let mutationQueue: Promise<void> = Promise.resolve();
+async function detectWorkspaceAvailable(cwd: string): Promise<boolean> {
+	try {
+		return (await stat(cwd)).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+function reconcileWorkspacePreferences(
+	sessions: StoredSession[],
+	preferences: WorkspacePreferences
+): WorkspacePreferences {
+	const sessionIds = new Set(sessions.map((session) => session.id));
+	const manualSessionOrder = [...new Set(preferences.manualSessionOrder)]
+		.filter((id) => sessionIds.has(id));
+	const orderedIds = new Set(manualSessionOrder);
+	for (const session of sessions) {
+		if (!orderedIds.has(session.id)) manualSessionOrder.push(session.id);
+	}
+	return {
+		sessionOrderMode: preferences.sessionOrderMode,
+		manualSessionOrder
+	};
+}
+
+function validateWorkspacePreferences(input: WorkspacePreferences): WorkspacePreferences {
+	if ((input.sessionOrderMode !== 'activity' && input.sessionOrderMode !== 'manual')
+		|| !Array.isArray(input.manualSessionOrder)
+		|| !input.manualSessionOrder.every((id) => typeof id === 'string')) {
+		throw new SessionMutationError('invalid-workspace-preferences', 'Workspace order preferences are invalid.');
+	}
+	return {
+		sessionOrderMode: input.sessionOrderMode,
+		manualSessionOrder: [...new Set(input.manualSessionOrder)]
+	};
+}
+
+function normalizeWorkspaceAlias(alias: string): string {
+	const normalizedAlias = alias.trim();
+	if (normalizedAlias.length > WORKSPACE_ALIAS_MAX_LENGTH || /[\0\r\n\t]/.test(normalizedAlias)) {
+		throw new SessionMutationError(
+			'invalid-workspace-alias',
+			`Workspace aliases must stay on one line and be ${WORKSPACE_ALIAS_MAX_LENGTH} characters or fewer.`
+		);
+	}
+	return normalizedAlias;
+}
+
+type SessionRegistryGlobal = typeof globalThis & {
+	__vampireSessionRegistryMutationState?: { queue: Promise<void> };
+};
+
+const registryGlobal = globalThis as SessionRegistryGlobal;
+const mutationState = registryGlobal.__vampireSessionRegistryMutationState ??= {
+	queue: Promise.resolve()
+};
 
 async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
-	const previous = mutationQueue;
+	const previous = mutationState.queue;
 	let release: () => void;
-	mutationQueue = new Promise<void>((resolve) => {
+	mutationState.queue = new Promise<void>((resolve) => {
 		release = resolve;
 	});
 	await previous;
@@ -123,13 +187,17 @@ async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
 
 export async function listManagedSessions(): Promise<ManagedSession[]> {
 	const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);
-	const repositoryStates = await Promise.all(
-		[...new Set(state.sessions.map((session) => session.cwd))].map(async (cwd): Promise<[string, boolean]> => [
-			cwd,
-			await detectGitRepository(cwd)
-		])
+	const workspaceStates = await Promise.all(
+		[...new Set(state.sessions.map((session) => session.cwd))].map(async (cwd): Promise<[string, boolean, boolean]> => {
+			const [isGitRepository, workspaceAvailable] = await Promise.all([
+				detectGitRepository(cwd),
+				detectWorkspaceAvailable(cwd)
+			]);
+			return [cwd, isGitRepository, workspaceAvailable];
+		})
 	);
-	const repositoryByCwd = new Map(repositoryStates);
+	const repositoryByCwd = new Map(workspaceStates.map(([cwd, isGitRepository]) => [cwd, isGitRepository]));
+	const availabilityByCwd = new Map(workspaceStates.map(([cwd, , workspaceAvailable]) => [cwd, workspaceAvailable]));
 	const tmuxByName = new Map(tmuxSessions.map((session) => [session.name, session]));
 
 	return state.sessions.map((session) => {
@@ -144,13 +212,35 @@ export async function listManagedSessions(): Promise<ManagedSession[]> {
 			foregroundProcess: tmux?.foregroundProcess ?? null,
 			terminals: tmux?.terminals ?? [],
 			agentState: null,
-			isGitRepository: repositoryByCwd.get(session.cwd) ?? false
+			isGitRepository: repositoryByCwd.get(session.cwd) ?? false,
+			workspaceAvailable: availabilityByCwd.get(session.cwd) ?? false
 		};
 	});
 }
 
 export async function findManagedSession(id: string): Promise<ManagedSession | undefined> {
 	return (await listManagedSessions()).find((session) => session.id === id);
+}
+
+export async function readManagedWorkspacePreferences(): Promise<WorkspacePreferences | null> {
+	const state = await readState();
+	return state.workspacePreferences
+		? reconcileWorkspacePreferences(state.sessions, state.workspacePreferences)
+		: null;
+}
+
+export async function updateManagedWorkspacePreferences(
+	input: WorkspacePreferences
+): Promise<WorkspacePreferences> {
+	return exclusively(async () => {
+		const state = await readState();
+		const workspacePreferences = reconcileWorkspacePreferences(
+			state.sessions,
+			validateWorkspacePreferences(input)
+		);
+		await writeState({ ...state, workspacePreferences });
+		return workspacePreferences;
+	});
 }
 
 export async function findManagedWorkspace(id: string): Promise<Pick<StoredSession, 'id' | 'cwd'> | undefined> {
@@ -167,6 +257,7 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			id,
 			tmuxSession: `vampire-${id.slice(0, 8)}`,
 			cwd,
+			workspaceKind: 'directory',
 			createdAt: Date.now(),
 			lastActiveAt: Date.now(),
 			note: '',
@@ -194,6 +285,10 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			id: stored.id,
 			tmuxSession: stored.tmuxSession,
 			cwd: stored.cwd,
+			workspaceKind: stored.workspaceKind,
+			repositoryPath: stored.repositoryPath,
+			workspaceLabel: stored.workspaceLabel,
+			worktreeBranch: stored.worktreeBranch,
 			createdAt: stored.createdAt,
 			lastActiveAt: stored.lastActiveAt,
 			favoriteCommands: stored.favoriteCommands,
@@ -207,7 +302,88 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			foregroundProcess: tmux.foregroundProcess,
 			terminals: tmux.terminals,
 			agentState: null,
-			isGitRepository: gitRepository
+			isGitRepository: gitRepository,
+			workspaceAvailable: true
+		};
+	});
+}
+
+export async function createManagedWorktreeSession(input: { sourceSessionId: string; name: string }): Promise<ManagedSession> {
+	return exclusively(async () => {
+		const current = await readState();
+		const source = current.sessions.find((session) => session.id === input.sourceSessionId);
+		if (!source) throw new SessionMutationError('not-found', 'Source workspace was not found.');
+
+		const id = randomUUID();
+		const worktree = await createGitWorktree(source.cwd, input.name, { id });
+		const now = Date.now();
+		const stored: StoredSession = {
+			id,
+			tmuxSession: `vampire-${id.slice(0, 8)}`,
+			cwd: worktree.cwd,
+			workspaceKind: 'worktree',
+			repositoryPath: source.repositoryPath ?? worktree.sourceRoot,
+			workspaceLabel: worktree.label,
+			worktreeBranch: worktree.branch,
+			createdAt: now,
+			lastActiveAt: now,
+			note: '',
+			favoriteCommands: [...source.favoriteCommands],
+			launchProfiles: source.launchProfiles.map((profile) => ({ ...profile })),
+			defaultLaunchProfileId: source.defaultLaunchProfileId,
+			autoStartDefaultProfile: source.autoStartDefaultProfile
+		};
+
+		try {
+			await writeState({ ...current, sessions: [...current.sessions, stored] });
+		} catch (error) {
+			await rollbackGitWorktree(worktree);
+			throw error;
+		}
+
+		let tmux;
+		try {
+			tmux = await createTmuxSession(stored.tmuxSession, stored.cwd);
+		} catch {
+			const afterFailure = await readState();
+			await writeState({
+				...afterFailure,
+				sessions: afterFailure.sessions.filter((session) => session.id !== stored.id)
+			});
+			await rollbackGitWorktree(worktree);
+			throw new SessionLaunchError('tmux-launch-failed', 'tmux could not start the isolated workspace shell.');
+		}
+		if (stored.autoStartDefaultProfile) {
+			try {
+				await sendDefaultLaunchProfile(stored, tmux);
+			} catch {
+				// Keep the new shell available when an optional auto-start command cannot be sent.
+			}
+		}
+
+		return {
+			id: stored.id,
+			tmuxSession: stored.tmuxSession,
+			cwd: stored.cwd,
+			workspaceKind: stored.workspaceKind,
+			repositoryPath: stored.repositoryPath,
+			workspaceLabel: stored.workspaceLabel,
+			worktreeBranch: stored.worktreeBranch,
+			createdAt: stored.createdAt,
+			lastActiveAt: stored.lastActiveAt,
+			favoriteCommands: stored.favoriteCommands,
+			launchProfiles: stored.launchProfiles,
+			defaultLaunchProfileId: stored.defaultLaunchProfileId,
+			autoStartDefaultProfile: stored.autoStartDefaultProfile,
+			notePreview: '',
+			state: 'running',
+			lastOutputAt: tmux.lastOutputAt,
+			attachedClients: tmux.attachedClients,
+			foregroundProcess: tmux.foregroundProcess,
+			terminals: tmux.terminals,
+			agentState: null,
+			isGitRepository: true,
+			workspaceAvailable: true
 		};
 	});
 }
@@ -221,11 +397,18 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		const stored = state.sessions[index];
 		const existingTmux = (await listTmuxSessions()).find((session) => session.name === stored.tmuxSession);
 		if (existingTmux) {
-			const gitRepository = await detectGitRepository(stored.cwd);
+			const [gitRepository, workspaceAvailable] = await Promise.all([
+				detectGitRepository(stored.cwd),
+				detectWorkspaceAvailable(stored.cwd)
+			]);
 			return {
 				id: stored.id,
 				tmuxSession: stored.tmuxSession,
 				cwd: stored.cwd,
+				workspaceKind: stored.workspaceKind,
+				repositoryPath: stored.repositoryPath,
+				workspaceLabel: stored.workspaceLabel,
+				worktreeBranch: stored.worktreeBranch,
 				createdAt: stored.createdAt,
 				lastActiveAt: stored.lastActiveAt,
 				favoriteCommands: stored.favoriteCommands,
@@ -239,7 +422,8 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				foregroundProcess: existingTmux.foregroundProcess,
 				terminals: existingTmux.terminals,
 				agentState: null,
-				isGitRepository: gitRepository
+				isGitRepository: gitRepository,
+				workspaceAvailable
 			};
 		}
 
@@ -267,6 +451,10 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			id: restarted.id,
 			tmuxSession: restarted.tmuxSession,
 			cwd: restarted.cwd,
+			workspaceKind: restarted.workspaceKind,
+			repositoryPath: restarted.repositoryPath,
+			workspaceLabel: restarted.workspaceLabel,
+			worktreeBranch: restarted.worktreeBranch,
 			createdAt: restarted.createdAt,
 			lastActiveAt: restarted.lastActiveAt,
 			favoriteCommands: restarted.favoriteCommands,
@@ -280,7 +468,8 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			foregroundProcess: restartedTmux.foregroundProcess,
 			terminals: restartedTmux.terminals,
 			agentState: null,
-			isGitRepository: gitRepository
+			isGitRepository: gitRepository,
+			workspaceAvailable: true
 		};
 	});
 }
@@ -442,6 +631,20 @@ export async function updateManagedSessionNote(id: string, note: string): Promis
 	});
 }
 
+export async function updateManagedWorkspaceAlias(id: string, alias: string): Promise<string> {
+	return exclusively(async () => {
+		const workspaceLabel = normalizeWorkspaceAlias(alias);
+		const state = await readState();
+		const index = state.sessions.findIndex((session) => session.id === id);
+		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+
+		const sessions = [...state.sessions];
+		sessions[index] = { ...sessions[index], workspaceLabel };
+		await writeState({ ...state, sessions });
+		return workspaceLabel;
+	});
+}
+
 export async function findManagedSessionNote(id: string): Promise<string | undefined> {
 	const state = await readState();
 	return state.sessions.find((session) => session.id === id)?.note;
@@ -457,6 +660,25 @@ export async function closeManagedSession(id: string): Promise<void> {
 	});
 }
 
+async function cleanupManagedWorktree(stored: StoredSession): Promise<void> {
+	if (stored.workspaceKind !== 'worktree' && !stored.worktreeBranch) return;
+	try {
+		await removeManagedGitWorktree({
+			id: stored.id,
+			cwd: stored.cwd,
+			repositoryPath: stored.repositoryPath
+		});
+	} catch (cause) {
+		if (cause instanceof GitWorktreeError) {
+			throw new SessionMutationError('worktree-cleanup-failed', cause.message);
+		}
+		throw new SessionMutationError(
+			'worktree-cleanup-failed',
+			'Vampire could not remove the managed working copy. The workspace remains registered.'
+		);
+	}
+}
+
 export async function removeManagedSession(id: string): Promise<void> {
 	await exclusively(async () => {
 		const state = await readState();
@@ -468,6 +690,7 @@ export async function removeManagedSession(id: string): Promise<void> {
 			throw new SessionMutationError('session-running', 'Close the session before removing this workspace.');
 		}
 
+		await cleanupManagedWorktree(stored);
 		await writeState({ ...state, sessions: state.sessions.filter((session) => session.id !== id) });
 	});
 }
@@ -479,6 +702,7 @@ export async function stopAndRemoveManagedSession(id: string): Promise<void> {
 		if (!stored) throw new SessionMutationError('not-found', 'Session was not found.');
 
 		await killTmuxSession(stored.tmuxSession);
+		await cleanupManagedWorktree(stored);
 		await writeState({ ...state, sessions: state.sessions.filter((session) => session.id !== id) });
 	});
 }

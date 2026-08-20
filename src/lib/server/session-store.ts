@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { errorHasCode } from './path-policy.ts';
 import { normalizeLaunchProfiles } from '../session/launch-profiles.ts';
-import type { LaunchProfile } from '../session/types.ts';
+import type { LaunchProfile, WorkspacePreferences } from '../session/types.ts';
 
 export const SESSION_STATE_VERSION = 1;
 export const BACKGROUND_COMMAND_MAX_LENGTH = 1_000;
@@ -14,6 +14,10 @@ export interface StoredSession {
 	id: string;
 	tmuxSession: string;
 	cwd: string;
+	workspaceKind?: 'directory' | 'worktree';
+	repositoryPath?: string;
+	workspaceLabel?: string;
+	worktreeBranch?: string;
 	createdAt: number;
 	lastActiveAt: number;
 	note: string;
@@ -26,6 +30,7 @@ export interface StoredSession {
 export interface SessionStore {
 	version: typeof SESSION_STATE_VERSION;
 	sessions: StoredSession[];
+	workspacePreferences?: WorkspacePreferences;
 }
 
 export interface SessionConnection {
@@ -51,6 +56,10 @@ function isStoredSession(value: unknown): value is Record<string, unknown> & Pic
 		&& typeof value.id === 'string'
 		&& typeof value.tmuxSession === 'string'
 		&& typeof value.cwd === 'string'
+		&& (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree')
+		&& (value.repositoryPath === undefined || typeof value.repositoryPath === 'string')
+		&& (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string')
+		&& (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string')
 		&& typeof value.createdAt === 'number'
 		&& (value.lastActiveAt === undefined || typeof value.lastActiveAt === 'number')
 		&& (value.note === undefined || typeof value.note === 'string')
@@ -74,23 +83,48 @@ function normalizeFavoriteCommands(value: unknown): string[] {
 		.slice(0, MAX_FAVORITE_COMMANDS);
 }
 
+function normalizeWorkspacePreferences(value: unknown): WorkspacePreferences | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)
+		|| (value.sessionOrderMode !== 'activity' && value.sessionOrderMode !== 'manual')
+		|| !Array.isArray(value.manualSessionOrder)
+		|| !value.manualSessionOrder.every((id) => typeof id === 'string')) {
+		throw new Error('invalid workspace preferences');
+	}
+	return {
+		sessionOrderMode: value.sessionOrderMode,
+		manualSessionOrder: [...new Set(value.manualSessionOrder)]
+	};
+}
+
 function parseSessionStore(value: unknown): SessionStore {
 	if (!isRecord(value) || value.version !== SESSION_STATE_VERSION || !Array.isArray(value.sessions) || !value.sessions.every(isStoredSession)) {
 		throw new Error('invalid state file');
 	}
 
+	const workspacePreferences = normalizeWorkspacePreferences(value.workspacePreferences);
 	return {
 		version: SESSION_STATE_VERSION,
+		...(workspacePreferences ? { workspacePreferences } : {}),
 		sessions: value.sessions.map((session) => {
 			const launchProfiles = normalizeLaunchProfiles(session.launchProfiles);
 			const defaultLaunchProfileId = typeof session.defaultLaunchProfileId === 'string'
 				&& launchProfiles.some((profile) => profile.id === session.defaultLaunchProfileId)
 				? session.defaultLaunchProfileId
 				: null;
+			const workspaceKind = session.workspaceKind === 'worktree' || typeof session.worktreeBranch === 'string'
+				? 'worktree' as const
+				: session.workspaceKind === 'directory'
+					? 'directory' as const
+					: undefined;
 			return {
 				id: session.id,
 				tmuxSession: session.tmuxSession,
 				cwd: session.cwd,
+				...(workspaceKind ? { workspaceKind } : {}),
+				...(typeof session.repositoryPath === 'string' ? { repositoryPath: session.repositoryPath } : {}),
+				...(typeof session.workspaceLabel === 'string' ? { workspaceLabel: session.workspaceLabel } : {}),
+				...(typeof session.worktreeBranch === 'string' ? { worktreeBranch: session.worktreeBranch } : {}),
 				createdAt: session.createdAt,
 				lastActiveAt: typeof session.lastActiveAt === 'number' ? session.lastActiveAt : session.createdAt,
 				note: typeof session.note === 'string' ? session.note : '',

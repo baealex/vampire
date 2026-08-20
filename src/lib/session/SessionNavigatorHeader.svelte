@@ -10,6 +10,7 @@
 		authenticationRequired,
 		hasOpenSession,
 		sessionOrderMode,
+		workspacePreferencesError,
 		onLogout,
 		onClose,
 		onOrderModeChange
@@ -18,6 +19,7 @@
 		authenticationRequired: boolean;
 		hasOpenSession: boolean;
 		sessionOrderMode: SessionOrderMode;
+		workspacePreferencesError: string;
 		onLogout: () => void;
 		onClose: () => void;
 		onOrderModeChange: (mode: SessionOrderMode) => void;
@@ -69,8 +71,8 @@
 			Manual
 		</button>
 	</div>
-	<span class="session-order-help" role="status">
-		{sessionOrderMode === 'activity' ? 'Main session status' : 'Drag rows to reorder'}
+	<span class:error={Boolean(workspacePreferencesError)} class="session-order-help" role={workspacePreferencesError ? 'alert' : 'status'}>
+		{workspacePreferencesError || (sessionOrderMode === 'activity' ? 'Main session status' : 'Drag rows to reorder')}
 	</span>
 </div>
 
@@ -87,6 +89,7 @@
 	.session-order-control button:hover { color: var(--color-text); }
 	.session-order-control button.active { background: var(--color-surface-selected); color: var(--color-text); }
 	.session-order-help { min-width: 0; margin-left: auto; overflow: hidden; color: var(--color-text-tertiary); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+	.session-order-help.error { color: var(--color-danger-text); }
 	.navigator-close { display: none; }
 
 	@media (min-width: 64rem) {

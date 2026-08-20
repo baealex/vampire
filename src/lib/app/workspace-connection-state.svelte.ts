@@ -1,15 +1,16 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
-import type { ManagedSession } from '$lib/session/types';
+import type { ManagedSession, WorkspacePreferences } from '$lib/session/types';
 import type { SystemMetrics } from '$lib/system-metrics';
 import type { TmuxStatus } from '$lib/tmux-status';
 import { decodeWorkspaceServerMessage, type SessionChanges } from './workspace-protocol.ts';
 
 type SessionRefresher = (options?: { quiet?: boolean }) => Promise<void> | void;
 type WorkspaceSessionEvent =
-	| { type: 'sessions-snapshot'; sessions: ManagedSession[] }
+	| { type: 'sessions-snapshot'; sessions: ManagedSession[]; preferences?: WorkspacePreferences | null }
 	| { type: 'session-added'; session: ManagedSession }
 	| { type: 'session-updated'; id: string; changes: SessionChanges }
-	| { type: 'session-removed'; id: string };
+	| { type: 'session-removed'; id: string }
+	| { type: 'workspace-preferences-updated'; preferences: WorkspacePreferences | null };
 
 type StatusResponse = {
 	authenticationRequired: boolean;
@@ -174,13 +175,24 @@ export class WorkspaceConnectionState {
 			if (message.type === 'sessions-snapshot') {
 				this.#stopWorkspaceFallback();
 				this.#stopWorkspaceSnapshotTimer();
-				options.onSessionEvent?.({ type: 'sessions-snapshot', sessions: message.sessions });
+				options.onSessionEvent?.({
+					type: 'sessions-snapshot',
+					sessions: message.sessions,
+					...(message.preferences !== undefined ? { preferences: message.preferences } : {})
+				});
+				// A development server started before workspace metadata support may
+				// still have the older long-lived WebSocket runtime in memory. The HTTP
+				// route is hot-reloaded, so use it once to fill in metadata and shared
+				// preferences that the legacy snapshot cannot carry.
+				if (message.preferences === undefined) void options.refreshSessions({ quiet: true });
 			} else if (message.type === 'session-added') {
 				options.onSessionEvent?.({ type: 'session-added', session: message.session });
 			} else if (message.type === 'session-updated') {
 				options.onSessionEvent?.({ type: 'session-updated', id: message.id, changes: message.changes });
 			} else if (message.type === 'session-removed') {
 				options.onSessionEvent?.({ type: 'session-removed', id: message.id });
+			} else if (message.type === 'workspace-preferences-updated') {
+				options.onSessionEvent?.(message);
 			} else if (message.type === 'error') {
 				this.errorMessage = message.message;
 			}

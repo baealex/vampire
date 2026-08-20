@@ -198,7 +198,12 @@ export async function isGitRepository(cwd: string): Promise<boolean> {
 }
 
 function countGitWorktrees(output: string): number {
-	return output.split('\n').filter((line) => line.startsWith('worktree ')).length;
+	return output
+		.trim()
+		.split(/\n\n+/)
+		.filter((entry) => entry.split('\n').some((line) => line.startsWith('worktree '))
+			&& !entry.split('\n').some((line) => line.startsWith('prunable ')))
+		.length;
 }
 
 async function readGitWorktreeCount(cwd: string): Promise<number> {

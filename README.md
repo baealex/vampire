@@ -72,11 +72,21 @@ On tmux 3.7a or newer, Vampire answers terminal color probes with the active bro
 
 Use the **Background** bar below the terminal to run a development server or watcher without touching the main session. Background commands keep running when the browser disconnects, expose read-only output, and can be stopped directly from the bar. Completed commands can be run again or deleted, and commands you explicitly star are saved per workspace for later use. Vampire never adds commands to favorites automatically, so a command containing a token or password is not persisted in the workspace registry unless you choose to star it.
 
+For parallel work in a Git repository, open the workspace actions menu and choose **New isolated workspace**. Vampire creates a new branch and Git worktree from the source workspace's current commit, then opens a separate tmux session there. Uncommitted source changes are not copied; launch profiles and favorite background commands are. If the inherited default launch profile has auto-start enabled, it runs as soon as the new workspace opens.
+
+Managed worktrees live at `$VAMPIRE_STATE_DIR/worktrees/<workspace-id>/<project-name>` (under `~/.vampire` by default). Removing one from Vampire stops its shell, deletes the managed working copy (including uncommitted files), and clears its Git worktree registration while preserving its branch. If another tool or coding agent removes the directory first, Vampire keeps any live terminal available and marks the working copy as missing; explicitly removing that workspace later clears the stale Git registration.
+
+Use **Set workspace alias** from any workspace actions menu to give a regular directory or worktree a separate display name. A new isolated workspace starts with its task name as the alias. Aliases do not rename directories or branches, and they are stored on the Vampire server so every connected device sees the same name.
+
+The **Smart** or **Manual** workspace ordering mode and the manual row order are also stored on the server and synchronized between devices. Existing browser-local ordering preferences are imported the first time a server without shared ordering preferences is opened.
+
 ## What you get
 
 - Persistent tmux sessions for Codex, Claude Code, and any CLI.
+- Git worktree-based isolated workspaces for parallel tasks in one repository.
 - Supervised background commands with live output, reruns, deletion, and explicit favorites.
 - The same workspace from a desktop or mobile browser.
+- Server-synchronized workspace aliases and manual ordering.
 - Smart status groups for main sessions that are working, need review, are idle, or have ended.
 - Notes and process labels in the workspace list.
 - On-demand host TCP port inspection with guarded process termination.
@@ -117,7 +127,7 @@ Running `npx vampire` needs no environment variables. Set only the options your 
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
 | `VAMPIRE_ALLOW_INSECURE_NO_AUTH` | Allow a non-loopback bind without authentication when set to `1` | unset |
 | `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
-| `VAMPIRE_STATE_DIR` | Session registry, workspace notes, and explicit command favorites | `~/.vampire` |
+| `VAMPIRE_STATE_DIR` | Session registry, aliases, shared ordering, workspace notes, explicit command favorites, and managed worktrees | `~/.vampire` |
 
 Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to the configured workspace roots; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
 

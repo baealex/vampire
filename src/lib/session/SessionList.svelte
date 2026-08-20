@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import CirclePlay from '@lucide/svelte/icons/circle-play';
+	import FolderX from '@lucide/svelte/icons/folder-x';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import SessionActionsMenu from './SessionActionsMenu.svelte';
@@ -9,14 +11,16 @@
 	import type { SessionActivityRecords, SessionActivityState } from './view';
 	import {
 		formatSessionTimestamp,
+		isWorktreeWorkspace,
 		latestSessionOutputAt,
-		projectName,
 		sessionActivityHint,
 		sessionActivityLabel,
 		sessionActivityState,
 		sessionProcess,
 		sessionProcessColor,
-		sessionProcessHint
+		sessionProcessHint,
+		workspaceName,
+		workspaceRepositoryName
 	} from './view';
 
 	let {
@@ -32,6 +36,8 @@
 		onCloseSession,
 		onRemoveSession,
 		onSettings,
+		onAlias,
+		onNewWorktree,
 		onNewSession
 	}: {
 		sessions: ManagedSession[];
@@ -46,6 +52,8 @@
 		onCloseSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onRemoveSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onSettings: (session: ManagedSession) => void;
+		onAlias: (session: ManagedSession) => void;
+		onNewWorktree: (session: ManagedSession) => void;
 		onNewSession: () => void;
 	} = $props();
 
@@ -132,6 +140,8 @@
 		{@const activityState = sessionActivityState(session, activityRecords, now)}
 		{@const process = sessionProcess(session)}
 		{@const backgroundCount = Math.max(0, session.terminals.length - 1)}
+		{@const displayName = workspaceName(session)}
+		{@const repositoryName = workspaceRepositoryName(session)}
 		<div
 			class="session-row-shell"
 			class:selected={selectedSessionId === session.id}
@@ -153,12 +163,28 @@
 				oncontextmenu={(event) => handleSessionContextMenu(event, session)}
 				onkeydown={(event) => handleSessionOrderKeydown(event, session.id)}
 				aria-current={selectedSessionId === session.id ? 'true' : undefined}
-				aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${projectName(session.cwd)} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${session.notePreview ? '; has a note' : ''})`}
+				aria-label={`Open ${session.state === 'missing' ? 'ended' : 'running'} ${displayName} workspace (${process?.label ? `${process.label}; ` : ''}${sessionActivityHint(session, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${session.workspaceAvailable === false ? '; working copy missing' : ''}${session.notePreview ? '; has a note' : ''})`}
 			>
 				<span class="session-summary">
-					<span class="session-title" title={projectName(session.cwd)}>
-						<strong>{projectName(session.cwd)}</strong>
+					<span class="session-title" title={displayName}>
+						<strong>{displayName}</strong>
 					</span>
+					{#if isWorktreeWorkspace(session)}
+						<span class="workspace-origin" title={`${repositoryName}${session.worktreeBranch ? ` · ${session.worktreeBranch}` : ' · Git worktree'}`}>
+							<GitBranch size={12} strokeWidth={1.8} aria-hidden="true" />
+							<span>{repositoryName}</span>
+							{#if session.worktreeBranch}
+								<span class="session-context-divider" aria-hidden="true">·</span>
+								<span>{session.worktreeBranch}</span>
+							{/if}
+						</span>
+					{/if}
+					{#if session.workspaceAvailable === false}
+						<span class="workspace-missing" title="The working directory was removed outside Vampire.">
+							<FolderX size={12} strokeWidth={1.8} aria-hidden="true" />
+							<span>Working copy missing</span>
+						</span>
+					{/if}
 					<span class="agent-summary" title={sessionActivityHint(session, activityRecords, now)}>
 						<span
 							class="status-dot"
@@ -200,6 +226,8 @@
 					closeSession={onCloseSession}
 					remove={onRemoveSession}
 					onSettings={onSettings}
+					onAlias={onAlias}
+					onNewWorktree={onNewWorktree}
 				/>
 			</div>
 		</div>
@@ -284,7 +312,12 @@
 	.session-summary { display: grid; min-width: 0; gap: 0.3rem; }
 	.session-title { display: flex; align-items: center; min-width: 0; min-height: 1.55rem; padding-right: 0.25rem; }
 	.session-title strong { min-width: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-body); font-weight: var(--weight-medium); line-height: var(--leading-tight); text-overflow: ellipsis; white-space: nowrap; }
-	.agent-summary, .runtime-summary, .session-note-preview { display: flex; align-items: center; min-width: 0; overflow: hidden; font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
+	.agent-summary, .runtime-summary, .session-note-preview, .workspace-origin, .workspace-missing { display: flex; align-items: center; min-width: 0; overflow: hidden; font-size: var(--text-caption); line-height: var(--leading-ui); white-space: nowrap; }
+	.workspace-origin { gap: 0.3rem; color: var(--color-text-tertiary); }
+	.workspace-origin :global(svg), .workspace-missing :global(svg) { flex: 0 0 auto; }
+	.workspace-origin span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.workspace-origin span:last-child { color: var(--color-text-disabled); font-family: var(--font-mono); font-size: var(--text-micro); }
+	.workspace-missing { gap: 0.32rem; color: var(--color-warning-accent); }
 	.agent-summary { gap: 0.34rem; color: var(--color-text-tertiary); }
 	.status-dot { box-sizing: border-box; flex: 0 0 auto; width: 0.52rem; height: 0.52rem; border-radius: 50%; background: var(--color-success); box-shadow: none; }
 	.status-dot.output-active { background: var(--color-warning); box-shadow: var(--shadow-status-active); animation: activity-pulse 1.4s ease-out infinite; }

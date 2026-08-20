@@ -3,7 +3,10 @@ import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
 
 import { readSessionAgentStates } from '../src/lib/server/agent-activity.ts';
-import { listManagedSessions } from '../src/lib/server/session-registry.ts';
+import {
+	listManagedSessions,
+	readManagedWorkspacePreferences
+} from '../src/lib/server/session-registry.ts';
 import { listTmuxSessionActivity, type TmuxProcessHint, type TmuxSessionActivity, type TmuxTerminal } from '../src/lib/server/tmux.ts';
 import {
 	encodeWorkspaceServerMessage,
@@ -11,7 +14,7 @@ import {
 	type WorkspaceServerMessage
 } from '../src/lib/app/workspace-protocol.ts';
 import type { AgentState } from '../src/lib/session/agent.ts';
-import type { ManagedSession } from '../src/lib/session/types.ts';
+import type { ManagedSession, WorkspacePreferences } from '../src/lib/session/types.ts';
 import {
 	authorizeWebSocketUpgrade,
 	installWebSocketHeartbeat,
@@ -27,6 +30,10 @@ const SESSION_REFRESH_INTERVAL_MS = 5_000;
 const SESSION_FIELDS = [
 	'tmuxSession',
 	'cwd',
+	'workspaceKind',
+	'repositoryPath',
+	'workspaceLabel',
+	'worktreeBranch',
 	'createdAt',
 	'lastActiveAt',
 	'notePreview',
@@ -40,7 +47,8 @@ const SESSION_FIELDS = [
 	'foregroundProcess',
 	'terminals',
 	'agentState',
-	'isGitRepository'
+	'isGitRepository',
+	'workspaceAvailable'
 ] as const satisfies ReadonlyArray<keyof Omit<ManagedSession, 'id'>>;
 
 interface ActivitySuppression {
@@ -94,6 +102,18 @@ function equalStrings(left: string[] | undefined, right: string[] | undefined): 
 		&& Array.isArray(right)
 		&& left.length === right.length
 		&& left.every((value, index) => value === right[index]);
+}
+
+function equalWorkspacePreferences(
+	left: WorkspacePreferences | null | undefined,
+	right: WorkspacePreferences | null | undefined
+): boolean {
+	return left === right || (
+		left != null
+		&& right != null
+		&& left.sessionOrderMode === right.sessionOrderMode
+		&& equalStrings(left.manualSessionOrder, right.manualSessionOrder)
+	);
 }
 
 function equalLaunchProfiles(
@@ -261,6 +281,7 @@ export function stabilizeAgentStates(
 class WorkspaceStatusHub {
 	#clients = new Set<WebSocket>();
 	#sessions: Map<string, ManagedSession> | undefined;
+	#preferences: WorkspacePreferences | null | undefined;
 	#refreshPromise: Promise<void> | undefined;
 	#activityRefreshPromise: Promise<void> | undefined;
 	#refreshTimer: NodeJS.Timeout | undefined;
@@ -309,7 +330,11 @@ class WorkspaceStatusHub {
 		try {
 			await this.#refresh();
 			if (socket.readyState !== 1) return;
-			send(socket, { type: 'sessions-snapshot', sessions: [...this.#sessions!.values()] });
+			send(socket, {
+				type: 'sessions-snapshot',
+				sessions: [...this.#sessions!.values()],
+				preferences: this.#preferences ?? null
+			});
 			this.#clients.add(socket);
 			socket.once('close', () => this.unsubscribe(socket));
 			this.#startPolling();
@@ -327,6 +352,7 @@ class WorkspaceStatusHub {
 		this.#refreshTimer = undefined;
 		this.#activityRefreshTimer = undefined;
 		this.#sessions = undefined;
+		this.#preferences = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 	}
@@ -337,6 +363,7 @@ class WorkspaceStatusHub {
 		this.#refreshTimer = undefined;
 		this.#activityRefreshTimer = undefined;
 		this.#sessions = undefined;
+		this.#preferences = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 		for (const socket of this.#clients) socket.close(1001, 'server shutting down');
@@ -359,13 +386,19 @@ class WorkspaceStatusHub {
 		const precedingActivityRefresh = this.#activityRefreshPromise;
 		this.#refreshPromise = (async () => {
 			if (precedingActivityRefresh) await precedingActivityRefresh;
+			const [managedSessions, nextPreferences] = await Promise.all([
+				listManagedSessions(),
+				readManagedWorkspacePreferences()
+			]);
 			const nextSessions = preserveLatestOutput(
-				new Map((await listManagedSessions()).map((session) => [session.id, session])),
+				new Map(managedSessions.map((session) => [session.id, session])),
 				this.#sessions,
 				this.#suppressedActivity
 			);
 			const previousSessions = this.#sessions;
+			const previousPreferences = this.#preferences;
 			this.#sessions = nextSessions;
+			this.#preferences = nextPreferences;
 			if (!previousSessions) return;
 
 			for (const [id] of previousSessions) {
@@ -383,6 +416,13 @@ class WorkspaceStatusHub {
 				}
 				const changes = sessionChanges(previous, next);
 				if (Object.keys(changes).length > 0) this.#broadcast({ type: 'session-updated', id, changes });
+			}
+			if (previousPreferences !== undefined
+				&& !equalWorkspacePreferences(previousPreferences, nextPreferences)) {
+				this.#broadcast({
+					type: 'workspace-preferences-updated',
+					preferences: nextPreferences
+				});
 			}
 		})();
 		try {

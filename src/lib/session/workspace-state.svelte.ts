@@ -7,7 +7,13 @@ import {
 } from './view.ts';
 import { SessionActivityController } from './activity-controller.ts';
 import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
-import type { LaunchProfile, ManagedSession, SessionOrderMode, SessionTerminal } from './types.ts';
+import type {
+	LaunchProfile,
+	ManagedSession,
+	SessionOrderMode,
+	SessionTerminal,
+	WorkspacePreferences
+} from './types.ts';
 
 type RefreshOptions = { quiet?: boolean };
 type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
@@ -46,6 +52,7 @@ export class SessionWorkspaceState {
 	backgroundActionErrorSessionId = $state<string | undefined>(undefined);
 	sessionOrderMode = $state<SessionOrderMode>('activity');
 	manualSessionOrder = $state<string[]>([]);
+	workspacePreferencesError = $state('');
 	activityOrder = $state<string[]>([]);
 	activityRecords = $state<Map<string, SessionActivityRecord>>(new Map());
 
@@ -71,6 +78,11 @@ export class SessionWorkspaceState {
 	#refreshPromise: Promise<void> | undefined;
 	#refreshQueued = false;
 	#sessionsVersion = 0;
+	#legacyPreferenceStorage: Storage | undefined;
+	#preferencesInitialized = false;
+	#preferenceWriteQueue: Promise<void> = Promise.resolve();
+	#preferenceMutationVersion = 0;
+	#pendingPreferenceWrites = 0;
 	readonly #options: SessionWorkspaceStateOptions;
 
 	constructor(options: SessionWorkspaceStateOptions) {
@@ -121,6 +133,18 @@ export class SessionWorkspaceState {
 
 	applySessionSnapshot(sessions: ManagedSession[]) {
 		this.applySessions(sessions);
+	}
+
+	applyWorkspacePreferences(preferences: WorkspacePreferences | null) {
+		if (preferences === null) {
+			if (this.#preferencesInitialized || this.#pendingPreferenceWrites > 0) return;
+			this.#preferencesInitialized = true;
+			this.syncManualSessionOrder();
+			this.persistWorkspacePreferences();
+			return;
+		}
+		if (this.#pendingPreferenceWrites > 0) return;
+		this.acceptWorkspacePreferences(preferences);
 	}
 
 	applySessionAdded(session: ManagedSession) {
@@ -187,9 +211,13 @@ export class SessionWorkspaceState {
 			const requestVersion = this.#sessionsVersion;
 			this.errorMessage = '';
 			try {
-				const data = await requestJson<{ sessions: ManagedSession[] }>('/api/sessions');
+				const data = await requestJson<{
+					sessions: ManagedSession[];
+					preferences?: WorkspacePreferences | null;
+				}>('/api/sessions');
 				if (requestVersion !== this.#sessionsVersion) continue;
 				this.applySessions(data.sessions);
+				if (data.preferences !== undefined) this.applyWorkspacePreferences(data.preferences);
 			} catch (error) {
 				if (requestVersion !== this.#sessionsVersion) continue;
 				if (isUnauthorized(error)) this.#options.onUnauthorized();
@@ -246,7 +274,6 @@ export class SessionWorkspaceState {
 			this.sessions = [...this.sessions.filter((session) => session.id !== data.session.id), data.session];
 			this.#activity.rebuild(this.sessions);
 			this.manualSessionOrder = [...this.manualSessionOrder.filter((id) => id !== data.session.id), data.session.id];
-			this.persistManualSessionOrder();
 			this.openSession(data.session);
 			void this.refresh({ quiet: true });
 			return true;
@@ -255,6 +282,41 @@ export class SessionWorkspaceState {
 			return false;
 		} finally {
 			this.starting = false;
+		}
+	}
+
+	async createIsolatedWorkspace(
+		sourceSessionId: string,
+		name: string,
+		tmuxAvailable?: boolean
+	): Promise<{ ok: boolean; error?: string }> {
+		if (tmuxAvailable === false) {
+			return { ok: false, error: 'Install tmux on the server computer before starting a session.' };
+		}
+
+		try {
+			const data = await requestJson<{ session: ManagedSession }>(
+				`/api/sessions/${encodeURIComponent(sourceSessionId)}/worktrees`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ name })
+				},
+				'Unable to create the isolated workspace'
+			);
+			this.invalidateSessions();
+			this.sessions = [...this.sessions.filter((session) => session.id !== data.session.id), data.session];
+			this.#activity.rebuild(this.sessions);
+			this.manualSessionOrder = [...this.manualSessionOrder.filter((id) => id !== data.session.id), data.session.id];
+			this.openSession(data.session);
+			void this.refresh({ quiet: true });
+			return { ok: true };
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			return {
+				ok: false,
+				error: error instanceof Error ? error.message : 'Unable to create the isolated workspace'
+			};
 		}
 	}
 
@@ -267,6 +329,33 @@ export class SessionWorkspaceState {
 		});
 		this.#sessionNotes.set(sessionId, normalizedNote);
 		this.sessions = this.sessions.map((session) => session.id === sessionId ? { ...session, notePreview: data.notePreview } : session);
+	}
+
+	async updateWorkspaceAlias(
+		sessionId: string,
+		alias: string
+	): Promise<{ ok: boolean; error?: string }> {
+		try {
+			const data = await requestJson<{ alias: string | null }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/alias`,
+				{
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ alias })
+				},
+				'Unable to save the workspace alias'
+			);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? { ...session, workspaceLabel: data.alias ?? '' }
+				: session);
+			return { ok: true };
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			return {
+				ok: false,
+				error: error instanceof Error ? error.message : 'Unable to save the workspace alias'
+			};
+		}
 	}
 
 	async loadSessionNote(sessionId: string): Promise<string> {
@@ -439,6 +528,7 @@ export class SessionWorkspaceState {
 
 	restoreBrowserPreferences(storage: Storage) {
 		this.#activity.restoreBrowserPreferences(storage);
+		this.#legacyPreferenceStorage = storage;
 		const savedMode = storage.getItem(SESSION_ORDER_MODE_KEY);
 		if (savedMode === 'activity' || savedMode === 'manual') this.sessionOrderMode = savedMode;
 		try {
@@ -452,9 +542,12 @@ export class SessionWorkspaceState {
 	}
 
 	setSessionOrderMode(mode: SessionOrderMode) {
+		const changed = this.sessionOrderMode !== mode;
+		const needsInitialization = !this.#preferencesInitialized;
+		this.#preferencesInitialized = true;
 		this.sessionOrderMode = mode;
-		window.localStorage.setItem(SESSION_ORDER_MODE_KEY, mode);
 		if (mode === 'manual') this.syncManualSessionOrder();
+		if (changed || needsInitialization) this.persistWorkspacePreferences();
 	}
 
 	reorderSession(draggedId: string, targetId: string, position: 'before' | 'after') {
@@ -464,7 +557,8 @@ export class SessionWorkspaceState {
 		if (targetIndex < 0) return;
 		order.splice(targetIndex + (position === 'after' ? 1 : 0), 0, draggedId);
 		this.manualSessionOrder = order;
-		this.persistManualSessionOrder();
+		this.#preferencesInitialized = true;
+		this.persistWorkspacePreferences();
 	}
 
 	recordSessionInput(sessionId: string, timestamp: number) {
@@ -589,7 +683,6 @@ export class SessionWorkspaceState {
 			this.sessions = this.sessions.filter((item) => item.id !== session.id);
 			this.#activity.removeSession(session.id);
 			this.manualSessionOrder = this.manualSessionOrder.filter((id) => id !== session.id);
-			this.persistManualSessionOrder();
 			if (this.requestedSessionId === session.id) this.clearActiveSession();
 			return true;
 		} catch (error) {
@@ -618,6 +711,11 @@ export class SessionWorkspaceState {
 		this.updatingFavoriteCommand = undefined;
 		this.backgroundActionError = '';
 		this.backgroundActionErrorSessionId = undefined;
+		this.sessionOrderMode = 'activity';
+		this.manualSessionOrder = [];
+		this.workspacePreferencesError = '';
+		this.#preferencesInitialized = false;
+		this.#preferenceMutationVersion += 1;
 	}
 
 	dispose() {
@@ -638,14 +736,56 @@ export class SessionWorkspaceState {
 		this.#activityRequestTimers.clear();
 	}
 
-	private persistManualSessionOrder() {
-		window.localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify(this.manualSessionOrder));
+	private acceptWorkspacePreferences(preferences: WorkspacePreferences) {
+		this.#preferencesInitialized = true;
+		this.sessionOrderMode = preferences.sessionOrderMode;
+		this.manualSessionOrder = reconcileSessionOrder(this.sessions, preferences.manualSessionOrder);
+		this.workspacePreferencesError = '';
+		this.#legacyPreferenceStorage?.removeItem(SESSION_ORDER_MODE_KEY);
+		this.#legacyPreferenceStorage?.removeItem(SESSION_ORDER_KEY);
+	}
+
+	private persistWorkspacePreferences() {
+		const preferences: WorkspacePreferences = {
+			sessionOrderMode: this.sessionOrderMode,
+			manualSessionOrder: reconcileSessionOrder(this.sessions, this.manualSessionOrder)
+		};
+		this.manualSessionOrder = preferences.manualSessionOrder;
+		const mutationVersion = ++this.#preferenceMutationVersion;
+		this.#pendingPreferenceWrites += 1;
+		this.workspacePreferencesError = '';
+		this.#preferenceWriteQueue = this.#preferenceWriteQueue.then(async () => {
+			let savedPreferences: WorkspacePreferences | undefined;
+			try {
+				const data = await requestJson<{ preferences: WorkspacePreferences }>(
+					'/api/workspace-preferences',
+					{
+						method: 'PUT',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify(preferences)
+					},
+					'Unable to sync workspace order'
+				);
+				savedPreferences = data.preferences;
+			} catch (error) {
+				if (isUnauthorized(error)) this.#options.onUnauthorized();
+				if (mutationVersion === this.#preferenceMutationVersion) {
+					this.workspacePreferencesError = error instanceof Error
+						? error.message
+						: 'Unable to sync workspace order';
+				}
+			} finally {
+				this.#pendingPreferenceWrites -= 1;
+			}
+			if (savedPreferences && mutationVersion === this.#preferenceMutationVersion) {
+				this.acceptWorkspacePreferences(savedPreferences);
+			}
+		});
 	}
 
 	private syncManualSessionOrder() {
 		const nextOrder = reconcileSessionOrder(this.sessions, this.manualSessionOrder);
 		if (nextOrder.join('\0') === this.manualSessionOrder.join('\0')) return;
 		this.manualSessionOrder = nextOrder;
-		this.persistManualSessionOrder();
 	}
 }

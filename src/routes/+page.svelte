@@ -13,11 +13,13 @@
 	import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
 	import WorkspaceWorkbench from '$lib/repository/WorkspaceWorkbench.svelte';
 	import type { RepositoryTab } from '$lib/repository/types';
+	import NewWorktreeDialog from '$lib/session/NewWorktreeDialog.svelte';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
+	import WorkspaceAliasDialog from '$lib/session/WorkspaceAliasDialog.svelte';
 	import WorkspaceSettings from '$lib/session/WorkspaceSettings.svelte';
 	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
-	import { projectName } from '$lib/session/view';
+	import { workspaceName } from '$lib/session/view';
 	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
 
 	let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
@@ -26,6 +28,8 @@
 	let repositoryPanelOpen = $state(false);
 	let repositoryTab = $state<RepositoryTab>('changes');
 	let workspaceSettingsOpen = $state(false);
+	let workspaceAliasSession = $state<ManagedSession>();
+	let worktreeSourceSession = $state<ManagedSession>();
 	let presentedTerminalSessionId = $state<string | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
 	let previewTmuxUnavailable = $state(false);
@@ -48,7 +52,9 @@
 			&& presentedTerminalSessionId === sessionId
 			&& document.visibilityState === 'visible'
 			&& mobilePanel === undefined
-			&& !workspaceSettingsOpen;
+			&& !workspaceSettingsOpen
+			&& !workspaceAliasSession
+			&& !worktreeSourceSession;
 	}
 
 	function setTerminalPresentation(sessionId: string, presented: boolean) {
@@ -100,6 +106,8 @@
 		if (!await connection.logout()) return;
 		workspace.reset();
 		workspaceSettingsOpen = false;
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = undefined;
 		repositoryPanelOpen = false;
 		mobilePanel = 'sessions';
 		pushState('/', {});
@@ -107,11 +115,15 @@
 
 	function openSession(session: ManagedSession) {
 		workspaceSettingsOpen = false;
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = undefined;
 		workspace.openSession(session);
 		restorePanelAfterWorkspaceChange();
 	}
 
 	function openWorkspaceSettings(session: ManagedSession) {
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = undefined;
 		if (workspace.requestedSessionId !== session.id) {
 			workspace.openSession(session);
 			restorePanelAfterWorkspaceChange();
@@ -121,12 +133,43 @@
 		workspaceSettingsOpen = true;
 	}
 
+	function openWorkspaceAlias(session: ManagedSession) {
+		workspaceSettingsOpen = false;
+		worktreeSourceSession = undefined;
+		workspaceAliasSession = session;
+	}
+
+	async function saveWorkspaceAlias(alias: string): Promise<{ ok: boolean; error?: string }> {
+		const session = workspaceAliasSession;
+		if (!session) return { ok: false, error: 'Workspace is no longer available.' };
+		return workspace.updateWorkspaceAlias(session.id, alias);
+	}
+
+	function openNewWorktree(session: ManagedSession) {
+		workspaceSettingsOpen = false;
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = session;
+	}
+
+	async function createIsolatedWorkspace(name: string): Promise<{ ok: boolean; error?: string }> {
+		const source = worktreeSourceSession;
+		if (!source) return { ok: false, error: 'Source workspace is no longer available.' };
+		const result = await workspace.createIsolatedWorkspace(source.id, name, tmuxStatus?.available);
+		if (result.ok) {
+			worktreeSourceSession = undefined;
+			restorePanelAfterWorkspaceChange();
+		}
+		return result;
+	}
+
 	async function createSession() {
 		if (await workspace.createSession(tmuxStatus?.available)) restorePanelAfterWorkspaceChange();
 	}
 
 	function clearActiveSession() {
 		workspaceSettingsOpen = false;
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = undefined;
 		mobilePanel = 'sessions';
 		workspace.clearActiveSession();
 	}
@@ -210,10 +253,14 @@
 			refreshSessions: (options) => workspace.refresh(options),
 			onVisible: markActiveSessionObserved,
 			onSessionEvent: (event) => {
-				if (event.type === 'sessions-snapshot') workspace.applySessionSnapshot(event.sessions);
+				if (event.type === 'sessions-snapshot') {
+					workspace.applySessionSnapshot(event.sessions);
+					if (event.preferences !== undefined) workspace.applyWorkspacePreferences(event.preferences);
+				}
 				else if (event.type === 'session-added') workspace.applySessionAdded(event.session);
 				else if (event.type === 'session-updated') workspace.applySessionUpdated(event.id, event.changes);
-				else workspace.applySessionRemoved(event.id);
+				else if (event.type === 'session-removed') workspace.applySessionRemoved(event.id);
+				else workspace.applyWorkspacePreferences(event.preferences);
 			}
 		});
 		const handlePopState = () => syncSessionFromLocation();
@@ -277,6 +324,7 @@
 				mobileOpen={mobilePanel === 'sessions'}
 				errorMessage={workspace.errorMessage || connection.errorMessage}
 				sessionOrderMode={workspace.sessionOrderMode}
+				workspacePreferencesError={workspace.workspacePreferencesError}
 				bind:newSessionOpen={workspace.newSessionOpen}
 				bind:cwd={workspace.cwd}
 				starting={workspace.starting}
@@ -288,6 +336,8 @@
 				onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
 				onOpen={openSession}
 				onSettings={openWorkspaceSettings}
+				onAlias={openWorkspaceAlias}
+				onNewWorktree={openNewWorktree}
 				sessionAction={workspace.sessionAction}
 				onCloseSession={closeSession}
 				onRemoveSession={removeSession}
@@ -302,21 +352,25 @@
 							<span>Workspaces</span>
 						</button>
 						<div class="unavailable-identity">
-							<strong>{projectName(workspace.activeSession.cwd)}</strong>
+							<strong>{workspaceName(workspace.activeSession)}</strong>
 							<span title={workspace.activeSession.cwd}>{workspace.activeSession.cwd}</span>
 						</div>
 						<span class="ended-badge">Ended</span>
 					</header>
 					<div class="unavailable-body">
 						<span class="unavailable-icon" aria-hidden="true"><SquareTerminal size={22} strokeWidth={1.7} /></span>
-						<p class="section-label">tmux session unavailable</p>
-						<h2 id="ended-session-title">This shell has ended</h2>
-						<p>The process is no longer running. You can open a fresh shell in the same project or remove this workspace from the list.</p>
+						<p class="section-label">{workspace.activeSession.workspaceAvailable === false ? 'working copy unavailable' : 'tmux session unavailable'}</p>
+						<h2 id="ended-session-title">{workspace.activeSession.workspaceAvailable === false ? 'This working copy was removed' : 'This shell has ended'}</h2>
+						<p>{workspace.activeSession.workspaceAvailable === false
+							? 'The terminal has ended and its working directory no longer exists. Removing this entry does not delete the Git branch.'
+							: 'The process is no longer running. You can open a fresh shell in the same project or remove this workspace from the list.'}</p>
 						<code>{workspace.activeSession.cwd}</code>
 						<div class="unavailable-actions">
-							<button class="primary-button" onclick={() => void restartSession(workspace.activeSession!)} disabled={Boolean(workspace.sessionAction)}>
-								{workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
-							</button>
+							{#if workspace.activeSession.workspaceAvailable !== false}
+								<button class="primary-button" onclick={() => void restartSession(workspace.activeSession!)} disabled={Boolean(workspace.sessionAction)}>
+									{workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
+								</button>
+							{/if}
 							<button class="remove-button" onclick={() => void removeSession(workspace.activeSession!)} disabled={Boolean(workspace.sessionAction)}>
 								{workspace.sessionAction === 'remove' ? 'Removing…' : 'Remove workspace'}
 							</button>
@@ -353,13 +407,6 @@
 						refreshSystemMetrics={() => connection.refreshSystemMetrics()}
 					/>
 				{/key}
-				{#if workspaceSettingsOpen}
-						<WorkspaceSettings
-							session={workspace.activeSession}
-							onClose={() => workspaceSettingsOpen = false}
-							onSave={(settings) => workspace.updateLaunchProfiles(workspace.activeSession!.id, settings)}
-						/>
-				{/if}
 			{:else if workspace.requestedSessionId && workspace.sessionsLoaded}
 				<section class="unavailable-sheet" aria-labelledby="missing-session-title">
 					<header class="unavailable-header">
@@ -382,6 +429,30 @@
 					<p>Choose a workspace from the sidebar or start a new one.</p>
 					<p class="empty-workbench__shortcut"><Keyboard size={14} strokeWidth={1.7} aria-hidden="true" /> {sessionShortcutModifier}1–0 · Alt+1–0</p>
 				</section>
+			{/if}
+
+			{#if workspaceSettingsOpen && workspace.activeSession}
+				<WorkspaceSettings
+					session={workspace.activeSession}
+					onClose={() => workspaceSettingsOpen = false}
+					onSave={(settings) => workspace.updateLaunchProfiles(workspace.activeSession!.id, settings)}
+				/>
+			{/if}
+
+			{#if worktreeSourceSession}
+				<NewWorktreeDialog
+					source={worktreeSourceSession}
+					close={() => worktreeSourceSession = undefined}
+					onCreate={createIsolatedWorkspace}
+				/>
+			{/if}
+
+			{#if workspaceAliasSession}
+				<WorkspaceAliasDialog
+					session={workspace.sessions.find((session) => session.id === workspaceAliasSession?.id) ?? workspaceAliasSession}
+					close={() => workspaceAliasSession = undefined}
+					onSave={saveWorkspaceAlias}
+				/>
 			{/if}
 		</div>
 	{/if}

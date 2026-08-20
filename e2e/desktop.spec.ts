@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import {
@@ -11,6 +11,8 @@ import {
 	removeSession,
 	resetSessions
 } from './support.ts';
+import { E2E_STATE_DIRECTORY } from './runtime.ts';
+import type { ManagedSession } from '../src/lib/session/types.ts';
 
 declare global {
 	interface Window {
@@ -22,8 +24,8 @@ declare global {
 let sessionId: string | undefined;
 const run = promisify(execFile);
 
-async function gitWorkspace(...args: string[]): Promise<void> {
-	await run('git', ['-C', E2E_WORKSPACE_DIRECTORY, ...args], {
+async function gitWorkspace(...args: string[]): Promise<string> {
+	const { stdout } = await run('git', ['-C', E2E_WORKSPACE_DIRECTORY, ...args], {
 		env: {
 			...process.env,
 			GIT_AUTHOR_NAME: 'Vampire E2E',
@@ -32,6 +34,7 @@ async function gitWorkspace(...args: string[]): Promise<void> {
 			GIT_COMMITTER_EMAIL: 'vampire-e2e@example.test'
 		}
 	});
+	return stdout;
 }
 
 async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
@@ -316,6 +319,18 @@ test('manages a launch profile and auto-starts it when the session reopens', asy
 	expect(profileResponse.ok()).toBe(true);
 	const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
 	expect(closeResponse.ok()).toBe(true);
+
+	await page.goto('/');
+	const endedGroup = page.locator('.session-group.ended');
+	await endedGroup.getByRole('button', { name: /Ended/ }).click();
+	const endedActions = endedGroup.locator('.session-actions-menu .vampire-menu-trigger');
+	await expect(endedActions).toBeVisible();
+	await endedActions.click();
+	await page.getByRole('menuitem', { name: 'Manage launch profiles' }).click();
+	await expect(page.getByRole('heading', { name: 'Launch profiles' })).toBeVisible();
+	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
+	await page.getByRole('button', { name: 'Close', exact: true }).click();
+
 	const restartResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}`);
 	expect(restartResponse.ok()).toBe(true);
 
@@ -333,6 +348,151 @@ test('manages a launch profile and auto-starts it when the session reopens', asy
 	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
 	await expect(page.locator('input[type="checkbox"]')).toBeChecked();
 	await page.getByRole('button', { name: 'Close', exact: true }).click();
+});
+
+test('creates, auto-starts, and safely removes an isolated Git workspace', async ({ context, page }) => {
+	test.setTimeout(45_000);
+	const gitDirectory = join(E2E_WORKSPACE_DIRECTORY, '.git');
+	const trackedFile = join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt');
+	let isolatedBranch: string | undefined;
+	await rm(gitDirectory, { recursive: true, force: true });
+	await writeFile(trackedFile, 'committed workspace content\n', 'utf8');
+	await gitWorkspace('init', '--quiet');
+	await gitWorkspace('add', 'conflict.txt');
+	await gitWorkspace('commit', '--quiet', '-m', 'initial');
+	await writeFile(trackedFile, 'uncommitted source content\n', 'utf8');
+
+	try {
+		await authenticate(context);
+		const source = await createSession(context);
+		sessionId = source.id;
+		const profileResponse = await context.request.put(`/api/sessions/${encodeURIComponent(source.id)}/launch-profiles`, {
+			data: {
+				launchProfiles: [{
+					id: 'profile-isolated',
+					name: 'Isolated marker',
+					command: "printf 'auto-started\\n' > .vampire-auto-profile-marker"
+				}],
+				defaultLaunchProfileId: 'profile-isolated',
+				autoStartDefaultProfile: true
+			}
+		});
+		expect(profileResponse.ok()).toBe(true);
+		await page.goto(`/sessions/${encodeURIComponent(source.id)}`);
+		await expectTerminalReady(page);
+
+		const actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+		await actions.click();
+		await page.getByRole('menuitem', { name: 'New isolated workspace' }).click();
+		await expect(page.getByRole('heading', { name: 'New isolated workspace' })).toBeVisible();
+		const taskName = page.getByLabel('Task name');
+		expect(await taskName.getAttribute('placeholder')).toBeNull();
+		await taskName.fill('Parallel task');
+		await page.getByRole('button', { name: 'Create workspace' }).click();
+		await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
+		await expectTerminalReady(page);
+
+		const sessionsResponse = await context.request.get('/api/sessions');
+		expect(sessionsResponse.ok()).toBe(true);
+		const sessionsBody = await sessionsResponse.json() as { sessions: ManagedSession[] };
+		const isolated = sessionsBody.sessions.find((session) => session.workspaceLabel === 'Parallel task');
+		expect(isolated).toBeDefined();
+		expect(isolated?.workspaceKind).toBe('worktree');
+		expect(isolated?.cwd).toBe(join(
+			E2E_STATE_DIRECTORY,
+			'worktrees',
+			isolated!.id,
+			basename(E2E_WORKSPACE_DIRECTORY)
+		));
+		expect(isolated?.worktreeBranch).toMatch(/^vampire\/parallel-task-[a-f0-9]{8}$/);
+		isolatedBranch = isolated!.worktreeBranch;
+		expect(isolated?.defaultLaunchProfileId).toBe('profile-isolated');
+		expect(isolated?.autoStartDefaultProfile).toBe(true);
+		expect(await readFile(join(isolated!.cwd, 'conflict.txt'), 'utf8')).toBe('committed workspace content\n');
+		await expect.poll(
+			() => readFile(join(isolated!.cwd, '.vampire-auto-profile-marker'), 'utf8').catch(() => '')
+		).toBe('auto-started\n');
+		await page.reload();
+		await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
+		await expect(page.locator('.terminal-identity-title .worktree-badge')).toHaveText('Worktree');
+		await expect(page.locator('.session-row-shell.selected .workspace-origin')).toContainText(isolated!.worktreeBranch!);
+		await expectTerminalReady(page);
+
+		await rm(isolated!.cwd, { recursive: true, force: true });
+		await expect(page.locator('.working-copy-missing')).toBeVisible({ timeout: 12_000 });
+		await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible();
+		expect((await gitWorkspace('branch', '--list', isolated!.worktreeBranch!)).trim()).toContain(isolated!.worktreeBranch!);
+
+		const removal = await context.request.delete(`/api/sessions/${encodeURIComponent(isolated!.id)}?terminate=true`);
+		expect(removal.ok()).toBe(true);
+		expect((await gitWorkspace('worktree', 'list', '--porcelain')).match(/^worktree /gm)).toHaveLength(1);
+		expect(await realpath(dirname(isolated!.cwd)).then(() => true, () => false)).toBe(false);
+		expect((await gitWorkspace('branch', '--list', isolated!.worktreeBranch!)).trim()).toContain(isolated!.worktreeBranch!);
+	} finally {
+		const sessionsResponse = await context.request.get('/api/sessions').catch(() => undefined);
+		if (sessionsResponse?.ok()) {
+			const sessionsBody = await sessionsResponse.json() as { sessions: ManagedSession[] };
+			for (const session of sessionsBody.sessions.filter((candidate) => candidate.worktreeBranch)) {
+				await removeSession(context, session.id);
+				await gitWorkspace('worktree', 'remove', '--force', session.cwd).catch(() => undefined);
+				await gitWorkspace('branch', '-D', session.worktreeBranch!).catch(() => undefined);
+				await rm(dirname(session.cwd), { recursive: true, force: true });
+			}
+		}
+		if (isolatedBranch) await gitWorkspace('branch', '-D', isolatedBranch).catch(() => undefined);
+		await rm(gitDirectory, { recursive: true, force: true });
+		await writeFile(trackedFile, 'initial browser test content\n', 'utf8');
+	}
+});
+
+test('shares workspace aliases and manual order across devices', async ({ browser }) => {
+	test.setTimeout(45_000);
+	const firstContext = await browser.newContext();
+	const secondContext = await browser.newContext();
+	let firstSession: ManagedSession | undefined;
+	let secondSession: ManagedSession | undefined;
+	try {
+		await authenticate(firstContext);
+		await authenticate(secondContext);
+		firstSession = await createSession(firstContext);
+		secondSession = await createSession(firstContext);
+		const betaResponse = await firstContext.request.put(
+			`/api/sessions/${encodeURIComponent(secondSession.id)}/alias`,
+			{ data: { alias: 'Beta' } }
+		);
+		expect(betaResponse.ok()).toBe(true);
+
+		const firstPage = await firstContext.newPage();
+		const secondPage = await secondContext.newPage();
+		await secondPage.goto('/');
+		await expect(secondPage.locator('.session-title strong', { hasText: 'Beta' })).toBeVisible();
+
+		await firstPage.goto(`/sessions/${encodeURIComponent(firstSession.id)}`);
+		await expectTerminalReady(firstPage);
+		await firstPage.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger').click();
+		await firstPage.getByRole('menuitem', { name: 'Set workspace alias' }).click();
+		await firstPage.getByRole('textbox', { name: 'Alias' }).fill('Alpha');
+		await firstPage.getByRole('button', { name: 'Save alias' }).click();
+		await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Alpha');
+		await expect(secondPage.locator('.session-title strong', { hasText: 'Alpha' })).toBeVisible({ timeout: 12_000 });
+
+		await firstPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
+		await expect(secondPage.getByRole('button', { name: 'Arrange workspaces manually' }))
+			.toHaveAttribute('aria-pressed', 'true', { timeout: 12_000 });
+		const alphaRow = firstPage.locator('.session-row-shell', { hasText: 'Alpha' });
+		await alphaRow.locator('.session-row').press('Alt+ArrowDown');
+		await expect(firstPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha']);
+		await expect(secondPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha'], { timeout: 12_000 });
+
+		await secondPage.reload();
+		await expect(secondPage.getByRole('button', { name: 'Arrange workspaces manually' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect(secondPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha']);
+	} finally {
+		await removeSession(firstContext, firstSession?.id);
+		await removeSession(firstContext, secondSession?.id);
+		await Promise.all([firstContext.close(), secondContext.close()]);
+	}
 });
 
 test('keeps the new workspace dialog header fixed while browsing folders', async ({ context, page }) => {

@@ -28,6 +28,10 @@ export type ManagedSession = {
 	id: string;
 	tmuxSession: string;
 	cwd: string;
+	workspaceKind?: 'directory' | 'worktree';
+	repositoryPath?: string;
+	workspaceLabel?: string;
+	worktreeBranch?: string;
 	createdAt: number;
 	lastActiveAt: number;
 	notePreview: string;
@@ -42,8 +46,14 @@ export type ManagedSession = {
 	terminals: SessionTerminal[];
 	agentState?: AgentState;
 	isGitRepository: boolean;
+	workspaceAvailable?: boolean;
 };
 
 export type SessionOrderMode = 'activity' | 'manual';
+
+export type WorkspacePreferences = {
+	sessionOrderMode: SessionOrderMode;
+	manualSessionOrder: string[];
+};
 
 export type MobilePanel = 'sessions' | 'repository';

@@ -130,8 +130,30 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 });
 
 test('validates complete workspace messages before applying them to client state', () => {
-	const snapshot: WorkspaceServerMessage = { type: 'sessions-snapshot', sessions: [managedSession()] };
+	const snapshot: WorkspaceServerMessage = {
+		type: 'sessions-snapshot',
+		preferences: {
+			sessionOrderMode: 'manual',
+			manualSessionOrder: ['session-1']
+		},
+		sessions: [managedSession({
+			workspaceKind: 'worktree',
+			repositoryPath: '/tmp/project',
+			workspaceLabel: 'Fix login',
+			worktreeBranch: 'vampire/fix-login-01234567'
+		})]
+	};
 	assert.deepEqual(decodeWorkspaceServerMessage(encodeWorkspaceServerMessage(snapshot)), snapshot);
+	assert.deepEqual(
+		decodeWorkspaceServerMessage(encodeWorkspaceServerMessage({
+			type: 'workspace-preferences-updated',
+			preferences: { sessionOrderMode: 'activity', manualSessionOrder: ['session-1'] }
+		})),
+		{
+			type: 'workspace-preferences-updated',
+			preferences: { sessionOrderMode: 'activity', manualSessionOrder: ['session-1'] }
+		}
+	);
 	assert.deepEqual(
 		decodeWorkspaceServerMessage(encodeWorkspaceServerMessage({
 			type: 'session-updated',
@@ -151,6 +173,27 @@ test('validates complete workspace messages before applying them to client state
 	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'sessions-snapshot',
 		sessions: [managedSession({ isGitRepository: 'true' })]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
+		sessions: [managedSession({ workspaceLabel: 42 })]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
+		sessions: [managedSession({ workspaceKind: 'clone' })]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
+		sessions: [managedSession({ workspaceAvailable: 'yes' })]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
+		sessions: [managedSession()],
+		preferences: { sessionOrderMode: 'manual', manualSessionOrder: [42] }
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'workspace-preferences-updated',
+		preferences: { sessionOrderMode: 'smart', manualSessionOrder: [] }
 	})), undefined);
 	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'sessions-snapshot',

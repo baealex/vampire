@@ -37,6 +37,11 @@ export async function resetSessions(request: APIRequestContext): Promise<void> {
 		);
 		expect(removal.ok()).toBe(true);
 	}
+	const preferences = await request.put(`${E2E_BASE_URL}/api/workspace-preferences`, {
+		headers,
+		data: { sessionOrderMode: 'activity', manualSessionOrder: [] }
+	});
+	expect(preferences.ok()).toBe(true);
 }
 
 export async function removeSession(context: BrowserContext, sessionId: string | undefined): Promise<void> {

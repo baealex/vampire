@@ -30,6 +30,18 @@ export function projectName(path: string): string {
 	return path.replace(/\/+$/, '').split('/').pop() || path;
 }
 
+export function workspaceName(session: Pick<ManagedSession, 'cwd' | 'workspaceLabel'>): string {
+	return session.workspaceLabel?.trim() || projectName(session.cwd);
+}
+
+export function workspaceRepositoryName(session: Pick<ManagedSession, 'cwd' | 'repositoryPath'>): string {
+	return projectName(session.repositoryPath || session.cwd);
+}
+
+export function isWorktreeWorkspace(session: Pick<ManagedSession, 'workspaceKind' | 'worktreeBranch'>): boolean {
+	return session.workspaceKind === 'worktree' || Boolean(session.worktreeBranch);
+}
+
 export function sessionProcess(session: ManagedSession): SessionProcess | null {
 	if (session.state === 'missing') return null;
 	const process = session.terminals?.[0]?.foregroundProcess
@@ -116,9 +128,11 @@ export function buildActivityOrder(
 
 export function reconcileSessionOrder(sessions: ManagedSession[], manualOrder: string[]): string[] {
 	const sessionIds = new Set(sessions.map((session) => session.id));
+	const existingOrder = [...new Set(manualOrder)].filter((id) => sessionIds.has(id));
+	const orderedIds = new Set(existingOrder);
 	return [
-		...manualOrder.filter((id) => sessionIds.has(id)),
-		...sessions.map((session) => session.id).filter((id) => !manualOrder.includes(id))
+		...existingOrder,
+		...sessions.map((session) => session.id).filter((id) => !orderedIds.has(id))
 	];
 }
 

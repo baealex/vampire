@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
 	import type { ManagedSession, SessionTerminal } from '$lib/session/types';
+	import {
+		isWorktreeWorkspace,
+		workspaceName,
+		workspaceRepositoryName
+	} from '$lib/session/view';
 	import BackgroundProcesses from '$lib/terminal/BackgroundProcesses.svelte';
 	import SessionNoteEditor from '$lib/terminal/SessionNoteEditor.svelte';
 	import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
@@ -71,7 +76,9 @@
 	let backgroundOpen = $state(false);
 	const minimumFontSize = 10;
 	const maximumFontSize = 22;
-	const projectName = $derived(session.cwd.replace(/\/+$/, '').split('/').pop() || session.cwd);
+	const projectName = $derived(workspaceName(session));
+	const worktreeWorkspace = $derived(isWorktreeWorkspace(session));
+	const repositoryName = $derived(workspaceRepositoryName(session));
 	const orderedTerminals = $derived([...session.terminals].sort((left, right) => left.index - right.index));
 	const mainTerminal = $derived(orderedTerminals[0]);
 	const backgroundProcesses = $derived(orderedTerminals.slice(1));
@@ -116,6 +123,9 @@
 		<TerminalHeader
 			{projectName}
 			cwd={session.cwd}
+			isWorktree={worktreeWorkspace}
+			{repositoryName}
+			worktreeBranch={session.worktreeBranch}
 			hasNote={Boolean(session.notePreview)}
 			{noteOpen}
 			fontSize={terminalFontSize}
@@ -126,6 +136,7 @@
 			{close}
 			{repositoryOpen}
 			{isGitRepository}
+			workspaceAvailable={session.workspaceAvailable !== false}
 			{changeCount}
 			{worktreeCount}
 			{backgroundOpen}

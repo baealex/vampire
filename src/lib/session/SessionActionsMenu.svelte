@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
+	import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 	import LogOut from '@lucide/svelte/icons/log-out';
+	import Tags from '@lucide/svelte/icons/tags';
 	import Settings2 from '@lucide/svelte/icons/settings-2';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import DropdownMenuShell from '$lib/ui/DropdownMenuShell.svelte';
 	import type { ManagedSession } from './types';
-	import { projectName } from './view';
+	import { isWorktreeWorkspace, workspaceName } from './view';
 
 	let {
 		session,
@@ -15,7 +17,9 @@
 		action,
 		closeSession,
 		remove,
-		onSettings
+		onSettings,
+		onAlias,
+		onNewWorktree
 	}: {
 		session: ManagedSession;
 		open?: boolean;
@@ -24,6 +28,8 @@
 		closeSession: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		remove: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>;
 		onSettings: (session: ManagedSession) => void;
+		onAlias: (session: ManagedSession) => void;
+		onNewWorktree: (session: ManagedSession) => void;
 	} = $props();
 
 	let confirming = $state<'close' | 'remove'>();
@@ -63,7 +69,7 @@
 <DropdownMenuShell
 	{open}
 	onOpenChange={handleMenuOpenChange}
-	triggerLabel={`Workspace actions for ${projectName(session.cwd)}`}
+	triggerLabel={`Workspace actions for ${workspaceName(session)}`}
 	triggerTitle="Workspace actions"
 >
 	{#snippet trigger()}
@@ -72,7 +78,7 @@
 
 	{#snippet children()}
 		<div class="vampire-menu-heading" role="presentation">
-			<strong>{projectName(session.cwd)}</strong>
+			<strong>{workspaceName(session)}</strong>
 			<span>{session.cwd}</span>
 		</div>
 		<DropdownMenu.Separator class="vampire-menu-separator" />
@@ -83,6 +89,10 @@
 				<p>
 					{#if confirming === 'close'}
 						The shell and its processes will stop. The workspace stays available.
+					{:else if isWorktreeWorkspace(session) && session.workspaceAvailable === false}
+						Vampire will clear the missing working copy's Git registration. Its branch stays available.
+					{:else if isWorktreeWorkspace(session)}
+						{session.state === 'running' ? 'The running shell will stop. ' : ''}The managed working copy and any uncommitted files in it will be deleted. Its Git branch stays available.
 					{:else if session.state === 'running'}
 						The running shell will stop and the workspace will be removed. Project files stay on disk.
 					{:else}
@@ -104,6 +114,16 @@
 				{#if confirmError}<p class="vampire-menu-error" role="alert">{confirmError}</p>{/if}
 			</div>
 		{:else}
+			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onAlias(session)}>
+				<Tags size={16} strokeWidth={1.8} aria-hidden="true" />
+				{session.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
+			</DropdownMenu.Item>
+			{#if session.isGitRepository && session.workspaceAvailable !== false}
+				<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onNewWorktree(session)}>
+					<GitBranchPlus size={16} strokeWidth={1.8} aria-hidden="true" />
+					New isolated workspace
+				</DropdownMenu.Item>
+			{/if}
 			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onSettings(session)}>
 				<Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
 				Manage launch profiles

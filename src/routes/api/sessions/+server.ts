@@ -1,10 +1,19 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
-import { createManagedSession, listManagedSessions, SessionLaunchError } from '$lib/server/session-registry';
+import {
+	createManagedSession,
+	listManagedSessions,
+	readManagedWorkspacePreferences,
+	SessionLaunchError
+} from '$lib/server/session-registry';
 
 export const GET: RequestHandler = async (event) => {
 	requireAuthentication(event);
-	return json({ sessions: await listManagedSessions() });
+	const [sessions, preferences] = await Promise.all([
+		listManagedSessions(),
+		readManagedWorkspacePreferences()
+	]);
+	return json({ sessions, preferences }, { headers: { 'cache-control': 'no-store' } });
 };
 
 export const POST: RequestHandler = async (event) => {
