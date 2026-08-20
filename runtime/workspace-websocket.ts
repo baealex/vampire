@@ -22,6 +22,7 @@ import {
 	rejectWebSocketUpgrade,
 	scheduleAuthenticationExpiry
 } from './websocket-support.ts';
+import { StatusPluginRuntime } from './status-plugins.ts';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -286,6 +287,9 @@ class WorkspaceStatusHub {
 	#activityRefreshTimer: NodeJS.Timeout | undefined;
 	#suppressedActivity = new Map<string, ActivitySuppression>();
 	#pendingAgentStates = new Map<string, PendingAgentState>();
+	#statusPlugins = new StatusPluginRuntime((plugins) => {
+		this.#broadcast({ type: 'status-plugins-snapshot', plugins });
+	});
 
 	suppressSessionActivity(sessionId: string, timestamp: number): void {
 		const current = this.#suppressedActivity.get(sessionId) ?? {
@@ -328,6 +332,7 @@ class WorkspaceStatusHub {
 		try {
 			await this.#refresh();
 			if (socket.readyState !== 1) return;
+			const firstClient = this.#clients.size === 0;
 			send(socket, {
 				type: 'sessions-snapshot',
 				sessions: [...this.#sessions!.values()],
@@ -336,6 +341,15 @@ class WorkspaceStatusHub {
 			});
 			this.#clients.add(socket);
 			socket.once('close', () => this.unsubscribe(socket));
+			if (firstClient) {
+				try {
+					await this.#statusPlugins.start();
+				} catch {
+					send(socket, { type: 'error', message: 'Unable to load status plugins.' });
+				}
+			} else {
+				send(socket, { type: 'status-plugins-snapshot', plugins: this.#statusPlugins.snapshots() });
+			}
 			this.#startPolling();
 		} catch {
 			send(socket, { type: 'error', message: 'Unable to load workspace sessions.' });
@@ -355,6 +369,7 @@ class WorkspaceStatusHub {
 		this.#launchProfiles = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
+		this.#statusPlugins.stop();
 	}
 
 	close(): void {
@@ -367,6 +382,7 @@ class WorkspaceStatusHub {
 		this.#launchProfiles = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
+		this.#statusPlugins.stop();
 		for (const socket of this.#clients) socket.close(1001, 'server shutting down');
 		this.#clients.clear();
 	}

@@ -6,11 +6,16 @@ import type {
 	WorkspacePreferences
 } from '../session/types.ts';
 import { isLaunchProfile } from '../session/launch-profiles.ts';
+import {
+	isStatusPluginSnapshotList,
+	type StatusPluginSnapshot
+} from '../status/status-plugin.ts';
 
 export type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
 export type WorkspaceServerMessage =
 	| { type: 'sessions-snapshot'; sessions: ManagedSession[]; preferences?: WorkspacePreferences | null; launchProfiles?: LaunchProfile[] }
+	| { type: 'status-plugins-snapshot'; plugins: StatusPluginSnapshot[] }
 	| { type: 'session-added'; session: ManagedSession }
 	| { type: 'session-updated'; id: string; changes: SessionChanges }
 	| { type: 'session-removed'; id: string }
@@ -184,6 +189,9 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
 			...(value.preferences !== undefined ? { preferences: value.preferences } : {}),
 			...(value.launchProfiles !== undefined ? { launchProfiles: value.launchProfiles } : {})
 		};
+	}
+	if (value.type === 'status-plugins-snapshot' && isStatusPluginSnapshotList(value.plugins)) {
+		return { type: 'status-plugins-snapshot', plugins: value.plugins };
 	}
 	if (value.type === 'session-added' && isManagedSessionMessage(value.session)) {
 		return { type: 'session-added', session: value.session };

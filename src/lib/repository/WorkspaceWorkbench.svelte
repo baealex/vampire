@@ -3,7 +3,7 @@
 	import Terminal from '$lib/Terminal.svelte';
 	import type { ManagedSession, MobilePanel, SessionTerminal } from '$lib/session/types';
 	import { workspaceName } from '$lib/session/view';
-	import type { SystemMetrics } from '$lib/system-metrics';
+	import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
 	import { isUiOverlayOpen } from '$lib/ui/overlay';
@@ -33,8 +33,7 @@
 		onInputActivity,
 		onOutputActivity,
 		onTerminalPresentationChange = () => undefined,
-		systemMetrics,
-		refreshSystemMetrics,
+		statusPlugins = [],
 		mobilePanel,
 		onMobilePanelChange = () => undefined,
 		repositoryPanelOpen = false,
@@ -58,8 +57,7 @@
 		onInputActivity: (sessionId: string, timestamp: number) => void;
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
 		onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
-		systemMetrics?: SystemMetrics;
-		refreshSystemMetrics: () => Promise<void>;
+		statusPlugins?: StatusPluginSnapshot[];
 		mobilePanel?: MobilePanel;
 		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
 		repositoryPanelOpen?: boolean;
@@ -203,8 +201,7 @@
 			{onLoadNote}
 			{onInputActivity}
 			{onOutputActivity}
-			{systemMetrics}
-			{refreshSystemMetrics}
+			{statusPlugins}
 			{repositoryOpen}
 			isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
 			changeCount={repository.changeCount}

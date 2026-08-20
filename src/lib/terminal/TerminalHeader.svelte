@@ -5,12 +5,9 @@
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import PanelRight from '@lucide/svelte/icons/panel-right';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
-	import MemoryStick from '@lucide/svelte/icons/memory-stick';
-	import Microchip from '@lucide/svelte/icons/microchip';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import type { Snippet } from 'svelte';
 	import ListeningPortsDialog from '$lib/system/ListeningPortsDialog.svelte';
-	import { SYSTEM_METRICS_INTERVAL_MS, type SystemMetrics } from '$lib/system-metrics';
 	import TerminalDisplayMenu from './TerminalDisplayMenu.svelte';
 
 	let {
@@ -24,8 +21,6 @@
 		fontSize,
 		minimumFontSize,
 		maximumFontSize,
-		systemMetrics,
-		refreshSystemMetrics,
 		close,
 		repositoryOpen,
 		isGitRepository,
@@ -53,8 +48,6 @@
 		fontSize: number;
 		minimumFontSize: number;
 		maximumFontSize: number;
-		systemMetrics?: SystemMetrics;
-		refreshSystemMetrics: () => Promise<void>;
 		close: () => void;
 		repositoryOpen: boolean;
 		isGitRepository?: boolean;
@@ -74,37 +67,11 @@
 	} = $props();
 
 	let listeningPortsOpen = $state(false);
-	let refreshingSystemMetrics = false;
-
-	async function updateSystemMetrics() {
-		if (refreshingSystemMetrics) return;
-		refreshingSystemMetrics = true;
-		try {
-			await refreshSystemMetrics();
-		} finally {
-			refreshingSystemMetrics = false;
-		}
-	}
-
-	$effect(() => {
-		void updateSystemMetrics();
-		const timer = window.setInterval(() => void updateSystemMetrics(), SYSTEM_METRICS_INTERVAL_MS);
-		return () => window.clearInterval(timer);
-	});
-
-	function formatMemory(bytes: number): string {
-		const gigabytes = bytes / 1024 ** 3;
-		return `${gigabytes >= 10 ? Math.round(gigabytes) : gigabytes.toFixed(1)} GB`;
-	}
 
 	function handleNoteOpenChange(nextOpen: boolean) {
 		if (nextOpen !== noteOpen) toggleNote();
 	}
 
-	function cpuSampleTitle(metrics: SystemMetrics): string {
-		const seconds = SYSTEM_METRICS_INTERVAL_MS / 1_000;
-		return `CPU approximately ${metrics.cpuUsage}% — sampled average across all logical cores; refreshes about every ${seconds} seconds while visible`;
-	}
 </script>
 
 <header class="terminal-header">
@@ -148,29 +115,6 @@
 		<span title={cwd}>{cwd}</span>
 	</div>
 	<div class="terminal-controls">
-		<div
-			class="system-metrics"
-			role="group"
-			aria-label={systemMetrics
-				? `Server resources: CPU approximately ${systemMetrics.cpuUsage} percent; RAM ${systemMetrics.memoryUsage} percent, ${formatMemory(systemMetrics.memoryUsedBytes)} of ${formatMemory(systemMetrics.memoryTotalBytes)} used.`
-				: 'Server resources loading'}
-		>
-			<span class="system-metric" title={systemMetrics ? cpuSampleTitle(systemMetrics) : 'CPU loading'}>
-				<Microchip size={14} strokeWidth={1.8} aria-hidden="true" />
-				<b>CPU</b>
-				<output aria-label={systemMetrics ? `CPU approximately ${systemMetrics.cpuUsage} percent, sampled across all logical cores` : 'CPU loading'}>
-					{systemMetrics ? `≈${systemMetrics.cpuUsage}%` : '—'}
-				</output>
-			</span>
-			<span
-				class="system-metric"
-				title={systemMetrics ? `RAM ${formatMemory(systemMetrics.memoryUsedBytes)} of ${formatMemory(systemMetrics.memoryTotalBytes)} (${systemMetrics.memoryUsage}%)` : 'RAM loading'}
-			>
-				<MemoryStick size={14} strokeWidth={1.8} aria-hidden="true" />
-				<b>RAM</b>
-				<output>{systemMetrics ? `${systemMetrics.memoryUsage}%` : '—'}</output>
-			</span>
-		</div>
 		<div class="terminal-tools" role="group" aria-label="Terminal tools">
 			<button
 				type="button"
@@ -235,12 +179,6 @@
 	.worktree-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding: 0.08rem 0.32rem; border: 1px solid var(--color-accent); border-radius: var(--radius-pill); color: var(--color-accent); font-size: var(--text-nano); line-height: 1.25; }
 	.working-copy-missing { flex: 0 0 auto; padding: 0.08rem 0.3rem; border: 1px solid var(--color-warning-accent); border-radius: var(--radius-pill); color: var(--color-warning-accent); font-size: var(--text-nano); line-height: 1.25; }
 	.terminal-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; min-width: max-content; }
-	.system-metrics { display: inline-flex; align-items: center; min-height: 1.9rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.42rem; background: var(--color-surface-overlay); color: var(--color-text-secondary); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
-	.system-metric { display: inline-flex; align-items: center; gap: 0.28rem; min-height: 1.9rem; padding: 0 0.42rem; white-space: nowrap; }
-	.system-metric + .system-metric { border-left: 1px solid var(--color-border); }
-	.system-metric :global(svg) { color: var(--color-text-tertiary); }
-	.system-metric b { font-weight: var(--weight-medium); }
-	.system-metric output { color: var(--color-text); font: inherit; }
 	.terminal-tools { display: flex; align-items: center; gap: 0.15rem; }
 	:global(.note-button), .background-button, .listening-ports-button, .repository-button { position: relative; display: grid; place-items: center; min-width: 2.35rem; height: 2.35rem; padding: 0; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--color-text-tertiary); font: inherit; cursor: pointer; }
 	:global(.note-button), .background-button, .repository-button { width: 2.35rem; }
@@ -271,15 +209,12 @@
 		.back-button { width: 2.75rem; min-height: 2.75rem; }
 		.terminal-identity-title { gap: 0.2rem; }
 		.terminal-controls, .terminal-tools { gap: 0; }
-		.system-metrics { min-height: 2.15rem; font-size: var(--text-micro); }
-		.system-metric { gap: 0.2rem; min-height: 2.15rem; padding-inline: 0.3rem; }
-		.system-metric b, .listening-ports-button span { display: none; }
+		.listening-ports-button span { display: none; }
 		:global(.note-button), .background-button, .listening-ports-button, .repository-button { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; }
 		.listening-ports-button { padding: 0; }
 	}
 
 	@media (max-width: 22rem) {
-		.terminal-identity-title strong, .system-metric :global(svg), .worktree-count, .working-copy-missing { display: none; }
-		.system-metric { gap: 0; padding-inline: 0.28rem; }
+		.terminal-identity-title strong, .worktree-count, .working-copy-missing { display: none; }
 	}
 </style>

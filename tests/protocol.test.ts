@@ -224,6 +224,40 @@ test('validates complete workspace messages before applying them to client state
 	})), undefined);
 });
 
+test('round-trips status plugin snapshots without exposing command configuration', () => {
+	const snapshot: WorkspaceServerMessage = {
+		type: 'status-plugins-snapshot',
+		plugins: [{
+			id: 'codex-usage',
+			name: 'Codex',
+			state: 'ready',
+			text: '18%',
+			tooltip: 'Current usage',
+			menu: [
+				{ type: 'heading', text: 'Codex', badge: 'Overall' },
+				{ type: 'item', text: '5h', value: '18% used', time: { label: 'Resets', at: 1_787_225_200_000 } },
+				{ type: 'separator' }
+			],
+			progress: 18,
+			tone: 'success',
+			updatedAt: 1_787_220_000_000
+		}]
+	};
+	assert.deepEqual(decodeWorkspaceServerMessage(encodeWorkspaceServerMessage(snapshot)), snapshot);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'status-plugins-snapshot',
+		plugins: [{ ...snapshot.plugins[0], progress: 101 }]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'status-plugins-snapshot',
+		plugins: [{ ...snapshot.plugins[0], menu: [{ type: 'item', text: 'Docs', href: 'javascript:alert(1)' }] }]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'status-plugins-snapshot',
+		plugins: [{ ...snapshot.plugins[0], command: 'cat ~/.ssh/id_rsa' }]
+	})), undefined);
+});
+
 test('keeps activity from legacy terminal updates without erasing richer terminal metadata', () => {
 	assert.deepEqual(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'session-updated',

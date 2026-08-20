@@ -1,7 +1,14 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
-import { authenticate, createSession, expectTerminalReady, removeSession, resetSessions } from './support.ts';
+import {
+	authenticate,
+	createSession,
+	expectTerminalReady,
+	removeSession,
+	resetSessions,
+	resetStatusPlugins
+} from './support.ts';
 
 let sessionId: string | undefined;
 const run = promisify(execFile);
@@ -17,7 +24,7 @@ function websocketMessageType(message: string | Buffer): string | undefined {
 
 test.beforeEach(async ({ request }) => {
 	sessionId = undefined;
-	await resetSessions(request);
+	await Promise.all([resetSessions(request), resetStatusPlugins(request)]);
 });
 
 test.afterEach(async ({ context }) => {
@@ -191,8 +198,11 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
-	await expect(page.locator('.terminal-header .system-metrics')).toBeVisible();
-	await expect(page.locator('.terminal-header .system-metric').first().locator('output')).toContainText('≈');
+	const statusBar = page.getByRole('region', { name: 'Server status plugins' });
+	await expect(statusBar).toBeVisible();
+	await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
+	await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
+	await expect(page.getByRole('button', { name: 'Manage status plugins' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
 	const terminalTypography = await page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
 		const rows = terminal.querySelector<HTMLElement>('.xterm-rows');

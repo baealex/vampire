@@ -405,8 +405,7 @@
 						onRepositoryPanelOpenChange={setRepositoryPanelOpen}
 						repositoryTab={repositoryTab}
 						onRepositoryTabChange={setRepositoryTab}
-						systemMetrics={connection.systemMetrics}
-						refreshSystemMetrics={() => connection.refreshSystemMetrics()}
+						statusPlugins={connection.statusPlugins}
 					/>
 				{/key}
 			{:else if workspace.requestedSessionId && workspace.sessionsLoaded}

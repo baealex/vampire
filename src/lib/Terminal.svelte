@@ -8,9 +8,10 @@
 	} from '$lib/session/view';
 	import BackgroundProcesses from '$lib/terminal/BackgroundProcesses.svelte';
 	import SessionNoteEditor from '$lib/terminal/SessionNoteEditor.svelte';
+	import StatusPluginBar from '$lib/status/StatusPluginBar.svelte';
 	import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
 	import TerminalViewport from '$lib/terminal/TerminalViewport.svelte';
-	import type { SystemMetrics } from '$lib/system-metrics';
+	import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
 	import { isDesktopViewport } from '$lib/ui/layout';
 	import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '$lib/workspace-entry-drag.ts';
 
@@ -38,8 +39,7 @@
 		onToggleRepository = () => undefined,
 		pathInsertionRequest,
 		onExternalFileDrop = async () => [],
-		systemMetrics,
-		refreshSystemMetrics,
+		statusPlugins = [],
 		children
 	}: {
 		session: ManagedSession;
@@ -65,8 +65,7 @@
 		onToggleRepository?: () => void;
 		pathInsertionRequest?: TerminalPathInsertionRequest;
 		onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
-		systemMetrics?: SystemMetrics;
-		refreshSystemMetrics: () => Promise<void>;
+		statusPlugins?: StatusPluginSnapshot[];
 		children?: Snippet;
 	} = $props();
 
@@ -131,8 +130,6 @@
 			fontSize={terminalFontSize}
 			{minimumFontSize}
 			{maximumFontSize}
-			{systemMetrics}
-			{refreshSystemMetrics}
 			{close}
 			{repositoryOpen}
 			{isGitRepository}
@@ -159,6 +156,7 @@
 				/>
 			{/snippet}
 		</TerminalHeader>
+		<StatusPluginBar plugins={statusPlugins} />
 	</div>
 
 	{#key mainTerminal?.id}

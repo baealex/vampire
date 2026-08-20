@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import type { APIRequestContext, BrowserContext, Page } from '@playwright/test';
 import type { ManagedSession } from '../src/lib/session/types.ts';
+import { defaultStatusPlugins } from '../src/lib/status/status-plugin.ts';
 import {
 	E2E_BASE_URL,
 	E2E_TOKEN,
@@ -47,6 +48,14 @@ export async function resetSessions(request: APIRequestContext): Promise<void> {
 		data: { sessionOrderMode: 'activity', manualSessionOrder: [] }
 	});
 	expect(preferences.ok()).toBe(true);
+}
+
+export async function resetStatusPlugins(request: APIRequestContext): Promise<void> {
+	const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
+		headers: { authorization: `Bearer ${E2E_TOKEN}` },
+		data: { plugins: defaultStatusPlugins() }
+	});
+	expect(response.ok()).toBe(true);
 }
 
 export async function removeSession(context: BrowserContext, sessionId: string | undefined): Promise<void> {

@@ -26,9 +26,17 @@ Do not include real access tokens, private terminal output, project files, or se
 - Run Vampire as an unprivileged user with access only to the projects it needs.
 - Use a long, random, unique `VAMPIRE_TOKEN` and rotate it after suspected exposure.
 - Keep the host operating system, Node.js, tmux, reverse proxy, and clipboard tools updated.
-- Protect `~/.vampire` or `VAMPIRE_STATE_DIR`; it contains project paths, session metadata, and notes.
+- Protect `~/.vampire` or `VAMPIRE_STATE_DIR`; it contains project paths, session metadata, notes, and saved status plugin commands.
 
 Vampire provides authentication and defense-in-depth controls, but it is not a sandbox, privilege boundary, or multi-tenant terminal service. Host compromise, malicious shell commands, exposed credentials, and insecure reverse-proxy configuration are outside the protection that the application alone can provide.
+
+## Status plugin considerations
+
+An authenticated browser can save a status plugin that executes an arbitrary shell command or multiline script with the operating-system permissions and environment of the Vampire server user. Treat this as equivalent to terminal access. Do not put access tokens directly in plugin scripts; the script is stored in owner-readable plaintext under `VAMPIRE_STATE_DIR`.
+
+The Claude Limit preset may read the Vampire server user's existing Claude Code OAuth credential from `CLAUDE_CODE_OAUTH_TOKEN`, the macOS Keychain, or Claude Code's credentials file. It uses that credential only as an authorization header to Anthropic's usage endpoint and does not print, cache, refresh, or modify it. The endpoint is an undocumented Claude Code interface and may change. Remove or disable that preset if Vampire should not access the account's usage data.
+
+Vampire runs each enabled plugin once for the server and shares its output with all authenticated browsers. It prevents overlapping runs, applies a 10-second timeout and 32 KB output limit, strips terminal control sequences, and renders output as text rather than HTML. These controls limit accidental resource use and browser injection; they do not sandbox a command, restrict its network or filesystem access, or make a malicious command safe. Plugin output can itself contain sensitive data, so give access only to browsers that are trusted with the server user's shell.
 
 ## Image clipboard considerations
 

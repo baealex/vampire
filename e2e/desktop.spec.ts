@@ -9,7 +9,8 @@ import {
 	E2E_WORKSPACE_DIRECTORY,
 	expectTerminalReady,
 	removeSession,
-	resetSessions
+	resetSessions,
+	resetStatusPlugins
 } from './support.ts';
 import { E2E_STATE_DIRECTORY } from './runtime.ts';
 import type { ManagedSession } from '../src/lib/session/types.ts';
@@ -221,7 +222,7 @@ function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): b
 
 test.beforeEach(async ({ request }) => {
 	sessionId = undefined;
-	await resetSessions(request);
+	await Promise.all([resetSessions(request), resetStatusPlugins(request)]);
 });
 
 test.afterEach(async ({ context }) => {
@@ -276,13 +277,10 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
-	const systemMetrics = page.locator('.terminal-header .system-metrics');
-	await expect(systemMetrics).toBeVisible();
-	await expect(systemMetrics.locator('.system-metric').first().locator('output')).toContainText('≈');
-	await expect(systemMetrics.locator('.system-metric').first()).toHaveAttribute(
-		'title',
-		/sampled average across all logical cores; refreshes about every 2 seconds/i
-	);
+	const statusBar = page.getByRole('region', { name: 'Server status plugins' });
+	await expect(statusBar).toBeVisible();
+	await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
+	await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
 	await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
 	await page.getByRole('button', { name: 'Inspect listening ports' }).click();
 	await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
@@ -302,6 +300,71 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 	const vampireServer = page.locator('.listening-port-row', { hasText: '7678' });
 	await expect(vampireServer).toContainText('Protected');
 	await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
+});
+
+test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+
+	await page.getByRole('button', { name: 'Manage status plugins' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Status plugins' });
+	await expect(dialog).toBeVisible();
+	const introCopy = dialog.locator('.status-settings-copy');
+	const addActions = dialog.locator('.status-add-actions');
+	const [copyBox, actionsBox] = await Promise.all([introCopy.boundingBox(), addActions.boundingBox()]);
+	expect(copyBox).not.toBeNull();
+	expect(actionsBox).not.toBeNull();
+	expect(actionsBox!.y).toBeGreaterThanOrEqual(copyBox!.y + copyBox!.height);
+	expect(await addActions.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	await dialog.getByRole('button', { name: 'Codex Limit', exact: true }).click();
+	const codexLimit = dialog.locator('.status-plugin-editor').last();
+	await expect(codexLimit.getByLabel('Command')).toHaveValue(/account\/rateLimits\/read/);
+	await expect(codexLimit.getByLabel('Command')).toHaveValue(/\n/);
+	await expect(codexLimit.getByLabel('On')).toBeChecked();
+	await codexLimit.getByRole('button', { name: 'Remove Codex Limit' }).click();
+	await dialog.getByRole('button', { name: 'Command', exact: true }).click();
+	const custom = dialog.locator('.status-plugin-editor').last();
+	await custom.getByLabel('Name').fill('Build');
+	await custom.getByLabel('Command').fill("printf 'ready\\nShared result\\n'");
+	await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
+	await dialog.getByRole('button', { name: 'Move Build up' }).click();
+	await dialog.getByRole('button', { name: 'Move Build up' }).click();
+
+	const cpu = dialog.locator('.status-plugin-editor').filter({
+		has: page.getByRole('button', { name: 'Remove CPU' })
+	});
+	await expect(cpu.getByLabel('Command')).toHaveValue(/^node --input-type=module/);
+	await expect(cpu.getByLabel('Command')).toHaveValue(/function snapshot\(\)/);
+	await cpu.getByRole('button', { name: 'Remove CPU' }).click();
+	await dialog.getByRole('button', { name: 'Save changes' }).click();
+	await expect(dialog).toBeHidden();
+
+	const firstBar = page.getByRole('region', { name: 'Server status plugins' });
+	await expect(firstBar.locator('.status-plugin').first()).toContainText('Build');
+	await expect(firstBar.locator('.status-plugin').first()).toContainText('ready');
+	await expect(firstBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toHaveCount(0);
+	await firstBar.locator('.status-plugin').first().click();
+	await expect(page.locator('.status-plugin-popover')).toBeVisible();
+	const terminalScreen = page.locator('.xterm-screen');
+	const terminalBounds = await terminalScreen.boundingBox();
+	expect(terminalBounds).not.toBeNull();
+	await terminalScreen.click({
+		position: { x: terminalBounds!.width - 40, y: terminalBounds!.height / 2 }
+	});
+	await expect(page.locator('.status-plugin-popover')).toBeHidden();
+	await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+
+	const secondPage = await context.newPage();
+	await secondPage.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(secondPage);
+	const secondBar = secondPage.getByRole('region', { name: 'Server status plugins' });
+	await expect(secondBar.locator('.status-plugin').first()).toContainText('Build');
+	await expect(secondBar.locator('.status-plugin').first()).toContainText('ready');
+	await expect(secondBar.locator('.status-plugin').nth(1)).toContainText('RAM');
+	await secondPage.close();
 });
 
 test('adds a startup profile inline, reuses it elsewhere, and runs the workspace selection', async ({ context, page }) => {

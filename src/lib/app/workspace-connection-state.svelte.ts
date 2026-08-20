@@ -1,6 +1,6 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
 import type { LaunchProfile, ManagedSession, WorkspacePreferences } from '$lib/session/types';
-import type { SystemMetrics } from '$lib/system-metrics';
+import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
 import type { TmuxStatus } from '$lib/tmux-status';
 import { decodeWorkspaceServerMessage, type SessionChanges } from './workspace-protocol.ts';
 
@@ -33,12 +33,11 @@ export class WorkspaceConnectionState {
 	loginError = $state('');
 	errorMessage = $state('');
 	tmuxStatus = $state<TmuxStatus | undefined>(undefined);
-	systemMetrics = $state<SystemMetrics | undefined>(undefined);
+	statusPlugins = $state<StatusPluginSnapshot[]>([]);
 
 	#authenticationVersion = 0;
 	#runVersion = 0;
 	#stopCurrentRun: (() => void) | undefined;
-	#systemRequestInFlight = false;
 	#connectionOptions: ConnectionStartOptions | undefined;
 	#workspaceSocket: WebSocket | undefined;
 	#workspaceReconnectTimer: number | undefined;
@@ -108,22 +107,8 @@ export class WorkspaceConnectionState {
 	markUnauthenticated() {
 		this.#authenticationVersion += 1;
 		this.authenticated = false;
-		this.systemMetrics = undefined;
+		this.statusPlugins = [];
 		this.#stopWorkspaceStream();
-	}
-
-	async refreshSystemMetrics() {
-		if (!this.authenticated || document.hidden || this.#systemRequestInFlight) return;
-		const authenticationVersion = this.#authenticationVersion;
-		this.#systemRequestInFlight = true;
-		try {
-			const metrics = await requestJson<SystemMetrics>('/api/system', { cache: 'no-store' });
-			if (this.authenticated && authenticationVersion === this.#authenticationVersion) this.systemMetrics = metrics;
-		} catch (error) {
-			if (isUnauthorized(error)) this.markUnauthenticated();
-		} finally {
-			this.#systemRequestInFlight = false;
-		}
 	}
 
 	async #loadStatus(runVersion: number, signal: AbortSignal) {
@@ -189,6 +174,8 @@ export class WorkspaceConnectionState {
 				if (message.preferences === undefined || message.launchProfiles === undefined) {
 					void options.refreshSessions({ quiet: true });
 				}
+			} else if (message.type === 'status-plugins-snapshot') {
+				this.statusPlugins = message.plugins;
 			} else if (message.type === 'session-added') {
 				options.onSessionEvent?.({ type: 'session-added', session: message.session });
 			} else if (message.type === 'session-updated') {

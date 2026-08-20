@@ -80,11 +80,18 @@ Use **Set workspace alias** from any workspace actions menu to give a regular di
 
 The **Smart** or **Manual** workspace ordering mode and the manual row order are also stored on the server and synchronized between devices. Existing browser-local ordering preferences are imported the first time a server without shared ordering preferences is opened.
 
+### Customize the status bar
+
+The server-wide status bar runs editable command plugins and shares each result with every connected browser. CPU, RAM, Codex Limit, and Claude Limit are starting points rather than special UI types.
+
+See [Status plugins](docs/status-plugins.md) for the SwiftBar-style text format and generic JSON menu model.
+
 ## What you get
 
 - Persistent tmux sessions for Codex, Claude Code, and any CLI.
 - Git worktree-based isolated workspaces for parallel tasks in one repository.
 - Supervised background commands with live output, reruns, deletion, and explicit favorites.
+- A SwiftBar-style server status strip with ordered presets and user-defined command plugins.
 - The same workspace from a desktop or mobile browser.
 - Server-synchronized workspace aliases and manual ordering.
 - Smart status groups for main sessions that are working, need review, are idle, or have ended.
@@ -127,7 +134,7 @@ Running `npx vampire` needs no environment variables. Set only the options your 
 | `VAMPIRE_TOKEN` | Bearer token for remote access | unset |
 | `VAMPIRE_ALLOW_INSECURE_NO_AUTH` | Allow a non-loopback bind without authentication when set to `1` | unset |
 | `VAMPIRE_WORKSPACE_ROOTS` | Server-side directories available to the workspace picker, separated by `:` (`;` on Windows) | server launch directory (`process.cwd()`) |
-| `VAMPIRE_STATE_DIR` | Session registry, aliases, shared ordering, workspace notes, explicit command favorites, and managed worktrees | `~/.vampire` |
+| `VAMPIRE_STATE_DIR` | Session registry, profiles, aliases, shared ordering, workspace notes, explicit command favorites, managed worktrees, and status plugin commands | `~/.vampire` |
 
 Project files, commands, terminal history, and running processes stay on your machine. The workspace picker and new sessions are restricted to the configured workspace roots; browsing reads only immediate child directories. Existing registered workspaces remain restartable even if they are outside a newly configured root.
 
