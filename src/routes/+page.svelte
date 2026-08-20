@@ -121,7 +121,7 @@
 		restorePanelAfterWorkspaceChange();
 	}
 
-	function openWorkspaceSettings(session: ManagedSession) {
+	function openStartupProfile(session: ManagedSession) {
 		workspaceAliasSession = undefined;
 		worktreeSourceSession = undefined;
 		if (workspace.requestedSessionId !== session.id) {
@@ -256,11 +256,13 @@
 				if (event.type === 'sessions-snapshot') {
 					workspace.applySessionSnapshot(event.sessions);
 					if (event.preferences !== undefined) workspace.applyWorkspacePreferences(event.preferences);
+					if (event.launchProfiles !== undefined) workspace.applyLaunchProfiles(event.launchProfiles);
 				}
 				else if (event.type === 'session-added') workspace.applySessionAdded(event.session);
 				else if (event.type === 'session-updated') workspace.applySessionUpdated(event.id, event.changes);
 				else if (event.type === 'session-removed') workspace.applySessionRemoved(event.id);
-				else workspace.applyWorkspacePreferences(event.preferences);
+				else if (event.type === 'workspace-preferences-updated') workspace.applyWorkspacePreferences(event.preferences);
+				else workspace.applyLaunchProfiles(event.launchProfiles);
 			}
 		});
 		const handlePopState = () => syncSessionFromLocation();
@@ -335,7 +337,7 @@
 				onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
 				onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
 				onOpen={openSession}
-				onSettings={openWorkspaceSettings}
+				onSettings={openStartupProfile}
 				onAlias={openWorkspaceAlias}
 				onNewWorktree={openNewWorktree}
 				sessionAction={workspace.sessionAction}
@@ -434,8 +436,13 @@
 			{#if workspaceSettingsOpen && workspace.activeSession}
 				<WorkspaceSettings
 					session={workspace.activeSession}
+					profiles={workspace.launchProfiles}
 					onClose={() => workspaceSettingsOpen = false}
-					onSave={(settings) => workspace.updateLaunchProfiles(workspace.activeSession!.id, settings)}
+					onSave={(settings) => workspace.updateWorkspaceStartup(
+						workspace.activeSession!.id,
+						settings.launchProfiles,
+						settings.startupProfileId
+					)}
 				/>
 			{/if}
 

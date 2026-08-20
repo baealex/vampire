@@ -4,7 +4,7 @@
 	import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Tags from '@lucide/svelte/icons/tags';
-	import Settings2 from '@lucide/svelte/icons/settings-2';
+	import SquarePlay from '@lucide/svelte/icons/square-play';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import DropdownMenuShell from '$lib/ui/DropdownMenuShell.svelte';
 	import type { ManagedSession } from './types';
@@ -125,8 +125,8 @@
 				</DropdownMenu.Item>
 			{/if}
 			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onSettings(session)}>
-				<Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
-				Manage launch profiles
+				<SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
+				Startup profile
 			</DropdownMenu.Item>
 			<DropdownMenu.Separator class="vampire-menu-separator" />
 			{#if session.state === 'running'}

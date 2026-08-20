@@ -3,17 +3,19 @@ import { requireAuthentication } from '$lib/server/auth';
 import {
 	createManagedSession,
 	listManagedSessions,
+	readManagedLaunchProfiles,
 	readManagedWorkspacePreferences,
 	SessionLaunchError
 } from '$lib/server/session-registry';
 
 export const GET: RequestHandler = async (event) => {
 	requireAuthentication(event);
-	const [sessions, preferences] = await Promise.all([
+	const [sessions, preferences, launchProfiles] = await Promise.all([
 		listManagedSessions(),
-		readManagedWorkspacePreferences()
+		readManagedWorkspacePreferences(),
+		readManagedLaunchProfiles()
 	]);
-	return json({ sessions, preferences }, { headers: { 'cache-control': 'no-store' } });
+	return json({ sessions, preferences, launchProfiles }, { headers: { 'cache-control': 'no-store' } });
 };
 
 export const POST: RequestHandler = async (event) => {

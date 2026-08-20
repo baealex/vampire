@@ -5,6 +5,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { readSessionAgentStates } from '../src/lib/server/agent-activity.ts';
 import {
 	listManagedSessions,
+	readManagedLaunchProfiles,
 	readManagedWorkspacePreferences
 } from '../src/lib/server/session-registry.ts';
 import { listTmuxSessionActivity, type TmuxProcessHint, type TmuxSessionActivity, type TmuxTerminal } from '../src/lib/server/tmux.ts';
@@ -14,7 +15,7 @@ import {
 	type WorkspaceServerMessage
 } from '../src/lib/app/workspace-protocol.ts';
 import type { AgentState } from '../src/lib/session/agent.ts';
-import type { ManagedSession, WorkspacePreferences } from '../src/lib/session/types.ts';
+import type { LaunchProfile, ManagedSession, WorkspacePreferences } from '../src/lib/session/types.ts';
 import {
 	authorizeWebSocketUpgrade,
 	installWebSocketHeartbeat,
@@ -38,9 +39,7 @@ const SESSION_FIELDS = [
 	'lastActiveAt',
 	'notePreview',
 	'favoriteCommands',
-	'launchProfiles',
-	'defaultLaunchProfileId',
-	'autoStartDefaultProfile',
+	'startupProfileId',
 	'state',
 	'lastOutputAt',
 	'attachedClients',
@@ -117,8 +116,8 @@ function equalWorkspacePreferences(
 }
 
 function equalLaunchProfiles(
-	left: ManagedSession['launchProfiles'] | undefined,
-	right: ManagedSession['launchProfiles'] | undefined
+	left: LaunchProfile[] | undefined,
+	right: LaunchProfile[] | undefined
 ): boolean {
 	return Array.isArray(left)
 		&& Array.isArray(right)
@@ -140,8 +139,6 @@ function sessionChanges(previous: ManagedSession, next: ManagedSession): Session
 				? equalTerminals(previous[field], next[field])
 				: field === 'favoriteCommands'
 					? equalStrings(previous[field], next[field])
-					: field === 'launchProfiles'
-						? equalLaunchProfiles(previous[field], next[field])
 					: previous[field] === next[field];
 		if (!equal) (changes as Record<string, unknown>)[field] = next[field];
 	}
@@ -282,6 +279,7 @@ class WorkspaceStatusHub {
 	#clients = new Set<WebSocket>();
 	#sessions: Map<string, ManagedSession> | undefined;
 	#preferences: WorkspacePreferences | null | undefined;
+	#launchProfiles: LaunchProfile[] | undefined;
 	#refreshPromise: Promise<void> | undefined;
 	#activityRefreshPromise: Promise<void> | undefined;
 	#refreshTimer: NodeJS.Timeout | undefined;
@@ -333,7 +331,8 @@ class WorkspaceStatusHub {
 			send(socket, {
 				type: 'sessions-snapshot',
 				sessions: [...this.#sessions!.values()],
-				preferences: this.#preferences ?? null
+				preferences: this.#preferences ?? null,
+				launchProfiles: this.#launchProfiles ?? []
 			});
 			this.#clients.add(socket);
 			socket.once('close', () => this.unsubscribe(socket));
@@ -353,6 +352,7 @@ class WorkspaceStatusHub {
 		this.#activityRefreshTimer = undefined;
 		this.#sessions = undefined;
 		this.#preferences = undefined;
+		this.#launchProfiles = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 	}
@@ -364,6 +364,7 @@ class WorkspaceStatusHub {
 		this.#activityRefreshTimer = undefined;
 		this.#sessions = undefined;
 		this.#preferences = undefined;
+		this.#launchProfiles = undefined;
 		this.#suppressedActivity.clear();
 		this.#pendingAgentStates.clear();
 		for (const socket of this.#clients) socket.close(1001, 'server shutting down');
@@ -386,9 +387,10 @@ class WorkspaceStatusHub {
 		const precedingActivityRefresh = this.#activityRefreshPromise;
 		this.#refreshPromise = (async () => {
 			if (precedingActivityRefresh) await precedingActivityRefresh;
-			const [managedSessions, nextPreferences] = await Promise.all([
+			const [managedSessions, nextPreferences, nextLaunchProfiles] = await Promise.all([
 				listManagedSessions(),
-				readManagedWorkspacePreferences()
+				readManagedWorkspacePreferences(),
+				readManagedLaunchProfiles()
 			]);
 			const nextSessions = preserveLatestOutput(
 				new Map(managedSessions.map((session) => [session.id, session])),
@@ -397,8 +399,10 @@ class WorkspaceStatusHub {
 			);
 			const previousSessions = this.#sessions;
 			const previousPreferences = this.#preferences;
+			const previousLaunchProfiles = this.#launchProfiles;
 			this.#sessions = nextSessions;
 			this.#preferences = nextPreferences;
+			this.#launchProfiles = nextLaunchProfiles;
 			if (!previousSessions) return;
 
 			for (const [id] of previousSessions) {
@@ -422,6 +426,13 @@ class WorkspaceStatusHub {
 				this.#broadcast({
 					type: 'workspace-preferences-updated',
 					preferences: nextPreferences
+				});
+			}
+			if (previousLaunchProfiles !== undefined
+				&& !equalLaunchProfiles(previousLaunchProfiles, nextLaunchProfiles)) {
+				this.#broadcast({
+					type: 'launch-profiles-updated',
+					launchProfiles: nextLaunchProfiles
 				});
 			}
 		})();

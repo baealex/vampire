@@ -36,9 +36,7 @@ export type ManagedSession = {
 	lastActiveAt: number;
 	notePreview: string;
 	favoriteCommands: string[];
-	launchProfiles: LaunchProfile[];
-	defaultLaunchProfileId: string | null;
-	autoStartDefaultProfile: boolean;
+	startupProfileId: string | null;
 	lastOutputAt: number | null;
 	state: 'running' | 'missing';
 	attachedClients: number;

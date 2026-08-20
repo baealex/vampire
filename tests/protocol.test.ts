@@ -22,9 +22,7 @@ function managedSession(overrides: Record<string, unknown> = {}): ManagedSession
 		lastActiveAt: 2,
 		notePreview: '',
 		favoriteCommands: ['pnpm dev'],
-		launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
-		defaultLaunchProfileId: 'codex',
-		autoStartDefaultProfile: false,
+		startupProfileId: 'codex',
 		state: 'running',
 		lastOutputAt: 3,
 		attachedClients: 1,
@@ -132,6 +130,7 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 test('validates complete workspace messages before applying them to client state', () => {
 	const snapshot: WorkspaceServerMessage = {
 		type: 'sessions-snapshot',
+		launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
 		preferences: {
 			sessionOrderMode: 'manual',
 			manualSessionOrder: ['session-1']
@@ -144,6 +143,16 @@ test('validates complete workspace messages before applying them to client state
 		})]
 	};
 	assert.deepEqual(decodeWorkspaceServerMessage(encodeWorkspaceServerMessage(snapshot)), snapshot);
+	assert.deepEqual(
+		decodeWorkspaceServerMessage(encodeWorkspaceServerMessage({
+			type: 'launch-profiles-updated',
+			launchProfiles: [{ id: 'codex', name: 'Codex CLI', command: 'codex' }]
+		})),
+		{
+			type: 'launch-profiles-updated',
+			launchProfiles: [{ id: 'codex', name: 'Codex CLI', command: 'codex' }]
+		}
+	);
 	assert.deepEqual(
 		decodeWorkspaceServerMessage(encodeWorkspaceServerMessage({
 			type: 'workspace-preferences-updated',

@@ -39,6 +39,10 @@
 	color: var(--color-text);
 }
 
+.vampire-menu-content[data-state='closed'] {
+	display: none;
+}
+
 .vampire-menu-heading {
 	display: grid;
 	min-width: 0;

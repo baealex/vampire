@@ -18,12 +18,6 @@ import type {
 type RefreshOptions = { quiet?: boolean };
 type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
-export type LaunchProfileSettings = {
-	launchProfiles: LaunchProfile[];
-	defaultLaunchProfileId: string | null;
-	autoStartDefaultProfile: boolean;
-};
-
 type SessionWorkspaceStateOptions = {
 	navigate: (path: string) => void;
 	onUnauthorized: () => void;
@@ -35,6 +29,7 @@ const SESSION_ORDER_MODE_KEY = 'vampire:session-order-mode';
 
 export class SessionWorkspaceState {
 	sessions = $state<ManagedSession[]>([]);
+	launchProfiles = $state<LaunchProfile[]>([]);
 	cwd = $state('');
 	loading = $state(false);
 	starting = $state(false);
@@ -135,6 +130,14 @@ export class SessionWorkspaceState {
 		this.applySessions(sessions);
 	}
 
+	applyLaunchProfiles(launchProfiles: LaunchProfile[]) {
+		this.launchProfiles = launchProfiles.map((profile) => ({ ...profile }));
+		const profileIds = new Set(this.launchProfiles.map((profile) => profile.id));
+		this.sessions = this.sessions.map((session) => session.startupProfileId && !profileIds.has(session.startupProfileId)
+			? { ...session, startupProfileId: null }
+			: session);
+	}
+
 	applyWorkspacePreferences(preferences: WorkspacePreferences | null) {
 		if (preferences === null) {
 			if (this.#preferencesInitialized || this.#pendingPreferenceWrites > 0) return;
@@ -214,10 +217,12 @@ export class SessionWorkspaceState {
 				const data = await requestJson<{
 					sessions: ManagedSession[];
 					preferences?: WorkspacePreferences | null;
+					launchProfiles?: LaunchProfile[];
 				}>('/api/sessions');
 				if (requestVersion !== this.#sessionsVersion) continue;
 				this.applySessions(data.sessions);
 				if (data.preferences !== undefined) this.applyWorkspacePreferences(data.preferences);
+				if (data.launchProfiles !== undefined) this.applyLaunchProfiles(data.launchProfiles);
 			} catch (error) {
 				if (requestVersion !== this.#sessionsVersion) continue;
 				if (isUnauthorized(error)) this.#options.onUnauthorized();
@@ -376,22 +381,36 @@ export class SessionWorkspaceState {
 		return request;
 	}
 
-	async updateLaunchProfiles(sessionId: string, settings: LaunchProfileSettings): Promise<{ ok: boolean; error?: string }> {
+	async updateWorkspaceStartup(
+		sessionId: string,
+		launchProfiles: LaunchProfile[],
+		startupProfileId: string | null
+	): Promise<{ ok: boolean; error?: string }> {
 		try {
-			const data = await requestJson<LaunchProfileSettings>(
-				`/api/sessions/${encodeURIComponent(sessionId)}/launch-profiles`,
+			const data = await requestJson<{
+				launchProfiles: LaunchProfile[];
+				startupProfileId: string | null;
+				clearedSessionIds: string[];
+			}>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/startup-profile`,
 				{
 					method: 'PUT',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(settings)
+					body: JSON.stringify({ launchProfiles, startupProfileId })
 				},
-				'Unable to save the launch profiles'
+				'Unable to save the startup profile'
 			);
-			this.sessions = this.sessions.map((session) => session.id === sessionId ? { ...session, ...data } : session);
+			this.applyLaunchProfiles(data.launchProfiles);
+			const clearedSessionIds = new Set(data.clearedSessionIds);
+			this.sessions = this.sessions.map((session) => session.id === sessionId
+				? { ...session, startupProfileId: data.startupProfileId }
+				: clearedSessionIds.has(session.id)
+					? { ...session, startupProfileId: null }
+					: session);
 			return { ok: true };
 		} catch (error) {
 			if (isUnauthorized(error)) this.#options.onUnauthorized();
-			return { ok: false, error: error instanceof Error ? error.message : 'Unable to save the launch profiles' };
+			return { ok: false, error: error instanceof Error ? error.message : 'Unable to save the startup profile' };
 		}
 	}
 
@@ -699,6 +718,7 @@ export class SessionWorkspaceState {
 		this.#activity.reset();
 		this.#backgroundTerminals.clear();
 		this.sessions = [];
+		this.launchProfiles = [];
 		this.requestedSessionId = undefined;
 		this.#sessionNotes.clear();
 		this.#sessionNoteRequests.clear();

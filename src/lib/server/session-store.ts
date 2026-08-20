@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { errorHasCode } from './path-policy.ts';
-import { normalizeLaunchProfiles } from '../session/launch-profiles.ts';
+import { MAX_LAUNCH_PROFILES, normalizeLaunchProfiles } from '../session/launch-profiles.ts';
 import type { LaunchProfile, WorkspacePreferences } from '../session/types.ts';
 
 export const SESSION_STATE_VERSION = 1;
@@ -22,14 +22,13 @@ export interface StoredSession {
 	lastActiveAt: number;
 	note: string;
 	favoriteCommands: string[];
-	launchProfiles: LaunchProfile[];
-	defaultLaunchProfileId: string | null;
-	autoStartDefaultProfile: boolean;
+	startupProfileId: string | null;
 }
 
 export interface SessionStore {
 	version: typeof SESSION_STATE_VERSION;
 	sessions: StoredSession[];
+	launchProfiles: LaunchProfile[];
 	workspacePreferences?: WorkspacePreferences;
 }
 
@@ -67,9 +66,48 @@ function isStoredSession(value: unknown): value is Record<string, unknown> & Pic
 			Array.isArray(value.favoriteCommands)
 			&& value.favoriteCommands.every((command) => typeof command === 'string')
 		))
+		&& (value.startupProfileId === undefined || value.startupProfileId === null || typeof value.startupProfileId === 'string')
 		&& (value.launchProfiles === undefined || Array.isArray(value.launchProfiles))
 		&& (value.defaultLaunchProfileId === undefined || value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
 		&& (value.autoStartDefaultProfile === undefined || typeof value.autoStartDefaultProfile === 'boolean');
+}
+
+function uniqueLaunchProfileId(id: string, usedIds: Set<string>): string {
+	if (!usedIds.has(id)) return id;
+	let suffix = 2;
+	while (true) {
+		const suffixText = `-${suffix}`;
+		const candidate = `${id.slice(0, 100 - suffixText.length)}${suffixText}`;
+		if (!usedIds.has(candidate)) return candidate;
+		suffix += 1;
+	}
+}
+
+function migrateLegacyLaunchProfiles(
+	sessions: Array<Record<string, unknown>>
+): { launchProfiles: LaunchProfile[]; profileIdsBySession: Map<string, Map<string, string>> } {
+	const launchProfiles: LaunchProfile[] = [];
+	const profileIdsBySession = new Map<string, Map<string, string>>();
+	const globalIdByDefinition = new Map<string, string>();
+	const usedIds = new Set<string>();
+
+	for (const session of sessions) {
+		const profileIds = new Map<string, string>();
+		for (const profile of normalizeLaunchProfiles(session.launchProfiles)) {
+			const definition = `${profile.name}\0${profile.command}`;
+			let globalId = globalIdByDefinition.get(definition);
+			if (!globalId && launchProfiles.length < MAX_LAUNCH_PROFILES) {
+				globalId = uniqueLaunchProfileId(profile.id, usedIds);
+				usedIds.add(globalId);
+				globalIdByDefinition.set(definition, globalId);
+				launchProfiles.push({ ...profile, id: globalId });
+			}
+			if (globalId) profileIds.set(profile.id, globalId);
+		}
+		profileIdsBySession.set(session.id as string, profileIds);
+	}
+
+	return { launchProfiles, profileIdsBySession };
 }
 
 function normalizeFavoriteCommands(value: unknown): string[] {
@@ -98,20 +136,38 @@ function normalizeWorkspacePreferences(value: unknown): WorkspacePreferences | u
 }
 
 function parseSessionStore(value: unknown): SessionStore {
-	if (!isRecord(value) || value.version !== SESSION_STATE_VERSION || !Array.isArray(value.sessions) || !value.sessions.every(isStoredSession)) {
+	if (!isRecord(value)
+		|| value.version !== SESSION_STATE_VERSION
+		|| !Array.isArray(value.sessions)
+		|| !value.sessions.every(isStoredSession)
+		|| (value.launchProfiles !== undefined && !Array.isArray(value.launchProfiles))) {
 		throw new Error('invalid state file');
 	}
 
 	const workspacePreferences = normalizeWorkspacePreferences(value.workspacePreferences);
+	const legacy = value.launchProfiles === undefined
+		? migrateLegacyLaunchProfiles(value.sessions)
+		: undefined;
+	const launchProfiles = legacy?.launchProfiles ?? normalizeLaunchProfiles(value.launchProfiles);
+	const launchProfileIds = new Set(launchProfiles.map((profile) => profile.id));
 	return {
 		version: SESSION_STATE_VERSION,
 		...(workspacePreferences ? { workspacePreferences } : {}),
+		launchProfiles,
 		sessions: value.sessions.map((session) => {
-			const launchProfiles = normalizeLaunchProfiles(session.launchProfiles);
-			const defaultLaunchProfileId = typeof session.defaultLaunchProfileId === 'string'
-				&& launchProfiles.some((profile) => profile.id === session.defaultLaunchProfileId)
-				? session.defaultLaunchProfileId
+			const explicitStartupProfileId = typeof session.startupProfileId === 'string'
+				? session.startupProfileId.trim()
 				: null;
+			const legacyStartupProfileId = session.autoStartDefaultProfile === true
+				&& typeof session.defaultLaunchProfileId === 'string'
+				? legacy?.profileIdsBySession.get(session.id)?.get(session.defaultLaunchProfileId)
+					?? session.defaultLaunchProfileId
+				: null;
+			const startupProfileId = explicitStartupProfileId && launchProfileIds.has(explicitStartupProfileId)
+				? explicitStartupProfileId
+				: legacyStartupProfileId && launchProfileIds.has(legacyStartupProfileId)
+					? legacyStartupProfileId
+					: null;
 			const workspaceKind = session.workspaceKind === 'worktree' || typeof session.worktreeBranch === 'string'
 				? 'worktree' as const
 				: session.workspaceKind === 'directory'
@@ -129,9 +185,7 @@ function parseSessionStore(value: unknown): SessionStore {
 				lastActiveAt: typeof session.lastActiveAt === 'number' ? session.lastActiveAt : session.createdAt,
 				note: typeof session.note === 'string' ? session.note : '',
 				favoriteCommands: normalizeFavoriteCommands(session.favoriteCommands),
-				launchProfiles,
-				defaultLaunchProfileId,
-				autoStartDefaultProfile: session.autoStartDefaultProfile === true
+				startupProfileId
 			};
 		})
 	};
@@ -141,7 +195,7 @@ export async function readSessionStore(file = sessionStatePath()): Promise<Sessi
 	try {
 		return parseSessionStore(await readSessionStateFile(file));
 	} catch (error) {
-		if (errorHasCode(error, 'ENOENT')) return { version: SESSION_STATE_VERSION, sessions: [] };
+		if (errorHasCode(error, 'ENOENT')) return { version: SESSION_STATE_VERSION, sessions: [], launchProfiles: [] };
 		throw new Error('Vampire session registry is unreadable; refusing to overwrite it.', { cause: error });
 	}
 }

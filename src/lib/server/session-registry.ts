@@ -63,7 +63,7 @@ export class SessionLaunchError extends Error {
 	}
 }
 
-export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'worktree-cleanup-failed' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit' | 'invalid-launch-profiles' | 'invalid-workspace-alias' | 'invalid-workspace-preferences';
+export type SessionMutationErrorReason = 'not-found' | 'session-running' | 'session-not-running' | 'worktree-cleanup-failed' | 'invalid-background-command' | 'background-not-found' | 'background-limit' | 'favorite-limit' | 'invalid-launch-profiles' | 'invalid-startup-profile' | 'invalid-workspace-alias' | 'invalid-workspace-preferences';
 
 export class SessionMutationError extends Error {
 	readonly reason: SessionMutationErrorReason;
@@ -229,6 +229,10 @@ export async function readManagedWorkspacePreferences(): Promise<WorkspacePrefer
 		: null;
 }
 
+export async function readManagedLaunchProfiles(): Promise<LaunchProfile[]> {
+	return (await readState()).launchProfiles;
+}
+
 export async function updateManagedWorkspacePreferences(
 	input: WorkspacePreferences
 ): Promise<WorkspacePreferences> {
@@ -262,9 +266,7 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			lastActiveAt: Date.now(),
 			note: '',
 			favoriteCommands: [],
-			launchProfiles: [],
-			defaultLaunchProfileId: null,
-			autoStartDefaultProfile: false
+			startupProfileId: null
 		};
 		const current = await readState();
 		await writeState({ ...current, sessions: [...current.sessions, stored] });
@@ -292,9 +294,7 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			createdAt: stored.createdAt,
 			lastActiveAt: stored.lastActiveAt,
 			favoriteCommands: stored.favoriteCommands,
-			launchProfiles: stored.launchProfiles,
-			defaultLaunchProfileId: stored.defaultLaunchProfileId,
-			autoStartDefaultProfile: stored.autoStartDefaultProfile,
+			startupProfileId: stored.startupProfileId,
 			notePreview: createSessionNotePreview(stored.note),
 			state: 'running',
 			lastOutputAt: tmux.lastOutputAt,
@@ -329,9 +329,7 @@ export async function createManagedWorktreeSession(input: { sourceSessionId: str
 			lastActiveAt: now,
 			note: '',
 			favoriteCommands: [...source.favoriteCommands],
-			launchProfiles: source.launchProfiles.map((profile) => ({ ...profile })),
-			defaultLaunchProfileId: source.defaultLaunchProfileId,
-			autoStartDefaultProfile: source.autoStartDefaultProfile
+			startupProfileId: source.startupProfileId
 		};
 
 		try {
@@ -353,9 +351,9 @@ export async function createManagedWorktreeSession(input: { sourceSessionId: str
 			await rollbackGitWorktree(worktree);
 			throw new SessionLaunchError('tmux-launch-failed', 'tmux could not start the isolated workspace shell.');
 		}
-		if (stored.autoStartDefaultProfile) {
+		if (stored.startupProfileId) {
 			try {
-				await sendDefaultLaunchProfile(stored, tmux);
+				await sendStartupProfile(stored, tmux, current.launchProfiles);
 			} catch {
 				// Keep the new shell available when an optional auto-start command cannot be sent.
 			}
@@ -372,9 +370,7 @@ export async function createManagedWorktreeSession(input: { sourceSessionId: str
 			createdAt: stored.createdAt,
 			lastActiveAt: stored.lastActiveAt,
 			favoriteCommands: stored.favoriteCommands,
-			launchProfiles: stored.launchProfiles,
-			defaultLaunchProfileId: stored.defaultLaunchProfileId,
-			autoStartDefaultProfile: stored.autoStartDefaultProfile,
+			startupProfileId: stored.startupProfileId,
 			notePreview: '',
 			state: 'running',
 			lastOutputAt: tmux.lastOutputAt,
@@ -412,9 +408,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				createdAt: stored.createdAt,
 				lastActiveAt: stored.lastActiveAt,
 				favoriteCommands: stored.favoriteCommands,
-				launchProfiles: stored.launchProfiles,
-				defaultLaunchProfileId: stored.defaultLaunchProfileId,
-				autoStartDefaultProfile: stored.autoStartDefaultProfile,
+				startupProfileId: stored.startupProfileId,
 				notePreview: createSessionNotePreview(stored.note),
 				state: 'running',
 				lastOutputAt: existingTmux.lastOutputAt,
@@ -440,9 +434,9 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 		const sessions = [...state.sessions];
 		sessions[index] = restarted;
 		await writeState({ ...state, sessions });
-		if (restarted.autoStartDefaultProfile) {
+		if (restarted.startupProfileId) {
 			try {
-				await sendDefaultLaunchProfile(restarted, restartedTmux);
+				await sendStartupProfile(restarted, restartedTmux, state.launchProfiles);
 			} catch {
 				// Keep the shell available when an optional auto-start command cannot be sent.
 			}
@@ -458,9 +452,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			createdAt: restarted.createdAt,
 			lastActiveAt: restarted.lastActiveAt,
 			favoriteCommands: restarted.favoriteCommands,
-			launchProfiles: restarted.launchProfiles,
-			defaultLaunchProfileId: restarted.defaultLaunchProfileId,
-			autoStartDefaultProfile: restarted.autoStartDefaultProfile,
+			startupProfileId: restarted.startupProfileId,
 			notePreview: createSessionNotePreview(restarted.note),
 			state: 'running',
 			lastOutputAt: restartedTmux.lastOutputAt,
@@ -474,48 +466,94 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 	});
 }
 
-export type LaunchProfileSettings = {
-	launchProfiles: LaunchProfile[];
-	defaultLaunchProfileId: string | null;
-	autoStartDefaultProfile: boolean;
-};
-
-function validateLaunchProfileSettings(input: LaunchProfileSettings): LaunchProfileSettings {
-	if (!isLaunchProfileList(input.launchProfiles)) {
+function validateLaunchProfiles(input: LaunchProfile[]): LaunchProfile[] {
+	if (!isLaunchProfileList(input)) {
 		throw new SessionMutationError('invalid-launch-profiles', 'Launch profiles must contain valid names and single-line commands.');
 	}
-	const launchProfiles = normalizeLaunchProfiles(input.launchProfiles);
-	const defaultLaunchProfileId = input.defaultLaunchProfileId?.trim() ?? null;
-	if (defaultLaunchProfileId !== null && !launchProfiles.some((profile) => profile.id === defaultLaunchProfileId)) {
-		throw new SessionMutationError('invalid-launch-profiles', 'The default launch profile was not found.');
+	const launchProfiles = normalizeLaunchProfiles(input);
+	const normalizedNames = launchProfiles.map((profile) => profile.name.toLocaleLowerCase());
+	if (new Set(normalizedNames).size !== normalizedNames.length) {
+		throw new SessionMutationError('invalid-launch-profiles', 'Launch profile names must be unique.');
 	}
-	return {
-		launchProfiles,
-		defaultLaunchProfileId,
-		autoStartDefaultProfile: input.autoStartDefaultProfile && defaultLaunchProfileId !== null
-	};
+	return launchProfiles;
 }
 
-export async function updateManagedLaunchProfiles(id: string, input: LaunchProfileSettings): Promise<LaunchProfileSettings> {
-	return exclusively(async () => {
-		const settings = validateLaunchProfileSettings(input);
-		const state = await readState();
-		const index = state.sessions.findIndex((session) => session.id === id);
-		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+export type LaunchProfileUpdate = {
+	launchProfiles: LaunchProfile[];
+	clearedSessionIds: string[];
+};
 
-		const sessions = [...state.sessions];
-		sessions[index] = { ...sessions[index], ...settings };
-		await writeState({ ...state, sessions });
-		return settings;
+export type WorkspaceStartupUpdate = LaunchProfileUpdate & {
+	startupProfileId: string | null;
+};
+
+export async function updateManagedLaunchProfiles(input: LaunchProfile[]): Promise<LaunchProfileUpdate> {
+	return exclusively(async () => {
+		const launchProfiles = validateLaunchProfiles(input);
+		const state = await readState();
+		const profileIds = new Set(launchProfiles.map((profile) => profile.id));
+		const clearedSessionIds: string[] = [];
+		const sessions = state.sessions.map((session) => {
+			if (!session.startupProfileId || profileIds.has(session.startupProfileId)) return session;
+			clearedSessionIds.push(session.id);
+			return { ...session, startupProfileId: null };
+		});
+		await writeState({ ...state, launchProfiles, sessions });
+		return { launchProfiles, clearedSessionIds };
 	});
 }
 
-async function sendDefaultLaunchProfile(
+export async function updateManagedStartupProfile(id: string, input: string | null): Promise<string | null> {
+	return exclusively(async () => {
+		const state = await readState();
+		const index = state.sessions.findIndex((session) => session.id === id);
+		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
+		const startupProfileId = input?.trim() ?? null;
+		if (startupProfileId !== null && !state.launchProfiles.some((profile) => profile.id === startupProfileId)) {
+			throw new SessionMutationError('invalid-startup-profile', 'The startup profile was not found.');
+		}
+		const sessions = [...state.sessions];
+		sessions[index] = { ...sessions[index], startupProfileId };
+		await writeState({ ...state, sessions });
+		return startupProfileId;
+	});
+}
+
+export async function updateManagedWorkspaceStartup(
+	id: string,
+	input: { launchProfiles: LaunchProfile[]; startupProfileId: string | null }
+): Promise<WorkspaceStartupUpdate> {
+	return exclusively(async () => {
+		const launchProfiles = validateLaunchProfiles(input.launchProfiles);
+		const state = await readState();
+		if (!state.sessions.some((session) => session.id === id)) {
+			throw new SessionMutationError('not-found', 'Session was not found.');
+		}
+		const startupProfileId = input.startupProfileId?.trim() ?? null;
+		const profileIds = new Set(launchProfiles.map((profile) => profile.id));
+		if (startupProfileId !== null && !profileIds.has(startupProfileId)) {
+			throw new SessionMutationError('invalid-startup-profile', 'The startup profile was not found.');
+		}
+
+		const clearedSessionIds: string[] = [];
+		const sessions = state.sessions.map((session) => {
+			if (session.id === id) return { ...session, startupProfileId };
+			if (!session.startupProfileId || profileIds.has(session.startupProfileId)) return session;
+			clearedSessionIds.push(session.id);
+			return { ...session, startupProfileId: null };
+		});
+		await writeState({ ...state, launchProfiles, sessions });
+		return { launchProfiles, startupProfileId, clearedSessionIds };
+	});
+}
+
+async function sendStartupProfile(
 	stored: StoredSession,
-	running: TmuxSession
+	running: TmuxSession,
+	launchProfiles: LaunchProfile[]
 ): Promise<void> {
-	const profile = stored.defaultLaunchProfileId
-		? stored.launchProfiles.find((candidate) => candidate.id === stored.defaultLaunchProfileId)
+	const profile = stored.startupProfileId
+		? launchProfiles.find((candidate) => candidate.id === stored.startupProfileId)
 		: undefined;
 	const mainTerminal = running.terminals[0];
 	if (!profile || !mainTerminal) return;

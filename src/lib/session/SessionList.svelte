@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import CirclePlay from '@lucide/svelte/icons/circle-play';
 	import FolderX from '@lucide/svelte/icons/folder-x';
@@ -133,6 +133,24 @@
 		if (open) openActionSessionId = sessionId;
 		else if (openActionSessionId === sessionId) openActionSessionId = undefined;
 	}
+
+	async function openSessionDialog(
+		session: ManagedSession,
+		callback: (session: ManagedSession) => void
+	) {
+		openActionSessionId = undefined;
+		await tick();
+		callback(session);
+	}
+
+	async function runSessionAction(
+		session: ManagedSession,
+		callback: (session: ManagedSession) => Promise<{ ok: boolean; error?: string }>
+	): Promise<{ ok: boolean; error?: string }> {
+		const result = await callback(session);
+		if (result.ok && openActionSessionId === session.id) openActionSessionId = undefined;
+		return result;
+	}
 </script>
 
 {#snippet sessionRows(groupSessions: ManagedSession[])}
@@ -223,11 +241,11 @@
 					open={openActionSessionId === session.id}
 					onOpenChange={(open) => handleSessionActionsOpen(session.id, open)}
 					action={sessionAction}
-					closeSession={onCloseSession}
-					remove={onRemoveSession}
-					onSettings={onSettings}
-					onAlias={onAlias}
-					onNewWorktree={onNewWorktree}
+					closeSession={(target) => runSessionAction(target, onCloseSession)}
+					remove={(target) => runSessionAction(target, onRemoveSession)}
+					onSettings={(target) => void openSessionDialog(target, onSettings)}
+					onAlias={(target) => void openSessionDialog(target, onAlias)}
+					onNewWorktree={(target) => void openSessionDialog(target, onNewWorktree)}
 				/>
 			</div>
 		</div>

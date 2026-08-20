@@ -65,7 +65,7 @@
 				/>
 			</label>
 
-			<p class="worktree-note">Launch profiles and favorite background commands are copied; an enabled default profile starts immediately. Removing this workspace deletes its managed working copy but keeps its Git branch.</p>
+			<p class="worktree-note">The source workspace's startup profile selection and favorite background commands are inherited. Removing this workspace deletes its managed working copy but keeps its Git branch.</p>
 			{#if errorMessage}<p class="worktree-error" role="alert">{errorMessage}</p>{/if}
 		</form>
 	{/snippet}

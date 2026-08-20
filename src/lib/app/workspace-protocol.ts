@@ -1,4 +1,5 @@
 import type {
+	LaunchProfile,
 	ManagedSession,
 	SessionProcess,
 	SessionTerminal,
@@ -9,11 +10,12 @@ import { isLaunchProfile } from '../session/launch-profiles.ts';
 export type SessionChanges = Partial<Omit<ManagedSession, 'id'>>;
 
 export type WorkspaceServerMessage =
-	| { type: 'sessions-snapshot'; sessions: ManagedSession[]; preferences?: WorkspacePreferences | null }
+	| { type: 'sessions-snapshot'; sessions: ManagedSession[]; preferences?: WorkspacePreferences | null; launchProfiles?: LaunchProfile[] }
 	| { type: 'session-added'; session: ManagedSession }
 	| { type: 'session-updated'; id: string; changes: SessionChanges }
 	| { type: 'session-removed'; id: string }
 	| { type: 'workspace-preferences-updated'; preferences: WorkspacePreferences | null }
+	| { type: 'launch-profiles-updated'; launchProfiles: LaunchProfile[] }
 	| { type: 'error'; message: string };
 
 const SESSION_CHANGE_FIELDS = new Set([
@@ -27,9 +29,7 @@ const SESSION_CHANGE_FIELDS = new Set([
 	'lastActiveAt',
 	'notePreview',
 	'favoriteCommands',
-	'launchProfiles',
-	'defaultLaunchProfileId',
-	'autoStartDefaultProfile',
+	'startupProfileId',
 	'state',
 	'lastOutputAt',
 	'attachedClients',
@@ -132,10 +132,7 @@ export function isManagedSessionMessage(value: unknown): value is ManagedSession
 		&& typeof value.notePreview === 'string'
 		&& Array.isArray(value.favoriteCommands)
 		&& value.favoriteCommands.every((command) => typeof command === 'string')
-		&& Array.isArray(value.launchProfiles)
-		&& value.launchProfiles.every(isLaunchProfile)
-		&& (value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
-		&& typeof value.autoStartDefaultProfile === 'boolean'
+		&& (value.startupProfileId === null || typeof value.startupProfileId === 'string')
 		&& (value.state === 'running' || value.state === 'missing')
 		&& (value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& Number.isInteger(value.attachedClients)
@@ -163,9 +160,7 @@ export function isSessionChangesMessage(value: unknown): value is SessionChanges
 			Array.isArray(value.favoriteCommands)
 			&& value.favoriteCommands.every((command) => typeof command === 'string')
 		))
-		&& (value.launchProfiles === undefined || (Array.isArray(value.launchProfiles) && value.launchProfiles.every(isLaunchProfile)))
-		&& (value.defaultLaunchProfileId === undefined || value.defaultLaunchProfileId === null || typeof value.defaultLaunchProfileId === 'string')
-		&& (value.autoStartDefaultProfile === undefined || typeof value.autoStartDefaultProfile === 'boolean')
+		&& (value.startupProfileId === undefined || value.startupProfileId === null || typeof value.startupProfileId === 'string')
 		&& (value.state === undefined || value.state === 'running' || value.state === 'missing')
 		&& (value.lastOutputAt === undefined || value.lastOutputAt === null || isFiniteNumber(value.lastOutputAt))
 		&& (value.attachedClients === undefined || (Number.isInteger(value.attachedClients) && Number(value.attachedClients) >= 0))
@@ -181,11 +176,13 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
 	if (value.type === 'sessions-snapshot'
 		&& Array.isArray(value.sessions)
 		&& value.sessions.every(isManagedSessionMessage)
-		&& (value.preferences === undefined || value.preferences === null || isWorkspacePreferences(value.preferences))) {
+		&& (value.preferences === undefined || value.preferences === null || isWorkspacePreferences(value.preferences))
+		&& (value.launchProfiles === undefined || (Array.isArray(value.launchProfiles) && value.launchProfiles.every(isLaunchProfile)))) {
 		return {
 			type: 'sessions-snapshot',
 			sessions: value.sessions,
-			...(value.preferences !== undefined ? { preferences: value.preferences } : {})
+			...(value.preferences !== undefined ? { preferences: value.preferences } : {}),
+			...(value.launchProfiles !== undefined ? { launchProfiles: value.launchProfiles } : {})
 		};
 	}
 	if (value.type === 'session-added' && isManagedSessionMessage(value.session)) {
@@ -200,6 +197,11 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
 	if (value.type === 'workspace-preferences-updated'
 		&& (value.preferences === null || isWorkspacePreferences(value.preferences))) {
 		return { type: 'workspace-preferences-updated', preferences: value.preferences };
+	}
+	if (value.type === 'launch-profiles-updated'
+		&& Array.isArray(value.launchProfiles)
+		&& value.launchProfiles.every(isLaunchProfile)) {
+		return { type: 'launch-profiles-updated', launchProfiles: value.launchProfiles };
 	}
 	if (value.type === 'error' && typeof value.message === 'string') {
 		return { type: 'error', message: value.message };

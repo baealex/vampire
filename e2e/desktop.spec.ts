@@ -304,19 +304,48 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 	await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
 
-test('manages a launch profile and auto-starts it when the session reopens', async ({ context, page }) => {
+test('adds a startup profile inline, reuses it elsewhere, and runs the workspace selection', async ({ context, page }) => {
 	await authenticate(context);
 	const session = await createSession(context);
 	sessionId = session.id;
 	const profileCommand = "printf 'launch-profile-marker\\n'";
-	const profileResponse = await context.request.put(`/api/sessions/${encodeURIComponent(session.id)}/launch-profiles`, {
-		data: {
-			launchProfiles: [{ id: 'profile-codex', name: 'Codex', command: profileCommand }],
-			defaultLaunchProfileId: 'profile-codex',
-			autoStartDefaultProfile: true
-		}
-	});
-	expect(profileResponse.ok()).toBe(true);
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	let actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+	await actions.click();
+	await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+	await expect(page.getByRole('menu')).toBeHidden();
+	await page.getByRole('button', { name: 'Add profile' }).click();
+	const profileCard = page.locator('.profile-card').last();
+	await profileCard.getByLabel('Name').fill('Codex');
+	await profileCard.getByLabel('Command').fill(profileCommand);
+	await expect(profileCard.getByRole('radio', { name: 'Use here' })).toBeChecked();
+	await page.getByRole('button', { name: 'Save changes' }).click();
+	await expect(page.getByRole('heading', { name: 'Startup profile' })).toBeHidden();
+
+	const profilesResponse = await context.request.get('/api/launch-profiles');
+	expect(profilesResponse.ok()).toBe(true);
+	const profilesBody = await profilesResponse.json() as { launchProfiles: Array<{ id: string; name: string; command: string }> };
+	expect(profilesBody.launchProfiles).toHaveLength(1);
+	expect(profilesBody.launchProfiles[0]).toMatchObject({ name: 'Codex', command: profileCommand });
+
+	const reuseSession = await createSession(context);
+	await page.goto(`/sessions/${encodeURIComponent(reuseSession.id)}`);
+	await expectTerminalReady(page);
+	actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+	await actions.click();
+	await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
+	await expect(page.getByRole('radio', { name: /No startup profile/ })).toBeChecked();
+	await page.locator('.profile-card').getByRole('radio', { name: 'Use here' }).click();
+	await page.getByRole('button', { name: 'Save changes' }).click();
+	const reuseSessionsResponse = await context.request.get('/api/sessions');
+	const reuseSessionsBody = await reuseSessionsResponse.json() as { sessions: ManagedSession[] };
+	expect(reuseSessionsBody.sessions.find((candidate) => candidate.id === reuseSession.id)?.startupProfileId)
+		.toBe(profilesBody.launchProfiles[0]!.id);
+	await removeSession(context, reuseSession.id);
+
 	const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
 	expect(closeResponse.ok()).toBe(true);
 
@@ -326,9 +355,12 @@ test('manages a launch profile and auto-starts it when the session reopens', asy
 	const endedActions = endedGroup.locator('.session-actions-menu .vampire-menu-trigger');
 	await expect(endedActions).toBeVisible();
 	await endedActions.click();
-	await page.getByRole('menuitem', { name: 'Manage launch profiles' }).click();
-	await expect(page.getByRole('heading', { name: 'Launch profiles' })).toBeVisible();
-	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
+	await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+	await expect(page.getByRole('heading', { name: 'Startup profile' })).toBeVisible();
+	await expect(page.locator('.profile-card').getByRole('radio', { name: 'Use here' })).toBeChecked();
+	const startupDialog = page.getByRole('dialog', { name: 'Startup profile' });
+	await expect(startupDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
+	await expect(startupDialog.locator('.vampire-dialog-footer')).toBeVisible();
 	await page.getByRole('button', { name: 'Close', exact: true }).click();
 
 	const restartResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}`);
@@ -337,17 +369,30 @@ test('manages a launch profile and auto-starts it when the session reopens', asy
 	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
 	await expectTerminalReady(page);
 	await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
-	const actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+	actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
 	await expect(actions).toBeVisible();
 	await actions.click();
-	await page.getByRole('menuitem', { name: 'Manage launch profiles' }).click();
-	await expect(page.getByRole('heading', { name: 'Launch profiles' })).toBeVisible();
-	const launchProfileDialog = page.getByRole('dialog', { name: 'Launch profiles' });
-	await expect(launchProfileDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
-	await expect(launchProfileDialog.locator('.vampire-dialog-footer')).toBeVisible();
-	await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
-	await expect(page.locator('input[type="checkbox"]')).toBeChecked();
+	await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+	await expect(page.locator('.profile-card').getByRole('radio', { name: 'Use here' })).toBeChecked();
 	await page.getByRole('button', { name: 'Close', exact: true }).click();
+});
+
+test('closes the workspace action menu after closing a session', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+	await page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger').click();
+	const menu = page.getByRole('menu');
+	await menu.getByRole('menuitem', { name: 'Close session' }).click();
+	const confirmation = menu.getByRole('group', { name: 'Confirm closing session' });
+	await expect(confirmation).toBeVisible();
+	await confirmation.getByRole('menuitem', { name: 'Close session' }).click();
+
+	await expect(menu).toBeHidden();
+	await expect(page.locator('.session-group.ended')).toContainText('Ended');
 });
 
 test('creates, auto-starts, and safely removes an isolated Git workspace', async ({ context, page }) => {
@@ -366,18 +411,20 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
 		await authenticate(context);
 		const source = await createSession(context);
 		sessionId = source.id;
-		const profileResponse = await context.request.put(`/api/sessions/${encodeURIComponent(source.id)}/launch-profiles`, {
+		const profileResponse = await context.request.put('/api/launch-profiles', {
 			data: {
 				launchProfiles: [{
 					id: 'profile-isolated',
 					name: 'Isolated marker',
 					command: "printf 'auto-started\\n' > .vampire-auto-profile-marker"
-				}],
-				defaultLaunchProfileId: 'profile-isolated',
-				autoStartDefaultProfile: true
+				}]
 			}
 		});
 		expect(profileResponse.ok()).toBe(true);
+		const selectionResponse = await context.request.put(`/api/sessions/${encodeURIComponent(source.id)}/startup-profile`, {
+			data: { startupProfileId: 'profile-isolated' }
+		});
+		expect(selectionResponse.ok()).toBe(true);
 		await page.goto(`/sessions/${encodeURIComponent(source.id)}`);
 		await expectTerminalReady(page);
 
@@ -406,8 +453,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
 		));
 		expect(isolated?.worktreeBranch).toMatch(/^vampire\/parallel-task-[a-f0-9]{8}$/);
 		isolatedBranch = isolated!.worktreeBranch;
-		expect(isolated?.defaultLaunchProfileId).toBe('profile-isolated');
-		expect(isolated?.autoStartDefaultProfile).toBe(true);
+		expect(isolated?.startupProfileId).toBe('profile-isolated');
 		expect(await readFile(join(isolated!.cwd, 'conflict.txt'), 'utf8')).toBe('committed workspace content\n');
 		await expect.poll(
 			() => readFile(join(isolated!.cwd, '.vampire-auto-profile-marker'), 'utf8').catch(() => '')

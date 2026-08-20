@@ -37,6 +37,11 @@ export async function resetSessions(request: APIRequestContext): Promise<void> {
 		);
 		expect(removal.ok()).toBe(true);
 	}
+	const launchProfiles = await request.put(`${E2E_BASE_URL}/api/launch-profiles`, {
+		headers,
+		data: { launchProfiles: [] }
+	});
+	expect(launchProfiles.ok()).toBe(true);
 	const preferences = await request.put(`${E2E_BASE_URL}/api/workspace-preferences`, {
 		headers,
 		data: { sessionOrderMode: 'activity', manualSessionOrder: [] }

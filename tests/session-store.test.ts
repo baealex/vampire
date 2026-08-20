@@ -25,9 +25,8 @@ test('finds the terminal and workspace registered for a session ID', async (t) =
 	});
 	const stored = await readSessionStore(file);
 	assert.equal(stored.workspacePreferences, undefined);
-	assert.deepEqual(stored.sessions[0]?.launchProfiles, []);
-	assert.equal(stored.sessions[0]?.defaultLaunchProfileId, null);
-	assert.equal(stored.sessions[0]?.autoStartDefaultProfile, false);
+	assert.deepEqual(stored.launchProfiles, []);
+	assert.equal(stored.sessions[0]?.startupProfileId, null);
 	assert.equal(await findSessionConnection('47b7cc7d-b47e-4ab7-a1ee-f462eb779c46', file), undefined);
 });
 
@@ -63,7 +62,7 @@ test('migrates legacy sessions without inventing command favorites', async (t) =
 	assert.deepEqual((await readSessionStore(file)).sessions[0]?.favoriteCommands, ['pnpm dev']);
 });
 
-test('normalizes workspace launch profiles and keeps a valid default', async (t) => {
+test('moves legacy workspace launch profiles into the shared profile list', async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), 'vampire-session-store-launch-profiles-'));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const file = join(directory, 'sessions.json');
@@ -83,10 +82,9 @@ test('normalizes workspace launch profiles and keeps a valid default', async (t)
 		}]
 	}));
 
-	const session = (await readSessionStore(file)).sessions[0]!;
-	assert.deepEqual(session.launchProfiles, [{ id: 'codex', name: 'Codex', command: 'codex' }]);
-	assert.equal(session.defaultLaunchProfileId, 'codex');
-	assert.equal(session.autoStartDefaultProfile, true);
+	const store = await readSessionStore(file);
+	assert.deepEqual(store.launchProfiles, [{ id: 'codex', name: 'Codex', command: 'codex' }]);
+	assert.equal(store.sessions[0]?.startupProfileId, 'codex');
 });
 
 test('preserves managed worktree identity without changing legacy sessions', async (t) => {
