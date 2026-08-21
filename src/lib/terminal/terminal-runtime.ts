@@ -408,6 +408,7 @@ export class TerminalRuntime {
             if (message.activity && message.activityAt !== null) this.#markOutputActivity(message.activityAt);
             const deferred = this.#deferredSnapshot;
             if (deferred?.context.id === context.id) this.#bufferDeferredOutput(deferred, message.data);
+            else if (message.screenSync) this.#screenSync?.replaceScreen(message.data);
             else this.#screenSync?.pushOutput(message.data);
           } else if (message.type === 'repository-status') {
             this.#options.onRepositoryStatus(message.changeCount, message.worktreeCount);

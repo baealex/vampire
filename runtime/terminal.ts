@@ -733,6 +733,7 @@ export async function attachTerminal(
       ),
       activity: false,
       activityAt: null,
+      screenSync: true,
     });
   }
 
