@@ -28,7 +28,8 @@ const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
 const TERMINAL_RESIZE_SETTLE_MS = 1_000;
 const TERMINAL_REDRAW_QUIET_MS = 40;
-const TERMINAL_REDRAW_SETTLE_LIMIT_MS = 200;
+const TERMINAL_REDRAW_GRACE_MS = 250;
+const TERMINAL_REDRAW_SETTLE_LIMIT_MS = 1_000;
 const TERMINAL_REDRAW_POLL_MS = 10;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
 const TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES = ['\u001b[?47l', '\u001b[?1047l', '\u001b[?1049l'] as const;
@@ -584,6 +585,7 @@ export async function attachTerminal(
   };
 
   const waitForTerminalRedraw = async (): Promise<void> => {
+    const startedAt = Date.now();
     const deadline = Date.now() + TERMINAL_REDRAW_SETTLE_LIMIT_MS;
     let observedVersion = terminalOutputVersion;
     let quietSince = Date.now();
@@ -594,7 +596,8 @@ export async function attachTerminal(
         quietSince = Date.now();
         continue;
       }
-      if (Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS) return;
+      if (Date.now() - startedAt >= TERMINAL_REDRAW_GRACE_MS && Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS)
+        return;
     }
   };
 
