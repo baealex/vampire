@@ -1,331 +1,465 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
-	import Terminal from '$lib/Terminal.svelte';
-	import type { ManagedSession, MobilePanel, SessionTerminal } from '$lib/session/types';
-	import { workspaceName } from '$lib/session/view';
-	import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
-	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-	import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
-	import { isUiOverlayOpen } from '$lib/ui/overlay';
-	import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '$lib/workspace-entry-drag.ts';
-	import MoveConflictDialog from './MoveConflictDialog.svelte';
-	import RepositoryPanel from './RepositoryPanel.svelte';
-	import RepositoryViewer from './RepositoryViewer.svelte';
-	import UploadConflictDialog from './UploadConflictDialog.svelte';
-	import { uploadSelectionFromDataTransfer } from './upload';
-	import { RepositoryWorkspaceState } from './workspace-state.svelte';
-	import type { RepositorySelection, RepositoryTab } from './types';
+import { onMount, untrack } from 'svelte';
+import Terminal from '$lib/Terminal.svelte';
+import type { ManagedSession, MobilePanel, SessionTerminal } from '$lib/session/types';
+import { workspaceName } from '$lib/session/view';
+import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
+import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
+import { isUiOverlayOpen } from '$lib/ui/overlay';
+import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '$lib/workspace-entry-drag.ts';
+import MoveConflictDialog from './MoveConflictDialog.svelte';
+import RepositoryPanel from './RepositoryPanel.svelte';
+import RepositoryViewer from './RepositoryViewer.svelte';
+import SessionNoteEditor from '$lib/terminal/SessionNoteEditor.svelte';
+import UploadConflictDialog from './UploadConflictDialog.svelte';
+import { uploadSelectionFromDataTransfer } from './upload';
+import { RepositoryWorkspaceState } from './workspace-state.svelte';
+import type { RepositorySelection, RepositoryTab } from './types';
 
-	let {
-		session,
-		onStartBackground,
-		onStopBackground,
-		onLoadBackgroundOutput,
-		onFavoriteBackground,
-		onRemoveBackgroundFavorite,
-		startingBackground = false,
-		stoppingBackgroundProcessId,
-		updatingFavoriteCommand,
-		backgroundActionError = '',
-		close,
-		onUpdateNote,
-		onLoadNote,
-		onSummarizeNote,
-		onInputActivity,
-		onOutputActivity,
-		onTerminalPresentationChange = () => undefined,
-		statusPlugins = [],
-		mobilePanel,
-		onMobilePanelChange = () => undefined,
-		repositoryPanelOpen = false,
-		onRepositoryPanelOpenChange = () => undefined,
-		repositoryTab = 'changes',
-		onRepositoryTabChange = () => undefined
-	}: {
-		session: ManagedSession;
-		onStartBackground: (command: string) => Promise<SessionTerminal | undefined>;
-		onStopBackground: (process: SessionTerminal) => Promise<boolean>;
-		onLoadBackgroundOutput: (processId: string) => Promise<string>;
-		onFavoriteBackground: (command: string) => Promise<boolean>;
-		onRemoveBackgroundFavorite: (command: string) => Promise<boolean>;
-		startingBackground?: boolean;
-		stoppingBackgroundProcessId?: string;
-		updatingFavoriteCommand?: string;
-		backgroundActionError?: string;
-		close: () => void;
-		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
-		onLoadNote: (sessionId: string, refresh?: boolean) => Promise<string>;
-		onSummarizeNote: (sessionId: string) => Promise<{ notePath: string }>;
-		onInputActivity: (sessionId: string, timestamp: number) => void;
-		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
-		onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
-		statusPlugins?: StatusPluginSnapshot[];
-		mobilePanel?: MobilePanel;
-		onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
-		repositoryPanelOpen?: boolean;
-		onRepositoryPanelOpenChange?: (open: boolean) => void;
-		repositoryTab?: RepositoryTab;
-		onRepositoryTabChange?: (tab: RepositoryTab) => void;
-	} = $props();
+let {
+  session,
+  onStartBackground,
+  onStopBackground,
+  onLoadBackgroundOutput,
+  onFavoriteBackground,
+  onRemoveBackgroundFavorite,
+  startingBackground = false,
+  stoppingBackgroundProcessId,
+  updatingFavoriteCommand,
+  backgroundActionError = '',
+  close,
+  onUpdateNote,
+  onLoadNote,
+  onSummarizeNote,
+  onInputActivity,
+  onOutputActivity,
+  onTerminalPresentationChange = () => undefined,
+  statusPlugins = [],
+  mobilePanel,
+  onMobilePanelChange = () => undefined,
+  repositoryPanelOpen = false,
+  onRepositoryPanelOpenChange = () => undefined,
+  repositoryTab = 'changes',
+  onRepositoryTabChange = () => undefined,
+}: {
+  session: ManagedSession;
+  onStartBackground: (command: string) => Promise<SessionTerminal | undefined>;
+  onStopBackground: (process: SessionTerminal) => Promise<boolean>;
+  onLoadBackgroundOutput: (processId: string) => Promise<string>;
+  onFavoriteBackground: (command: string) => Promise<boolean>;
+  onRemoveBackgroundFavorite: (command: string) => Promise<boolean>;
+  startingBackground?: boolean;
+  stoppingBackgroundProcessId?: string;
+  updatingFavoriteCommand?: string;
+  backgroundActionError?: string;
+  close: () => void;
+  onUpdateNote: (sessionId: string, note: string) => Promise<void>;
+  onLoadNote: (sessionId: string, refresh?: boolean) => Promise<string>;
+  onSummarizeNote: (sessionId: string) => Promise<{ notePath: string }>;
+  onInputActivity: (sessionId: string, timestamp: number) => void;
+  onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
+  onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
+  statusPlugins?: StatusPluginSnapshot[];
+  mobilePanel?: MobilePanel;
+  onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
+  repositoryPanelOpen?: boolean;
+  onRepositoryPanelOpenChange?: (open: boolean) => void;
+  repositoryTab?: RepositoryTab;
+  onRepositoryTabChange?: (tab: RepositoryTab) => void;
+} = $props();
 
-	let desktop = $state(false);
-	let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
-	let pathInsertionToken = 0;
-	const name = $derived(workspaceName(session));
-	const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
-	const repository = new RepositoryWorkspaceState(untrack(() => session.id), { isOpen: () => repositoryOpen });
+let desktop = $state(false);
+let notePanelOpen = $state(false);
+let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
+let pathInsertionToken = 0;
+const name = $derived(workspaceName(session));
+const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
+const noteOpen = $derived(desktop ? notePanelOpen : mobilePanel === 'note');
+const sidePanelOpen = $derived(repositoryOpen || noteOpen);
+const repository = new RepositoryWorkspaceState(
+  untrack(() => session.id),
+  { isOpen: () => repositoryOpen }
+);
 
-	function toggleRepository() {
-		if (repositoryOpen) {
-			void closeRepository();
-			return;
-		}
-		onRepositoryPanelOpenChange(true);
-		if (!desktop) onMobilePanelChange('repository');
-	}
+function toggleRepository() {
+  if (repositoryOpen) {
+    void closeRepository();
+    return;
+  }
+  closeNotePanel();
+  onRepositoryPanelOpenChange(true);
+  if (!desktop) onMobilePanelChange('repository');
+}
 
-	async function closeRepository(): Promise<boolean> {
-		if (!await repository.confirmDiscardChanges()) return false;
-		onRepositoryPanelOpenChange(false);
-		if (!desktop) onMobilePanelChange(undefined);
-		repository.clearSelection();
-		return true;
-	}
+function closeNotePanel() {
+  notePanelOpen = false;
+  if (!desktop && mobilePanel === 'note') onMobilePanelChange(undefined);
+}
 
-	async function openSessionNavigator() {
-		if (repositoryOpen) {
-			if (!await closeRepository()) return;
-		} else if (!await repository.confirmDiscardChanges()) {
-			return;
-		}
-		close();
-	}
+function openNotePanel() {
+  notePanelOpen = true;
+  if (!desktop) onMobilePanelChange('note');
+}
 
-	async function selectRepositoryItem(selection: RepositorySelection) {
-		if (!await repository.selectItem(selection)) return;
-		if (selection.kind === 'file') onRepositoryTabChange('files');
-		if (!desktop) {
-			onRepositoryPanelOpenChange(false);
-			onMobilePanelChange(undefined);
-		}
-	}
+async function toggleNote() {
+  if (noteOpen) {
+    closeNotePanel();
+    return;
+  }
+  if (repositoryOpen && !(await closeRepository())) return;
+  openNotePanel();
+}
 
-	async function editRepositoryFile(path: string) {
-		if (!await repository.editFile(path)) return;
-		if (!desktop) {
-			onRepositoryPanelOpenChange(false);
-			onMobilePanelChange(undefined);
-		}
-	}
+async function closeRepository(): Promise<boolean> {
+  if (!(await repository.confirmDiscardChanges())) return false;
+  onRepositoryPanelOpenChange(false);
+  if (!desktop) onMobilePanelChange(undefined);
+  repository.clearSelection();
+  return true;
+}
 
-	async function createFile(directory: string, name: string) {
-		await repository.createFile(directory, name);
-		if (!desktop) {
-			onRepositoryPanelOpenChange(false);
-			onMobilePanelChange(undefined);
-		}
-	}
+async function openSessionNavigator() {
+  if (repositoryOpen) {
+    if (!(await closeRepository())) return;
+  } else if (noteOpen) {
+    closeNotePanel();
+  } else if (!(await repository.confirmDiscardChanges())) {
+    return;
+  }
+  close();
+}
 
-	async function insertPathIntoTerminal(entry: WorkspaceEntryDragData) {
-		if (!desktop && !await closeRepository()) return;
-		pathInsertionRequest = { entries: [entry], token: ++pathInsertionToken };
-	}
+async function selectRepositoryItem(selection: RepositorySelection) {
+  if (!(await repository.selectItem(selection))) return;
+  if (selection.kind === 'file') onRepositoryTabChange('files');
+  if (!desktop) {
+    onRepositoryPanelOpenChange(false);
+    onMobilePanelChange(undefined);
+  }
+}
 
-	async function addDroppedFilesToTerminal(dataTransfer: DataTransfer): Promise<WorkspaceEntryDragData[]> {
-		return repository.addFilesForTerminal(await uploadSelectionFromDataTransfer(dataTransfer));
-	}
+async function editRepositoryFile(path: string) {
+  if (!(await repository.editFile(path))) return;
+  if (!desktop) {
+    onRepositoryPanelOpenChange(false);
+    onMobilePanelChange(undefined);
+  }
+}
 
-	$effect(() => {
-		const sessionId = session.id;
-		const presented = !repository.selection;
-		// Keep parent activity state out of this effect's dependency graph.
-		untrack(() => onTerminalPresentationChange(sessionId, presented));
-		return () => untrack(() => onTerminalPresentationChange(sessionId, false));
-	});
+async function createFile(directory: string, name: string) {
+  await repository.createFile(directory, name);
+  if (!desktop) {
+    onRepositoryPanelOpenChange(false);
+    onMobilePanelChange(undefined);
+  }
+}
 
-	$effect(() => {
-		if (!repositoryOpen) return;
-		const refreshWhenVisible = () => {
-			if (!document.hidden) void repository.refresh();
-		};
-		untrack(() => void repository.refresh());
-		document.addEventListener('visibilitychange', refreshWhenVisible);
+async function insertPathIntoTerminal(entry: WorkspaceEntryDragData) {
+  if (!desktop && !(await closeRepository())) return;
+  pathInsertionRequest = { entries: [entry], token: ++pathInsertionToken };
+}
 
-		return () => {
-			document.removeEventListener('visibilitychange', refreshWhenVisible);
-		};
-	});
+async function addDroppedFilesToTerminal(dataTransfer: DataTransfer): Promise<WorkspaceEntryDragData[]> {
+  return repository.addFilesForTerminal(await uploadSelectionFromDataTransfer(dataTransfer));
+}
 
-	onMount(() => {
-		const desktopQuery = window.matchMedia(REPOSITORY_SPLIT_MEDIA_QUERY);
-		const syncDesktop = () => desktop = desktopQuery.matches;
-		const closeOverlay = (event: KeyboardEvent) => {
-			if (event.key !== 'Escape') return;
-			if (isUiOverlayOpen()) return;
-			const target = event.target instanceof Element ? event.target : undefined;
-			if (target?.closest('[data-inline-repository-entry]')) return;
-			if (repositoryOpen) {
-				if (!target?.closest('.repository-panel')) return;
-				event.preventDefault();
-				void closeRepository();
-			} else if (repository.selection) {
-				event.preventDefault();
-				void repository.closeViewer();
-			}
-		};
-		syncDesktop();
-		desktopQuery.addEventListener('change', syncDesktop);
-		window.addEventListener('keydown', closeOverlay, { capture: true });
+$effect(() => {
+  const sessionId = session.id;
+  const presented = !repository.selection && !noteOpen;
+  // Keep parent activity state out of this effect's dependency graph.
+  untrack(() => onTerminalPresentationChange(sessionId, presented));
+  return () => untrack(() => onTerminalPresentationChange(sessionId, false));
+});
 
-		return () => {
-			desktopQuery.removeEventListener('change', syncDesktop);
-			window.removeEventListener('keydown', closeOverlay, { capture: true });
-			repository.resolveDiscardChanges(false);
-		};
-	});
+$effect(() => {
+  if (!repositoryOpen) return;
+  const refreshWhenVisible = () => {
+    if (!document.hidden) void repository.refresh();
+  };
+  untrack(() => void repository.refresh());
+  document.addEventListener('visibilitychange', refreshWhenVisible);
+
+  return () => {
+    document.removeEventListener('visibilitychange', refreshWhenVisible);
+  };
+});
+
+onMount(() => {
+  const desktopQuery = window.matchMedia(REPOSITORY_SPLIT_MEDIA_QUERY);
+  const syncDesktop = () => (desktop = desktopQuery.matches);
+  const closeOverlay = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    if (isUiOverlayOpen()) return;
+    const target = event.target instanceof Element ? event.target : undefined;
+    if (target?.closest('[data-inline-repository-entry]')) return;
+    if (repositoryOpen) {
+      if (!target?.closest('.repository-panel')) return;
+      event.preventDefault();
+      void closeRepository();
+    } else if (noteOpen) {
+      if (!target?.closest('.workspace-note-panel')) return;
+      event.preventDefault();
+      closeNotePanel();
+    } else if (repository.selection) {
+      event.preventDefault();
+      void repository.closeViewer();
+    }
+  };
+  syncDesktop();
+  desktopQuery.addEventListener('change', syncDesktop);
+  window.addEventListener('keydown', closeOverlay, { capture: true });
+
+  return () => {
+    desktopQuery.removeEventListener('change', syncDesktop);
+    window.removeEventListener('keydown', closeOverlay, { capture: true });
+    repository.resolveDiscardChanges(false);
+  };
+});
 </script>
 
-<section class="workspace-workbench" class:repository-open={repositoryOpen}>
-	<div class="workspace-primary">
-		<Terminal
-			{session}
-			{onStartBackground}
-			{onStopBackground}
-			{onLoadBackgroundOutput}
-			{onFavoriteBackground}
-			{onRemoveBackgroundFavorite}
-			{startingBackground}
-			{stoppingBackgroundProcessId}
-			{updatingFavoriteCommand}
-			{backgroundActionError}
-			close={openSessionNavigator}
-			{onUpdateNote}
-			{onLoadNote}
-			{onSummarizeNote}
-			{onInputActivity}
-			{onOutputActivity}
-			{statusPlugins}
-			{repositoryOpen}
-			isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
-			changeCount={repository.changeCount}
-			worktreeCount={repository.worktreeCount}
-			onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
-			onToggleRepository={toggleRepository}
-			{pathInsertionRequest}
-			onExternalFileDrop={addDroppedFilesToTerminal}
-		>
-			{#if repository.selection}
-				<RepositoryViewer
-					sessionId={session.id}
-					selection={repository.selection}
-					refreshToken={repository.refreshToken}
-					initialFile={repository.openedFile}
-					onClose={() => repository.closeViewer()}
-					onEditFile={editRepositoryFile}
-					onRequestDiscardChange={(path) => repository.requestDiscardChange(path)}
-					onFileSaved={(file) => repository.handleFileSaved(file)}
-					onFileDirtyChange={(dirty) => repository.fileDirty = dirty}
-				/>
-			{/if}
-		</Terminal>
-	</div>
+<section class="workspace-workbench" class:repository-open={repositoryOpen} class:side-panel-open={sidePanelOpen}>
+  <div class="workspace-primary">
+    <Terminal
+      {session}
+      {onStartBackground}
+      {onStopBackground}
+      {onLoadBackgroundOutput}
+      {onFavoriteBackground}
+      {onRemoveBackgroundFavorite}
+      {startingBackground}
+      {stoppingBackgroundProcessId}
+      {updatingFavoriteCommand}
+      {backgroundActionError}
+      close={openSessionNavigator}
+      {onInputActivity}
+      {onOutputActivity}
+      {statusPlugins}
+      {repositoryOpen}
+      {noteOpen}
+      isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
+      changeCount={repository.changeCount}
+      worktreeCount={repository.worktreeCount}
+      onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
+      onToggleRepository={toggleRepository}
+      onToggleNote={() => void toggleNote()}
+      {pathInsertionRequest}
+      onExternalFileDrop={addDroppedFilesToTerminal}
+    >
+      {#if repository.selection}
+        <RepositoryViewer
+          sessionId={session.id}
+          selection={repository.selection}
+          refreshToken={repository.refreshToken}
+          initialFile={repository.openedFile}
+          onClose={() => repository.closeViewer()}
+          onEditFile={editRepositoryFile}
+          onRequestDiscardChange={(path) => repository.requestDiscardChange(path)}
+          onFileSaved={(file) => repository.handleFileSaved(file)}
+          onFileDirtyChange={(dirty) => (repository.fileDirty = dirty)}
+        />
+      {/if}
+    </Terminal>
+  </div>
 
-	{#if repositoryOpen && !desktop}
-		<button class="repository-scrim" type="button" aria-label="Dismiss repository panel" onclick={() => void closeRepository()}></button>
-	{/if}
+  {#if sidePanelOpen && !desktop}
+    <button
+      class="workspace-panel-scrim"
+      type="button"
+      aria-label="Dismiss workspace panel"
+      onclick={() => void (repositoryOpen ? closeRepository() : closeNotePanel())}
+    ></button>
+  {/if}
 
-	<RepositoryPanel
-		projectName={name}
-		snapshot={repository.snapshot}
-		loading={repository.loading}
-		errorMessage={repository.errorMessage}
-		uploading={repository.uploading}
-		moving={repository.moving}
-		uploadNoticeKind={repository.uploadNoticeKind}
-		uploadNotice={repository.uploadNotice}
-		selected={repository.selection}
-		activeTab={repositoryTab}
-		open={repositoryOpen}
-		onRefresh={() => void repository.refresh(true)}
-		onLoadDirectory={(path) => repository.loadDirectory(path)}
-		onCreateFile={createFile}
-		onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
-		onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
-		onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
-		onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
-		onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
-		onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
-		onUploadError={(message) => repository.reportUploadError(message)}
-		onClose={closeRepository}
-		onSelect={selectRepositoryItem}
-		onTabChange={onRepositoryTabChange}
-	/>
+  <RepositoryPanel
+    projectName={name}
+    snapshot={repository.snapshot}
+    loading={repository.loading}
+    errorMessage={repository.errorMessage}
+    uploading={repository.uploading}
+    moving={repository.moving}
+    uploadNoticeKind={repository.uploadNoticeKind}
+    uploadNotice={repository.uploadNotice}
+    selected={repository.selection}
+    activeTab={repositoryTab}
+    open={repositoryOpen}
+    onRefresh={() => void repository.refresh(true)}
+    onLoadDirectory={(path) => repository.loadDirectory(path)}
+    onCreateFile={createFile}
+    onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
+    onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
+    onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
+    onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
+    onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
+    onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
+    onUploadError={(message) => repository.reportUploadError(message)}
+    onClose={closeRepository}
+    onSelect={selectRepositoryItem}
+    onTabChange={onRepositoryTabChange}
+  />
 
-	{#if repository.discardChangesPrompt}
-		<ConfirmDialog
-			title="Discard unsaved changes?"
-			description="Your edits to the open file have not been saved. Discard them and continue?"
-			confirmLabel="Discard changes"
-			busyLabel="Discarding…"
-			close={() => repository.resolveDiscardChanges(false)}
-			onConfirm={async () => repository.resolveDiscardChanges(true)}
-		/>
-	{/if}
+  <aside
+    class="workspace-note-panel"
+    class:open={noteOpen}
+    aria-label={`Workspace note for ${name}`}
+    aria-hidden={!noteOpen}
+    inert={!noteOpen}
+  >
+    <SessionNoteEditor
+      panel
+      getNote={(refresh) => onLoadNote(session.id, refresh)}
+      save={(note) => onUpdateNote(session.id, note)}
+      summarize={() => onSummarizeNote(session.id)}
+      close={closeNotePanel}
+    />
+  </aside>
 
-	{#if repository.deleteTarget}
-		<ConfirmDialog
-			title={repository.deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
-			description={repository.deleteDescription(repository.deleteTarget)}
-			confirmLabel={repository.deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
-			busyLabel="Deleting…"
-			close={() => repository.deleteTarget = undefined}
-			onConfirm={() => repository.confirmDelete()}
-		/>
-	{/if}
+  {#if repository.discardChangesPrompt}
+    <ConfirmDialog
+      title="Discard unsaved changes?"
+      description="Your edits to the open file have not been saved. Discard them and continue?"
+      confirmLabel="Discard changes"
+      busyLabel="Discarding…"
+      close={() => repository.resolveDiscardChanges(false)}
+      onConfirm={async () => repository.resolveDiscardChanges(true)}
+    />
+  {/if}
 
-	{#if repository.uploadConflicts.length > 0}
-		<UploadConflictDialog
-			count={repository.uploadConflicts.length}
-			firstPath={repository.uploadConflicts[0]?.path ?? ''}
-			onResolve={(conflict) => repository.resolveUploadConflicts(conflict)}
-		/>
-	{/if}
+  {#if repository.deleteTarget}
+    <ConfirmDialog
+      title={repository.deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
+      description={repository.deleteDescription(repository.deleteTarget)}
+      confirmLabel={repository.deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
+      busyLabel="Deleting…"
+      close={() => (repository.deleteTarget = undefined)}
+      onConfirm={() => repository.confirmDelete()}
+    />
+  {/if}
 
-	{#if repository.moveConflict}
-		<MoveConflictDialog
-			path={repository.moveConflict.path}
-			kind={repository.moveConflict.kind}
-			targetDirectory={repository.moveConflict.targetDirectory}
-			onResolve={async (resolution) => { await repository.resolveMoveConflict(resolution); }}
-		/>
-	{/if}
+  {#if repository.uploadConflicts.length > 0}
+    <UploadConflictDialog
+      count={repository.uploadConflicts.length}
+      firstPath={repository.uploadConflicts[0]?.path ?? ''}
+      onResolve={(conflict) => repository.resolveUploadConflicts(conflict)}
+    />
+  {/if}
 
-	{#if repository.discardTarget}
-		<ConfirmDialog
-			title={repository.discardChangeTitle(repository.discardTarget)}
-			description={repository.discardChangeDescription(repository.discardTarget)}
-			confirmLabel={repository.discardTarget.status === '??' ? 'Delete file' : 'Discard changes'}
-			busyLabel={repository.discardTarget.status === '??' ? 'Deleting…' : 'Discarding…'}
-			close={() => repository.discardTarget = undefined}
-			onConfirm={() => repository.confirmDiscardChange()}
-		/>
-	{/if}
+  {#if repository.moveConflict}
+    <MoveConflictDialog
+      path={repository.moveConflict.path}
+      kind={repository.moveConflict.kind}
+      targetDirectory={repository.moveConflict.targetDirectory}
+      onResolve={async (resolution) => {
+				await repository.resolveMoveConflict(resolution);
+			}}
+    />
+  {/if}
+
+  {#if repository.discardTarget}
+    <ConfirmDialog
+      title={repository.discardChangeTitle(repository.discardTarget)}
+      description={repository.discardChangeDescription(repository.discardTarget)}
+      confirmLabel={repository.discardTarget.status === '??' ? 'Delete file' : 'Discard changes'}
+      busyLabel={repository.discardTarget.status === '??' ? 'Deleting…' : 'Discarding…'}
+      close={() => (repository.discardTarget = undefined)}
+      onConfirm={() => repository.confirmDiscardChange()}
+    />
+  {/if}
 </section>
 
 <style>
-	.workspace-workbench, .workspace-primary { width: 100%; min-width: 0; min-height: 0; }
-	.workspace-workbench { position: relative; height: 100dvh; overflow: hidden; }
-	.workspace-primary { position: relative; height: 100%; }
-	.repository-scrim { position: fixed; z-index: 39; inset: 0; padding: 0; border: 0; background: var(--color-backdrop); cursor: pointer; animation: repository-scrim-in 180ms ease; }
+.workspace-workbench,
+.workspace-primary {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.workspace-workbench {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  --workspace-panel-width: min(22rem, calc(100% - 3rem));
+}
+.workspace-primary {
+  position: relative;
+  height: 100%;
+}
+.workspace-panel-scrim {
+  position: fixed;
+  z-index: 39;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-backdrop);
+  cursor: pointer;
+  animation: workspace-panel-scrim-in 180ms ease;
+}
 
-	@keyframes repository-scrim-in { from { opacity: 0; } }
+@keyframes workspace-panel-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
 
-	@media (min-width: 80rem) {
-		.workspace-workbench.repository-open .workspace-primary { width: auto; margin-right: 22rem; }
-	}
+.workspace-note-panel {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--workspace-panel-width);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transform: translateX(100%);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-repository-panel);
+  color: var(--color-text);
+  pointer-events: none;
+}
+.workspace-note-panel.open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+.workspace-note-panel :global(.note-editor.panel) {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
 
-	@media (prefers-reduced-motion: reduce) {
-		.repository-scrim { animation: none; }
-	}
+@media (min-width: 80rem) {
+  .workspace-workbench.side-panel-open .workspace-primary {
+    width: auto;
+    margin-right: var(--workspace-panel-width);
+  }
+}
 
+@media (width < 80rem) {
+  .workspace-workbench {
+    --workspace-panel-width: min(23rem, calc(100% - 2.75rem));
+  }
+  .workspace-note-panel {
+    position: fixed;
+    z-index: 40;
+    width: var(--workspace-panel-width);
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    transition: transform 180ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-scrim {
+    animation: none;
+  }
+  .workspace-note-panel {
+    transition: none;
+  }
+}
 </style>

@@ -38,6 +38,8 @@
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project tsconfig.node.json && tsc --project tsconfig.test.json",
+    "format": "node tools/format-changed.ts --write",
+    "format:check": "node tools/format-changed.ts",
     "test": "pnpm check && node --test tests/*.test.ts && pnpm build",
     "test:e2e": "playwright test",
     "prepack": "pnpm build"
@@ -49,6 +51,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.9",
     "@lucide/svelte": "^1.26.0",
     "@playwright/test": "^1.62.0",
     "@sveltejs/adapter-node": "^5.5.7",

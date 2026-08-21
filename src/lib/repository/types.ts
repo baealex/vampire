@@ -1,83 +1,83 @@
 export type RepositoryChange = {
-	path: string;
-	status: string;
-	previousPath?: string;
+  path: string;
+  status: string;
+  previousPath?: string;
 };
 
 export type RepositoryDiscardResult = {
-	path: string;
-	untracked: boolean;
+  path: string;
+  untracked: boolean;
 };
 
 export type RepositorySnapshot = {
-	isGitRepository: boolean;
-	files: string[];
-	directories: string[];
-	ignored: string[];
-	changes: RepositoryChange[];
-	truncated: boolean;
+  isGitRepository: boolean;
+  files: string[];
+  directories: string[];
+  ignored: string[];
+  changes: RepositoryChange[];
+  truncated: boolean;
 };
 
 export type RepositoryDirectoryListing = {
-	files: string[];
-	directories: string[];
-	ignored: string[];
-	truncated: boolean;
+  files: string[];
+  directories: string[];
+  ignored: string[];
+  truncated: boolean;
 };
 
 export type RepositorySelection = {
-	kind: 'file' | 'diff';
-	path: string;
+  kind: 'file' | 'diff';
+  path: string;
 };
 
 export type RepositoryTab = 'changes' | 'files';
 
 export type WorkspaceFile = {
-	path: string;
-	content: string;
-	size: number;
-	modifiedAt: number;
-	version: string;
+  path: string;
+  content: string;
+  size: number;
+  modifiedAt: number;
+  version: string;
 };
 
 export type WorkspaceUploadConflict = 'reject' | 'overwrite' | 'rename';
 
 export type WorkspaceUploadResult = {
-	path: string;
-	size: number;
-	renamed: boolean;
+  path: string;
+  size: number;
+  renamed: boolean;
 };
 
 export type WorkspaceEntryKind = 'file' | 'directory';
 export type WorkspaceMoveConflict = 'reject' | 'rename';
 
 export type WorkspaceMoveResult = {
-	fromPath: string;
-	path: string;
-	kind: WorkspaceEntryKind;
-	renamed: boolean;
+  fromPath: string;
+  path: string;
+  kind: WorkspaceEntryKind;
+  renamed: boolean;
 };
 
 export type DiffSection = {
-	kind: 'staged' | 'working' | 'untracked';
-	patch: string;
+  kind: 'staged' | 'working' | 'untracked';
+  patch: string;
 };
 
 export type RepositoryDiff = {
-	path: string;
-	sections: DiffSection[];
+  path: string;
+  sections: DiffSection[];
 };
 
 export type FileTreeRow = {
-	kind: 'directory' | 'file';
-	name: string;
-	path: string;
-	depth: number;
+  kind: 'directory' | 'file';
+  name: string;
+  path: string;
+  depth: number;
 };
 
 export type DiffLine = {
-	kind: 'addition' | 'deletion' | 'context' | 'hunk' | 'meta';
-	content: string;
-	oldLine?: number;
-	newLine?: number;
+  kind: 'addition' | 'deletion' | 'context' | 'hunk' | 'meta';
+  content: string;
+  oldLine?: number;
+  newLine?: number;
 };
