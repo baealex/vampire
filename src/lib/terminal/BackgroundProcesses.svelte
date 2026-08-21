@@ -1,525 +1,899 @@
 <script lang="ts">
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import ChevronUp from '@lucide/svelte/icons/chevron-up';
-	import Play from '@lucide/svelte/icons/play';
-	import Plus from '@lucide/svelte/icons/plus';
-	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
-	import Square from '@lucide/svelte/icons/square';
-	import Star from '@lucide/svelte/icons/star';
-	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import { onMount, untrack } from 'svelte';
-	import { MediaQuery } from 'svelte/reactivity';
-	import type { SessionTerminal } from '$lib/session/types';
-	import { DESKTOP_MEDIA_QUERY } from '$lib/ui/layout';
-	import DialogShell from '$lib/ui/DialogShell.svelte';
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+import Play from '@lucide/svelte/icons/play';
+import Plus from '@lucide/svelte/icons/plus';
+import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+import Square from '@lucide/svelte/icons/square';
+import Star from '@lucide/svelte/icons/star';
+import Trash2 from '@lucide/svelte/icons/trash-2';
+import { onMount, untrack } from 'svelte';
+import { MediaQuery } from 'svelte/reactivity';
+import type { SessionTerminal } from '$lib/session/types';
+import { DESKTOP_MEDIA_QUERY } from '$lib/ui/layout';
+import DialogShell from '$lib/ui/DialogShell.svelte';
 
-	let {
-		open,
-		onOpenChange,
-		panelId,
-		triggerId,
-		processes,
-		favoriteCommands,
-		starting = false,
-		stoppingProcessId,
-		updatingFavoriteCommand,
-		actionError = '',
-		onStart,
-		onStop,
-		onLoadOutput,
-		onFavorite,
-		onRemoveFavorite
-	}: {
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		panelId: string;
-		triggerId: string;
-		processes: SessionTerminal[];
-		favoriteCommands: string[];
-		starting?: boolean;
-		stoppingProcessId?: string;
-		updatingFavoriteCommand?: string;
-		actionError?: string;
-		onStart: (command: string) => Promise<SessionTerminal | undefined>;
-		onStop: (process: SessionTerminal) => Promise<boolean>;
-		onLoadOutput: (processId: string) => Promise<string>;
-		onFavorite: (command: string) => Promise<boolean>;
-		onRemoveFavorite: (command: string) => Promise<boolean>;
-	} = $props();
+let {
+  open,
+  onOpenChange,
+  panelId,
+  triggerId,
+  processes,
+  favoriteCommands,
+  starting = false,
+  stoppingProcessId,
+  updatingFavoriteCommand,
+  actionError = '',
+  onStart,
+  onStop,
+  onLoadOutput,
+  onFavorite,
+  onRemoveFavorite,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  panelId: string;
+  triggerId: string;
+  processes: SessionTerminal[];
+  favoriteCommands: string[];
+  starting?: boolean;
+  stoppingProcessId?: string;
+  updatingFavoriteCommand?: string;
+  actionError?: string;
+  onStart: (command: string) => Promise<SessionTerminal | undefined>;
+  onStop: (process: SessionTerminal) => Promise<boolean>;
+  onLoadOutput: (processId: string) => Promise<string>;
+  onFavorite: (command: string) => Promise<boolean>;
+  onRemoveFavorite: (command: string) => Promise<boolean>;
+} = $props();
 
-	type MobileView = 'list' | 'runner' | 'output';
+type MobileView = 'list' | 'runner' | 'output';
 
-	const desktopViewport = new MediaQuery(DESKTOP_MEDIA_QUERY, true);
-	let command = $state('');
-	let commandInput = $state<HTMLInputElement>();
-	let mobileView = $state<MobileView>('list');
-	let selectedProcessId = $state<string>();
-	let output = $state('');
-	let outputError = $state('');
-	let outputLoading = $state(false);
-	let now = $state(Date.now());
-	let previouslyOpen = false;
-	const orderedProcesses = $derived([...processes].sort((left, right) => left.index - right.index));
-	const selectedProcess = $derived(orderedProcesses.find((process) => process.id === selectedProcessId));
-	const favoriteSet = $derived(new Set(favoriteCommands));
-	const runningCommands = $derived(new Set(
-		orderedProcesses
-			.filter((process) => process.state === 'running')
-			.map(processCommand)
-	));
+const desktopViewport = new MediaQuery(DESKTOP_MEDIA_QUERY, true);
+let command = $state('');
+let commandInput = $state<HTMLInputElement>();
+let mobileView = $state<MobileView>('list');
+let selectedProcessId = $state<string>();
+let output = $state('');
+let outputError = $state('');
+let outputLoading = $state(false);
+let now = $state(Date.now());
+let previouslyOpen = false;
+const orderedProcesses = $derived([...processes].sort((left, right) => left.index - right.index));
+const selectedProcess = $derived(orderedProcesses.find((process) => process.id === selectedProcessId));
+const favoriteSet = $derived(new Set(favoriteCommands));
+const runningCommands = $derived(
+  new Set(orderedProcesses.filter((process) => process.state === 'running').map(processCommand))
+);
 
-	onMount(() => {
-		const timer = window.setInterval(() => now = Date.now(), 1_000);
-		return () => window.clearInterval(timer);
-	});
+onMount(() => {
+  const timer = window.setInterval(() => (now = Date.now()), 1_000);
+  return () => window.clearInterval(timer);
+});
 
-	$effect(() => {
-		if (selectedProcessId && !orderedProcesses.some((process) => process.id === selectedProcessId)) {
-			selectedProcessId = undefined;
-			output = '';
-			outputError = '';
-			mobileView = 'list';
-		}
-	});
+$effect(() => {
+  if (selectedProcessId && !orderedProcesses.some((process) => process.id === selectedProcessId)) {
+    selectedProcessId = undefined;
+    output = '';
+    outputError = '';
+    mobileView = 'list';
+  }
+});
 
-	$effect(() => {
-		const expanded = open;
-		const desktop = desktopViewport.current;
-		if (expanded && !previouslyOpen) {
-			mobileView = 'list';
-			if (desktop) queueMicrotask(() => commandInput?.focus());
-		}
-		if (!expanded) mobileView = 'list';
-		previouslyOpen = expanded;
-	});
+$effect(() => {
+  const expanded = open;
+  const desktop = desktopViewport.current;
+  if (expanded && !previouslyOpen) {
+    mobileView = 'list';
+    if (desktop) queueMicrotask(() => commandInput?.focus());
+  }
+  if (!expanded) mobileView = 'list';
+  previouslyOpen = expanded;
+});
 
-	$effect(() => {
-		const processId = selectedProcessId;
-		const outputVisible = open && (desktopViewport.current || mobileView === 'output');
-		if (!outputVisible || !processId) return;
-		// Parent loaders close over reactive workspace state. Only visibility and
-		// selection should control this polling lifecycle.
-		return untrack(() => startOutputPolling(processId));
-	});
+$effect(() => {
+  const processId = selectedProcessId;
+  const outputVisible = open && (desktopViewport.current || mobileView === 'output');
+  if (!outputVisible || !processId) return;
+  // Parent loaders close over reactive workspace state. Only visibility and
+  // selection should control this polling lifecycle.
+  return untrack(() => startOutputPolling(processId));
+});
 
-	function startOutputPolling(processId: string): () => void {
-		let disposed = false;
-		let refreshing = false;
-		const refresh = async (initial = false) => {
-			if (refreshing) return;
-			refreshing = true;
-			if (initial) outputLoading = true;
-			try {
-				const next = await onLoadOutput(processId);
-				if (!disposed) {
-					output = next;
-					outputError = '';
-				}
-			} catch (error) {
-				if (!disposed) outputError = error instanceof Error ? error.message : 'Unable to read output';
-			} finally {
-				if (!disposed) outputLoading = false;
-				refreshing = false;
-			}
-		};
-		void refresh(true);
-		const timer = window.setInterval(() => void refresh(), 1_500);
-		return () => {
-			disposed = true;
-			window.clearInterval(timer);
-		};
-	}
+function startOutputPolling(processId: string): () => void {
+  let disposed = false;
+  let refreshing = false;
+  const refresh = async (initial = false) => {
+    if (refreshing) return;
+    refreshing = true;
+    if (initial) outputLoading = true;
+    try {
+      const next = await onLoadOutput(processId);
+      if (!disposed) {
+        output = next;
+        outputError = '';
+      }
+    } catch (error) {
+      if (!disposed) outputError = error instanceof Error ? error.message : 'Unable to read output';
+    } finally {
+      if (!disposed) outputLoading = false;
+      refreshing = false;
+    }
+  };
+  void refresh(true);
+  const timer = window.setInterval(() => void refresh(), 1_500);
+  return () => {
+    disposed = true;
+    window.clearInterval(timer);
+  };
+}
 
-	function processCommand(process: SessionTerminal): string {
-		return process.command || process.name || process.foregroundProcess?.label || 'Background command';
-	}
+function processCommand(process: SessionTerminal): string {
+  return process.command || process.name || process.foregroundProcess?.label || 'Background command';
+}
 
-	function processStatus(process: SessionTerminal): string {
-		if (process.state === 'running') return 'Running';
-		if (process.exitCode === 0) return 'Finished';
-		return process.exitCode === null ? 'Exited' : `Failed (${process.exitCode})`;
-	}
+function processStatus(process: SessionTerminal): string {
+  if (process.state === 'running') return 'Running';
+  if (process.exitCode === 0) return 'Finished';
+  return process.exitCode === null ? 'Exited' : `Failed (${process.exitCode})`;
+}
 
-	function processAge(process: SessionTerminal): string {
-		if (!process.startedAt) return '';
-		const seconds = Math.max(0, Math.floor((now - process.startedAt) / 1_000));
-		if (seconds < 60) return `${seconds}s`;
-		const minutes = Math.floor(seconds / 60);
-		if (minutes < 60) return `${minutes}m`;
-		return `${Math.floor(minutes / 60)}h`;
-	}
+function processAge(process: SessionTerminal): string {
+  if (!process.startedAt) return '';
+  const seconds = Math.max(0, Math.floor((now - process.startedAt) / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h`;
+}
 
-	function openRunner() {
-		mobileView = 'runner';
-		queueMicrotask(() => commandInput?.focus());
-	}
+function openRunner() {
+  mobileView = 'runner';
+  queueMicrotask(() => commandInput?.focus());
+}
 
-	function showProcessList() {
-		mobileView = 'list';
-	}
+function showProcessList() {
+  mobileView = 'list';
+}
 
-	async function runCommand(value: string): Promise<SessionTerminal | undefined> {
-		const normalized = value.trim();
-		if (!normalized || starting || runningCommands.has(normalized)) return undefined;
-		const process = await onStart(normalized);
-		if (!process) return;
-		selectedProcessId = process.id;
-		output = '';
-		outputError = '';
-		if (!desktopViewport.current) {
-			commandInput?.blur();
-			mobileView = 'output';
-		}
-		return process;
-	}
+async function runCommand(value: string): Promise<SessionTerminal | undefined> {
+  const normalized = value.trim();
+  if (!normalized || starting || runningCommands.has(normalized)) return undefined;
+  const process = await onStart(normalized);
+  if (!process) return;
+  selectedProcessId = process.id;
+  output = '';
+  outputError = '';
+  if (!desktopViewport.current) {
+    commandInput?.blur();
+    mobileView = 'output';
+  }
+  return process;
+}
 
-	async function startProcess(event: SubmitEvent) {
-		event.preventDefault();
-		if (!await runCommand(command)) return;
-		command = '';
-	}
+async function startProcess(event: SubmitEvent) {
+  event.preventDefault();
+  if (!(await runCommand(command))) return;
+  command = '';
+}
 
-	async function stopProcess(event: MouseEvent, process: SessionTerminal) {
-		event.stopPropagation();
-		if (await onStop(process) && selectedProcessId === process.id) {
-			selectedProcessId = undefined;
-			output = '';
-			outputError = '';
-			mobileView = 'list';
-		}
-	}
+async function stopProcess(event: MouseEvent, process: SessionTerminal) {
+  event.stopPropagation();
+  if ((await onStop(process)) && selectedProcessId === process.id) {
+    selectedProcessId = undefined;
+    output = '';
+    outputError = '';
+    mobileView = 'list';
+  }
+}
 
-	function selectProcess(process: SessionTerminal) {
-		if (desktopViewport.current) {
-			selectedProcessId = selectedProcessId === process.id ? undefined : process.id;
-		} else {
-			selectedProcessId = process.id;
-			mobileView = 'output';
-		}
-		output = '';
-		outputError = '';
-	}
+function selectProcess(process: SessionTerminal) {
+  if (desktopViewport.current) {
+    selectedProcessId = selectedProcessId === process.id ? undefined : process.id;
+  } else {
+    selectedProcessId = process.id;
+    mobileView = 'output';
+  }
+  output = '';
+  outputError = '';
+}
 
-	async function toggleFavorite(event: MouseEvent, process: SessionTerminal) {
-		event.stopPropagation();
-		const processCommandValue = processCommand(process);
-		if (favoriteSet.has(processCommandValue)) await onRemoveFavorite(processCommandValue);
-		else await onFavorite(processCommandValue);
-	}
+async function toggleFavorite(event: MouseEvent, process: SessionTerminal) {
+  event.stopPropagation();
+  const processCommandValue = processCommand(process);
+  if (favoriteSet.has(processCommandValue)) await onRemoveFavorite(processCommandValue);
+  else await onFavorite(processCommandValue);
+}
 
-	function restoreTriggerFocus(event: Event) {
-		event.preventDefault();
-		queueMicrotask(() => document.getElementById(triggerId)?.focus());
-	}
+function restoreTriggerFocus(event: Event) {
+  event.preventDefault();
+  queueMicrotask(() => document.getElementById(triggerId)?.focus());
+}
 </script>
 
 {#snippet commandRunner(compact: boolean)}
-	<div class="background-runner" class:compact>
-		{#if !compact}
-			<div class="background-runner-intro">
-				<strong>Background</strong>
-				<span>Only commands you star are saved.</span>
-			</div>
-		{/if}
-		<form onsubmit={startProcess}>
-			<input
-				bind:this={commandInput}
-				bind:value={command}
-				placeholder="Command to run…"
-				aria-label="Background command"
-				autocomplete="off"
-				spellcheck="false"
-				maxlength="1000"
-			/>
-			<button type="submit" disabled={!command.trim() || starting}>{starting ? 'Starting…' : 'Run'}</button>
-		</form>
-		{#if !compact && actionError}<p class="background-error desktop-runner-error" role="alert">{actionError}</p>{/if}
-	</div>
+  <div class="background-runner" class:compact>
+    {#if !compact}
+      <div class="background-runner-intro">
+        <strong>Background</strong>
+        <span>Only commands you star are saved.</span>
+      </div>
+    {/if}
+    <form onsubmit={startProcess}>
+      <input
+        bind:this={commandInput}
+        bind:value={command}
+        placeholder="Command to run…"
+        aria-label="Background command"
+        autocomplete="off"
+        spellcheck="false"
+        maxlength="1000"
+      >
+      <button type="submit" disabled={!command.trim() || starting}>{starting ? 'Starting…' : 'Run'}</button>
+    </form>
+    {#if !compact && actionError}
+      <p class="background-error desktop-runner-error" role="alert">{actionError}</p>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet favorites()}
-	<div class="favorite-strip" aria-label="Favorite background commands">
-		<span class="favorite-heading"><Star size={13} strokeWidth={1.8} aria-hidden="true" /> Favorites</span>
-		{#if favoriteCommands.length === 0}
-			<span class="favorite-empty">Star a command below to keep it in this workspace.</span>
-		{:else}
-			<div class="favorite-list">
-				{#each favoriteCommands as favoriteCommand (favoriteCommand)}
-					<div class="favorite-command" title={favoriteCommand}>
-						<code>{favoriteCommand}</code>
-						<button
-							type="button"
-							disabled={starting || runningCommands.has(favoriteCommand)}
-							onclick={() => void runCommand(favoriteCommand)}
-							aria-label={`Run favorite ${favoriteCommand}`}
-							title={runningCommands.has(favoriteCommand) ? 'Already running' : 'Run command'}
-						>
-							<Play size={13} strokeWidth={2} aria-hidden="true" />
-						</button>
-						<button
-							type="button"
-							disabled={Boolean(updatingFavoriteCommand)}
-							onclick={() => void onRemoveFavorite(favoriteCommand)}
-							aria-label={`Remove ${favoriteCommand} from favorites`}
-							title="Remove favorite"
-						>
-							<Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
-						</button>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</div>
+  <div class="favorite-strip" aria-label="Favorite background commands">
+    <span class="favorite-heading"><Star size={13} strokeWidth={1.8} aria-hidden="true" /> Favorites</span>
+    {#if favoriteCommands.length === 0}
+      <span class="favorite-empty">Star a command below to keep it in this workspace.</span>
+    {:else}
+      <div class="favorite-list">
+        {#each favoriteCommands as favoriteCommand (favoriteCommand)}
+          <div class="favorite-command" title={favoriteCommand}>
+            <code>{favoriteCommand}</code>
+            <button
+              type="button"
+              disabled={starting || runningCommands.has(favoriteCommand)}
+              onclick={() => void runCommand(favoriteCommand)}
+              aria-label={`Run favorite ${favoriteCommand}`}
+              title={runningCommands.has(favoriteCommand) ? 'Already running' : 'Run command'}
+            >
+              <Play size={13} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(updatingFavoriteCommand)}
+              onclick={() => void onRemoveFavorite(favoriteCommand)}
+              aria-label={`Remove ${favoriteCommand} from favorites`}
+              title="Remove favorite"
+            >
+              <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet processActions(process: SessionTerminal)}
-	<div class="process-actions">
-		<button
-			type="button"
-			class="process-icon-action"
-			class:favorite={favoriteSet.has(processCommand(process))}
-			disabled={Boolean(updatingFavoriteCommand)}
-			onclick={(event) => void toggleFavorite(event, process)}
-			aria-pressed={favoriteSet.has(processCommand(process))}
-			aria-label={favoriteSet.has(processCommand(process)) ? `Remove ${processCommand(process)} from favorites` : `Save ${processCommand(process)} as favorite`}
-			title={favoriteSet.has(processCommand(process)) ? 'Remove favorite' : 'Save as favorite'}
-		>
-			<Star size={14} strokeWidth={1.9} fill={favoriteSet.has(processCommand(process)) ? 'currentColor' : 'none'} aria-hidden="true" />
-		</button>
-		{#if process.state === 'exited'}
-			<button
-				type="button"
-				class="process-icon-action"
-				disabled={starting || runningCommands.has(processCommand(process))}
-				onclick={(event) => { event.stopPropagation(); void runCommand(processCommand(process)); }}
-				aria-label={`Run ${processCommand(process)} again`}
-				title={runningCommands.has(processCommand(process)) ? 'Already running' : 'Run again'}
-			>
-				<RotateCcw size={14} strokeWidth={1.9} aria-hidden="true" />
-			</button>
-		{/if}
-		<button
-			type="button"
-			class="stop-process"
-			disabled={Boolean(stoppingProcessId)}
-			onclick={(event) => void stopProcess(event, process)}
-			aria-label={process.state === 'running' ? `Stop ${processCommand(process)}` : `Delete ${processCommand(process)}`}
-			title={process.state === 'running' ? 'Stop process' : 'Delete result'}
-		>
-			{#if process.state === 'running'}<Square size={12} strokeWidth={2} aria-hidden="true" />{:else}<Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />{/if}
-			<span>{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span>
-		</button>
-	</div>
+  <div class="process-actions">
+    <button
+      type="button"
+      class="process-icon-action"
+      class:favorite={favoriteSet.has(processCommand(process))}
+      disabled={Boolean(updatingFavoriteCommand)}
+      onclick={(event) => void toggleFavorite(event, process)}
+      aria-pressed={favoriteSet.has(processCommand(process))}
+      aria-label={favoriteSet.has(processCommand(process)) ? `Remove ${processCommand(process)} from favorites` : `Save ${processCommand(process)} as favorite`}
+      title={favoriteSet.has(processCommand(process)) ? 'Remove favorite' : 'Save as favorite'}
+    >
+      <Star
+        size={14}
+        strokeWidth={1.9}
+        fill={favoriteSet.has(processCommand(process)) ? 'currentColor' : 'none'}
+        aria-hidden="true"
+      />
+    </button>
+    {#if process.state === 'exited'}
+      <button
+        type="button"
+        class="process-icon-action"
+        disabled={starting || runningCommands.has(processCommand(process))}
+        onclick={(event) => { event.stopPropagation(); void runCommand(processCommand(process)); }}
+        aria-label={`Run ${processCommand(process)} again`}
+        title={runningCommands.has(processCommand(process)) ? 'Already running' : 'Run again'}
+      >
+        <RotateCcw size={14} strokeWidth={1.9} aria-hidden="true" />
+      </button>
+    {/if}
+    <button
+      type="button"
+      class="stop-process"
+      disabled={Boolean(stoppingProcessId)}
+      onclick={(event) => void stopProcess(event, process)}
+      aria-label={process.state === 'running' ? `Stop ${processCommand(process)}` : `Delete ${processCommand(process)}`}
+      title={process.state === 'running' ? 'Stop process' : 'Delete result'}
+    >
+      {#if process.state === 'running'}
+        <Square size={12} strokeWidth={2} aria-hidden="true" />
+      {:else}
+        <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
+      {/if}
+      <span>{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span>
+    </button>
+  </div>
 {/snippet}
 
 {#snippet processList()}
-	<div class="process-list" aria-label="Background process list">
-		{#if orderedProcesses.length === 0}
-			<p class="empty-processes">No background commands are running.</p>
-		{:else}
-			{#each orderedProcesses as process (process.id)}
-				<div class="process-row" class:selected={selectedProcessId === process.id}>
-					<button
-						type="button"
-						class="process-summary"
-						onclick={() => selectProcess(process)}
-						aria-expanded={selectedProcessId === process.id}
-						title={processCommand(process)}
-					>
-						<span class="process-state" class:exited={process.state === 'exited'} aria-hidden="true"></span>
-						<code>{processCommand(process)}</code>
-						<span>{processStatus(process)}</span>
-						{#if processAge(process)}<time>{processAge(process)}</time>{/if}
-					</button>
-					{@render processActions(process)}
-				</div>
-			{/each}
-		{/if}
-	</div>
+  <div class="process-list" aria-label="Background process list">
+    {#if orderedProcesses.length === 0}
+      <p class="empty-processes">No background commands are running.</p>
+    {:else}
+      {#each orderedProcesses as process (process.id)}
+        <div class="process-row" class:selected={selectedProcessId === process.id}>
+          <button
+            type="button"
+            class="process-summary"
+            onclick={() => selectProcess(process)}
+            aria-expanded={selectedProcessId === process.id}
+            title={processCommand(process)}
+          >
+            <span class="process-state" class:exited={process.state === 'exited'} aria-hidden="true"></span>
+            <code>{processCommand(process)}</code>
+            <span>{processStatus(process)}</span>
+            {#if processAge(process)}
+              <time>{processAge(process)}</time>
+            {/if}
+          </button>
+          {@render processActions(process)}
+        </div>
+      {/each}
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet processOutput(process: SessionTerminal)}
-	<section class="process-output" aria-label={`Output for ${processCommand(process)}`}>
-		<header>
-			<code>{processCommand(process)}</code>
-			<span>read-only output</span>
-		</header>
-		{#if outputError}
-			<p class="background-error" role="alert">{outputError}</p>
-		{:else if outputLoading}
-			<p class="output-placeholder">Loading output…</p>
-		{:else}
-			<pre>{output || 'No output yet.'}</pre>
-		{/if}
-	</section>
+  <section class="process-output" aria-label={`Output for ${processCommand(process)}`}>
+    <header>
+      <code>{processCommand(process)}</code>
+      <span>read-only output</span>
+    </header>
+    {#if outputError}
+      <p class="background-error" role="alert">{outputError}</p>
+    {:else if outputLoading}
+      <p class="output-placeholder">Loading output…</p>
+    {:else}
+      <pre>{output || 'No output yet.'}</pre>
+    {/if}
+  </section>
 {/snippet}
 
-{#if desktopViewport.current}
-	<section class="background-processes" aria-label="Background processes">
-		{#if open}
-			<div id={panelId} class="background-drawer">
-				{@render commandRunner(false)}
-				{@render favorites()}
-				<div class="background-content">
-					{@render processList()}
-					{#if selectedProcess}{@render processOutput(selectedProcess)}{/if}
-				</div>
-			</div>
-		{/if}
-		<footer class="background-bar">
-			<button
-				type="button"
-				class="background-toggle"
-				class:open
-				onclick={() => onOpenChange(!open)}
-				aria-expanded={open}
-				aria-controls={panelId}
-				aria-label={open ? 'Close background commands' : 'Run background command'}
-			>
-				<ChevronUp size={14} strokeWidth={1.8} aria-hidden="true" />
-				<span>Background</span>
-				{#if orderedProcesses.length > 0}<span class="process-count">{orderedProcesses.length}</span>{/if}
-			</button>
-		</footer>
-	</section>
-{:else if open}
-	<DialogShell
-		title="Background processes"
-		close={() => onOpenChange(false)}
-		closeLabel="Close background manager"
-		variant="sheet"
-		contentId={panelId}
-		onCloseAutoFocus={restoreTriggerFocus}
-	>
-		<div class="background-sheet-body">
-			{#if actionError}<p class="background-error manager-error" role="alert">{actionError}</p>{/if}
-			{#if mobileView === 'list'}
-				<div class="mobile-background-view list">
-					<div class="sheet-view-toolbar">
-						<span>{orderedProcesses.length === 0 ? 'No processes' : `${orderedProcesses.length} ${orderedProcesses.length === 1 ? 'process' : 'processes'}`}</span>
-						<button type="button" class="sheet-run-button" onclick={openRunner} aria-label="Run background command">
-							<Plus size={16} strokeWidth={2} aria-hidden="true" />
-							<span>Run command</span>
-						</button>
-					</div>
-					{@render processList()}
-				</div>
-			{:else if mobileView === 'runner'}
-				<div class="mobile-background-view runner">
-					<div class="sheet-view-toolbar start">
-						<button type="button" class="sheet-back" onclick={showProcessList} aria-label="Back to background processes">
-							<ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
-							<span>Processes</span>
-						</button>
-						<strong>Run command</strong>
-					</div>
-					{@render commandRunner(true)}
-					{@render favorites()}
-				</div>
-			{:else if selectedProcess}
-				<div class="mobile-background-view output">
-					<div class="sheet-view-toolbar start">
-						<button type="button" class="sheet-back" onclick={showProcessList} aria-label="Back to background processes">
-							<ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
-							<span>Processes</span>
-						</button>
-						<span>{processStatus(selectedProcess)}</span>
-					</div>
-					<div class="mobile-detail-actions">{@render processActions(selectedProcess)}</div>
-					{@render processOutput(selectedProcess)}
-				</div>
-			{/if}
-		</div>
-	</DialogShell>
+{#if open}
+  <DialogShell
+    title="Background processes"
+    close={() => onOpenChange(false)}
+    closeLabel="Close background manager"
+    variant="inspect"
+    contentId={panelId}
+    onCloseAutoFocus={restoreTriggerFocus}
+  >
+    {#snippet children()}
+      {#if desktopViewport.current}
+        <div class="background-desktop-view">
+          {@render commandRunner(false)}
+          {@render favorites()}
+          <div class="background-content">
+            {@render processList()}
+            {#if selectedProcess}
+              {@render processOutput(selectedProcess)}
+            {/if}
+          </div>
+        </div>
+      {:else}
+        <div class="background-sheet-body">
+          {#if actionError}
+            <p class="background-error manager-error" role="alert">{actionError}</p>
+          {/if}
+          {#if mobileView === 'list'}
+            <div class="mobile-background-view list">
+              <div class="sheet-view-toolbar">
+                <span
+                  >{orderedProcesses.length === 0 ? 'No processes' : `${orderedProcesses.length} ${orderedProcesses.length === 1 ? 'process' : 'processes'}`}</span
+                >
+                <button type="button" class="sheet-run-button" onclick={openRunner} aria-label="Run background command">
+                  <Plus size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>Run command</span>
+                </button>
+              </div>
+              {@render processList()}
+            </div>
+          {:else if mobileView === 'runner'}
+            <div class="mobile-background-view runner">
+              <div class="sheet-view-toolbar start">
+                <button
+                  type="button"
+                  class="sheet-back"
+                  onclick={showProcessList}
+                  aria-label="Back to background processes"
+                >
+                  <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
+                  <span>Processes</span>
+                </button>
+                <strong>Run command</strong>
+              </div>
+              {@render commandRunner(true)}
+              {@render favorites()}
+            </div>
+          {:else if selectedProcess}
+            <div class="mobile-background-view output">
+              <div class="sheet-view-toolbar start">
+                <button
+                  type="button"
+                  class="sheet-back"
+                  onclick={showProcessList}
+                  aria-label="Back to background processes"
+                >
+                  <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
+                  <span>Processes</span>
+                </button>
+                <span>{processStatus(selectedProcess)}</span>
+              </div>
+              <div class="mobile-detail-actions">{@render processActions(selectedProcess)}</div>
+              {@render processOutput(selectedProcess)}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {/snippet}
+  </DialogShell>
 {/if}
 
 <style>
-	.background-processes { position: relative; z-index: 8; display: grid; min-width: 0; border-top: 1px solid var(--color-border-subtle); background: var(--color-panel); color: var(--color-text); }
-	.background-drawer { position: absolute; right: 0; bottom: 100%; left: 0; display: flex; flex-direction: column; height: min(20rem, 52dvh); border: 1px solid var(--color-border-subtle); border-right: 0; border-left: 0; background: var(--color-panel); box-shadow: var(--shadow-terminal-dock); }
-	.background-runner { display: grid; grid-template-columns: minmax(11rem, 0.75fr) minmax(16rem, 1.25fr); align-items: center; gap: 0.75rem 1rem; padding: 0.8rem max(0.85rem, env(safe-area-inset-right)) 0.8rem max(0.85rem, env(safe-area-inset-left)); border-bottom: 1px solid var(--color-border-subtle); }
-	.background-runner.compact { grid-template-columns: minmax(0, 1fr); padding: 0.8rem; }
-	.background-runner-intro { display: grid; gap: 0.12rem; min-width: 0; }
-	.background-runner strong { font-size: var(--text-label); font-weight: var(--weight-medium); }
-	.background-runner-intro span { overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
-	.background-runner form { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
-	.background-runner input { min-width: 0; height: 2.35rem; padding: 0 0.72rem; border: 1px solid var(--color-border); border-right: 0; border-radius: var(--radius-control) 0 0 var(--radius-control); outline: none; background: var(--color-terminal-background); color: var(--color-terminal-foreground); font: inherit; font-family: var(--font-mono); font-size: var(--text-caption); }
-	.background-runner input:focus { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
-	.background-runner form button { min-width: 4.5rem; padding: 0 0.85rem; border: 0; border-radius: 0 var(--radius-control) var(--radius-control) 0; background: var(--color-accent); color: var(--color-accent-ink); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
-	.background-runner form button:disabled { cursor: wait; opacity: 0.55; }
-	.background-error { margin: 0; color: var(--color-danger-text); font-size: var(--text-caption); }
-	.desktop-runner-error { grid-column: 1 / -1; }
-	.manager-error { padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-danger-surface); }
-	.favorite-strip { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.7rem; min-height: 2.7rem; padding: 0.35rem max(0.85rem, env(safe-area-inset-right)) 0.35rem max(0.85rem, env(safe-area-inset-left)); border-bottom: 1px solid var(--color-border-subtle); }
-	.favorite-heading { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); white-space: nowrap; }
-	.favorite-empty { overflow: hidden; color: var(--color-text-disabled); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
-	.favorite-list { display: flex; gap: 0.4rem; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-	.favorite-command { display: grid; grid-template-columns: minmax(3rem, auto) 1.9rem 1.9rem; flex: 0 0 auto; align-items: center; max-width: min(24rem, 62vw); overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-sunken); }
-	.favorite-command code { min-width: 0; overflow: hidden; padding: 0 0.6rem; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--text-nano); text-overflow: ellipsis; white-space: nowrap; }
-	.favorite-command button { display: grid; place-items: center; width: 1.9rem; height: 1.85rem; padding: 0; border: 0; border-left: 1px solid var(--color-border); background: transparent; color: var(--color-text-tertiary); cursor: pointer; }
-	.favorite-command button:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-text); }
-	.favorite-command button:disabled { cursor: default; opacity: 0.42; }
-	.background-content { display: grid; grid-template-columns: minmax(17rem, 0.82fr) minmax(0, 1.18fr); flex: 1 1 auto; min-height: 0; overflow: hidden; }
-	.process-list { min-width: 0; min-height: 0; overflow-y: auto; border-right: 1px solid var(--color-border-subtle); }
-	.empty-processes, .output-placeholder { margin: 0; padding: 1rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
-	.process-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid var(--color-border-subtle); }
-	.process-row.selected { background: var(--color-surface-selected); }
-	.process-summary, .process-icon-action, .stop-process, .background-toggle { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-	.process-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 0.5rem; min-width: 0; min-height: 2.85rem; padding: 0.45rem 0.65rem 0.45rem max(0.85rem, env(safe-area-inset-left)); text-align: left; }
-	.process-summary:hover, .process-icon-action:hover:not(:disabled), .stop-process:hover:not(:disabled), .background-toggle:hover { background: var(--color-surface-hover); }
-	.process-state { width: 0.48rem; height: 0.48rem; border-radius: 50%; background: var(--color-success); box-shadow: var(--shadow-status-active); }
-	.process-state.exited { background: var(--color-text-disabled); box-shadow: none; }
-	.process-summary code, .process-output code { min-width: 0; overflow: hidden; color: var(--color-text); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
-	.process-summary > span:not(.process-state), .process-summary time { color: var(--color-text-tertiary); font-size: var(--text-nano); white-space: nowrap; }
-	.process-actions { display: flex; align-items: stretch; min-width: 0; }
-	.process-icon-action { display: grid; place-items: center; width: 2.25rem; padding: 0; color: var(--color-text-disabled); }
-	.process-icon-action.favorite { color: var(--color-warning-accent); }
-	.process-icon-action:disabled, .stop-process:disabled { cursor: wait; opacity: 0.5; }
-	.stop-process { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 4.6rem; padding: 0 0.7rem; color: var(--color-text-tertiary); font-size: var(--text-caption); }
-	.process-output { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--color-terminal-background); }
-	.process-output header { display: flex; align-items: center; gap: 0.55rem; min-width: 0; min-height: 2.4rem; padding: 0 0.8rem; border-bottom: 1px solid var(--color-border-subtle); }
-	.process-output header code { flex: 1 1 auto; }
-	.process-output header span { flex: 0 0 auto; color: var(--color-text-disabled); font-size: var(--text-nano); }
-	.process-output pre { min-width: 0; min-height: 0; overflow: auto; margin: 0; padding: 0.8rem; color: var(--color-terminal-foreground); font-family: var(--font-mono); font-size: var(--text-caption); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-	.background-bar { display: flex; align-items: stretch; min-width: 0; height: calc(2.35rem + env(safe-area-inset-bottom)); }
-	.background-toggle { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0.42rem; min-width: 0; padding: 0 max(0.85rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.85rem, env(safe-area-inset-left)); color: var(--color-text-tertiary); font-size: var(--text-caption); text-align: left; }
-	.background-toggle :global(svg) { transition: transform 150ms ease; }
-	.background-toggle.open :global(svg) { transform: rotate(180deg); }
-	.process-count { display: grid; place-items: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.25rem; border-radius: var(--radius-pill); background: var(--color-surface-raised); color: var(--color-text-secondary); font-size: var(--text-nano); font-variant-numeric: tabular-nums; }
+.background-desktop-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(32rem, calc(100dvh - 8rem));
+  overflow: hidden;
+}
+.background-runner {
+  display: grid;
+  grid-template-columns: minmax(11rem, 0.75fr) minmax(16rem, 1.25fr);
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.8rem max(0.85rem, env(safe-area-inset-right)) 0.8rem max(0.85rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.background-runner.compact {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0.8rem;
+}
+.background-runner-intro {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+.background-runner strong {
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.background-runner-intro span {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.background-runner form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+.background-runner input {
+  min-width: 0;
+  height: 2.35rem;
+  padding: 0 0.72rem;
+  border: 1px solid var(--color-border);
+  border-right: 0;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  outline: none;
+  background: var(--color-control-background);
+  color: var(--color-text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+.background-runner input:focus {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+.background-runner form button {
+  min-width: 4.5rem;
+  padding: 0 0.85rem;
+  border: 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.background-runner form button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.background-error {
+  margin: 0;
+  color: var(--color-danger-text);
+  font-size: var(--text-caption);
+}
+.desktop-runner-error {
+  grid-column: 1 / -1;
+}
+.manager-error {
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-danger-surface);
+}
+.favorite-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 2.7rem;
+  padding: 0.35rem max(0.85rem, env(safe-area-inset-right)) 0.35rem max(0.85rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.favorite-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.favorite-empty {
+  overflow: hidden;
+  color: var(--color-text-disabled);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favorite-list {
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.favorite-command {
+  display: grid;
+  grid-template-columns: minmax(3rem, auto) 1.9rem 1.9rem;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: min(24rem, 62vw);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-control-background);
+}
+.favorite-command code {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 0.6rem;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-nano);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favorite-command button {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.favorite-command button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.favorite-command button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+.background-content {
+  display: grid;
+  grid-template-columns: minmax(17rem, 0.82fr) minmax(0, 1.18fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.process-list {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border-subtle);
+}
+.empty-processes,
+.output-placeholder {
+  margin: 0;
+  padding: 1rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.process-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.process-row.selected {
+  background: var(--color-surface-selected);
+}
+.process-summary,
+.process-icon-action,
+.stop-process {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.process-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2.85rem;
+  padding: 0.45rem 0.65rem 0.45rem max(0.85rem, env(safe-area-inset-left));
+  text-align: left;
+}
+.process-summary:hover,
+.process-icon-action:hover:not(:disabled),
+.stop-process:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+.process-state {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: var(--shadow-status-active);
+}
+.process-state.exited {
+  background: var(--color-text-disabled);
+  box-shadow: none;
+}
+.process-summary code,
+.process-output code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.process-summary > span:not(.process-state),
+.process-summary time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  white-space: nowrap;
+}
+.process-actions {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.process-icon-action {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  padding: 0;
+  color: var(--color-text-disabled);
+}
+.process-icon-action.favorite {
+  color: var(--color-warning-accent);
+}
+.process-icon-action:disabled,
+.stop-process:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.stop-process {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 4.6rem;
+  padding: 0 0.7rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.process-output {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-terminal-background);
+}
+.process-output header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 2.4rem;
+  padding: 0 0.8rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.process-output header code {
+  flex: 1 1 auto;
+}
+.process-output header span {
+  flex: 0 0 auto;
+  color: var(--color-text-disabled);
+  font-size: var(--text-nano);
+}
+.process-output pre {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0.8rem;
+  color: var(--color-terminal-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.background-desktop-view .background-content {
+  flex: 0 0 auto;
+  height: min(20rem, 52dvh);
+}
 
-	.background-sheet-body { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); }
-	.mobile-background-view { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
-	.mobile-background-view.list { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-	.mobile-background-view.runner { overflow-y: auto; }
-	.mobile-background-view.output { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
-	.sheet-view-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; min-height: 3.25rem; padding: 0.45rem max(0.75rem, env(safe-area-inset-right)) 0.45rem max(0.75rem, env(safe-area-inset-left)); border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-tertiary); font-size: var(--text-caption); }
-	.sheet-view-toolbar.start { justify-content: flex-start; }
-	.sheet-view-toolbar.start > strong, .sheet-view-toolbar.start > span { margin-left: auto; color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-medium); }
-	.sheet-run-button, .sheet-back { display: inline-flex; align-items: center; justify-content: center; gap: 0.38rem; min-height: 2.35rem; padding: 0 0.72rem; border: 0; border-radius: var(--radius-control); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
-	.sheet-run-button { background: var(--color-accent); color: var(--color-accent-ink); }
-	.sheet-run-button:hover { background: var(--color-accent-hover); }
-	.sheet-back { padding-left: 0.55rem; background: transparent; color: var(--color-text-secondary); }
-	.sheet-back:hover { background: var(--color-surface-hover); color: var(--color-text); }
-	.mobile-background-view .process-list { border-right: 0; }
-	.mobile-background-view .process-row { grid-template-columns: minmax(0, 1fr) auto; }
-	.mobile-background-view .process-summary { min-height: 3.25rem; }
-	.mobile-detail-actions { display: flex; justify-content: flex-end; min-height: 3rem; border-bottom: 1px solid var(--color-border-subtle); }
-	.mobile-detail-actions .process-actions { min-height: 3rem; }
-	.mobile-detail-actions .process-icon-action { width: 2.75rem; }
-	.mobile-detail-actions .stop-process { min-width: 5.25rem; }
-	.mobile-background-view.runner .favorite-strip { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; padding-block: 0.6rem; }
-	.mobile-background-view.runner .favorite-list { padding-bottom: 0.2rem; }
-	.mobile-background-view .favorite-command { grid-template-columns: minmax(3rem, auto) 2.35rem 2.35rem; max-width: min(24rem, 72vw); }
-	.mobile-background-view .favorite-command button { width: 2.35rem; height: 2.2rem; }
+.background-sheet-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mobile-background-view {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.mobile-background-view.list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.mobile-background-view.runner {
+  overflow-y: auto;
+}
+.mobile-background-view.output {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.sheet-view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  min-height: 3.25rem;
+  padding: 0.45rem max(0.75rem, env(safe-area-inset-right)) 0.45rem max(0.75rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.sheet-view-toolbar.start {
+  justify-content: flex-start;
+}
+.sheet-view-toolbar.start > strong,
+.sheet-view-toolbar.start > span {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.sheet-run-button,
+.sheet-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-height: 2.35rem;
+  padding: 0 0.72rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.sheet-run-button {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+.sheet-run-button:hover {
+  background: var(--color-accent-hover);
+}
+.sheet-back {
+  padding-left: 0.55rem;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.sheet-back:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.mobile-background-view .process-list {
+  border-right: 0;
+}
+.mobile-background-view .process-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.mobile-background-view .process-summary {
+  min-height: 3.25rem;
+}
+.mobile-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 3rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.mobile-detail-actions .process-actions {
+  min-height: 3rem;
+}
+.mobile-detail-actions .process-icon-action {
+  width: 2.75rem;
+}
+.mobile-detail-actions .stop-process {
+  min-width: 5.25rem;
+}
+.mobile-background-view.runner .favorite-strip {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+  padding-block: 0.6rem;
+}
+.mobile-background-view.runner .favorite-list {
+  padding-bottom: 0.2rem;
+}
+.mobile-background-view .favorite-command {
+  grid-template-columns: minmax(3rem, auto) 2.35rem 2.35rem;
+  max-width: min(24rem, 72vw);
+}
+.mobile-background-view .favorite-command button {
+  width: 2.35rem;
+  height: 2.2rem;
+}
 
-	@media (max-width: 32rem) {
-		.mobile-background-view .process-row { grid-template-columns: minmax(0, 1fr); }
-		.mobile-background-view .process-actions { justify-content: flex-end; min-height: 2.65rem; border-top: 1px solid var(--color-border-subtle); }
-		.mobile-background-view .process-icon-action { width: 2.75rem; }
-		.mobile-background-view .stop-process { min-width: 5.25rem; }
-		.mobile-detail-actions .process-actions { border-top: 0; }
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.background-toggle :global(svg) { transition: none; }
-	}
+@media (max-width: 32rem) {
+  .mobile-background-view .process-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mobile-background-view .process-actions {
+    justify-content: flex-end;
+    min-height: 2.65rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+  .mobile-background-view .process-icon-action {
+    width: 2.75rem;
+  }
+  .mobile-background-view .stop-process {
+    min-width: 5.25rem;
+  }
+  .mobile-detail-actions .process-actions {
+    border-top: 0;
+  }
+}
 </style>

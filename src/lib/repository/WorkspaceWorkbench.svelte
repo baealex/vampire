@@ -376,7 +376,7 @@ onMount(() => {
 }
 .workspace-workbench {
   position: relative;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   --workspace-panel-width: min(22rem, calc(100% - 3rem));
 }

@@ -2,6 +2,7 @@
 import { onDestroy, onMount, tick } from 'svelte';
 import Sparkles from '@lucide/svelte/icons/sparkles';
 import X from '@lucide/svelte/icons/x';
+import WorkspacePanelHeader from '$lib/ui/WorkspacePanelHeader.svelte';
 
 const AUTOSAVE_DELAY_MS = 700;
 const AGENT_NOTE_REFRESH_MS = 2_000;
@@ -200,15 +201,25 @@ onDestroy(() => {
   tabindex="-1"
   onkeydown={handleKeydown}
 >
-  <header>
-    <div>
-      <h2 id="workspace-note-title">Workspace note</h2>
-      <p>Keep the next step here.</p>
-    </div>
-    <button type="button" class="close-button" onclick={() => void closeEditor()} aria-label="Close workspace note">
-      <X size={17} strokeWidth={1.9} aria-hidden="true" />
-    </button>
-  </header>
+  {#if panel}
+    <WorkspacePanelHeader
+      title="Workspace note"
+      titleId="workspace-note-title"
+      subtitle="Keep the next step here."
+      close={() => void closeEditor()}
+      closeLabel="Close workspace note"
+    />
+  {:else}
+    <header>
+      <div>
+        <h2 id="workspace-note-title">Workspace note</h2>
+        <p>Keep the next step here.</p>
+      </div>
+      <button type="button" class="close-button" onclick={() => void closeEditor()} aria-label="Close workspace note">
+        <X size={17} strokeWidth={1.9} aria-hidden="true" />
+      </button>
+    </header>
+  {/if}
   <form>
     {#if noteLoading}
       <p class="note-loading" role="status">Loading note…</p>
@@ -269,13 +280,23 @@ onDestroy(() => {
   box-shadow: var(--shadow-popover);
 }
 .note-editor.panel {
-  align-content: start;
-  min-height: 100%;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+.note-editor.panel > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.65rem;
+  padding: 1rem;
 }
 header {
   display: flex;
@@ -357,7 +378,8 @@ textarea:focus {
   box-shadow: var(--shadow-accent-focus);
 }
 .note-editor.panel textarea {
-  min-height: min(24rem, 42vh);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .note-footer {
   display: flex;

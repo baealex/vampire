@@ -1,10 +1,9 @@
 <script lang="ts">
+import Activity from '@lucide/svelte/icons/activity';
 import GitBranch from '@lucide/svelte/icons/git-branch';
+import ListTree from '@lucide/svelte/icons/list-tree';
 import PanelLeft from '@lucide/svelte/icons/panel-left';
-import PanelRight from '@lucide/svelte/icons/panel-right';
-import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import StickyNote from '@lucide/svelte/icons/sticky-note';
-import TerminalDisplayMenu from './TerminalDisplayMenu.svelte';
 
 let {
   projectName,
@@ -14,9 +13,8 @@ let {
   worktreeBranch,
   hasNote,
   noteOpen,
-  fontSize,
-  minimumFontSize,
-  maximumFontSize,
+  statusLabel,
+  showTools = true,
   close,
   repositoryOpen,
   isGitRepository,
@@ -30,8 +28,6 @@ let {
   toggleRepository,
   toggleNote,
   toggleBackground,
-  decreaseFontSize,
-  increaseFontSize,
 }: {
   projectName: string;
   cwd: string;
@@ -40,9 +36,8 @@ let {
   worktreeBranch?: string;
   hasNote: boolean;
   noteOpen: boolean;
-  fontSize: number;
-  minimumFontSize: number;
-  maximumFontSize: number;
+  statusLabel?: string;
+  showTools?: boolean;
   close: () => void;
   repositoryOpen: boolean;
   isGitRepository?: boolean;
@@ -56,12 +51,10 @@ let {
   toggleRepository: () => void;
   toggleNote: () => void;
   toggleBackground: () => void;
-  decreaseFontSize: () => void;
-  increaseFontSize: () => void;
 } = $props();
 </script>
 
-<header class="terminal-header">
+<header class="terminal-header" class:terminal-header-no-tools={!showTools}>
   <button class="back-button" onclick={close} aria-label="Open workspaces">
     <PanelLeft size={18} strokeWidth={1.8} aria-hidden="true" />
     <span>Workspaces</span>
@@ -86,55 +79,60 @@ let {
           worktrees</span
         >
       {/if}
+      {#if statusLabel}
+        <span class="workspace-status">{statusLabel}</span>
+      {/if}
     </div>
     <span title={cwd}>{cwd}</span>
   </div>
-  <div class="terminal-controls">
-    <div class="terminal-tools" role="group" aria-label="Terminal tools">
-      <TerminalDisplayMenu {fontSize} {minimumFontSize} {maximumFontSize} {decreaseFontSize} {increaseFontSize} />
-      <button
-        id={backgroundTriggerId}
-        type="button"
-        class="background-button"
-        class:active={backgroundOpen}
-        onclick={toggleBackground}
-        aria-label={backgroundOpen ? 'Close background processes' : 'Open background processes'}
-        aria-expanded={backgroundOpen}
-        aria-controls={backgroundPanelId}
-      >
-        <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
-        {#if backgroundCount > 0}
-          <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>
-        {/if}
-      </button>
-      {#if !noteOpen}
+  {#if showTools}
+    <div class="terminal-controls">
+      <div class="terminal-tools" role="group" aria-label="Terminal tools">
         <button
+          id={backgroundTriggerId}
           type="button"
-          class="note-button"
-          class:has-note={hasNote}
-          onclick={toggleNote}
-          aria-label={hasNote ? 'Open workspace note' : 'Add workspace note'}
-          aria-expanded={noteOpen}
+          class="background-button"
+          class:active={backgroundOpen}
+          onclick={toggleBackground}
+          aria-label={backgroundOpen ? 'Close background processes' : 'Open background processes'}
+          title={backgroundOpen ? 'Close background processes' : 'Open background processes'}
+          aria-expanded={backgroundOpen}
+          aria-controls={backgroundPanelId}
         >
-          <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      {/if}
-      {#if !repositoryOpen}
-        <button
-          type="button"
-          class="repository-button"
-          onclick={toggleRepository}
-          aria-label={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
-          aria-expanded={repositoryOpen}
-        >
-          <PanelRight size={16} strokeWidth={1.8} aria-hidden="true" />
-          {#if isGitRepository && changeCount > 0}
-            <span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>
+          <Activity size={16} strokeWidth={1.8} aria-hidden="true" />
+          {#if backgroundCount > 0}
+            <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>
           {/if}
         </button>
-      {/if}
+        {#if !noteOpen}
+          <button
+            type="button"
+            class="note-button"
+            class:has-note={hasNote}
+            onclick={toggleNote}
+            aria-label={hasNote ? 'Open workspace note' : 'Add workspace note'}
+            aria-expanded={noteOpen}
+          >
+            <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        {/if}
+        {#if !repositoryOpen}
+          <button
+            type="button"
+            class="repository-button"
+            onclick={toggleRepository}
+            aria-label={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
+            aria-expanded={repositoryOpen}
+          >
+            <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />
+            {#if isGitRepository && changeCount > 0}
+              <span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>
+            {/if}
+          </button>
+        {/if}
+      </div>
     </div>
-  </div>
+  {/if}
 </header>
 
 <style>
@@ -169,12 +167,12 @@ let {
   display: grid;
   min-width: 0;
   justify-items: center;
-  gap: 0.18rem;
+  gap: 0.34rem;
 }
 .terminal-identity-title {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
   min-width: 0;
   max-width: 100%;
 }
@@ -186,6 +184,16 @@ let {
   line-height: var(--leading-tight);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.workspace-status {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-size: var(--text-nano);
+  line-height: 1.25;
 }
 .terminal-identity > span {
   max-width: 100%;
@@ -302,7 +310,9 @@ let {
   background: var(--color-accent);
   content: "";
 }
-
+.terminal-header-no-tools {
+  grid-template-columns: minmax(0, 1fr);
+}
 @media (min-width: 64rem) {
   .terminal-header {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -313,14 +323,20 @@ let {
   .terminal-identity {
     justify-items: start;
   }
-  .background-button {
-    display: none;
+  .terminal-header {
+    padding-block: 0.8rem;
+  }
+  .terminal-header-no-tools {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 63.999rem) {
   .terminal-header {
     gap: 0.5rem;
+  }
+  .terminal-header-no-tools {
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .back-button {
     width: 2.65rem;
@@ -334,9 +350,6 @@ let {
   .terminal-identity {
     justify-items: start;
   }
-  :global(.terminal-display-menu) {
-    display: none;
-  }
 }
 
 @media (max-width: 32rem) {
@@ -345,12 +358,15 @@ let {
     gap: 0.35rem;
     padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right));
   }
+  .terminal-header-no-tools {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+  }
   .back-button {
     width: 2.75rem;
     min-height: 2.75rem;
   }
   .terminal-identity-title {
-    gap: 0.2rem;
+    gap: 0.3rem;
   }
   .terminal-controls,
   .terminal-tools {

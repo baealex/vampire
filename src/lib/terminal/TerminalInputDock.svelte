@@ -206,7 +206,7 @@ function handleImageSelection(event: Event) {
     <button
       type="button"
       aria-label="Decrease terminal text size"
-      title="Decrease text size"
+      title={`Decrease text size (currently ${fontSize}px)`}
       disabled={fontSize <= minimumFontSize}
       onpointerdown={preventButtonFocus}
       onclick={decreaseFontSize}
@@ -216,7 +216,7 @@ function handleImageSelection(event: Event) {
     <button
       type="button"
       aria-label="Increase terminal text size"
-      title="Increase text size"
+      title={`Increase text size (currently ${fontSize}px)`}
       disabled={fontSize >= maximumFontSize}
       onpointerdown={preventButtonFocus}
       onclick={increaseFontSize}
@@ -283,6 +283,8 @@ function handleImageSelection(event: Event) {
 
 <style>
 .input-dock {
+  --dock-inline-start: max(0.55rem, env(safe-area-inset-left));
+  --dock-inline-end: max(0.55rem, env(safe-area-inset-right));
   min-width: 0;
   border-top: 1px solid var(--color-border-subtle);
   background: var(--color-panel);
@@ -294,19 +296,19 @@ function handleImageSelection(event: Event) {
   gap: 0.3rem;
   min-width: 0;
   overflow-x: auto;
-  padding: 0.45rem max(0.45rem, env(safe-area-inset-right)) 0.25rem max(0.45rem, env(safe-area-inset-left));
+  padding: 0.45rem var(--dock-inline-end) 0.25rem var(--dock-inline-start);
   scrollbar-width: none;
 }
 .touch-toolbar::-webkit-scrollbar {
   display: none;
 }
 .touch-toolbar button {
-  flex: 0 0 var(--control-height-md);
-  width: var(--control-height-md);
-  min-width: var(--control-height-md);
-  height: var(--control-height-md);
-  min-height: var(--control-height-md);
-  padding: 0 0.2rem;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 2.5rem;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0 0.65rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-control-background);
@@ -325,14 +327,15 @@ function handleImageSelection(event: Event) {
   cursor: default;
 }
 .touch-toolbar .wide-key {
-  flex-basis: 3.75rem;
-  width: 3.75rem;
+  flex-basis: auto;
+  width: auto;
   min-width: 3.75rem;
+  padding-inline: 0.75rem;
 }
 .toolbar-divider {
   flex: 0 0 1px;
   width: 1px;
-  height: var(--control-height-md);
+  height: 2.25rem;
   margin: 0 0.15rem;
   background: var(--color-border);
 }
@@ -342,7 +345,7 @@ function handleImageSelection(event: Event) {
   align-items: center;
   gap: 0.2rem;
   min-width: 0;
-  margin: 0.35rem max(0.55rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.55rem);
+  margin: 0.35rem var(--dock-inline-end) max(0.5rem, env(safe-area-inset-bottom)) var(--dock-inline-start);
   padding: 0.18rem;
   border: 1px solid var(--color-border);
   border-radius: 0.78rem;
@@ -421,12 +424,16 @@ function handleImageSelection(event: Event) {
 }
 
 @media (min-width: 64rem) {
+  .input-dock {
+    --dock-inline-start: 0.75rem;
+    --dock-inline-end: 0.75rem;
+  }
   .touch-toolbar {
     display: none;
   }
   .composer {
     grid-template-columns: minmax(0, 1fr) var(--control-height-md) var(--control-height-md);
-    margin: 0.6rem 0.75rem 0.7rem;
+    margin: 0.6rem var(--dock-inline-end) 0.7rem var(--dock-inline-start);
   }
   .composer textarea {
     font-size: var(--text-body);

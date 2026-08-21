@@ -4,7 +4,6 @@ import { pushState } from '$app/navigation';
 import { onMount } from 'svelte';
 import CircleHelp from '@lucide/svelte/icons/circle-help';
 import Keyboard from '@lucide/svelte/icons/keyboard';
-import PanelLeft from '@lucide/svelte/icons/panel-left';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import LoginScreen from '$lib/LoginScreen.svelte';
 import TmuxSetupScreen from '$lib/TmuxSetupScreen.svelte';
@@ -20,8 +19,9 @@ import WorkspaceAutomationsDialog from '$lib/session/WorkspaceAutomationsDialog.
 import WorkspaceSettings from '$lib/session/WorkspaceSettings.svelte';
 import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 import type { ManagedSession, MobilePanel } from '$lib/session/types';
-import { workspaceName } from '$lib/session/view';
+import { isWorktreeWorkspace, workspaceName, workspaceRepositoryName } from '$lib/session/view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '$lib/ui/layout';
+import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
 
 let { initialSessionId = undefined }: { initialSessionId?: string } = $props();
 
@@ -336,178 +336,189 @@ onMount(() => {
       onSubmit={() => void unlock()}
     />
   {:else}
-    <div class="dashboard" class:terminal-open={workspace.hasOpenSession}>
-      <SessionNavigator
-        sessions={workspace.sessions}
-        displayedSessions={workspace.displayedSessions}
-        selectedSessionId={workspace.activeSession?.id}
-        activityRecords={workspace.activityRecords}
-        authenticationRequired={connection.authenticationRequired}
-        hasOpenSession={workspace.hasOpenSession}
-        mobileOpen={mobilePanel === 'sessions'}
-        errorMessage={workspace.errorMessage || connection.errorMessage}
-        sessionOrderMode={workspace.sessionOrderMode}
-        workspacePreferencesError={workspace.workspacePreferencesError}
-        bind:newSessionOpen={workspace.newSessionOpen}
-        bind:cwd={workspace.cwd}
-        starting={workspace.starting}
-        startError={workspace.startError}
-        tmuxAvailable={tmuxStatus?.available}
-        onLogout={() => void logout()}
-        onClose={closeSessionNavigator}
-        onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
-        onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
-        onOpen={openSession}
-        onSettings={openStartupProfile}
-        onAlias={openWorkspaceAlias}
-        onNewWorktree={openNewWorktree}
-        onAutomations={openWorkspaceAutomations}
-        sessionAction={workspace.sessionAction}
-        onCloseSession={closeSession}
-        onRemoveSession={removeSession}
-        onCreate={() => void createSession()}
-      />
+    <div class="app-shell">
+      <div class="dashboard" class:terminal-open={workspace.hasOpenSession}>
+        <SessionNavigator
+          sessions={workspace.sessions}
+          displayedSessions={workspace.displayedSessions}
+          selectedSessionId={workspace.activeSession?.id}
+          activityRecords={workspace.activityRecords}
+          authenticationRequired={connection.authenticationRequired}
+          hasOpenSession={workspace.hasOpenSession}
+          mobileOpen={mobilePanel === 'sessions'}
+          errorMessage={workspace.errorMessage || connection.errorMessage}
+          sessionOrderMode={workspace.sessionOrderMode}
+          workspacePreferencesError={workspace.workspacePreferencesError}
+          bind:newSessionOpen={workspace.newSessionOpen}
+          bind:cwd={workspace.cwd}
+          starting={workspace.starting}
+          startError={workspace.startError}
+          tmuxAvailable={tmuxStatus?.available}
+          onLogout={() => void logout()}
+          onClose={closeSessionNavigator}
+          onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
+          onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
+          onOpen={openSession}
+          onSettings={openStartupProfile}
+          onAlias={openWorkspaceAlias}
+          onNewWorktree={openNewWorktree}
+          onAutomations={openWorkspaceAutomations}
+          sessionAction={workspace.sessionAction}
+          onCloseSession={closeSession}
+          onRemoveSession={removeSession}
+          onCreate={() => void createSession()}
+        />
 
-      {#if workspace.activeSession?.state === 'missing'}
-        <section class="unavailable-sheet" aria-labelledby="ended-session-title">
-          <header class="unavailable-header">
-            <button class="detail-back" onclick={openSessionNavigator} aria-label="Open workspaces">
-              <PanelLeft size={18} strokeWidth={1.8} aria-hidden="true" />
-              <span>Workspaces</span>
-            </button>
-            <div class="unavailable-identity">
-              <strong>{workspaceName(workspace.activeSession)}</strong>
-              <span title={workspace.activeSession.cwd}>{workspace.activeSession.cwd}</span>
-            </div>
-            <span class="ended-badge">Ended</span>
-          </header>
-          <div class="unavailable-body">
-            <span class="unavailable-icon" aria-hidden="true"><SquareTerminal size={22} strokeWidth={1.7} /></span>
-            <p class="section-label">
-              {workspace.activeSession.workspaceAvailable === false ? 'working copy unavailable' : 'tmux session unavailable'}
-            </p>
-            <h2 id="ended-session-title">
-              {workspace.activeSession.workspaceAvailable === false ? 'This working copy was removed' : 'This shell has ended'}
-            </h2>
-            <p>
-              {workspace.activeSession.workspaceAvailable === false
+        {#if workspace.activeSession?.state === 'missing'}
+          <section class="unavailable-sheet" aria-labelledby="ended-session-title">
+            <TerminalHeader
+              projectName={workspaceName(workspace.activeSession)}
+              cwd={workspace.activeSession.cwd}
+              isWorktree={isWorktreeWorkspace(workspace.activeSession)}
+              repositoryName={workspaceRepositoryName(workspace.activeSession)}
+              worktreeBranch={workspace.activeSession.worktreeBranch}
+              hasNote={Boolean(workspace.activeSession.notePreview)}
+              noteOpen={false}
+              statusLabel="Ended"
+              showTools={false}
+              close={openSessionNavigator}
+              repositoryOpen={true}
+              isGitRepository={workspace.activeSession.isGitRepository}
+              workspaceAvailable={workspace.activeSession.workspaceAvailable !== false}
+              changeCount={0}
+              worktreeCount={0}
+              backgroundOpen={false}
+              backgroundCount={0}
+              backgroundPanelId={`ended-background-${workspace.activeSession.id}`}
+              backgroundTriggerId={`ended-background-trigger-${workspace.activeSession.id}`}
+              toggleRepository={() => undefined}
+              toggleNote={() => undefined}
+              toggleBackground={() => undefined}
+            />
+            <div class="unavailable-body">
+              <span class="unavailable-icon" aria-hidden="true"><SquareTerminal size={22} strokeWidth={1.7} /></span>
+              <p class="section-label">
+                {workspace.activeSession.workspaceAvailable === false ? 'working copy unavailable' : 'tmux session unavailable'}
+              </p>
+              <h2 id="ended-session-title">
+                {workspace.activeSession.workspaceAvailable === false ? 'This working copy was removed' : 'This shell has ended'}
+              </h2>
+              <p>
+                {workspace.activeSession.workspaceAvailable === false
 							? 'The terminal has ended and its working directory no longer exists. Removing this entry does not delete the Git branch.'
 							: 'The process is no longer running. You can open a fresh shell in the same project or remove this workspace from the list.'}
-            </p>
-            <code>{workspace.activeSession.cwd}</code>
-            <div class="unavailable-actions">
-              {#if workspace.activeSession.workspaceAvailable !== false}
+              </p>
+              <code>{workspace.activeSession.cwd}</code>
+              <div class="unavailable-actions">
+                {#if workspace.activeSession.workspaceAvailable !== false}
+                  <button
+                    class="primary-button"
+                    onclick={() => void restartSession(workspace.activeSession!)}
+                    disabled={Boolean(workspace.sessionAction)}
+                  >
+                    {workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
+                  </button>
+                {/if}
                 <button
-                  class="primary-button"
-                  onclick={() => void restartSession(workspace.activeSession!)}
+                  class="remove-button"
+                  onclick={() => void removeSession(workspace.activeSession!)}
                   disabled={Boolean(workspace.sessionAction)}
                 >
-                  {workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
+                  {workspace.sessionAction === 'remove' ? 'Removing…' : 'Remove workspace'}
                 </button>
+              </div>
+              {#if workspace.sessionActionError}
+                <p class="error" role="alert">{workspace.sessionActionError}</p>
               {/if}
-              <button
-                class="remove-button"
-                onclick={() => void removeSession(workspace.activeSession!)}
-                disabled={Boolean(workspace.sessionAction)}
-              >
-                {workspace.sessionAction === 'remove' ? 'Removing…' : 'Remove workspace'}
-              </button>
             </div>
-            {#if workspace.sessionActionError}
-              <p class="error" role="alert">{workspace.sessionActionError}</p>
-            {/if}
-          </div>
-        </section>
-      {:else if workspace.activeSession}
-        {#key workspace.activeSession.id}
-          <WorkspaceWorkbench
-            session={workspace.activeSession}
-            onStartBackground={(command) => workspace.startBackgroundProcess(workspace.activeSession!.id, command)}
-            onStopBackground={(process) => workspace.stopBackgroundProcess(workspace.activeSession!.id, process.id)}
-            onLoadBackgroundOutput={(processId) => workspace.loadBackgroundOutput(workspace.activeSession!.id, processId)}
-            onFavoriteBackground={(command) => workspace.favoriteBackgroundCommand(workspace.activeSession!.id, command)}
-            onRemoveBackgroundFavorite={(command) => workspace.removeBackgroundCommandFavorite(workspace.activeSession!.id, command)}
-            startingBackground={workspace.startingBackgroundSessionId === workspace.activeSession.id}
-            stoppingBackgroundProcessId={workspace.stoppingBackgroundProcessId}
-            updatingFavoriteCommand={workspace.updatingFavoriteCommand}
-            backgroundActionError={workspace.backgroundActionErrorSessionId === workspace.activeSession.id ? workspace.backgroundActionError : ''}
-            close={openSessionNavigator}
-            onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
-            onLoadNote={(sessionId, refresh) => workspace.loadSessionNote(sessionId, refresh)}
-            onSummarizeNote={(sessionId) => workspace.queueSessionNoteSummary(sessionId)}
-            onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
-            onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
-            onTerminalPresentationChange={setTerminalPresentation}
-            {mobilePanel}
-            onMobilePanelChange={setMobilePanel}
-            {repositoryPanelOpen}
-            onRepositoryPanelOpenChange={setRepositoryPanelOpen}
-            {repositoryTab}
-            onRepositoryTabChange={setRepositoryTab}
-            statusPlugins={connection.statusPlugins}
-          />
-        {/key}
-      {:else if workspace.requestedSessionId && workspace.sessionsLoaded}
-        <section class="unavailable-sheet" aria-labelledby="missing-session-title">
-          <header class="unavailable-header">
-            <button class="detail-back" onclick={openSessionNavigator} aria-label="Open workspaces">
-              <PanelLeft size={18} strokeWidth={1.8} aria-hidden="true" />
-              <span>Workspaces</span>
-            </button>
-          </header>
-          <div class="unavailable-body">
-            <span class="unavailable-icon" aria-hidden="true"><CircleHelp size={22} strokeWidth={1.7} /></span>
-            <h2 id="missing-session-title">Workspace not found</h2>
-            <p>This workspace is no longer registered on this Vampire server.</p>
-            <button class="secondary-button" onclick={openSessionNavigator}>Open workspaces</button>
-          </div>
-        </section>
-      {:else}
-        <section class="empty-workbench" aria-labelledby="empty-workbench-title">
-          <span class="empty-workbench__prompt" aria-hidden="true"><SquareTerminal size={26} strokeWidth={1.5} /></span>
-          <h2 id="empty-workbench-title">Select a workspace</h2>
-          <p>Choose a workspace from the sidebar or start a new one.</p>
-          <p class="empty-workbench__shortcut">
-            <Keyboard size={14} strokeWidth={1.7} aria-hidden="true" /> {sessionShortcutModifier}1–0 · Alt+1–0
-          </p>
-        </section>
-      {/if}
+          </section>
+        {:else if workspace.activeSession}
+          {#key workspace.activeSession.id}
+            <WorkspaceWorkbench
+              session={workspace.activeSession}
+              onStartBackground={(command) => workspace.startBackgroundProcess(workspace.activeSession!.id, command)}
+              onStopBackground={(process) => workspace.stopBackgroundProcess(workspace.activeSession!.id, process.id)}
+              onLoadBackgroundOutput={(processId) => workspace.loadBackgroundOutput(workspace.activeSession!.id, processId)}
+              onFavoriteBackground={(command) => workspace.favoriteBackgroundCommand(workspace.activeSession!.id, command)}
+              onRemoveBackgroundFavorite={(command) => workspace.removeBackgroundCommandFavorite(workspace.activeSession!.id, command)}
+              startingBackground={workspace.startingBackgroundSessionId === workspace.activeSession.id}
+              stoppingBackgroundProcessId={workspace.stoppingBackgroundProcessId}
+              updatingFavoriteCommand={workspace.updatingFavoriteCommand}
+              backgroundActionError={workspace.backgroundActionErrorSessionId === workspace.activeSession.id ? workspace.backgroundActionError : ''}
+              close={openSessionNavigator}
+              onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
+              onLoadNote={(sessionId, refresh) => workspace.loadSessionNote(sessionId, refresh)}
+              onSummarizeNote={(sessionId) => workspace.queueSessionNoteSummary(sessionId)}
+              onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
+              onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
+              onTerminalPresentationChange={setTerminalPresentation}
+              {mobilePanel}
+              onMobilePanelChange={setMobilePanel}
+              {repositoryPanelOpen}
+              onRepositoryPanelOpenChange={setRepositoryPanelOpen}
+              {repositoryTab}
+              onRepositoryTabChange={setRepositoryTab}
+              statusPlugins={connection.statusPlugins}
+            />
+          {/key}
+        {:else if workspace.requestedSessionId && workspace.sessionsLoaded}
+          <section class="unavailable-sheet" aria-labelledby="missing-session-title">
+            <div class="unavailable-body">
+              <span class="unavailable-icon" aria-hidden="true"><CircleHelp size={22} strokeWidth={1.7} /></span>
+              <h2 id="missing-session-title">Workspace not found</h2>
+              <p>This workspace is no longer registered on this Vampire server.</p>
+              <button class="secondary-button" onclick={openSessionNavigator}>Open workspaces</button>
+            </div>
+          </section>
+        {:else}
+          <section class="empty-workbench" aria-labelledby="empty-workbench-title">
+            <span class="empty-workbench__prompt" aria-hidden="true"
+              ><SquareTerminal size={26} strokeWidth={1.5} /></span
+            >
+            <h2 id="empty-workbench-title">Select a workspace</h2>
+            <p>Choose a workspace from the sidebar or start a new one.</p>
+            <p class="empty-workbench__shortcut">
+              <Keyboard size={14} strokeWidth={1.7} aria-hidden="true" /> {sessionShortcutModifier}1–0 · Alt+1–0
+            </p>
+          </section>
+        {/if}
 
-      {#if workspaceSettingsOpen && workspace.activeSession}
-        <WorkspaceSettings
-          session={workspace.activeSession}
-          profiles={workspace.launchProfiles}
-          onClose={() => workspaceSettingsOpen = false}
-          onSave={(settings) => workspace.updateWorkspaceStartup(
+        {#if workspaceSettingsOpen && workspace.activeSession}
+          <WorkspaceSettings
+            session={workspace.activeSession}
+            profiles={workspace.launchProfiles}
+            onClose={() => workspaceSettingsOpen = false}
+            onSave={(settings) => workspace.updateWorkspaceStartup(
 						workspace.activeSession!.id,
 						settings.launchProfiles,
 						settings.startupProfileId
 					)}
-        />
-      {/if}
+          />
+        {/if}
 
-      {#if workspaceAutomationsSession}
-        <WorkspaceAutomationsDialog
-          session={workspace.sessions.find((candidate) => candidate.id === workspaceAutomationsSession?.id) ?? workspaceAutomationsSession}
-          close={() => workspaceAutomationsSession = undefined}
-        />
-      {/if}
+        {#if workspaceAutomationsSession}
+          <WorkspaceAutomationsDialog
+            session={workspace.sessions.find((candidate) => candidate.id === workspaceAutomationsSession?.id) ?? workspaceAutomationsSession}
+            close={() => workspaceAutomationsSession = undefined}
+          />
+        {/if}
 
-      {#if worktreeSourceSession}
-        <NewWorktreeDialog
-          source={worktreeSourceSession}
-          close={() => worktreeSourceSession = undefined}
-          onCreate={createIsolatedWorkspace}
-        />
-      {/if}
+        {#if worktreeSourceSession}
+          <NewWorktreeDialog
+            source={worktreeSourceSession}
+            close={() => worktreeSourceSession = undefined}
+            onCreate={createIsolatedWorkspace}
+          />
+        {/if}
 
-      {#if workspaceAliasSession}
-        <WorkspaceAliasDialog
-          session={workspace.sessions.find((session) => session.id === workspaceAliasSession?.id) ?? workspaceAliasSession}
-          close={() => workspaceAliasSession = undefined}
-          onSave={saveWorkspaceAlias}
-        />
-      {/if}
+        {#if workspaceAliasSession}
+          <WorkspaceAliasDialog
+            session={workspace.sessions.find((session) => session.id === workspaceAliasSession?.id) ?? workspaceAliasSession}
+            close={() => workspaceAliasSession = undefined}
+            onSave={saveWorkspaceAlias}
+          />
+        {/if}
+      </div>
     </div>
   {/if}
 </main>
@@ -515,6 +526,10 @@ onMount(() => {
 <style>
 main {
   width: 100%;
+  min-height: 100dvh;
+}
+.app-shell {
+  min-width: 0;
   min-height: 100dvh;
 }
 .dashboard {
@@ -570,64 +585,6 @@ main {
   overflow: hidden;
   background: var(--color-terminal-background);
   color: var(--color-text);
-}
-.unavailable-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-  padding: max(0.65rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0.65rem
-    max(0.75rem, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-panel);
-}
-.detail-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-height: 2.65rem;
-  padding: 0 0.65rem 0 0.45rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-.detail-back:hover {
-  background: var(--color-surface-hover);
-}
-.unavailable-identity {
-  display: grid;
-  min-width: 0;
-  justify-items: center;
-  gap: 0.18rem;
-}
-.unavailable-identity strong,
-.unavailable-identity span {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.unavailable-identity strong {
-  font-size: var(--text-body);
-  font-weight: var(--weight-medium);
-}
-.unavailable-identity span {
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-}
-.ended-badge {
-  padding: 0.28rem 0.5rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
 }
 .unavailable-body {
   display: flex;
@@ -715,6 +672,10 @@ main {
     height: 100dvh;
     overflow: hidden;
   }
+  .app-shell {
+    height: 100%;
+    min-height: 0;
+  }
   .dashboard {
     display: grid;
     grid-template-columns: 20rem minmax(0, 1fr);
@@ -761,23 +722,10 @@ main {
     position: relative;
     z-index: 1;
     inset: auto;
-    height: 100dvh;
+    height: 100%;
     min-height: 0;
     border: 0;
     border-radius: 0;
-  }
-}
-@media (max-width: 32rem) {
-  .unavailable-header {
-    grid-template-columns: 2.65rem minmax(0, 1fr) auto;
-  }
-  .detail-back {
-    width: 2.65rem;
-    padding: 0;
-    justify-content: center;
-  }
-  .detail-back span {
-    display: none;
   }
 }
 </style>

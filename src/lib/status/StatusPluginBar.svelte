@@ -2,10 +2,8 @@
 import { Popover } from 'bits-ui';
 import Check from '@lucide/svelte/icons/check';
 import ExternalLink from '@lucide/svelte/icons/external-link';
-import Network from '@lucide/svelte/icons/network';
 import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
-import Settings2 from '@lucide/svelte/icons/settings-2';
-import ListeningPortsDialog from '$lib/system/ListeningPortsDialog.svelte';
+import Plus from '@lucide/svelte/icons/plus';
 import type { StatusPluginMenuEntry, StatusPluginSnapshot } from './status-plugin.ts';
 import StatusPluginSettings from './StatusPluginSettings.svelte';
 
@@ -13,7 +11,6 @@ type StatusPluginItem = Extract<StatusPluginMenuEntry, { type: 'item' }>;
 
 let { plugins }: { plugins: StatusPluginSnapshot[] } = $props();
 let settingsOpen = $state(false);
-let listeningPortsOpen = $state(false);
 let closedByOutsidePointer = false;
 
 function timestampLabel(timestamp: number): string {
@@ -167,47 +164,31 @@ function handleCloseAutoFocus(event: Event) {
           </Popover.Portal>
         </Popover.Root>
       {/each}
+      <button
+        type="button"
+        class="status-plugin-add"
+        onclick={() => (settingsOpen = true)}
+        aria-label="Add status widget"
+        aria-expanded={settingsOpen}
+        title="Add status widget"
+      >
+        <Plus size={14} strokeWidth={1.9} aria-hidden="true" />
+      </button>
     </div>
   </div>
-  <button
-    type="button"
-    class="status-plugin-system"
-    onclick={() => (listeningPortsOpen = true)}
-    aria-label="Inspect listening ports"
-    title="Inspect listening ports"
-  >
-    <Network size={15} strokeWidth={1.8} aria-hidden="true" />
-  </button>
-  <button
-    type="button"
-    class="status-plugin-settings"
-    onclick={() => (settingsOpen = true)}
-    aria-label="Manage status plugins"
-    aria-expanded={settingsOpen}
-    title="Manage status plugins"
-  >
-    <Settings2 size={15} strokeWidth={1.8} aria-hidden="true" />
-  </button>
 </section>
 
 {#if settingsOpen}
   <StatusPluginSettings close={() => (settingsOpen = false)} />
 {/if}
 
-{#if listeningPortsOpen}
-  <ListeningPortsDialog close={() => (listeningPortsOpen = false)} />
-{/if}
-
 <style>
 .status-plugin-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: stretch;
+  display: block;
   min-width: 0;
   min-height: 2.15rem;
-  border-top: 1px solid var(--color-border-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-divider-subtle);
+  background: var(--color-panel);
   color: var(--color-text-secondary);
 }
 .status-plugin-scroll {
@@ -224,7 +205,7 @@ function handleCloseAutoFocus(event: Event) {
   align-items: stretch;
   width: max-content;
   min-width: 100%;
-  padding-left: max(0.45rem, env(safe-area-inset-left));
+  padding-left: 0;
 }
 :global(.status-plugin) {
   display: inline-flex;
@@ -234,7 +215,7 @@ function handleCloseAutoFocus(event: Event) {
   min-height: 2.15rem;
   padding: 0 0.58rem;
   border: 0;
-  border-right: 1px solid var(--color-border-subtle);
+  border-right: 1px solid var(--color-divider-subtle);
   background: transparent;
   color: var(--color-text-secondary);
   font: inherit;
@@ -267,25 +248,24 @@ function handleCloseAutoFocus(event: Event) {
 :global(.status-plugin--problem > svg) {
   color: var(--color-danger-text);
 }
-.status-plugin-system,
-.status-plugin-settings {
+.status-plugin-add {
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
-  width: 2.4rem;
+  width: 2.15rem;
   min-height: 2.15rem;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--color-border);
-  background: var(--color-panel);
+  border-left: 1px solid var(--color-divider-subtle);
+  background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
-.status-plugin-system:hover,
-.status-plugin-system:focus-visible,
-.status-plugin-settings:hover,
-.status-plugin-settings:focus-visible {
+.status-plugin-add:hover,
+.status-plugin-add:focus-visible {
   background: var(--color-surface-hover);
   color: var(--color-text);
+  outline: none;
 }
 :global(.status-plugin-popover) {
   z-index: 70;
@@ -323,7 +303,7 @@ function handleCloseAutoFocus(event: Event) {
   height: 0.3rem;
   overflow: hidden;
   border-radius: var(--radius-pill);
-  background: var(--color-surface-sunken);
+  background: var(--color-surface-raised);
 }
 :global(.status-plugin-progress span) {
   display: block;
@@ -336,7 +316,7 @@ function handleCloseAutoFocus(event: Event) {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
-  background: var(--color-surface-sunken);
+  background: var(--color-surface);
 }
 :global(.status-plugin-menu-heading) {
   display: flex;
@@ -469,19 +449,11 @@ function handleCloseAutoFocus(event: Event) {
 }
 
 @media (max-width: 32rem) {
-  .status-plugin-list {
-    padding-left: max(0.2rem, env(safe-area-inset-left));
-  }
   :global(.status-plugin) {
     padding-inline: 0.48rem;
   }
-  .status-plugin-system,
-  .status-plugin-settings {
+  .status-plugin-add {
     width: 2.65rem;
-  }
-  .status-plugin-settings {
-    width: max(2.65rem, calc(2.4rem + env(safe-area-inset-right)));
-    padding-right: env(safe-area-inset-right);
   }
 }
 </style>

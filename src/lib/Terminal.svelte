@@ -3,7 +3,7 @@ import { onMount, type Snippet } from 'svelte';
 import type { ManagedSession, SessionTerminal } from '$lib/session/types';
 import { isWorktreeWorkspace, workspaceName, workspaceRepositoryName } from '$lib/session/view';
 import BackgroundProcesses from '$lib/terminal/BackgroundProcesses.svelte';
-import StatusPluginBar from '$lib/status/StatusPluginBar.svelte';
+import GlobalStatusBar from '$lib/status/GlobalStatusBar.svelte';
 import TerminalHeader from '$lib/terminal/TerminalHeader.svelte';
 import TerminalViewport from '$lib/terminal/TerminalViewport.svelte';
 import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
@@ -78,10 +78,6 @@ const backgroundProcesses = $derived(orderedTerminals.slice(1));
 const backgroundPanelId = $derived(`background-manager-${session.id}`);
 const backgroundTriggerId = $derived(`background-trigger-${session.id}`);
 
-function changeTerminalFontSize(delta: number) {
-  terminalFontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, terminalFontSize + delta));
-}
-
 onMount(() => {
   const updateViewport = () => {
     if (isDesktopViewport()) {
@@ -109,6 +105,7 @@ onMount(() => {
 
 <section class="terminal-sheet" style={viewportStyle} aria-label={`Terminal for ${projectName}`}>
   <div class="terminal-topbar">
+    <GlobalStatusBar plugins={statusPlugins} />
     <TerminalHeader
       {projectName}
       cwd={session.cwd}
@@ -117,9 +114,6 @@ onMount(() => {
       worktreeBranch={session.worktreeBranch}
       hasNote={Boolean(session.notePreview)}
       {noteOpen}
-      fontSize={terminalFontSize}
-      {minimumFontSize}
-      {maximumFontSize}
       {close}
       {repositoryOpen}
       {isGitRepository}
@@ -133,10 +127,24 @@ onMount(() => {
       toggleRepository={onToggleRepository}
       toggleNote={onToggleNote}
       toggleBackground={() => (backgroundOpen = !backgroundOpen)}
-      decreaseFontSize={() => changeTerminalFontSize(-1)}
-      increaseFontSize={() => changeTerminalFontSize(1)}
     ></TerminalHeader>
-    <StatusPluginBar plugins={statusPlugins} />
+    <BackgroundProcesses
+      open={backgroundOpen}
+      onOpenChange={(open) => (backgroundOpen = open)}
+      panelId={backgroundPanelId}
+      triggerId={backgroundTriggerId}
+      processes={backgroundProcesses}
+      favoriteCommands={session.favoriteCommands}
+      starting={startingBackground}
+      stoppingProcessId={stoppingBackgroundProcessId}
+      {updatingFavoriteCommand}
+      actionError={backgroundActionError}
+      onStart={onStartBackground}
+      onStop={onStopBackground}
+      onLoadOutput={onLoadBackgroundOutput}
+      onFavorite={onFavoriteBackground}
+      onRemoveFavorite={onRemoveBackgroundFavorite}
+    />
   </div>
 
   {#key mainTerminal?.id}
@@ -159,24 +167,6 @@ onMount(() => {
       </TerminalViewport>
     </div>
   {/key}
-
-  <BackgroundProcesses
-    open={backgroundOpen}
-    onOpenChange={(open) => (backgroundOpen = open)}
-    panelId={backgroundPanelId}
-    triggerId={backgroundTriggerId}
-    processes={backgroundProcesses}
-    favoriteCommands={session.favoriteCommands}
-    starting={startingBackground}
-    stoppingProcessId={stoppingBackgroundProcessId}
-    {updatingFavoriteCommand}
-    actionError={backgroundActionError}
-    onStart={onStartBackground}
-    onStop={onStopBackground}
-    onLoadOutput={onLoadBackgroundOutput}
-    onFavorite={onFavoriteBackground}
-    onRemoveFavorite={onRemoveBackgroundFavorite}
-  />
 </section>
 
 <style>
@@ -186,7 +176,7 @@ onMount(() => {
   top: var(--terminal-viewport-top, 0);
   left: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
   height: var(--terminal-viewport-height, 100dvh);
   min-width: 0;
@@ -211,7 +201,7 @@ onMount(() => {
     position: relative;
     z-index: 1;
     top: auto;
-    height: 100dvh;
+    height: 100%;
     min-height: 0;
     border: 0;
     border-radius: 0;

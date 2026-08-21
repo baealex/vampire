@@ -1,9 +1,9 @@
 <script lang="ts">
 import CircleAlert from '@lucide/svelte/icons/circle-alert';
 import CircleCheck from '@lucide/svelte/icons/circle-check';
-import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import Spinner from '$lib/ui/Spinner.svelte';
+import WorkspacePanelHeader from '$lib/ui/WorkspacePanelHeader.svelte';
 import {
   parseWorkspaceEntryDrag,
   WORKSPACE_ENTRY_DRAG_TYPE,
@@ -196,33 +196,34 @@ function endDragSession() {
   ondrop={handleRootDrop}
   ondragend={endDragSession}
 >
-  <header class="repository-header">
-    <div class="repository-title">
-      <strong>Workspace</strong>
-      <span title={projectName}>{projectName}</span>
-    </div>
-    <div class="repository-actions">
-      <RepositoryAddMenu
-        disabled={!snapshot || uploading || readingDrop || moving}
-        onCreateFile={() => beginRootCreation('file')}
-        onCreateFolder={() => beginRootCreation('directory')}
-        onUploadFiles={() => fileInput?.click()}
-        onUploadFolder={() => folderInput?.click()}
-      />
-      <button
-        class:spinning={loading}
-        onclick={onRefresh}
-        disabled={loading}
-        aria-label="Refresh repository"
-        title="Refresh repository"
-      >
-        <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-      <button onclick={onClose} aria-label="Close workspace panel" title="Close workspace panel">
-        <PanelRightClose size={18} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-    </div>
-  </header>
+  <WorkspacePanelHeader
+    title="Workspace"
+    subtitle={projectName}
+    subtitleMonospace
+    close={onClose}
+    closeLabel="Close workspace panel"
+  >
+    {#snippet actions()}
+      <div class="repository-actions">
+        <RepositoryAddMenu
+          disabled={!snapshot || uploading || readingDrop || moving}
+          onCreateFile={() => beginRootCreation('file')}
+          onCreateFolder={() => beginRootCreation('directory')}
+          onUploadFiles={() => fileInput?.click()}
+          onUploadFolder={() => folderInput?.click()}
+        />
+        <button
+          class:spinning={loading}
+          onclick={onRefresh}
+          disabled={loading}
+          aria-label="Refresh repository"
+          title="Refresh repository"
+        >
+          <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </div>
+    {/snippet}
+  </WorkspacePanelHeader>
   <input
     class="repository-file-input"
     bind:this={fileInput}
@@ -355,36 +356,6 @@ function endDragSession() {
 .repository-panel.open {
   transform: translateX(0);
   pointer-events: auto;
-}
-.repository-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 4rem;
-  padding: 0.75rem 0.8rem 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.repository-title {
-  display: grid;
-  min-width: 0;
-  gap: 0.15rem;
-}
-.repository-title strong,
-.repository-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.repository-title strong {
-  font-size: var(--text-title);
-  font-weight: var(--weight-strong);
-}
-.repository-title span {
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
 }
 .repository-actions {
   display: flex;
