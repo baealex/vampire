@@ -140,20 +140,20 @@ async function selectRepositoryItem(selection: RepositorySelection) {
   if (!(await repository.selectItem(selection))) return;
   if (selection.kind === 'file') {
     onRepositoryTabChange('files');
-    hideRepositoryPanel();
-  } else if (!desktop) {
+  }
+  if (!desktop) {
     hideRepositoryPanel();
   }
 }
 
 async function editRepositoryFile(path: string) {
   if (!(await repository.editFile(path))) return;
-  hideRepositoryPanel();
+  if (!desktop) hideRepositoryPanel();
 }
 
 async function createFile(directory: string, name: string) {
   await repository.createFile(directory, name);
-  hideRepositoryPanel();
+  if (!desktop) hideRepositoryPanel();
 }
 
 async function insertPathIntoTerminal(entry: WorkspaceEntryDragData) {

@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount } from 'svelte';
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+import BookOpen from '@lucide/svelte/icons/book-open';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import ChevronUp from '@lucide/svelte/icons/chevron-up';
 import Plus from '@lucide/svelte/icons/plus';
@@ -20,6 +22,7 @@ import {
   type StatusPlugin,
   type StatusPluginPreset,
 } from './status-plugin.ts';
+import StatusWidgetGuide from './StatusWidgetGuide.svelte';
 
 type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
 const STATUS_PLUGINS_QUERY = 'status/plugins';
@@ -33,6 +36,7 @@ let loading = $state(initialResponse === undefined);
 let fetching = $state(false);
 let saving = $state(false);
 let errorMessage = $state('');
+let guideOpen = $state(false);
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
 const atCapacity = $derived(plugins.length >= MAX_STATUS_PLUGINS);
 
@@ -174,122 +178,154 @@ onMount(() => {
 onDestroy(() => unsubscribe?.());
 </script>
 
-<DialogShell eyebrow="Server-wide" title="Status widgets" {close} variant="inspect" closeDisabled={saving}>
+<DialogShell
+  eyebrow="Server-wide"
+  title={guideOpen ? 'Status widget guide' : 'Status widgets'}
+  {close}
+  variant="inspect"
+  closeDisabled={saving}
+>
   {#snippet children()}
-    <div class="status-settings" aria-busy={fetching}>
-      <div class="status-settings-intro">
-        <div class="status-settings-copy">
-          <strong>Add a system status widget</strong>
-          <p>
-            These widgets run once on the server and are shared with every browser. Add a preset or command to show
-            useful system information at a glance.
-          </p>
-        </div>
-        <div class="status-add-actions" aria-label="Add status plugin">
-          {#each presets as preset (preset.id)}
-            <button
-              type="button"
-              onclick={() => addPreset(preset.id)}
-              disabled={loading || atCapacity}
-              title={preset.description}
-            >
+    {#if guideOpen}
+      <StatusWidgetGuide />
+    {:else}
+      <div class="status-settings" aria-busy={fetching}>
+        <div class="status-settings-intro">
+          <div class="status-settings-copy">
+            <strong>Add a system status widget</strong>
+            <p>
+              These widgets run once on the server and are shared with every browser. Add a preset or command to show
+              useful system information at a glance.
+            </p>
+          </div>
+          <div class="status-add-actions" aria-label="Add status plugin">
+            {#each presets as preset (preset.id)}
+              <button
+                type="button"
+                onclick={() => addPreset(preset.id)}
+                disabled={loading || atCapacity}
+                title={preset.description}
+              >
+                <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                <span>{preset.name}</span>
+              </button>
+            {/each}
+            <button type="button" onclick={addCommand} disabled={loading || atCapacity}>
               <Plus size={14} strokeWidth={2} aria-hidden="true" />
-              <span>{preset.name}</span>
+              <span>Command</span>
             </button>
-          {/each}
-          <button type="button" onclick={addCommand} disabled={loading || atCapacity}>
-            <Plus size={14} strokeWidth={2} aria-hidden="true" />
-            <span>Command</span>
-          </button>
+          </div>
         </div>
-      </div>
 
-      {#if loading}
-        <p class="status-loading" role="status">Loading status plugins…</p>
-      {:else if plugins.length > 0}
-        <div class="status-plugin-editor-list">
-          {#each plugins as plugin, index (plugin.id)}
-            <article class="status-plugin-editor" class:disabled={!plugin.enabled}>
-              <div class="status-plugin-editor__order">
-                <span>{index + 1}</span>
-                <button
-                  type="button"
-                  onclick={() => movePlugin(index, -1)}
-                  disabled={index === 0}
-                  aria-label={`Move ${plugin.name || `plugin ${index + 1}`} up`}
-                >
-                  <ChevronUp size={15} strokeWidth={1.8} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onclick={() => movePlugin(index, 1)}
-                  disabled={index === plugins.length - 1}
-                  aria-label={`Move ${plugin.name || `plugin ${index + 1}`} down`}
-                >
-                  <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
-                </button>
-              </div>
-              <div class="status-plugin-editor__fields">
-                <div class="status-plugin-editor__top">
-                  <label class="name-field">
-                    <span>Name</span>
-                    <input bind:value={plugin.name} maxlength={STATUS_PLUGIN_NAME_MAX_LENGTH}>
-                  </label>
-                  <label class="interval-field">
-                    <span>Every</span>
-                    <span class="interval-input"
-                      ><input
-                        type="number"
-                        min="1"
-                        max="86400"
-                        step="1"
-                        value={plugin.intervalMs / 1_000}
-                        oninput={(event) => updateInterval(plugin, event)}
-                      ><em>sec</em></span
-                    >
-                  </label>
-                  <label class="enabled-field">
-                    <input type="checkbox" bind:checked={plugin.enabled}>
-                    <span>On</span>
-                  </label>
+        {#if loading}
+          <p class="status-loading" role="status">Loading status plugins…</p>
+        {:else if plugins.length > 0}
+          <div class="status-plugin-editor-list">
+            {#each plugins as plugin, index (plugin.id)}
+              <article class="status-plugin-editor" class:disabled={!plugin.enabled}>
+                <div class="status-plugin-editor__order">
+                  <span>{index + 1}</span>
                   <button
-                    class="remove-plugin"
                     type="button"
-                    onclick={() => removePlugin(plugin.id)}
-                    aria-label={`Remove ${plugin.name || `plugin ${index + 1}`}`}
+                    onclick={() => movePlugin(index, -1)}
+                    disabled={index === 0}
+                    aria-label={`Move ${plugin.name || `plugin ${index + 1}`} up`}
                   >
-                    <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                    <ChevronUp size={15} strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => movePlugin(index, 1)}
+                    disabled={index === plugins.length - 1}
+                    aria-label={`Move ${plugin.name || `plugin ${index + 1}`} down`}
+                  >
+                    <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
                   </button>
                 </div>
-                <label class="command-field">
-                  <span>Command</span>
-                  <textarea
-                    bind:value={plugin.source.command}
-                    maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
-                    spellcheck="false"
-                    rows="7"
-                    wrap="off"
-                  ></textarea>
-                </label>
-              </div>
-            </article>
-          {/each}
-        </div>
-      {/if}
+                <div class="status-plugin-editor__fields">
+                  <div class="status-plugin-editor__top">
+                    <label class="name-field">
+                      <span>Name</span>
+                      <input bind:value={plugin.name} maxlength={STATUS_PLUGIN_NAME_MAX_LENGTH}>
+                    </label>
+                    <label class="interval-field">
+                      <span>Every</span>
+                      <span class="interval-input"
+                        ><input
+                          type="number"
+                          min="1"
+                          max="86400"
+                          step="1"
+                          value={plugin.intervalMs / 1_000}
+                          oninput={(event) => updateInterval(plugin, event)}
+                        ><em>sec</em></span
+                      >
+                    </label>
+                    <label class="enabled-field">
+                      <input type="checkbox" bind:checked={plugin.enabled}>
+                      <span>On</span>
+                    </label>
+                    <button
+                      class="remove-plugin"
+                      type="button"
+                      onclick={() => removePlugin(plugin.id)}
+                      aria-label={`Remove ${plugin.name || `plugin ${index + 1}`}`}
+                    >
+                      <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <label class="command-field">
+                    <span>Command</span>
+                    <textarea
+                      bind:value={plugin.source.command}
+                      maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
+                      spellcheck="false"
+                      rows="7"
+                      wrap="off"
+                    ></textarea>
+                  </label>
+                </div>
+              </article>
+            {/each}
+          </div>
+        {/if}
 
-      {#if errorMessage}
-        <p class="status-feedback error" role="alert">{errorMessage}</p>
-      {/if}
-    </div>
+        {#if errorMessage}
+          <p class="status-feedback error" role="alert">{errorMessage}</p>
+        {/if}
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet footer()}
     <div class="status-settings-footer">
-      <p>Commands have the same OS access as the Vampire server user. Output is rendered as text, never HTML.</p>
-      <button type="button" onclick={() => void save()} disabled={loading || saving || !hasUnsavedChanges}>
-        <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>{saving ? 'Saving…' : hasUnsavedChanges ? 'Save changes' : 'Saved'}</span>
-      </button>
+      {#if guideOpen}
+        <button class="back-button" type="button" onclick={() => (guideOpen = false)}>
+          <ArrowLeft size={15} strokeWidth={1.9} aria-hidden="true" />
+          <span>Back to settings</span>
+        </button>
+      {:else}
+        <div class="status-settings-footer-actions">
+          <button
+            class="guide-button"
+            type="button"
+            onclick={() => (guideOpen = true)}
+            title="Learn how to create a status widget"
+          >
+            <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
+            <span>Guide</span>
+          </button>
+          <button
+            class="save-button"
+            type="button"
+            onclick={() => void save()}
+            disabled={loading || saving || !hasUnsavedChanges}
+          >
+            <Save size={15} strokeWidth={1.9} aria-hidden="true" />
+            <span>{saving ? 'Saving…' : hasUnsavedChanges ? 'Save changes' : 'Saved'}</span>
+          </button>
+        </div>
+      {/if}
     </div>
   {/snippet}
 </DialogShell>
@@ -506,32 +542,39 @@ onDestroy(() => unsubscribe?.());
 .status-settings-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-end;
 }
-.status-settings-footer p {
-  max-width: 34rem;
-  margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  line-height: var(--leading-body);
+.status-settings-footer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.45rem;
 }
-.status-settings-footer button {
+.status-settings-footer .save-button {
   flex: 0 0 auto;
   border-color: transparent;
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.status-settings-footer button:hover:not(:disabled) {
+.status-settings-footer .save-button:hover:not(:disabled) {
   background: var(--color-accent-hover);
+}
+.status-settings-footer .guide-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.status-settings-footer .back-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 @media (max-width: 42rem) {
-  .status-settings-footer {
-    align-items: stretch;
-    flex-direction: column;
+  .status-settings-footer-actions {
+    width: 100%;
   }
-  .status-settings-footer button {
+  .status-settings-footer-actions button {
+    flex: 1 1 0;
+  }
+  .status-settings-footer .save-button {
     width: 100%;
   }
   .status-plugin-editor__top {

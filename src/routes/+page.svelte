@@ -343,7 +343,6 @@ onMount(() => {
           displayedSessions={workspace.displayedSessions}
           selectedSessionId={workspace.activeSession?.id}
           activityRecords={workspace.activityRecords}
-          authenticationRequired={connection.authenticationRequired}
           hasOpenSession={workspace.hasOpenSession}
           mobileOpen={mobilePanel === 'sessions'}
           errorMessage={workspace.errorMessage || connection.errorMessage}

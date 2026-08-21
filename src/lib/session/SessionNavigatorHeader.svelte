@@ -5,14 +5,12 @@ import IconButton from '$lib/ui/IconButton.svelte';
 import type { SessionOrderMode } from './types';
 
 let {
-  authenticationRequired,
   hasOpenSession,
   sessionOrderMode,
   workspacePreferencesError,
   onClose,
   onOrderModeChange,
 }: {
-  authenticationRequired: boolean;
   hasOpenSession: boolean;
   sessionOrderMode: SessionOrderMode;
   workspacePreferencesError: string;
@@ -21,8 +19,8 @@ let {
 } = $props();
 </script>
 
-{#if authenticationRequired || hasOpenSession}
-  <header class="section-header" class:mobile-only-header={!authenticationRequired}>
+{#if hasOpenSession}
+  <header class="section-header mobile-only-header">
     <div class="section-actions">
       {#if hasOpenSession}
         <span class="navigator-close">

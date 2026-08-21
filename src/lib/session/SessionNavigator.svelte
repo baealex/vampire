@@ -11,7 +11,6 @@ let {
   displayedSessions,
   selectedSessionId,
   activityRecords,
-  authenticationRequired,
   hasOpenSession,
   mobileOpen,
   errorMessage,
@@ -39,7 +38,6 @@ let {
   displayedSessions: ManagedSession[];
   selectedSessionId?: string;
   activityRecords: SessionActivityRecords;
-  authenticationRequired: boolean;
   hasOpenSession: boolean;
   mobileOpen: boolean;
   errorMessage: string;
@@ -81,7 +79,6 @@ function createWorkspace(path: string) {
 <div class="session-column" class:mobile-open={mobileOpen} class:standalone={!hasOpenSession}>
   <section class="session-panel" aria-label="Workspace list">
     <SessionNavigatorHeader
-      {authenticationRequired}
       {hasOpenSession}
       {sessionOrderMode}
       {workspacePreferencesError}
