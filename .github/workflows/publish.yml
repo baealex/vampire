@@ -1,25 +1,136 @@
-name: Publish to npm
+name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
+  actions: read
   contents: read
-  id-token: write
 
 concurrency:
-  group: npm-publish
+  group: publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  verify:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      package_version: ${{ steps.version.outputs.package_version }}
+
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Validate release tag
+        id: version
+        run: |
+          git fetch origin main:refs/remotes/origin/main --no-tags
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != v* ]]; then
+            echo "Publish must run from a v* tag." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "$GITHUB_REF_NAME does not point to a commit on main." >&2
+            exit 1
+          fi
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$TAG_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PACKAGE_VERSION." >&2
+            exit 1
+          fi
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type and Svelte checks
+        run: pnpm check
+
+      - name: Unit tests
+        run: node --test tests/*.test.ts
+
+      - name: Build
+        run: pnpm build
+
+  e2e:
+    name: E2E
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Check out repository
+      - name: Check out exact tag commit
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux
+          pnpm exec playwright install --with-deps chromium firefox
+
+      - name: Run browser flows
+        run: pnpm test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure-${{ github.sha }}
+          path: test-results/playwright
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Release
+    needs: [ci, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -30,95 +141,46 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: pnpm
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify release tag
+      - name: Pack exact release artifact
         run: |
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "v$PACKAGE_VERSION" ]]; then
-            echo "Release tag $GITHUB_REF_NAME does not match package version v$PACKAGE_VERSION."
-            exit 1
-          fi
-
-      - name: Verify
-        run: pnpm test
-
-      - name: Install browser test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes tmux
-          pnpm exec playwright install --with-deps chromium firefox
-
-      - name: Verify browser flows
-        run: pnpm test:e2e
-
-      - name: Upload browser failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-failure
-          path: test-results/playwright
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Build npm package
-        run: |
+          pnpm build
           mkdir package-artifact
           npm pack --ignore-scripts --pack-destination package-artifact
 
-      - name: Verify installed npm package
-        run: node tools/package-smoke.ts package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
+      - name: Smoke test exact release artifact
+        env:
+          PACKAGE_VERSION: ${{ needs.ci.outputs.package_version }}
+        run: node tools/package-smoke.ts package-artifact "$PACKAGE_VERSION"
 
-      - name: Upload verified npm package
-        uses: actions/upload-artifact@v7
-        with:
-          name: npm-package
-          path: package-artifact/*.tgz
-          if-no-files-found: error
-
-  publish:
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: npm
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-
-      - name: Download verified npm package
-        uses: actions/download-artifact@v8
-        with:
-          name: npm-package
-          path: package-artifact
-
-      - name: Publish verified package
-        run: node tools/publish-package.ts ./package-artifact/vampire-*.tgz "$(node -p "require('./package.json').version")"
-
-  verify-registry:
-    needs: publish
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          package-manager-cache: false
+      - name: Publish verified artifact
+        env:
+          PACKAGE_VERSION: ${{ needs.ci.outputs.package_version }}
+        run: |
+          PACKAGE_FILE="package-artifact/vampire-$PACKAGE_VERSION.tgz"
+          if [[ ! -f "$PACKAGE_FILE" ]]; then
+            echo "Expected package artifact not found: $PACKAGE_FILE" >&2
+            exit 1
+          fi
+          node tools/publish-package.ts "$PACKAGE_FILE" "$PACKAGE_VERSION"
 
       - name: Verify package from npm registry
-        run: node tools/package-smoke.ts "vampire@$(node -p "require('./package.json').version")" "$(node -p "require('./package.json').version")"
+        env:
+          PACKAGE_VERSION: ${{ needs.ci.outputs.package_version }}
+        run: node tools/package-smoke.ts "vampire@$PACKAGE_VERSION" "$PACKAGE_VERSION"
+
+      - name: Create GitHub release last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ needs.ci.outputs.package_version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists."
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "v$PACKAGE_VERSION" --generate-notes
+          fi

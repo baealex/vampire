@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,10 +9,10 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const packageSource = process.argv[2];
-const expectedVersion = process.argv[3];
+const expectedVersionArgument = process.argv[3];
 
-if (!packageSource || !expectedVersion) {
-  console.error('Usage: node tools/package-smoke.ts <package.tgz|package-spec> <expected-version>');
+if (!packageSource) {
+  console.error('Usage: node tools/package-smoke.ts <package.tgz|package-directory|package-spec> [expected-version]');
   process.exit(1);
 }
 
@@ -20,7 +20,8 @@ const temporaryDirectory = await mkdtemp(join(tmpdir(), 'vampire-package-smoke-'
 const installDirectory = join(temporaryDirectory, 'install');
 const workspaceDirectory = join(temporaryDirectory, 'workspace');
 const stateDirectory = join(temporaryDirectory, 'state');
-const resolvedPackageSource = packageSource.endsWith('.tgz') ? resolve(packageSource) : packageSource;
+const resolvedPackageSource = await resolvePackageSource(packageSource);
+const expectedVersion = expectedVersionArgument || (await packageVersionFromRepository());
 const smokeToken = 'vampire-package-smoke-token';
 
 try {
@@ -87,6 +88,30 @@ async function installPackage(source: string, directory: string): Promise<void> 
 
 function npmCommand(): string {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+async function resolvePackageSource(source: string): Promise<string> {
+  if (source.endsWith('.tgz')) return resolve(source);
+
+  const candidate = resolve(source);
+  try {
+    if (!(await stat(candidate)).isDirectory()) return source;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return source;
+  }
+
+  const packageFiles = (await readdir(candidate)).filter((file) => /^vampire-.*\.tgz$/.test(file));
+  if (packageFiles.length !== 1) {
+    throw new Error(`Expected one Vampire package artifact in ${source}, found ${packageFiles.length}.`);
+  }
+  return join(candidate, packageFiles[0]);
+}
+
+async function packageVersionFromRepository(): Promise<string> {
+  const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as { version?: string };
+  if (!packageJson.version) throw new Error('package.json does not define a version.');
+  return packageJson.version;
 }
 
 async function availablePort(): Promise<number> {

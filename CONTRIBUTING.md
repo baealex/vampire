@@ -48,25 +48,28 @@ The development server listens on `127.0.0.1:7677` by default.
 - `tests` contains unit and integration tests, while `e2e` contains browser-server fixtures and Playwright tests.
 - `static` and `docs` contain shipped static assets and contributor-facing documentation.
 
-Run the full local verification before opening a pull request:
+Run the local verification before squashing a working branch into main:
 
 ```sh
-pnpm test
-pnpm exec playwright install chromium # first browser-test run only
-pnpm test:e2e
+pnpm format:check
+pnpm check
+node --test tests/*.test.ts
+pnpm build
 ```
 
-GitHub Actions runs both verification commands for pushes to `main` and for pull requests.
+GitHub Actions does not run on ordinary `main` pushes. Pushing a version tag
+runs CI, then E2E, then the release gate for that exact commit.
 
 ## Releases
 
-npm releases are published by `.github/workflows/publish.yml` when a GitHub release is published. The release tag must match the version in `package.json`, including the `v` prefix—for example, package version `0.1.0` uses tag `v0.1.0`.
+See [docs/RELEASE.md](docs/RELEASE.md) for the tag-based release gate and the
+same-version retry procedure.
 
-The publish job uses the GitHub environment named `npm` and npm Trusted Publishing. It requests a short-lived OIDC identity and does not use an `NPM_TOKEN` secret. Run `pnpm test` and verify a packed tarball before creating the release.
+## Working branches
 
-## Pull requests
-
-A useful pull request includes:
+Use a focused working branch and squash it into `main` when the change is
+ready. A pull request may be used for discussion, but it is not a required
+integration or release step. The change description should include:
 
 - the problem and intended behavior;
 - screenshots for material interface changes, with private information removed;
