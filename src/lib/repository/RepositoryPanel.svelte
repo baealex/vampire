@@ -535,6 +535,25 @@ function endDragSession() {
   }
 }
 
+@media (min-width: 80rem) {
+  .repository-panel {
+    position: relative;
+    z-index: 1;
+    top: auto;
+    right: auto;
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    box-shadow: none;
+    visibility: hidden;
+  }
+  .repository-panel.open {
+    visibility: visible;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .repository-actions button.spinning :global(svg) {
     animation-duration: 1.6s;

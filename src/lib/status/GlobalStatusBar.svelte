@@ -1,11 +1,19 @@
 <script lang="ts">
 import Network from '@lucide/svelte/icons/network';
+import LogOut from '@lucide/svelte/icons/log-out';
 import ListeningPortsDialog from '$lib/system/ListeningPortsDialog.svelte';
 import ThemeToggle from '$lib/theme/ThemeToggle.svelte';
+import IconButton from '$lib/ui/IconButton.svelte';
 import StatusPluginBar from './StatusPluginBar.svelte';
 import type { StatusPluginSnapshot } from './status-plugin';
 
-let { plugins = [] }: { plugins?: StatusPluginSnapshot[] } = $props();
+let {
+  plugins = [],
+  onLogout,
+}: {
+  plugins?: StatusPluginSnapshot[];
+  onLogout?: () => void;
+} = $props();
 let listeningPortsOpen = $state(false);
 </script>
 
@@ -13,7 +21,6 @@ let listeningPortsOpen = $state(false);
   <div class="global-status-rail">
     <StatusPluginBar {plugins} />
     <div class="global-status-actions">
-      <ThemeToggle compact />
       <button
         type="button"
         class="global-status-ports"
@@ -26,6 +33,12 @@ let listeningPortsOpen = $state(false);
         <Network size={15} strokeWidth={1.8} aria-hidden="true" />
         <span>Ports</span>
       </button>
+      <ThemeToggle compact />
+      {#if onLogout}
+        <IconButton compact label="Sign out" title="Sign out" onclick={onLogout}>
+          <LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
+        </IconButton>
+      {/if}
     </div>
   </div>
 </section>
@@ -62,6 +75,18 @@ let listeningPortsOpen = $state(false);
   display: flex;
   align-items: center;
   border-left: 1px solid var(--color-border);
+}
+.global-status-actions :global(button + button) {
+  position: relative;
+}
+.global-status-actions :global(button + button)::before {
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  left: 0;
+  width: 1px;
+  background: var(--color-border);
+  content: "";
 }
 .global-status-ports {
   display: grid;

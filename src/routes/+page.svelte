@@ -354,7 +354,6 @@ onMount(() => {
           starting={workspace.starting}
           startError={workspace.startError}
           tmuxAvailable={tmuxStatus?.available}
-          onLogout={() => void logout()}
           onClose={closeSessionNavigator}
           onOrderModeChange={(mode) => workspace.setSessionOrderMode(mode)}
           onReorder={(draggedId, targetId, position) => workspace.reorderSession(draggedId, targetId, position)}
@@ -445,6 +444,7 @@ onMount(() => {
               stoppingBackgroundProcessId={workspace.stoppingBackgroundProcessId}
               updatingFavoriteCommand={workspace.updatingFavoriteCommand}
               backgroundActionError={workspace.backgroundActionErrorSessionId === workspace.activeSession.id ? workspace.backgroundActionError : ''}
+              onLogout={connection.authenticationRequired ? () => void logout() : undefined}
               close={openSessionNavigator}
               onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
               onLoadNote={(sessionId, refresh) => workspace.loadSessionNote(sessionId, refresh)}

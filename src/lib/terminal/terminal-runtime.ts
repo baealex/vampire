@@ -30,6 +30,17 @@ const DESKTOP_RESIZE_SETTLE_MS = 80;
 const COMPACT_RESIZE_SETTLE_MS = 180;
 const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
 
+function resizeTerminalWithoutReflow(terminal: Terminal, columns: number, rows: number): void {
+	const options = terminal.options as typeof terminal.options & { windowsMode?: boolean };
+	const windowsMode = options.windowsMode;
+	options.windowsMode = true;
+	try {
+		terminal.resize(columns, rows);
+	} finally {
+		options.windowsMode = windowsMode;
+	}
+}
+
 export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
 
 export interface TerminalRuntimeState {
@@ -322,7 +333,7 @@ export class TerminalRuntime {
 
 		const initialSize = fitTerminalToVisibleArea(
 			fitAddon,
-			(columns, rows) => terminal.resize(columns, rows)
+			(columns, rows) => resizeTerminalWithoutReflow(terminal, columns, rows)
 		);
 		this.#requestedSize = initialSize;
 		const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
@@ -661,7 +672,7 @@ export class TerminalRuntime {
 		}
 		const terminal = this.#terminal;
 		if (!terminal || (terminal.cols === geometry.columns && terminal.rows === geometry.rows)) return;
-		terminal.resize(geometry.columns, geometry.rows);
+		resizeTerminalWithoutReflow(terminal, geometry.columns, geometry.rows);
 		this.#scheduleDisplayRefresh();
 	}
 
@@ -673,7 +684,10 @@ export class TerminalRuntime {
 		const dimensions = connection && this.#legacyGeometryConnectionId === connection.connectionId
 			? fitTerminalToVisibleArea(
 				fitAddon,
-				(columns, rows) => this.#terminal?.resize(columns, rows)
+				(columns, rows) => {
+					const terminal = this.#terminal;
+					if (terminal) resizeTerminalWithoutReflow(terminal, columns, rows);
+				}
 			)
 			: terminalSizeForVisibleArea(fitAddon);
 		if (!dimensions) return;

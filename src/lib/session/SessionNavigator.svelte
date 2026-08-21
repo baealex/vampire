@@ -22,7 +22,6 @@ let {
   starting,
   startError,
   tmuxAvailable,
-  onLogout,
   onClose,
   onOrderModeChange,
   onReorder,
@@ -51,7 +50,6 @@ let {
   starting: boolean;
   startError: string;
   tmuxAvailable?: boolean;
-  onLogout: () => void;
   onClose: () => void;
   onOrderModeChange: (mode: SessionOrderMode) => void;
   onReorder: (draggedId: string, targetId: string, position: 'before' | 'after') => void;
@@ -87,7 +85,6 @@ function createWorkspace(path: string) {
       {hasOpenSession}
       {sessionOrderMode}
       {workspacePreferencesError}
-      {onLogout}
       {onClose}
       {onOrderModeChange}
     />

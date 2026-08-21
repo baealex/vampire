@@ -272,10 +272,17 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 					broadcastTerminalGeometry(state, geometry);
 				}
 			},
+			onResizeComplete: async (geometry) => {
+				await Promise.allSettled([...state.attachments]
+					.filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
+					.map((candidate) => candidate.synchronizeScreen?.(geometry)));
+				state.syntheticOutputUntil = 0;
+			},
 			onInput: () => { state.syntheticOutputUntil = 0; },
 			onSyntheticOutput: (timestamp) => {
 				state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
 			},
+			isOutputSuppressed: () => Date.now() < state.syntheticOutputUntil,
 			onSyntheticActivity: (timestamp) => suppressWorkspaceSessionActivity(context.sessionId, timestamp),
 			isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
 			onOutputActivity: (timestamp) => recordWorkspaceSessionOutput(context.sessionId, context.terminalId, timestamp)

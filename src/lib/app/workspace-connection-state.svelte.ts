@@ -1,4 +1,5 @@
 import { isUnauthorized, requestJson } from '$lib/client/request';
+import { queryCache } from '$lib/client/query-cache';
 import type { LaunchProfile, ManagedSession, WorkspacePreferences } from '$lib/session/types';
 import type { StatusPluginSnapshot } from '$lib/status/status-plugin';
 import type { TmuxStatus } from '$lib/tmux-status';
@@ -107,6 +108,7 @@ export class WorkspaceConnectionState {
 	markUnauthenticated() {
 		this.#authenticationVersion += 1;
 		this.authenticated = false;
+		queryCache.clear();
 		this.statusPlugins = [];
 		this.#stopWorkspaceStream();
 	}

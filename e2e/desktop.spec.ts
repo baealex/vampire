@@ -237,29 +237,67 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await authenticate(context);
   const session = await createSession(context);
   sessionId = session.id;
+  let portsRequests = 0;
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => {
+    releaseRevalidation = resolve;
+  });
   await page.route('**/api/system/ports', async (route) => {
+    portsRequests += 1;
+    if (portsRequests === 2) await revalidationGate;
     await route.fulfill({
       json: {
-        ports: [
-          {
-            protocol: 'tcp',
-            port: 5173,
-            addresses: ['127.0.0.1', '::1'],
-            pid: 321,
-            processName: 'node',
-            cwd: '/projects/site',
-            termination: 'available',
-          },
-          {
-            protocol: 'tcp',
-            port: 7678,
-            addresses: ['127.0.0.1'],
-            pid: 999,
-            processName: 'node',
-            cwd: '/projects/vampire',
-            termination: 'protected',
-          },
-        ],
+        ports:
+          portsRequests === 1
+            ? [
+                {
+                  protocol: 'tcp',
+                  port: 5173,
+                  addresses: ['127.0.0.1', '::1'],
+                  pid: 321,
+                  processName: 'node',
+                  cwd: '/projects/site',
+                  termination: 'available',
+                },
+                {
+                  protocol: 'tcp',
+                  port: 7678,
+                  addresses: ['127.0.0.1'],
+                  pid: 999,
+                  processName: 'node',
+                  cwd: '/projects/vampire',
+                  termination: 'protected',
+                },
+              ]
+            : [
+                {
+                  protocol: 'tcp',
+                  port: 5173,
+                  addresses: ['127.0.0.1', '::1'],
+                  pid: 321,
+                  processName: 'node',
+                  cwd: '/projects/site',
+                  termination: 'available',
+                },
+                {
+                  protocol: 'tcp',
+                  port: 7678,
+                  addresses: ['127.0.0.1'],
+                  pid: 999,
+                  processName: 'node',
+                  cwd: '/projects/vampire',
+                  termination: 'protected',
+                },
+                {
+                  protocol: 'tcp',
+                  port: 4173,
+                  addresses: ['127.0.0.1'],
+                  pid: 654,
+                  processName: 'vite',
+                  cwd: '/projects/site',
+                  termination: 'available',
+                },
+              ],
       },
     });
   });
@@ -277,6 +315,14 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   const developmentServer = page.locator('.listening-port-row', { hasText: '5173' });
   await expect(developmentServer).toContainText('Localhost');
   await expect(developmentServer).toContainText('/projects/site');
+  expect(portsRequests).toBe(1);
+  await page.getByRole('dialog', { name: 'Listening ports' }).getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeHidden();
+  await page.getByRole('button', { name: 'Inspect listening ports' }).click();
+  await expect(page.getByText('2 ports')).toBeVisible();
+  await expect.poll(() => portsRequests).toBe(2);
+  releaseRevalidation!();
+  await expect(page.getByText('3 ports')).toBeVisible();
   const filter = page.getByRole('searchbox', { name: 'Filter listening ports' });
   await filter.fill('vampire');
   await expect(developmentServer).toBeHidden();
@@ -1368,6 +1414,27 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
     timeout: 3_000,
   });
   await expect(endedGroup.locator('.session-row', { hasText: 'workspace' })).toBeVisible();
+});
+
+test('resizes the terminal area when opening the repository panel', async ({ context, page }) => {
+  await authenticate(context);
+  const session = await createSession(context);
+  sessionId = session.id;
+
+  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await expectTerminalReady(page);
+  const terminalWidthBeforePanel = await page
+    .locator('.workspace-primary')
+    .evaluate((element) => element.getBoundingClientRect().width);
+  await page.getByRole('button', { name: 'Open repository' }).click();
+  const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
+  await expect(repositoryPanel).toBeVisible();
+  await expect
+    .poll(() => page.locator('.workspace-primary').evaluate((element) => element.getBoundingClientRect().width))
+    .toBeLessThan(terminalWidthBeforePanel - 300);
+  await expect
+    .poll(() => repositoryPanel.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeGreaterThan(300);
 });
 
 test('keeps an externally changed file when an editor save conflicts', async ({ context, page }) => {

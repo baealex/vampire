@@ -29,6 +29,7 @@ let {
   updatingFavoriteCommand,
   backgroundActionError = '',
   close,
+  onLogout,
   onUpdateNote,
   onLoadNote,
   onSummarizeNote,
@@ -54,6 +55,7 @@ let {
   updatingFavoriteCommand?: string;
   backgroundActionError?: string;
   close: () => void;
+  onLogout?: () => void;
   onUpdateNote: (sessionId: string, note: string) => Promise<void>;
   onLoadNote: (sessionId: string, refresh?: boolean) => Promise<string>;
   onSummarizeNote: (sessionId: string) => Promise<{ notePath: string }>;
@@ -97,6 +99,11 @@ function closeNotePanel() {
   if (!desktop && mobilePanel === 'note') onMobilePanelChange(undefined);
 }
 
+function hideRepositoryPanel() {
+  onRepositoryPanelOpenChange(false);
+  if (!desktop && mobilePanel === 'repository') onMobilePanelChange(undefined);
+}
+
 function openNotePanel() {
   notePanelOpen = true;
   if (!desktop) onMobilePanelChange('note');
@@ -113,8 +120,7 @@ async function toggleNote() {
 
 async function closeRepository(): Promise<boolean> {
   if (!(await repository.confirmDiscardChanges())) return false;
-  onRepositoryPanelOpenChange(false);
-  if (!desktop) onMobilePanelChange(undefined);
+  hideRepositoryPanel();
   repository.clearSelection();
   return true;
 }
@@ -132,27 +138,22 @@ async function openSessionNavigator() {
 
 async function selectRepositoryItem(selection: RepositorySelection) {
   if (!(await repository.selectItem(selection))) return;
-  if (selection.kind === 'file') onRepositoryTabChange('files');
-  if (!desktop) {
-    onRepositoryPanelOpenChange(false);
-    onMobilePanelChange(undefined);
+  if (selection.kind === 'file') {
+    onRepositoryTabChange('files');
+    hideRepositoryPanel();
+  } else if (!desktop) {
+    hideRepositoryPanel();
   }
 }
 
 async function editRepositoryFile(path: string) {
   if (!(await repository.editFile(path))) return;
-  if (!desktop) {
-    onRepositoryPanelOpenChange(false);
-    onMobilePanelChange(undefined);
-  }
+  hideRepositoryPanel();
 }
 
 async function createFile(directory: string, name: string) {
   await repository.createFile(directory, name);
-  if (!desktop) {
-    onRepositoryPanelOpenChange(false);
-    onMobilePanelChange(undefined);
-  }
+  hideRepositoryPanel();
 }
 
 async function insertPathIntoTerminal(entry: WorkspaceEntryDragData) {
@@ -232,6 +233,7 @@ onMount(() => {
       {updatingFavoriteCommand}
       {backgroundActionError}
       close={openSessionNavigator}
+      {onLogout}
       {onInputActivity}
       {onOutputActivity}
       {repositoryOpen}
@@ -433,9 +435,32 @@ onMount(() => {
 }
 
 @media (min-width: 80rem) {
-  .workspace-workbench.side-panel-open .workspace-primary {
-    width: auto;
-    margin-right: var(--workspace-panel-width);
+  .workspace-workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 0fr;
+  }
+  .workspace-workbench.side-panel-open {
+    grid-template-columns: minmax(0, 1fr) var(--workspace-panel-width);
+  }
+  .workspace-primary {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .workspace-note-panel {
+    position: relative;
+    z-index: 1;
+    top: auto;
+    right: auto;
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    box-shadow: none;
+    visibility: hidden;
+  }
+  .workspace-note-panel.open {
+    visibility: visible;
   }
 }
 

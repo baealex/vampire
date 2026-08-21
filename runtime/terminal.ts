@@ -111,9 +111,11 @@ export interface AttachTerminalOptions {
 	) => Promise<void> | void;
 	onActivate?: () => Promise<void> | void;
 	onGeometryChange?: (geometry: TerminalSize) => void;
+	onResizeComplete?: (geometry: TerminalSize) => Promise<void> | void;
 	onInput?: () => void;
 	onSyntheticActivity?: (timestamp: number) => void;
 	onSyntheticOutput?: (timestamp: number) => void;
+	isOutputSuppressed?: () => boolean;
 	isOutputActivity?: (timestamp: number) => boolean;
 	onOutputActivity?: (timestamp: number) => void;
 }
@@ -651,6 +653,13 @@ export async function attachTerminal(
 		const alternateScreenExit = terminalAlternateScreenExitState(terminalControlSequenceTail, output);
 		terminalControlSequenceTail = alternateScreenExit.tail;
 		const now = Date.now();
+		if (
+			snapshotAcknowledged
+			&& (syntheticOutputDepth > 0 || options.isOutputSuppressed?.() === true)
+		) {
+			if (alternateScreenExit.exited) scheduleAlternateScreenExitResync();
+			return;
+		}
 		const locallyEligible = snapshotAcknowledged && syntheticOutputDepth === 0 && now >= syntheticOutputUntil;
 		const activity = isTerminalOutputActivity({
 			snapshotAcknowledged,
@@ -860,6 +869,7 @@ export async function attachTerminal(
 						await runControlCommand(`refresh-client -C ${key}`);
 						await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
 					}, TERMINAL_RESIZE_SETTLE_MS);
+					await options.onResizeComplete?.(next);
 					appliedSize = key;
 				} catch (error) {
 					currentGeometry = previousGeometry;

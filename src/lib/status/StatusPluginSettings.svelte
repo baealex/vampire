@@ -1,10 +1,11 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onDestroy, onMount } from 'svelte';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import ChevronUp from '@lucide/svelte/icons/chevron-up';
 import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import { queryCache, type QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
 import DialogShell from '$lib/ui/DialogShell.svelte';
 import {
@@ -20,11 +21,16 @@ import {
   type StatusPluginPreset,
 } from './status-plugin.ts';
 
+type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
+const STATUS_PLUGINS_QUERY = 'status/plugins';
 let { close }: { close: () => void } = $props();
-let plugins = $state<StatusPlugin[]>([]);
-let presets = $state<StatusPluginPreset[]>([]);
-let loadedPlugins = '[]';
-let loading = $state(true);
+const initialResponse = queryCache.get<StatusPluginResponse>(STATUS_PLUGINS_QUERY);
+let plugins = $state<StatusPlugin[]>(initialResponse ? cloneStatusPlugins(initialResponse.plugins) : []);
+let presets = $state<StatusPluginPreset[]>(initialResponse?.presets ?? []);
+let hasData = $state(initialResponse !== undefined);
+let loadedPlugins = initialResponse ? JSON.stringify(initialResponse.plugins) : '[]';
+let loading = $state(initialResponse === undefined);
+let fetching = $state(false);
 let saving = $state(false);
 let errorMessage = $state('');
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
@@ -34,22 +40,37 @@ function newId(prefix: string): string {
   return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-async function load() {
-  loading = true;
+function applyQuerySnapshot(snapshot: QuerySnapshot<StatusPluginResponse>) {
+  hasData = snapshot.data !== undefined;
+  fetching = snapshot.isFetching;
+  loading = !hasData && snapshot.isFetching;
+  if (snapshot.data && !hasUnsavedChanges) {
+    plugins = cloneStatusPlugins(snapshot.data.plugins);
+    presets = snapshot.data.presets;
+    loadedPlugins = JSON.stringify(snapshot.data.plugins);
+  }
+  if (snapshot.error && !hasData) {
+    errorMessage = snapshot.error instanceof Error ? snapshot.error.message : 'Unable to load status plugins.';
+  } else if (!snapshot.error) {
+    errorMessage = '';
+  }
+}
+
+async function load(force = true) {
   errorMessage = '';
   try {
-    const response = await requestJson<{ plugins: StatusPlugin[]; presets: StatusPluginPreset[] }>(
-      '/api/status-plugins',
-      { cache: 'no-store' },
-      'Unable to load status plugins.'
+    await queryCache.fetch(
+      STATUS_PLUGINS_QUERY,
+      () =>
+        requestJson<StatusPluginResponse>(
+          '/api/status-plugins',
+          { cache: 'no-store' },
+          'Unable to load status plugins.'
+        ),
+      force
     );
-    plugins = cloneStatusPlugins(response.plugins);
-    presets = response.presets;
-    loadedPlugins = JSON.stringify(response.plugins);
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : 'Unable to load status plugins.';
-  } finally {
-    loading = false;
+    if (!hasData) errorMessage = error instanceof Error ? error.message : 'Unable to load status plugins.';
   }
 }
 
@@ -132,6 +153,7 @@ async function save() {
       'Unable to save status plugins.'
     );
     plugins = cloneStatusPlugins(response.plugins);
+    queryCache.set(STATUS_PLUGINS_QUERY, { plugins: response.plugins, presets });
     loadedPlugins = JSON.stringify(response.plugins);
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : 'Unable to save status plugins.';
@@ -142,12 +164,19 @@ async function save() {
   close();
 }
 
-onMount(() => void load());
+let unsubscribe: (() => void) | undefined;
+
+onMount(() => {
+  unsubscribe = queryCache.subscribe(STATUS_PLUGINS_QUERY, applyQuerySnapshot);
+  void load(true);
+});
+
+onDestroy(() => unsubscribe?.());
 </script>
 
 <DialogShell eyebrow="Server-wide" title="Status widgets" {close} variant="inspect" closeDisabled={saving}>
   {#snippet children()}
-    <div class="status-settings">
+    <div class="status-settings" aria-busy={fetching}>
       <div class="status-settings-intro">
         <div class="status-settings-copy">
           <strong>Add a system status widget</strong>

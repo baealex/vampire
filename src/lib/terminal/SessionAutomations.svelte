@@ -1,11 +1,12 @@
 <script lang="ts">
-import { onDestroy, onMount } from 'svelte';
+import { onDestroy, onMount, untrack } from 'svelte';
 import Clock3 from '@lucide/svelte/icons/clock-3';
 import Pause from '@lucide/svelte/icons/pause';
 import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import X from '@lucide/svelte/icons/x';
+import { queryCache, type QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
 import {
   MAX_AUTOMATION_INTERVAL_MS,
@@ -28,8 +29,13 @@ let {
   embedded?: boolean;
 } = $props();
 
-let automations = $state<SessionAutomation[]>([]);
-let loading = $state(true);
+type SessionAutomationsResponse = { automations: SessionAutomation[] };
+const automationsQuery = untrack(() => `session/${sessionId}/automations`);
+const initialResponse = queryCache.get<SessionAutomationsResponse>(automationsQuery);
+let automations = $state<SessionAutomation[]>(initialResponse?.automations ?? []);
+let hasData = $state(initialResponse !== undefined);
+let loading = $state(initialResponse === undefined);
+let fetching = $state(false);
 let refreshing = false;
 let loadError = $state('');
 let mutationError = $state('');
@@ -73,23 +79,37 @@ function scheduleInput(): SessionAutomationSchedule | undefined {
   return { type: 'interval', intervalMs, startAt: timestamp };
 }
 
-async function loadAutomations(quiet = false) {
+function applyQuerySnapshot(snapshot: QuerySnapshot<SessionAutomationsResponse>) {
+  hasData = snapshot.data !== undefined;
+  fetching = snapshot.isFetching;
+  loading = !hasData && snapshot.isFetching;
+  if (snapshot.data) automations = snapshot.data.automations;
+  if (snapshot.error && !hasData) {
+    loadError = snapshot.error instanceof Error ? snapshot.error.message : 'Unable to load automations';
+  } else if (!snapshot.error) {
+    loadError = '';
+  }
+}
+
+async function loadAutomations(quiet = false, force = true) {
   if (refreshing) return;
   refreshing = true;
-  if (!quiet) loading = true;
   if (!quiet) loadError = '';
   try {
-    const data = await requestJson<{ automations: SessionAutomation[] }>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/automations`,
-      { cache: 'no-store' },
-      'Unable to load automations'
+    await queryCache.fetch(
+      automationsQuery,
+      () =>
+        requestJson<SessionAutomationsResponse>(
+          `/api/sessions/${encodeURIComponent(sessionId)}/automations`,
+          { cache: 'no-store' },
+          'Unable to load automations'
+        ),
+      force
     );
-    automations = data.automations;
   } catch (error) {
-    if (!quiet) loadError = error instanceof Error ? error.message : 'Unable to load automations';
+    if (!quiet && !hasData) loadError = error instanceof Error ? error.message : 'Unable to load automations';
   } finally {
     refreshing = false;
-    loading = false;
   }
 }
 
@@ -113,6 +133,7 @@ async function createAutomation() {
       'Unable to save the automation'
     );
     automations = [data.automation, ...automations.filter((item) => item.id !== data.automation.id)];
+    queryCache.set(automationsQuery, { automations });
     name = '';
     prompt = '';
     resetRunAt();
@@ -138,6 +159,7 @@ async function setEnabled(automation: SessionAutomation, enabled: boolean) {
       'Unable to update the automation'
     );
     automations = automations.map((item) => (item.id === data.automation.id ? data.automation : item));
+    queryCache.set(automationsQuery, { automations });
   } catch (error) {
     mutationError = error instanceof Error ? error.message : 'Unable to update the automation';
   } finally {
@@ -156,6 +178,7 @@ async function deleteAutomation(automation: SessionAutomation) {
       'Unable to delete the automation'
     );
     automations = automations.filter((item) => item.id !== automation.id);
+    queryCache.set(automationsQuery, { automations });
   } catch (error) {
     mutationError = error instanceof Error ? error.message : 'Unable to delete the automation';
   } finally {
@@ -198,17 +221,21 @@ function resumeLabel(automation: SessionAutomation): string {
   return automation.schedule.type === 'once' && automation.lastAttemptAt !== null ? 'Run again' : 'Resume';
 }
 
+let unsubscribe: (() => void) | undefined;
+
 onMount(() => {
   resetRunAt();
-  void loadAutomations();
+  unsubscribe = queryCache.subscribe(automationsQuery, applyQuerySnapshot);
+  void loadAutomations(false, true);
   refreshTimer = setInterval(() => {
     now = Date.now();
-    void loadAutomations(true);
+    void loadAutomations(true, true);
   }, REFRESH_INTERVAL_MS);
 });
 
 onDestroy(() => {
   if (refreshTimer !== undefined) clearInterval(refreshTimer);
+  unsubscribe?.();
 });
 </script>
 
@@ -216,6 +243,7 @@ onDestroy(() => {
   class:embedded
   class="automation-panel"
   role={embedded ? undefined : 'dialog'}
+  aria-busy={fetching}
   aria-labelledby={embedded ? undefined : 'automation-panel-title'}
 >
   {#if !embedded}
@@ -297,7 +325,7 @@ onDestroy(() => {
     {:else if loadError}
       <div class="automation-empty">
         <p role="alert">{loadError}</p>
-        <button type="button" onclick={() => void loadAutomations()}>Retry</button>
+        <button type="button" onclick={() => void loadAutomations(false, true)}>Retry</button>
       </div>
     {:else if automations.length === 0}
       <p class="automation-empty">No automations yet.</p>

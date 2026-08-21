@@ -1,16 +1,27 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onDestroy, onMount } from 'svelte';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import Search from '@lucide/svelte/icons/search';
 import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+import type { QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
 import DialogShell from '$lib/ui/DialogShell.svelte';
+import {
+  getCachedListeningPorts,
+  refreshListeningPorts,
+  refreshListeningPortsAfterMutation,
+  subscribeListeningPorts,
+} from './listening-ports-client';
 import type { ListeningPort, ListeningPortsResponse, TerminateListeningProcessRequest } from './listening-ports';
 
 let { close }: { close: () => void } = $props();
 
-let ports = $state<ListeningPort[]>([]);
-let loading = $state(true);
+const initialPorts = getCachedListeningPorts();
+let ports = $state<ListeningPort[]>(initialPorts ?? []);
+let hasData = $state(initialPorts !== undefined);
+let loading = $state(initialPorts === undefined);
+let fetching = $state(false);
+let stopping = $state(false);
 let errorMessage = $state('');
 let statusMessage = $state('');
 let filter = $state('');
@@ -58,45 +69,54 @@ function confirmationDescription(listener: ListeningPort): string {
   return `Send SIGTERM to ${processLabel(listener)} (PID ${listener.pid}). This closes port ${listener.port} and any other work owned by that process.`;
 }
 
-async function loadPorts(preserveStatus = false) {
-  if (loading && ports.length > 0) return;
-  loading = true;
+function applyQuerySnapshot(snapshot: QuerySnapshot<ListeningPortsResponse>) {
+  hasData = snapshot.data !== undefined;
+  fetching = snapshot.isFetching;
+  loading = !hasData && snapshot.isFetching;
+  if (snapshot.data) ports = snapshot.data.ports;
+  if (snapshot.error && !hasData) {
+    errorMessage = snapshot.error instanceof Error ? snapshot.error.message : 'Unable to inspect listening ports.';
+  } else if (!snapshot.error) {
+    errorMessage = '';
+  }
+}
+
+async function loadPorts(preserveStatus = false, afterMutation = false) {
   errorMessage = '';
   if (!preserveStatus) statusMessage = '';
   try {
-    const response = await requestJson<ListeningPortsResponse>(
-      '/api/system/ports',
-      { cache: 'no-store' },
-      'Unable to inspect listening ports.'
-    );
+    const response = await (afterMutation ? refreshListeningPortsAfterMutation() : refreshListeningPorts());
     ports = response.ports;
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : 'Unable to inspect listening ports.';
-  } finally {
-    loading = false;
+    if (!hasData) errorMessage = error instanceof Error ? error.message : 'Unable to inspect listening ports.';
   }
 }
 
 async function stopProcess(listener: ListeningPort) {
   if (listener.pid === null || listener.termination !== 'available') return;
+  stopping = true;
   const body: TerminateListeningProcessRequest = {
     port: listener.port,
     processName: listener.processName,
     cwd: listener.cwd,
   };
-  await requestJson<{ ok: boolean }>(
-    `/api/system/ports/${listener.pid}`,
-    {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-    `Unable to stop ${processLabel(listener)}.`
-  );
-  confirming = undefined;
-  statusMessage = `SIGTERM sent to ${processLabel(listener)} (PID ${listener.pid}).`;
-  await new Promise((resolve) => window.setTimeout(resolve, 250));
-  await loadPorts(true);
+  try {
+    await requestJson<{ ok: boolean }>(
+      `/api/system/ports/${listener.pid}`,
+      {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      `Unable to stop ${processLabel(listener)}.`
+    );
+    confirming = undefined;
+    statusMessage = `SIGTERM sent to ${processLabel(listener)} (PID ${listener.pid}).`;
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    await loadPorts(true, true);
+  } finally {
+    stopping = false;
+  }
 }
 
 async function confirmStop() {
@@ -105,9 +125,14 @@ async function confirmStop() {
   await stopProcess(listener);
 }
 
+let unsubscribe: (() => void) | undefined;
+
 onMount(() => {
+  unsubscribe = subscribeListeningPorts(applyQuerySnapshot);
   void loadPorts();
 });
+
+onDestroy(() => unsubscribe?.());
 </script>
 
 <DialogShell title="Listening ports" variant="inspect" {close}>
@@ -135,7 +160,7 @@ onMount(() => {
         <button
           type="button"
           onclick={() => void loadPorts()}
-          disabled={loading}
+          disabled={fetching || stopping}
           aria-label="Refresh listening ports"
           title="Refresh"
         >
@@ -149,7 +174,7 @@ onMount(() => {
       {#if errorMessage}
         <div class="listening-ports-error" role="alert">
           <p>{errorMessage}</p>
-          <button type="button" onclick={() => void loadPorts()}>Try again</button>
+          <button type="button" onclick={() => void loadPorts()} disabled={fetching || stopping}>Try again</button>
         </div>
       {:else if loading && ports.length === 0}
         <p class="listening-ports-placeholder" role="status">Inspecting listening ports…</p>
@@ -190,6 +215,7 @@ onMount(() => {
                     type="button"
                     class="listening-port-stop"
                     onclick={() => confirming = listener}
+                    disabled={fetching || stopping}
                     aria-label={`Stop ${processLabel(listener)} on port ${listener.port}`}
                     title="Stop process"
                   >

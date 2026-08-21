@@ -1,5 +1,4 @@
 <script lang="ts">
-import LogOut from '@lucide/svelte/icons/log-out';
 import ListOrdered from '@lucide/svelte/icons/list-ordered';
 import X from '@lucide/svelte/icons/x';
 import IconButton from '$lib/ui/IconButton.svelte';
@@ -10,7 +9,6 @@ let {
   hasOpenSession,
   sessionOrderMode,
   workspacePreferencesError,
-  onLogout,
   onClose,
   onOrderModeChange,
 }: {
@@ -18,7 +16,6 @@ let {
   hasOpenSession: boolean;
   sessionOrderMode: SessionOrderMode;
   workspacePreferencesError: string;
-  onLogout: () => void;
   onClose: () => void;
   onOrderModeChange: (mode: SessionOrderMode) => void;
 } = $props();
@@ -27,11 +24,6 @@ let {
 {#if authenticationRequired || hasOpenSession}
   <header class="section-header" class:mobile-only-header={!authenticationRequired}>
     <div class="section-actions">
-      {#if authenticationRequired}
-        <IconButton label="Sign out" onclick={onLogout}>
-          <LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
-        </IconButton>
-      {/if}
       {#if hasOpenSession}
         <span class="navigator-close">
           <IconButton label="Close workspace navigator" title="Close workspaces" onclick={onClose}>
@@ -146,7 +138,7 @@ let {
   left: 0;
   height: 2px;
   background: transparent;
-  content: '';
+  content: "";
 }
 .session-order-control button.active {
   color: var(--color-text);
