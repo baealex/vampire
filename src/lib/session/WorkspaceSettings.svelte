@@ -110,7 +110,14 @@ async function save() {
 }
 </script>
 
-<DialogShell eyebrow={workspaceName} title="Startup profile" close={onClose} variant="inspect" closeDisabled={saving}>
+<DialogShell
+  eyebrow={workspaceName}
+  title="Startup profile"
+  close={onClose}
+  variant="inspect"
+  closeDisabled={saving}
+  footerVisible={saving || hasUnsavedChanges}
+>
   {#snippet children()}
     <div class="startup-profile-dialog">
       <div class="dialog-intro">
@@ -122,7 +129,7 @@ async function save() {
           </p>
         </div>
         <button
-          class="add-button"
+          class="vampire-dialog-secondary-button add-button"
           type="button"
           onclick={addProfile}
           disabled={editableProfiles.length >= MAX_LAUNCH_PROFILES}
@@ -145,12 +152,7 @@ async function save() {
         </span>
       </label>
 
-      {#if editableProfiles.length === 0}
-        <div class="empty-profiles">
-          <span>No reusable startup commands yet.</span>
-          <button class="text-button" type="button" onclick={addProfile}>Add one here</button>
-        </div>
-      {:else}
+      {#if editableProfiles.length > 0}
         <div class="profile-list">
           {#each editableProfiles as profile, index (profile.id)}
             <article class:selected={selectedProfileId === profile.id} class="profile-card">
@@ -198,11 +200,10 @@ async function save() {
   {/snippet}
 
   {#snippet footer()}
-    <div class="dialog-footer">
-      <p>Saving syncs profile edits globally. It does not run anything in the current shell.</p>
-      <button class="save-button" type="button" onclick={() => void save()} disabled={saving || !hasUnsavedChanges}>
+    <div class="vampire-dialog-actions">
+      <button class="vampire-dialog-primary-button" type="button" onclick={() => void save()} disabled={saving}>
         <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>{saving ? 'Saving…' : hasUnsavedChanges ? 'Save changes' : 'Saved'}</span>
+        <span>{saving ? 'Saving…' : 'Save changes'}</span>
       </button>
     </div>
   {/snippet}
@@ -233,35 +234,8 @@ async function save() {
   font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
-.add-button,
-.save-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.38rem;
-  min-height: 2.3rem;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
 .add-button {
   flex: 0 0 auto;
-  padding: 0 0.65rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-control-background);
-  color: var(--color-text);
-}
-@media (hover: hover) {
-  .add-button:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-  }
-}
-.add-button:disabled {
-  cursor: default;
-  opacity: 0.5;
 }
 .no-startup-option {
   display: grid;
@@ -294,27 +268,6 @@ async function save() {
 .no-startup-option small {
   color: var(--color-text-tertiary);
   font-size: var(--text-nano);
-}
-.empty-profiles {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.8rem 0.9rem;
-  border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-}
-.text-button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-accent);
-  font: inherit;
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
 }
 .profile-list {
   display: grid;
@@ -411,47 +364,13 @@ async function save() {
   color: var(--color-danger-text);
   font-size: var(--text-caption);
 }
-.dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.dialog-footer p {
-  margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  line-height: var(--leading-body);
-}
-.save-button {
-  flex: 0 0 auto;
-  padding: 0 0.75rem;
-  border: 0;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-@media (hover: hover) {
-  .save-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-.save-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
 @media (max-width: 38rem) {
-  .dialog-intro,
-  .empty-profiles,
-  .dialog-footer {
+  .dialog-intro {
     align-items: flex-start;
     flex-direction: column;
   }
   .add-button {
     align-self: flex-start;
-  }
-  .save-button {
-    width: 100%;
   }
 }
 </style>

@@ -79,9 +79,14 @@ async function submit(event: SubmitEvent) {
   {/snippet}
 
   {#snippet footer()}
-    <div class="worktree-actions">
+    <div class="vampire-dialog-actions">
       <button class="vampire-dialog-secondary-button" type="button" onclick={close} disabled={creating}>Cancel</button>
-      <button class="worktree-create-button" type="submit" form="new-worktree-form" disabled={creating || !name.trim()}>
+      <button
+        class="vampire-dialog-primary-button"
+        type="submit"
+        form="new-worktree-form"
+        disabled={creating || !name.trim()}
+      >
         {#if creating}
           <LoaderCircle class="worktree-spinner" size={15} strokeWidth={1.9} aria-hidden="true" />
         {/if}
@@ -169,37 +174,6 @@ async function submit(event: SubmitEvent) {
   color: var(--color-danger-text);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
-}
-.worktree-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.worktree-create-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  min-height: var(--control-height-md);
-  padding: 0 0.85rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .worktree-create-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-.worktree-create-button:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 :global(.worktree-spinner) {
   animation: worktree-spin 0.8s linear infinite;

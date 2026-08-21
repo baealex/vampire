@@ -77,9 +77,14 @@ async function submit(event: SubmitEvent) {
   {/snippet}
 
   {#snippet footer()}
-    <div class="alias-actions">
+    <div class="vampire-dialog-actions">
       <button class="vampire-dialog-secondary-button" type="button" onclick={close} disabled={saving}>Cancel</button>
-      <button class="alias-save-button" type="submit" form="workspace-alias-form" disabled={saving || unchanged}>
+      <button
+        class="vampire-dialog-primary-button"
+        type="submit"
+        form="workspace-alias-form"
+        disabled={saving || unchanged}
+      >
         {#if saving}
           <LoaderCircle class="alias-spinner" size={15} strokeWidth={1.9} aria-hidden="true" />
         {/if}
@@ -167,37 +172,6 @@ async function submit(event: SubmitEvent) {
   color: var(--color-danger-text);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
-}
-.alias-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.alias-save-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  min-height: var(--control-height-md);
-  padding: 0 0.85rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .alias-save-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-.alias-save-button:disabled {
-  cursor: default;
-  opacity: 0.62;
 }
 :global(.alias-spinner) {
   animation: alias-spin 0.8s linear infinite;

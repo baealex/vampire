@@ -1,7 +1,9 @@
 <script lang="ts">
 import { onDestroy, onMount } from 'svelte';
+import CircleStop from '@lucide/svelte/icons/circle-stop';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import Search from '@lucide/svelte/icons/search';
+import Shield from '@lucide/svelte/icons/shield';
 import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 import type { QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
@@ -50,6 +52,11 @@ function addressLabel(addresses: string[]): string {
   if (addresses.every((address) => wildcard.has(address))) return 'All interfaces';
   if (addresses.every((address) => loopback.has(address))) return 'Localhost';
   return addresses.join(', ');
+}
+
+function isNetworkAccessible(addresses: string[]): boolean {
+  const loopback = new Set(['127.0.0.1', '::1']);
+  return !addresses.every((address) => loopback.has(address));
 }
 
 function terminationLabel(listener: ListeningPort): string {
@@ -137,7 +144,7 @@ onDestroy(() => unsubscribe?.());
 
 <DialogShell title="Listening ports" variant="inspect" {close}>
   {#snippet children()}
-    <div class="listening-ports">
+    <div class="listening-ports" aria-busy={fetching}>
       <div class="listening-ports-toolbar">
         <label class="listening-ports-filter">
           <Search size={15} strokeWidth={1.8} aria-hidden="true" />
@@ -148,7 +155,7 @@ onDestroy(() => unsubscribe?.());
             placeholder="Port, process, or path"
           >
         </label>
-        <p aria-live="polite">
+        <p class="listening-ports-count" aria-live="polite">
           {#if filter.trim()}
             <strong>{filteredPorts.length}</strong>
             / {ports.length}
@@ -164,7 +171,7 @@ onDestroy(() => unsubscribe?.());
           aria-label="Refresh listening ports"
           title="Refresh"
         >
-          <span class:spinning={loading} aria-hidden="true"><RefreshCw size={15} strokeWidth={1.9} /></span>
+          <span class:spinning={fetching} aria-hidden="true"><RefreshCw size={15} strokeWidth={1.9} /></span>
         </button>
       </div>
 
@@ -177,24 +184,26 @@ onDestroy(() => unsubscribe?.());
           <button type="button" onclick={() => void loadPorts()} disabled={fetching || stopping}>Try again</button>
         </div>
       {:else if loading && ports.length === 0}
-        <p class="listening-ports-placeholder" role="status">Inspecting listening ports…</p>
+        <p class="vampire-dialog-empty-state" role="status">Checking for listening ports…</p>
       {:else if ports.length === 0}
-        <p class="listening-ports-placeholder">No TCP ports are listening.</p>
+        <p class="vampire-dialog-empty-state">No TCP ports are listening.</p>
       {:else if filteredPorts.length === 0}
-        <p class="listening-ports-placeholder">No listening ports match “{filter.trim()}”.</p>
+        <p class="vampire-dialog-empty-state">No listening ports match “{filter.trim()}”.</p>
       {:else}
-        <div class="listening-port-table">
-          <div class="listening-port-columns" aria-hidden="true">
-            <span>Port</span>
-            <span>Process</span>
-            <span>Binding</span>
-            <span></span>
-          </div>
+        <div class="listening-port-results">
           <ul class="listening-port-list" aria-label="TCP listening ports">
             {#each filteredPorts as listener (`${listener.pid ?? 'unknown'}-${listener.port}-${listener.addresses.join('-')}`)}
               <li class="listening-port-row">
                 <div class="listening-port-endpoint">
-                  <strong aria-label={`TCP port ${listener.port}`}>{listener.port}</strong>
+                  <strong aria-label={`TCP port ${listener.port}`}>:{listener.port}</strong>
+                  <span
+                    class="listening-port-scope"
+                    class:network={isNetworkAccessible(listener.addresses)}
+                    title={`TCP · ${listener.addresses.join(', ')}`}
+                  >
+                    <span aria-hidden="true"></span>
+                    {addressLabel(listener.addresses)}
+                  </span>
                 </div>
                 <div class="listening-port-process">
                   <div>
@@ -205,26 +214,27 @@ onDestroy(() => unsubscribe?.());
                   </div>
                   {#if listener.cwd && listener.cwd !== '/'}
                     <code title={listener.cwd}>{listener.cwd}</code>
+                  {:else}
+                    <span class="listening-port-path-unavailable">Working directory unavailable</span>
                   {/if}
                 </div>
-                <span class="listening-port-binding" title={`TCP · ${listener.addresses.join(', ')}`}
-                  >{addressLabel(listener.addresses)}</span
-                >
                 {#if listener.termination === 'available'}
                   <button
                     type="button"
-                    class="listening-port-stop"
+                    class="listening-port-action listening-port-stop"
                     onclick={() => confirming = listener}
                     disabled={fetching || stopping}
                     aria-label={`Stop ${processLabel(listener)} on port ${listener.port}`}
                     title="Stop process"
                   >
-                    Stop
+                    <CircleStop size={13} strokeWidth={1.8} aria-hidden="true" />
+                    <span>Stop</span>
                   </button>
                 {:else}
-                  <span class="listening-port-unavailable" title={terminationTitle(listener)}
-                    >{terminationLabel(listener)}</span
-                  >
+                  <span class="listening-port-action listening-port-unavailable" title={terminationTitle(listener)}>
+                    <Shield size={13} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{terminationLabel(listener)}</span>
+                  </span>
                 {/if}
               </li>
             {/each}
@@ -249,6 +259,7 @@ onDestroy(() => unsubscribe?.());
 <style>
 .listening-ports {
   display: grid;
+  align-content: start;
   min-width: 0;
   gap: 0.7rem;
 }
@@ -258,6 +269,9 @@ onDestroy(() => unsubscribe?.());
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
+  min-height: 2.75rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .listening-ports-toolbar p {
   min-width: 0;
@@ -368,59 +382,33 @@ onDestroy(() => unsubscribe?.());
   font-size: var(--text-label);
   line-height: var(--leading-ui);
 }
-.listening-ports-placeholder {
-  margin: 0;
-  padding: 2.25rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-label);
-  text-align: center;
-}
-.listening-port-table {
+.listening-port-results {
   min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-}
-.listening-port-columns,
-.listening-port-row {
-  display: grid;
-  grid-template-columns: minmax(4rem, 0.45fr) minmax(10rem, 1.55fr) minmax(7.5rem, 0.8fr) auto;
-  align-items: center;
-  gap: 0.7rem;
-  min-width: 0;
-  padding-inline: 0.7rem;
-}
-.listening-port-columns {
-  min-height: 2rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-raised);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  font-weight: var(--weight-medium);
 }
 .listening-port-list {
   display: grid;
-  max-height: min(30rem, 58dvh);
-  overflow-y: auto;
+  gap: 0.45rem;
+  overflow: visible;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .listening-port-row {
-  min-height: 3.25rem;
-  padding-block: 0.48rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.listening-port-row:last-child {
-  border-bottom: 0;
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr) 6rem;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  min-height: 4rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
 }
 @media (hover: hover) {
   .listening-port-row:hover {
     background: var(--color-surface-hover);
+    border-color: var(--color-border);
   }
 }
 .listening-port-endpoint,
@@ -429,26 +417,41 @@ onDestroy(() => unsubscribe?.());
   min-width: 0;
   gap: 0.12rem;
 }
+.listening-port-endpoint {
+  gap: 0.28rem;
+}
+.listening-port-process {
+  grid-template-rows: 1.25rem 1rem;
+  gap: 0.2rem;
+}
 .listening-port-endpoint strong {
   color: var(--color-text);
   font-family: var(--font-mono);
-  font-size: var(--text-label);
+  font-size: var(--text-body);
   font-weight: var(--weight-strong);
   font-variant-numeric: tabular-nums;
 }
-.listening-port-process > code {
+.listening-port-process > code,
+.listening-port-path-unavailable {
   overflow: hidden;
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
   font-size: var(--text-nano);
+  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.listening-port-process > code {
+  font-family: var(--font-mono);
+}
+.listening-port-path-unavailable {
+  font-style: italic;
 }
 .listening-port-process > div {
   display: flex;
   align-items: baseline;
   gap: 0.45rem;
   min-width: 0;
+  line-height: 1.25rem;
 }
 .listening-port-process strong {
   min-width: 0;
@@ -465,45 +468,51 @@ onDestroy(() => unsubscribe?.());
   font-size: var(--text-nano);
   font-variant-numeric: tabular-nums;
 }
-.listening-port-binding {
+.listening-port-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   min-width: 0;
   overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.listening-port-stop {
-  min-height: 1.85rem;
-  padding: 0 0.45rem;
+.listening-port-scope > span {
+  flex: 0 0 auto;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+.listening-port-scope.network > span {
+  background: var(--color-warning-accent);
+}
+.listening-port-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  justify-self: end;
+  width: 6rem;
+  min-height: 1.6rem;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-tertiary);
   font: inherit;
   font-size: var(--text-nano);
   font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.listening-port-stop {
   cursor: pointer;
 }
 @media (hover: hover) {
   .listening-port-stop:hover {
-    background: var(--color-danger-surface-hover);
     color: var(--color-danger-text);
   }
-}
-.listening-port-unavailable {
-  max-width: 5.5rem;
-  overflow: hidden;
-  justify-self: end;
-  padding: 0.24rem 0.42rem;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @keyframes listening-ports-spin {
@@ -513,36 +522,27 @@ onDestroy(() => unsubscribe?.());
 }
 
 @media (max-width: 36rem) {
-  .listening-port-columns {
-    display: none;
-  }
   .listening-port-row {
-    grid-template-columns: 3.6rem minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 5.75rem;
     grid-template-rows: auto auto;
-    gap: 0.08rem 0.55rem;
-    padding: 0.55rem 0.65rem;
+    gap: 0.6rem 0.75rem;
+    padding: 0.7rem 0.75rem;
   }
   .listening-port-endpoint {
     grid-column: 1;
-    grid-row: 1 / span 2;
-  }
-  .listening-port-process {
-    grid-column: 2;
     grid-row: 1;
   }
-  .listening-port-binding {
-    grid-column: 2;
+  .listening-port-process {
+    grid-column: 1 / span 2;
     grid-row: 2;
-    color: var(--color-text-tertiary);
-    font-size: var(--text-nano);
   }
   .listening-port-stop,
   .listening-port-unavailable {
-    grid-column: 3;
-    grid-row: 1 / span 2;
+    grid-column: 2;
+    grid-row: 1;
   }
-  .listening-port-unavailable {
-    max-width: 4.5rem;
+  .listening-port-action {
+    width: 5.75rem;
   }
 }
 

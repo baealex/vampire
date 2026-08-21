@@ -1,7 +1,10 @@
 node_modules/
 dist/
 build/
+build-e2e/
 .svelte-kit/
+.svelte-kit-check/
+.svelte-kit-e2e/
 playwright-report/
 test-results/
 .DS_Store

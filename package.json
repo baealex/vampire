@@ -37,7 +37,7 @@
     "dev": "node runtime/dev.ts",
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project tsconfig.node.json && tsc --project tsconfig.test.json",
+    "check": "node tools/check.ts",
     "format": "node tools/format-changed.ts --write",
     "format:check": "node tools/format-changed.ts",
     "test": "pnpm check && node --test tests/*.test.ts && pnpm build",

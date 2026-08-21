@@ -230,7 +230,7 @@ test('rejects a wrong token and unlocks without waiting for the workspace stream
   await page.routeWebSocket(/\/ws\/workspace(?:\?|$)/, () => undefined);
   await page.getByLabel('Access token').fill('vampire-playwright-token');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
 });
 
 test('inspects listening ports as an on-demand system utility', async ({ context, page }) => {
@@ -310,14 +310,22 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
   await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
   await page.getByRole('button', { name: 'Inspect listening ports' }).click();
-  await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
+  const portsDialog = page.getByRole('dialog', { name: 'Listening ports' });
+  await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
   await expect(page.getByText('2 ports')).toBeVisible();
   const developmentServer = page.locator('.listening-port-row', { hasText: '5173' });
   await expect(developmentServer).toContainText('Localhost');
   await expect(developmentServer).toContainText('/projects/site');
+  const toolbarBox = await portsDialog.locator('.listening-ports-toolbar').boundingBox();
+  const resultsBox = await portsDialog.locator('.listening-port-results').boundingBox();
+  expect(toolbarBox).not.toBeNull();
+  expect(resultsBox).not.toBeNull();
+  expect(resultsBox!.y - (toolbarBox!.y + toolbarBox!.height)).toBeLessThan(32);
+  await expect(portsDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
+  await expect(portsDialog.locator('.listening-port-list')).toHaveCSS('overflow-y', 'visible');
   expect(portsRequests).toBe(1);
-  await page.getByRole('dialog', { name: 'Listening ports' }).getByRole('button', { name: 'Close' }).click();
-  await expect(page.getByRole('heading', { name: 'Listening ports' })).toBeHidden();
+  await portsDialog.getByRole('button', { name: 'Close' }).click();
+  await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeHidden();
   await page.getByRole('button', { name: 'Inspect listening ports' }).click();
   await expect(page.getByText('2 ports')).toBeVisible();
   await expect.poll(() => portsRequests).toBe(2);
@@ -391,35 +399,34 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Status widgets' });
+  const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  const introCopy = dialog.locator('.status-settings-copy');
-  const addActions = dialog.locator('.status-add-actions');
-  const [copyBox, actionsBox] = await Promise.all([introCopy.boundingBox(), addActions.boundingBox()]);
-  expect(copyBox).not.toBeNull();
-  expect(actionsBox).not.toBeNull();
-  expect(actionsBox!.y).toBeGreaterThanOrEqual(copyBox!.y + copyBox!.height);
-  expect(await addActions.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  await dialog.getByRole('button', { name: 'Codex Limit', exact: true }).click();
-  const codexLimit = dialog.locator('.status-plugin-editor').last();
+  await dialog.getByRole('button', { name: 'Add widget' }).click();
+  await page.getByRole('menuitem', { name: 'Codex Limit', exact: true }).click();
+  const codexLimit = dialog.locator('.status-detail-editor');
   await expect(codexLimit.getByLabel('Command')).toHaveValue(/account\/rateLimits\/read/);
   await expect(codexLimit.getByLabel('Command')).toHaveValue(/\n/);
-  await expect(codexLimit.getByLabel('On')).toBeChecked();
+  await expect(codexLimit.getByLabel('Enabled')).toBeChecked();
   await codexLimit.getByRole('button', { name: 'Remove Codex Limit' }).click();
-  await dialog.getByRole('button', { name: 'Command', exact: true }).click();
-  const custom = dialog.locator('.status-plugin-editor').last();
+  await dialog.getByRole('button', { name: 'Add widget' }).click();
+  await page.getByRole('menuitem', { name: 'Command', exact: true }).click();
+  const custom = dialog.locator('.status-detail-editor');
   await custom.getByLabel('Name').fill('Build');
   await custom.getByLabel('Command').fill("printf 'ready\\nShared result\\n'");
   await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
-  await dialog.getByRole('button', { name: 'Move Build up' }).click();
-  await dialog.getByRole('button', { name: 'Move Build up' }).click();
+  await dialog.getByRole('button', { name: 'Back to status widgets' }).click();
+  await dialog.getByRole('button', { name: 'Actions for Build' }).click();
+  await page.getByRole('menuitem', { name: 'Move Build up' }).click();
+  await dialog.getByRole('button', { name: 'Actions for Build' }).click();
+  await page.getByRole('menuitem', { name: 'Move Build up' }).click();
 
-  const cpu = dialog.locator('.status-plugin-editor').filter({
-    has: page.getByRole('button', { name: 'Remove CPU' }),
-  });
+  await dialog.getByRole('button', { name: 'Edit CPU' }).click();
+  const cpu = dialog.locator('.status-detail-editor');
   await expect(cpu.getByLabel('Command')).toHaveValue(/^node --input-type=module/);
   await expect(cpu.getByLabel('Command')).toHaveValue(/function snapshot\(\)/);
-  await cpu.getByRole('button', { name: 'Remove CPU' }).click();
+  await dialog.getByRole('button', { name: 'Back to status widgets' }).click();
+  await dialog.getByRole('button', { name: 'Actions for CPU' }).click();
+  await page.getByRole('menuitem', { name: 'Remove CPU' }).click();
   await dialog.getByRole('button', { name: 'Save changes' }).click();
   await expect(dialog).toBeHidden();
 
@@ -510,7 +517,7 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   await expect(page.locator('.profile-card').getByRole('radio', { name: 'Use here' })).toBeChecked();
   const startupDialog = page.getByRole('dialog', { name: 'Startup profile' });
   await expect(startupDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
-  await expect(startupDialog.locator('.vampire-dialog-footer')).toBeVisible();
+  await expect(startupDialog.locator('.vampire-dialog-footer')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   const restartResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}`);
@@ -1093,6 +1100,7 @@ test('publishes output sent immediately after terminal resize to other devices',
     const controllerPage = await controllerContext.newPage();
 
     await observerPage.goto('/');
+    await expect(observerPage.locator('.session-row', { hasText: 'workspace' })).toBeVisible();
     await observerPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
     const observerState = observerPage.locator('.session-row', { hasText: 'workspace' }).locator('.workspace-state');
     await expect(observerState).toHaveText('Idle');
@@ -1349,37 +1357,50 @@ test('runs and stops a background command without replacing the main session', a
   const mainWorkspaceProcess = await page.locator('.session-row-shell.selected .session-program').textContent();
   await expect(page.getByRole('tab')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Run background command' }).click();
-  const backgroundCommand = page.getByRole('textbox', { name: 'Background command' });
+  const backgroundTrigger = page.getByRole('button', { name: 'Open background processes' });
+  await backgroundTrigger.click();
+  const backgroundDialog = page.getByRole('dialog');
+  await expect(backgroundDialog).toBeVisible();
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
+  const backgroundCommand = backgroundDialog.getByRole('textbox', { name: 'Background command' });
   const longCommand = "printf 'background-process-marker\\n'; sleep 30";
   await backgroundCommand.fill(longCommand);
-  await page.getByRole('button', { name: 'Run', exact: true }).click();
-  const processRow = page.locator('.process-row', { hasText: 'background-process-marker' });
-  await expect(processRow).toBeVisible();
-  await expect(page.locator('.process-output pre')).toContainText('background-process-marker', { timeout: 10_000 });
-  await expect(page.locator('.process-output pre')).toHaveText('background-process-marker');
+  await backgroundDialog.getByRole('button', { name: 'Run', exact: true }).click();
+  const backgroundOutput = backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` }).locator('pre');
+  await expect(backgroundOutput).toContainText('background-process-marker', { timeout: 10_000 });
   await expect(page.locator('.xterm-rows')).toContainText('main-session-marker');
   await expect(page.locator('.xterm-rows')).not.toContainText('background-process-marker');
   await expect(page.locator('.session-row-shell.selected .session-program')).toHaveText(mainWorkspaceProcess || 'zsh');
   await expect(page.locator('.session-row-shell.selected .runtime-summary')).toHaveText('1 background');
   await expect(page.locator('.session-group.idle .session-row-shell.selected')).toBeVisible({ timeout: 12_000 });
-  await processRow.getByRole('button', { name: `Save ${longCommand} as favorite`, exact: true }).click();
-  await expect(page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toBeVisible();
+  await backgroundDialog.getByRole('button', { name: `Save ${longCommand} as favorite`, exact: true }).click();
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
+  await expect(
+    backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })
+  ).toBeVisible();
 
   await page.reload();
   await expectTerminalReady(page);
-  await page.getByRole('button', { name: 'Run background command' }).click();
-  await expect(page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open background processes' }).click();
+  await expect(
+    backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })
+  ).toBeVisible();
   const outputRoute = '**/api/sessions/*/background/*/output';
   await page.route(outputRoute, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     await route.continue();
   });
+  await backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true }).click();
+  await expect(backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` })).toBeVisible();
+  await backgroundDialog.getByRole('button', { name: 'Close background manager' }).click();
+  await expect(backgroundDialog).toBeHidden();
   await composer.fill("for i in {1..24}; do printf 'main-output-churn\\n'; sleep 0.4; done");
   await composer.press('Enter');
-  await processRow.locator('.process-summary').click();
-  await expect(page.locator('.process-output pre')).toContainText('background-process-marker', { timeout: 10_000 });
-  const returnedToLoading = await page.locator('.process-output').evaluate(async (output) => {
+  await backgroundTrigger.click();
+  await backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true }).click();
+  const delayedOutput = backgroundDialog.locator('.process-output');
+  await expect(delayedOutput.locator('pre')).toContainText('background-process-marker', { timeout: 10_000 });
+  const returnedToLoading = await delayedOutput.evaluate(async (output) => {
     let loadingObserved = Boolean(output.querySelector('.output-placeholder'));
     const observer = new MutationObserver(() => {
       if (output.querySelector('.output-placeholder')) loadingObserved = true;
@@ -1396,31 +1417,43 @@ test('runs and stops a background command without replacing the main session', a
   expect(returnedToLoading).toBe(false);
   await page.unrouteAll({ behavior: 'wait' });
 
-  await processRow.getByRole('button', { name: /Stop printf/ }).click();
-  await expect(processRow).toBeHidden();
+  await backgroundDialog.getByRole('button', { name: `Stop ${longCommand}`, exact: true }).click();
+  await expect(
+    backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true })
+  ).toHaveCount(0);
   await expect(page.locator('.session-row-shell.selected .runtime-summary')).toBeHidden();
-  await page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true }).click();
-  await expect(processRow).toBeVisible({ timeout: 15_000 });
-  await processRow.getByRole('button', { name: /Stop printf/ }).click();
-  await expect(processRow).toBeHidden();
-  await page.getByRole('button', { name: `Remove ${longCommand} from favorites`, exact: true }).click();
-  await expect(page.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toHaveCount(0);
+  await backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true }).click();
+  await expect(backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` })).toBeVisible({
+    timeout: 15_000,
+  });
+  await backgroundDialog.getByRole('button', { name: `Stop ${longCommand}`, exact: true }).click();
+  await expect(
+    backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true })
+  ).toHaveCount(0);
+  await backgroundDialog.getByRole('button', { name: `Remove ${longCommand} from favorites`, exact: true }).click();
+  await expect(backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toHaveCount(
+    0
+  );
 
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await backgroundCommand.fill("printf 'finished-background-marker\\n'");
-  await page.getByRole('button', { name: 'Run', exact: true }).click();
-  const finishedRows = page.locator('.process-row', { hasText: 'finished-background-marker' });
+  await backgroundDialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(backgroundDialog.locator('.process-output pre')).toContainText('finished-background-marker');
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
+  const finishedRows = backgroundDialog.locator('.process-row', { hasText: 'finished-background-marker' });
   await expect(finishedRows).toHaveCount(1);
   const rerunFinishedCommand = finishedRows.first().getByRole('button', { name: /Run printf.*again/ });
   await expect(rerunFinishedCommand).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('.process-output pre')).toContainText('finished-background-marker');
   await rerunFinishedCommand.click();
+  await expect(backgroundDialog.getByRole('button', { name: 'Back to background processes' })).toBeVisible();
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
   await expect(finishedRows).toHaveCount(2, { timeout: 10_000 });
 
   await page.reload();
   await expectTerminalReady(page);
-  await page.getByRole('button', { name: 'Run background command' }).click();
-  await expect(page.locator('.favorite-empty')).toBeVisible();
-  await expect(page.locator('.favorite-command')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open background processes' }).click();
+  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(0);
+  await expect(backgroundDialog.locator('.favorite-command')).toHaveCount(0);
   while (await finishedRows.count()) {
     const previousCount = await finishedRows.count();
     const deleteButton = finishedRows.first().getByRole('button', { name: /Delete printf/ });
@@ -1676,6 +1709,7 @@ test('discards tracked and untracked changes from the Git changes UI', async ({ 
     await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
+    await page.getByRole('tab', { name: 'Changes' }).click();
 
     await page.getByRole('button', { name: /Open diff for conflict\.txt/ }).click();
     const viewer = page.getByRole('region', { name: 'Diff for conflict.txt' });

@@ -5,7 +5,6 @@ import Pause from '@lucide/svelte/icons/pause';
 import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
 import Trash2 from '@lucide/svelte/icons/trash-2';
-import X from '@lucide/svelte/icons/x';
 import { queryCache, type QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
 import {
@@ -19,15 +18,7 @@ import {
 
 const REFRESH_INTERVAL_MS = 5_000;
 
-let {
-  sessionId,
-  close,
-  embedded = false,
-}: {
-  sessionId: string;
-  close: () => void;
-  embedded?: boolean;
-} = $props();
+let { sessionId }: { sessionId: string } = $props();
 
 type SessionAutomationsResponse = { automations: SessionAutomation[] };
 const automationsQuery = untrack(() => `session/${sessionId}/automations`);
@@ -239,26 +230,8 @@ onDestroy(() => {
 });
 </script>
 
-<div
-  class:embedded
-  class="automation-panel"
-  role={embedded ? undefined : 'dialog'}
-  aria-busy={fetching}
-  aria-labelledby={embedded ? undefined : 'automation-panel-title'}
->
-  {#if !embedded}
-    <header>
-      <div>
-        <h2 id="automation-panel-title">Agent automations</h2>
-        <p>Prompts wait until the recognized main agent is ready for input.</p>
-      </div>
-      <button type="button" class="close-button" onclick={close} aria-label="Close agent automations">
-        <X size={17} strokeWidth={1.9} aria-hidden="true" />
-      </button>
-    </header>
-  {:else}
-    <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
-  {/if}
+<div class="automation-panel" aria-busy={fetching}>
+  <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
 
   <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
     <label>
@@ -309,7 +282,7 @@ onDestroy(() => {
         </label>
       </div>
     {/if}
-    <button class="create-button" type="submit" disabled={creating}>
+    <button class="vampire-dialog-primary-button create-button" type="submit" disabled={creating}>
       <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
       {creating ? 'Saving…' : 'Add automation'}
     </button>
@@ -321,14 +294,14 @@ onDestroy(() => {
 
   <div class="automation-list" aria-live="polite">
     {#if loading}
-      <p class="automation-empty">Loading automations…</p>
+      <p class="vampire-dialog-empty-state">Loading automations…</p>
     {:else if loadError}
-      <div class="automation-empty">
+      <div class="vampire-dialog-empty-state automation-empty">
         <p role="alert">{loadError}</p>
         <button type="button" onclick={() => void loadAutomations(false, true)}>Retry</button>
       </div>
     {:else if automations.length === 0}
-      <p class="automation-empty">No automations yet.</p>
+      <p class="vampire-dialog-empty-state">No automations yet.</p>
     {:else}
       {#each automations as automation (automation.id)}
         <article class:paused={!automation.enabled}>
@@ -380,22 +353,7 @@ onDestroy(() => {
   display: grid;
   gap: 1rem;
   width: 100%;
-  max-height: min(46rem, calc(100dvh - 5rem));
   box-sizing: border-box;
-  overflow-y: auto;
-  padding: 1rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 0.8rem;
-  background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-popover);
-}
-.automation-panel.embedded {
-  max-height: none;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
 }
 .automation-description {
   margin: 0;
@@ -403,50 +361,9 @@ onDestroy(() => {
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-h2 {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: var(--weight-strong);
-  line-height: var(--leading-tight);
-}
-header p {
-  margin: 0.25rem 0 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-ui);
-}
-.close-button {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border: 0;
-  border-radius: 0.42rem;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .close-button:hover {
-    background: var(--color-control-hover);
-    color: var(--color-text);
-  }
-}
 form {
   display: grid;
   gap: 0.7rem;
-  padding: 0.8rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.65rem;
-  background: var(--color-surface);
 }
 label {
   display: grid;
@@ -491,29 +408,7 @@ select:focus {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .create-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  min-height: 2.45rem;
-  padding: 0 0.8rem;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .create-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-.create-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
+  justify-self: end;
 }
 .automation-list {
   display: grid;
@@ -614,23 +509,13 @@ select:focus {
   opacity: 0.55;
 }
 .automation-empty {
-  margin: 0;
-  padding: 1rem;
-  border: 1px dashed var(--color-border);
-  border-radius: 0.65rem;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-label);
-  text-align: center;
+  gap: 0.65rem;
 }
 .automation-empty p {
-  margin: 0 0 0.65rem;
+  margin: 0;
 }
 
 @media (max-width: 32rem) {
-  .automation-panel {
-    max-height: calc(100dvh - 4rem);
-    padding: 0.85rem;
-  }
   .schedule-row,
   .interval-row {
     grid-template-columns: 1fr;

@@ -21,7 +21,6 @@ let settingsOpen = $state(false);
 let openPluginId = $state<string>();
 let compactViewport = $state(false);
 let closedByOutsidePointer = false;
-const popoverSideOffset = $derived(compactViewport ? 71 : 6);
 const popoverAlignOffset = $derived(compactViewport ? 8 : 0);
 
 onMount(() => {
@@ -133,7 +132,7 @@ $effect(() => {
                 class="status-plugin-popover"
                 side="bottom"
                 align="start"
-                sideOffset={popoverSideOffset}
+                sideOffset={6}
                 alignOffset={popoverAlignOffset}
                 trapFocus={false}
                 onInteractOutside={handleInteractOutside}

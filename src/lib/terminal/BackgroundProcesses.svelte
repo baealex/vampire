@@ -1,5 +1,4 @@
 <script lang="ts">
-import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
 import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
@@ -7,9 +6,7 @@ import Square from '@lucide/svelte/icons/square';
 import Star from '@lucide/svelte/icons/star';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { onMount, untrack } from 'svelte';
-import { MediaQuery } from 'svelte/reactivity';
 import type { SessionTerminal } from '$lib/session/types';
-import { DESKTOP_MEDIA_QUERY } from '$lib/ui/layout';
 import DialogShell from '$lib/ui/DialogShell.svelte';
 
 let {
@@ -46,12 +43,11 @@ let {
   onRemoveFavorite: (command: string) => Promise<boolean>;
 } = $props();
 
-type MobileView = 'list' | 'runner' | 'output';
+type View = 'list' | 'runner' | 'output';
 
-const desktopViewport = new MediaQuery(DESKTOP_MEDIA_QUERY, true);
 let command = $state('');
 let commandInput = $state<HTMLInputElement>();
-let mobileView = $state<MobileView>('list');
+let view = $state<View>('list');
 let selectedProcessId = $state<string>();
 let output = $state('');
 let outputError = $state('');
@@ -64,6 +60,13 @@ const favoriteSet = $derived(new Set(favoriteCommands));
 const runningCommands = $derived(
   new Set(orderedProcesses.filter((process) => process.state === 'running').map(processCommand))
 );
+const dialogTitle = $derived(
+  view === 'runner'
+    ? 'Run background command'
+    : view === 'output' && selectedProcess
+      ? processCommand(selectedProcess)
+      : 'Background processes'
+);
 
 onMount(() => {
   const timer = window.setInterval(() => (now = Date.now()), 1_000);
@@ -75,25 +78,24 @@ $effect(() => {
     selectedProcessId = undefined;
     output = '';
     outputError = '';
-    mobileView = 'list';
+    view = 'list';
   }
 });
 
 $effect(() => {
   const expanded = open;
-  const desktop = desktopViewport.current;
   if (expanded && !previouslyOpen) {
-    mobileView = 'list';
-    if (desktop) queueMicrotask(() => commandInput?.focus());
+    view = 'list';
+    selectedProcessId = undefined;
+    output = '';
+    outputError = '';
   }
-  if (!expanded) mobileView = 'list';
   previouslyOpen = expanded;
 });
 
 $effect(() => {
   const processId = selectedProcessId;
-  const outputVisible = open && (desktopViewport.current || mobileView === 'output');
-  if (!outputVisible || !processId) return;
+  if (!open || view !== 'output' || !processId) return;
   // Parent loaders close over reactive workspace state. Only visibility and
   // selection should control this polling lifecycle.
   return untrack(() => startOutputPolling(processId));
@@ -146,13 +148,20 @@ function processAge(process: SessionTerminal): string {
   return `${Math.floor(minutes / 60)}h`;
 }
 
+function processCountLabel(count: number): string {
+  return count === 0 ? 'No commands' : `${count} ${count === 1 ? 'command' : 'commands'}`;
+}
+
 function openRunner() {
-  mobileView = 'runner';
+  view = 'runner';
   queueMicrotask(() => commandInput?.focus());
 }
 
 function showProcessList() {
-  mobileView = 'list';
+  view = 'list';
+  selectedProcessId = undefined;
+  output = '';
+  outputError = '';
 }
 
 async function runCommand(value: string): Promise<SessionTerminal | undefined> {
@@ -163,10 +172,7 @@ async function runCommand(value: string): Promise<SessionTerminal | undefined> {
   selectedProcessId = process.id;
   output = '';
   outputError = '';
-  if (!desktopViewport.current) {
-    commandInput?.blur();
-    mobileView = 'output';
-  }
+  view = 'output';
   return process;
 }
 
@@ -179,22 +185,15 @@ async function startProcess(event: SubmitEvent) {
 async function stopProcess(event: MouseEvent, process: SessionTerminal) {
   event.stopPropagation();
   if ((await onStop(process)) && selectedProcessId === process.id) {
-    selectedProcessId = undefined;
-    output = '';
-    outputError = '';
-    mobileView = 'list';
+    showProcessList();
   }
 }
 
 function selectProcess(process: SessionTerminal) {
-  if (desktopViewport.current) {
-    selectedProcessId = selectedProcessId === process.id ? undefined : process.id;
-  } else {
-    selectedProcessId = process.id;
-    mobileView = 'output';
-  }
+  selectedProcessId = process.id;
   output = '';
   outputError = '';
+  view = 'output';
 }
 
 async function toggleFavorite(event: MouseEvent, process: SessionTerminal) {
@@ -210,14 +209,8 @@ function restoreTriggerFocus(event: Event) {
 }
 </script>
 
-{#snippet commandRunner(compact: boolean)}
-  <div class="background-runner" class:compact>
-    {#if !compact}
-      <div class="background-runner-intro">
-        <strong>Background</strong>
-        <span>Only commands you star are saved.</span>
-      </div>
-    {/if}
+{#snippet commandRunner()}
+  <div class="background-runner">
     <form onsubmit={startProcess}>
       <input
         bind:this={commandInput}
@@ -230,32 +223,32 @@ function restoreTriggerFocus(event: Event) {
       >
       <button type="submit" disabled={!command.trim() || starting}>{starting ? 'Starting…' : 'Run'}</button>
     </form>
-    {#if !compact && actionError}
-      <p class="background-error desktop-runner-error" role="alert">{actionError}</p>
+    {#if actionError}
+      <p class="background-error runner-error" role="alert">{actionError}</p>
     {/if}
   </div>
 {/snippet}
 
 {#snippet favorites()}
-  <div class="favorite-strip" aria-label="Favorite background commands">
-    <span class="favorite-heading"><Star size={13} strokeWidth={1.8} aria-hidden="true" /> Favorites</span>
-    {#if favoriteCommands.length === 0}
-      <span class="favorite-empty">Star a command below to keep it in this workspace.</span>
-    {:else}
+  {#if favoriteCommands.length > 0}
+    <section class="favorite-strip" aria-label="Favorite background commands">
+      <span class="favorite-heading"><Star size={13} strokeWidth={1.8} aria-hidden="true" /> Favorites</span>
       <div class="favorite-list">
         {#each favoriteCommands as favoriteCommand (favoriteCommand)}
-          <div class="favorite-command" title={favoriteCommand}>
-            <code>{favoriteCommand}</code>
+          <div class="favorite-command">
             <button
               type="button"
+              class="favorite-run"
               disabled={starting || runningCommands.has(favoriteCommand)}
               onclick={() => void runCommand(favoriteCommand)}
               aria-label={`Run favorite ${favoriteCommand}`}
               title={runningCommands.has(favoriteCommand) ? 'Already running' : 'Run command'}
             >
               <Play size={13} strokeWidth={2} aria-hidden="true" />
+              <code>{favoriteCommand}</code>
             </button>
             <button
+              class="favorite-remove"
               type="button"
               disabled={Boolean(updatingFavoriteCommand)}
               onclick={() => void onRemoveFavorite(favoriteCommand)}
@@ -267,8 +260,8 @@ function restoreTriggerFocus(event: Event) {
           </div>
         {/each}
       </div>
-    {/if}
-  </div>
+    </section>
+  {/if}
 {/snippet}
 
 {#snippet processActions(process: SessionTerminal)}
@@ -315,33 +308,57 @@ function restoreTriggerFocus(event: Event) {
       {:else}
         <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
       {/if}
-      <span>{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span>
+      <span class="stop-process-label"
+        >{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span
+      >
     </button>
   </div>
+{/snippet}
+
+{#snippet processSummaryContent(process: SessionTerminal)}
+  <span
+    class="process-state"
+    class:exited={process.state === 'exited'}
+    title={processStatus(process)}
+    aria-hidden="true"
+  ></span>
+  <span class="process-details">
+    <code>{processCommand(process)}</code>
+    <span class="process-meta">
+      <span
+        class="process-status"
+        class:running={process.state === 'running'}
+        class:finished={process.state === 'exited' && process.exitCode === 0}
+        class:failed={process.state === 'exited' && process.exitCode !== null && process.exitCode !== 0}
+        >{processStatus(process)}</span
+      >
+      {#if processAge(process)}
+        <time title={`Started ${processAge(process)} ago`}>{processAge(process)}</time>
+      {/if}
+    </span>
+  </span>
 {/snippet}
 
 {#snippet processList()}
   <div class="process-list" aria-label="Background process list">
     {#if orderedProcesses.length === 0}
-      <p class="empty-processes">No background commands are running.</p>
+      <p class="vampire-dialog-empty-state">No background commands</p>
     {:else}
       {#each orderedProcesses as process (process.id)}
-        <div class="process-row" class:selected={selectedProcessId === process.id}>
-          <button
-            type="button"
-            class="process-summary"
-            onclick={() => selectProcess(process)}
-            aria-expanded={selectedProcessId === process.id}
-            title={processCommand(process)}
-          >
-            <span class="process-state" class:exited={process.state === 'exited'} aria-hidden="true"></span>
-            <code>{processCommand(process)}</code>
-            <span>{processStatus(process)}</span>
-            {#if processAge(process)}
-              <time>{processAge(process)}</time>
-            {/if}
-          </button>
-          {@render processActions(process)}
+        <div class="process-item">
+          <div class="process-row">
+            <button
+              type="button"
+              class="process-summary"
+              onclick={() => selectProcess(process)}
+              aria-expanded={selectedProcessId === process.id}
+              aria-label={`View output for ${processCommand(process)}`}
+              title={processCommand(process)}
+            >
+              {@render processSummaryContent(process)}
+            </button>
+            {@render processActions(process)}
+          </div>
         </div>
       {/each}
     {/if}
@@ -350,136 +367,84 @@ function restoreTriggerFocus(event: Event) {
 
 {#snippet processOutput(process: SessionTerminal)}
   <section class="process-output" aria-label={`Output for ${processCommand(process)}`}>
-    <header>
-      <code>{processCommand(process)}</code>
-      <span>read-only output</span>
-    </header>
     {#if outputError}
       <p class="background-error" role="alert">{outputError}</p>
     {:else if outputLoading}
       <p class="output-placeholder">Loading output…</p>
     {:else}
-      <pre>{output || 'No output yet.'}</pre>
+      <pre>{output || (process.state === 'running' ? 'Waiting for output…' : 'No output captured.')}</pre>
     {/if}
   </section>
 {/snippet}
 
 {#if open}
   <DialogShell
-    title="Background processes"
+    title={dialogTitle}
     close={() => onOpenChange(false)}
     closeLabel="Close background manager"
     variant="inspect"
     contentId={panelId}
+    onBack={view === 'list' ? undefined : showProcessList}
+    backLabel="Back to background processes"
     onCloseAutoFocus={restoreTriggerFocus}
   >
     {#snippet children()}
-      {#if desktopViewport.current}
-        <div class="background-desktop-view">
-          {@render commandRunner(false)}
-          {@render favorites()}
-          <div class="background-content">
-            {@render processList()}
-            {#if selectedProcess}
-              {@render processOutput(selectedProcess)}
+      <div class="background-view">
+        {#if view === 'list'}
+          <div class="vampire-dialog-toolbar">
+            {#if orderedProcesses.length > 0}
+              <span>{processCountLabel(orderedProcesses.length)}</span>
             {/if}
+            <button
+              type="button"
+              class="vampire-dialog-primary-action background-run-action"
+              onclick={openRunner}
+              aria-label="Run background command"
+            >
+              <Plus size={16} strokeWidth={2} aria-hidden="true" />
+              <span>Run command</span>
+            </button>
           </div>
-        </div>
-      {:else}
-        <div class="background-sheet-body">
-          {#if actionError}
-            <p class="background-error manager-error" role="alert">{actionError}</p>
-          {/if}
-          {#if mobileView === 'list'}
-            <div class="mobile-background-view list">
-              <div class="sheet-view-toolbar">
-                <span
-                  >{orderedProcesses.length === 0 ? 'No processes' : `${orderedProcesses.length} ${orderedProcesses.length === 1 ? 'process' : 'processes'}`}</span
-                >
-                <button type="button" class="sheet-run-button" onclick={openRunner} aria-label="Run background command">
-                  <Plus size={16} strokeWidth={2} aria-hidden="true" />
-                  <span>Run command</span>
-                </button>
-              </div>
-              {@render processList()}
-            </div>
-          {:else if mobileView === 'runner'}
-            <div class="mobile-background-view runner">
-              <div class="sheet-view-toolbar start">
-                <button
-                  type="button"
-                  class="sheet-back"
-                  onclick={showProcessList}
-                  aria-label="Back to background processes"
-                >
-                  <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
-                  <span>Processes</span>
-                </button>
-                <strong>Run command</strong>
-              </div>
-              {@render commandRunner(true)}
-              {@render favorites()}
-            </div>
-          {:else if selectedProcess}
-            <div class="mobile-background-view output">
-              <div class="sheet-view-toolbar start">
-                <button
-                  type="button"
-                  class="sheet-back"
-                  onclick={showProcessList}
-                  aria-label="Back to background processes"
-                >
-                  <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
-                  <span>Processes</span>
-                </button>
-                <span>{processStatus(selectedProcess)}</span>
-              </div>
-              <div class="mobile-detail-actions">{@render processActions(selectedProcess)}</div>
-              {@render processOutput(selectedProcess)}
-            </div>
-          {/if}
-        </div>
-      {/if}
+          {@render favorites()}
+          <div class="background-content">{@render processList()}</div>
+        {:else if view === 'runner'}
+          {@render commandRunner()}
+          {@render favorites()}
+        {:else if selectedProcess}
+          <div class="background-detail-bar">
+            <span
+              class="process-status"
+              class:running={selectedProcess.state === 'running'}
+              class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
+              class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
+              >{processStatus(selectedProcess)}</span
+            >
+            {@render processActions(selectedProcess)}
+          </div>
+          {@render processOutput(selectedProcess)}
+        {/if}
+      </div>
     {/snippet}
   </DialogShell>
 {/if}
 
 <style>
-.background-desktop-view {
+.background-view {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  max-height: min(32rem, calc(100dvh - 8rem));
-  overflow: hidden;
+}
+.background-run-action {
+  margin-left: auto;
 }
 .background-runner {
   display: grid;
-  grid-template-columns: minmax(11rem, 0.75fr) minmax(16rem, 1.25fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 0.75rem 1rem;
-  padding: 0.8rem max(0.85rem, env(safe-area-inset-right)) 0.8rem max(0.85rem, env(safe-area-inset-left));
+  padding: 0 0 0.8rem;
   border-bottom: 1px solid var(--color-border-subtle);
-}
-.background-runner.compact {
-  grid-template-columns: minmax(0, 1fr);
-  padding: 0.8rem;
-}
-.background-runner-intro {
-  display: grid;
-  gap: 0.12rem;
-  min-width: 0;
-}
-.background-runner strong {
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-}
-.background-runner-intro span {
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .background-runner form {
   display: grid;
@@ -525,21 +490,13 @@ function restoreTriggerFocus(event: Event) {
   color: var(--color-danger-text);
   font-size: var(--text-caption);
 }
-.desktop-runner-error {
-  grid-column: 1 / -1;
-}
-.manager-error {
-  padding: 0.55rem 0.85rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-danger-surface);
-}
 .favorite-strip {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.7rem;
   min-height: 2.7rem;
-  padding: 0.35rem max(0.85rem, env(safe-area-inset-right)) 0.35rem max(0.85rem, env(safe-area-inset-left));
+  padding: 0.35rem 0;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .favorite-heading {
@@ -551,13 +508,6 @@ function restoreTriggerFocus(event: Event) {
   font-weight: var(--weight-medium);
   white-space: nowrap;
 }
-.favorite-empty {
-  overflow: hidden;
-  color: var(--color-text-disabled);
-  font-size: var(--text-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .favorite-list {
   display: flex;
   gap: 0.4rem;
@@ -567,7 +517,7 @@ function restoreTriggerFocus(event: Event) {
 }
 .favorite-command {
   display: grid;
-  grid-template-columns: minmax(3rem, auto) 1.9rem 1.9rem;
+  grid-template-columns: minmax(0, 1fr) 2rem;
   flex: 0 0 auto;
   align-items: center;
   max-width: min(24rem, 62vw);
@@ -576,30 +526,49 @@ function restoreTriggerFocus(event: Event) {
   border-radius: var(--radius-control);
   background: var(--color-control-background);
 }
-.favorite-command code {
-  min-width: 0;
-  overflow: hidden;
-  padding: 0 0.6rem;
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-nano);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .favorite-command button {
-  display: grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.85rem;
-  padding: 0;
   border: 0;
-  border-left: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
+.favorite-command code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favorite-run {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  min-height: 2.15rem;
+  padding: 0 0.65rem;
+  text-align: left;
+}
 @media (hover: hover) {
-  .favorite-command button:hover:not(:disabled) {
+  .favorite-run:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+  .favorite-run:hover:not(:disabled) code {
+    color: var(--color-text);
+  }
+}
+.favorite-remove {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 2.15rem;
+  padding: 0;
+  border-left: 1px solid var(--color-border);
+}
+@media (hover: hover) {
+  .favorite-remove:hover:not(:disabled) {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
@@ -609,19 +578,16 @@ function restoreTriggerFocus(event: Event) {
   opacity: 0.42;
 }
 .background-content {
-  display: grid;
-  grid-template-columns: minmax(17rem, 0.82fr) minmax(0, 1.18fr);
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: hidden;
+  padding-top: 0.65rem;
 }
 .process-list {
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--color-border-subtle);
+  display: grid;
+  gap: 0.4rem;
 }
-.empty-processes,
 .output-placeholder {
   margin: 0;
   padding: 1rem;
@@ -632,10 +598,13 @@ function restoreTriggerFocus(event: Event) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
 }
-.process-row.selected {
-  background: var(--color-surface-selected);
+.process-item {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
 }
 .process-summary,
 .process-icon-action,
@@ -648,12 +617,12 @@ function restoreTriggerFocus(event: Event) {
 }
 .process-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   min-width: 0;
   min-height: 2.85rem;
-  padding: 0.45rem 0.65rem 0.45rem max(0.85rem, env(safe-area-inset-left));
+  padding: 0.55rem 0.65rem 0.55rem 0.7rem;
   text-align: left;
 }
 @media (hover: hover) {
@@ -664,8 +633,8 @@ function restoreTriggerFocus(event: Event) {
   }
 }
 .process-state {
-  width: 0.48rem;
-  height: 0.48rem;
+  width: 0.55rem;
+  height: 0.55rem;
   border-radius: 50%;
   background: var(--color-success);
   box-shadow: var(--shadow-status-active);
@@ -674,26 +643,61 @@ function restoreTriggerFocus(event: Event) {
   background: var(--color-text-disabled);
   box-shadow: none;
 }
-.process-summary code,
-.process-output code {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-family: var(--font-mono);
+.process-status {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-tertiary);
   font-size: var(--text-caption);
   font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
+  line-height: 1.25;
   white-space: nowrap;
 }
-.process-summary > span:not(.process-state),
+.process-status.running {
+  border-color: transparent;
+  background: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+.process-status.finished {
+  color: var(--color-text-secondary);
+}
+.process-status.failed {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-surface);
+  color: var(--color-danger-text);
+}
+.process-details {
+  display: grid;
+  min-width: 0;
+  gap: 0.3rem;
+}
+.process-summary code {
+  display: block;
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.process-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
 .process-summary time {
   color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
+  font-size: var(--text-caption);
   white-space: nowrap;
 }
 .process-actions {
   display: flex;
   align-items: stretch;
+  gap: 0.05rem;
   min-width: 0;
 }
 .process-icon-action {
@@ -714,194 +718,58 @@ function restoreTriggerFocus(event: Event) {
 .stop-process {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
   min-width: 4.6rem;
   padding: 0 0.7rem;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }
+.stop-process-label {
+  white-space: nowrap;
+}
 .process-output {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--color-terminal-background);
-}
-.process-output header {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  min-width: 0;
-  min-height: 2.4rem;
-  padding: 0 0.8rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.process-output header code {
-  flex: 1 1 auto;
-}
-.process-output header span {
-  flex: 0 0 auto;
-  color: var(--color-text-disabled);
-  font-size: var(--text-nano);
-}
-.process-output pre {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  margin: 0;
-  padding: 0.8rem;
-  color: var(--color-terminal-foreground);
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.background-desktop-view .background-content {
-  flex: 0 0 auto;
-  height: min(20rem, 52dvh);
-}
-
-.background-sheet-body {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  padding-bottom: env(safe-area-inset-bottom);
+  height: min(20rem, 45dvh);
+  max-height: min(20rem, 45dvh);
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-raised);
 }
-.mobile-background-view {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.mobile-background-view.list {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.mobile-background-view.runner {
-  overflow-y: auto;
-}
-.mobile-background-view.output {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-.sheet-view-toolbar {
+.background-detail-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.65rem;
-  min-height: 3.25rem;
-  padding: 0.45rem max(0.75rem, env(safe-area-inset-right)) 0.45rem max(0.75rem, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-}
-.sheet-view-toolbar.start {
-  justify-content: flex-start;
-}
-.sheet-view-toolbar.start > strong,
-.sheet-view-toolbar.start > span {
-  margin-left: auto;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-.sheet-run-button,
-.sheet-back {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.38rem;
-  min-height: 2.35rem;
-  padding: 0 0.72rem;
-  border: 0;
-  border-radius: var(--radius-control);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-.sheet-run-button {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-@media (hover: hover) {
-  .sheet-run-button:hover {
-    background: var(--color-accent-hover);
-  }
-}
-.sheet-back {
-  padding-left: 0.55rem;
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-@media (hover: hover) {
-  .sheet-back:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text);
-  }
-}
-.mobile-background-view .process-list {
-  border-right: 0;
-}
-.mobile-background-view .process-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.mobile-background-view .process-summary {
-  min-height: 3.25rem;
-}
-.mobile-detail-actions {
-  display: flex;
-  justify-content: flex-end;
   min-height: 3rem;
   border-bottom: 1px solid var(--color-border-subtle);
 }
-.mobile-detail-actions .process-actions {
+.background-detail-bar .process-actions {
   min-height: 3rem;
 }
-.mobile-detail-actions .process-icon-action {
+.background-detail-bar .process-icon-action {
   width: 2.75rem;
 }
-.mobile-detail-actions .stop-process {
+.background-detail-bar .stop-process {
   min-width: 5.25rem;
+  width: auto;
 }
-.mobile-background-view.runner .favorite-strip {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.35rem;
-  padding-block: 0.6rem;
-}
-.mobile-background-view.runner .favorite-list {
-  padding-bottom: 0.2rem;
-}
-.mobile-background-view .favorite-command {
-  grid-template-columns: minmax(3rem, auto) 2.35rem 2.35rem;
-  max-width: min(24rem, 72vw);
-}
-.mobile-background-view .favorite-command button {
-  width: 2.35rem;
-  height: 2.2rem;
-}
-
-@media (max-width: 32rem) {
-  .mobile-background-view .process-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .mobile-background-view .process-actions {
-    justify-content: flex-end;
-    min-height: 2.65rem;
-    border-top: 1px solid var(--color-border-subtle);
-  }
-  .mobile-background-view .process-icon-action {
-    width: 2.75rem;
-  }
-  .mobile-background-view .stop-process {
-    min-width: 5.25rem;
-  }
-  .mobile-detail-actions .process-actions {
-    border-top: 0;
-  }
+.process-output pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0.7rem 0.85rem 0.85rem 1.05rem;
+  background: var(--color-surface-raised);
+  color: var(--color-terminal-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+  scrollbar-gutter: stable;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

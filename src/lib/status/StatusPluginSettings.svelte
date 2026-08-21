@@ -1,15 +1,18 @@
 <script lang="ts">
+import { DropdownMenu } from 'bits-ui';
 import { onDestroy, onMount } from 'svelte';
-import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import BookOpen from '@lucide/svelte/icons/book-open';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
+import ChevronRight from '@lucide/svelte/icons/chevron-right';
 import ChevronUp from '@lucide/svelte/icons/chevron-up';
+import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '$lib/client/query-cache';
 import { requestJson } from '$lib/client/request';
 import DialogShell from '$lib/ui/DialogShell.svelte';
+import DropdownMenuShell from '$lib/ui/DropdownMenuShell.svelte';
 import {
   cloneStatusPlugins,
   createStatusPluginPreset,
@@ -25,6 +28,8 @@ import {
 import StatusWidgetGuide from './StatusWidgetGuide.svelte';
 
 type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
+type SettingsView = 'list' | 'detail';
+type View = SettingsView | 'guide';
 const STATUS_PLUGINS_QUERY = 'status/plugins';
 let { close }: { close: () => void } = $props();
 const initialResponse = queryCache.get<StatusPluginResponse>(STATUS_PLUGINS_QUERY);
@@ -36,9 +41,19 @@ let loading = $state(initialResponse === undefined);
 let fetching = $state(false);
 let saving = $state(false);
 let errorMessage = $state('');
-let guideOpen = $state(false);
+let view = $state<View>('list');
+let viewBeforeGuide = $state<SettingsView>('list');
+let selectedPluginId = $state<string>();
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
 const atCapacity = $derived(plugins.length >= MAX_STATUS_PLUGINS);
+const selectedPlugin = $derived(plugins.find((plugin) => plugin.id === selectedPluginId));
+
+$effect(() => {
+  if (view === 'detail' && !selectedPlugin) {
+    view = 'list';
+    selectedPluginId = undefined;
+  }
+});
 
 function newId(prefix: string): string {
   return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -81,27 +96,57 @@ async function load(force = true) {
 function addPreset(presetId: string) {
   if (atCapacity) return;
   const plugin = createStatusPluginPreset(presetId, newId(`status-${presetId}`));
-  if (plugin) plugins = [...plugins, plugin];
+  if (plugin) {
+    plugins = [...plugins, plugin];
+    selectedPluginId = plugin.id;
+    view = 'detail';
+  }
   errorMessage = '';
 }
 
 function addCommand() {
   if (atCapacity) return;
-  plugins = [
-    ...plugins,
-    {
-      id: newId('status-command'),
-      name: 'Command',
-      enabled: true,
-      intervalMs: 60_000,
-      source: { type: 'command', command: '' },
-    },
-  ];
+  const plugin: StatusPlugin = {
+    id: newId('status-command'),
+    name: 'Command',
+    enabled: true,
+    intervalMs: 60_000,
+    source: { type: 'command', command: '' },
+  };
+  plugins = [...plugins, plugin];
+  selectedPluginId = plugin.id;
+  view = 'detail';
   errorMessage = '';
 }
 
 function removePlugin(id: string) {
   plugins = plugins.filter((plugin) => plugin.id !== id);
+  if (selectedPluginId === id) {
+    selectedPluginId = undefined;
+    view = 'list';
+  }
+}
+
+function openPlugin(id: string) {
+  selectedPluginId = id;
+  view = 'detail';
+  errorMessage = '';
+}
+
+function showPluginList() {
+  selectedPluginId = undefined;
+  view = 'list';
+  errorMessage = '';
+}
+
+function showGuide() {
+  viewBeforeGuide = view === 'detail' ? 'detail' : 'list';
+  view = 'guide';
+  errorMessage = '';
+}
+
+function leaveGuide() {
+  view = viewBeforeGuide;
 }
 
 function movePlugin(index: number, offset: -1 | 1) {
@@ -179,114 +224,183 @@ onDestroy(() => unsubscribe?.());
 </script>
 
 <DialogShell
-  eyebrow="Server-wide"
-  title={guideOpen ? 'Status widget guide' : 'Status widgets'}
+  title={view === 'guide'
+    ? 'Status widget guide'
+    : view === 'detail' && selectedPlugin
+      ? selectedPlugin.name || 'New widget'
+      : 'Status widgets'}
   {close}
-  variant="inspect"
+  variant="form"
   closeDisabled={saving}
+  onBack={view === 'guide' ? leaveGuide : view === 'detail' ? showPluginList : undefined}
+  backLabel={view === 'guide' ? 'Back to status widget settings' : 'Back to status widgets'}
+  footerVisible={view !== 'guide'}
 >
   {#snippet children()}
-    {#if guideOpen}
+    {#if view === 'guide'}
       <StatusWidgetGuide />
     {:else}
       <div class="status-settings" aria-busy={fetching}>
-        <div class="status-settings-intro">
-          <div class="status-settings-copy">
-            <strong>Add a system status widget</strong>
-            <p>
-              These widgets run once on the server and are shared with every browser. Add a preset or command to show
-              useful system information at a glance.
-            </p>
-          </div>
-          <div class="status-add-actions" aria-label="Add status plugin">
-            {#each presets as preset (preset.id)}
-              <button
-                type="button"
-                onclick={() => addPreset(preset.id)}
-                disabled={loading || atCapacity}
-                title={preset.description}
-              >
+        {#if view === 'list'}
+          <div class="vampire-dialog-toolbar">
+            <span>{plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}</span>
+            <DropdownMenuShell
+              triggerLabel="Add widget"
+              triggerTitle="Add status widget"
+              triggerClass="vampire-dialog-primary-action"
+              align="end"
+            >
+              {#snippet trigger()}
                 <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                <span>{preset.name}</span>
-              </button>
-            {/each}
-            <button type="button" onclick={addCommand} disabled={loading || atCapacity}>
-              <Plus size={14} strokeWidth={2} aria-hidden="true" />
-              <span>Command</span>
-            </button>
-          </div>
-        </div>
+                <span>Add widget</span>
+              {/snippet}
 
-        {#if loading}
-          <p class="status-loading" role="status">Loading status plugins…</p>
-        {:else if plugins.length > 0}
-          <div class="status-plugin-editor-list">
-            {#each plugins as plugin, index (plugin.id)}
-              <article class="status-plugin-editor" class:disabled={!plugin.enabled}>
-                <div class="status-plugin-editor__order">
-                  <span>{index + 1}</span>
+              {#snippet children()}
+                {#each presets as preset (preset.id)}
+                  <DropdownMenu.Item
+                    class="vampire-menu-item"
+                    disabled={loading || atCapacity}
+                    onSelect={() => addPreset(preset.id)}
+                  >
+                    <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                    <span>{preset.name}</span>
+                  </DropdownMenu.Item>
+                {/each}
+                <DropdownMenu.Separator class="vampire-menu-separator" />
+                <DropdownMenu.Item class="vampire-menu-item" disabled={loading || atCapacity} onSelect={addCommand}>
+                  <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                  <span>Command</span>
+                </DropdownMenu.Item>
+              {/snippet}
+            </DropdownMenuShell>
+          </div>
+
+          {#if loading}
+            <p class="status-loading" role="status">Loading status widgets…</p>
+          {:else if plugins.length > 0}
+            <div class="status-plugin-list">
+              {#each plugins as plugin, index (plugin.id)}
+                <article class="status-plugin-list-row" class:disabled={!plugin.enabled}>
                   <button
                     type="button"
-                    onclick={() => movePlugin(index, -1)}
-                    disabled={index === 0}
-                    aria-label={`Move ${plugin.name || `plugin ${index + 1}`} up`}
+                    class="status-plugin-list-summary"
+                    onclick={() => openPlugin(plugin.id)}
+                    aria-label={`Edit ${plugin.name || `widget ${index + 1}`}`}
                   >
-                    <ChevronUp size={15} strokeWidth={1.8} aria-hidden="true" />
+                    <span class="status-plugin-list-order">{index + 1}</span>
+                    <span class="status-plugin-list-main">
+                      <strong>{plugin.name || `Widget ${index + 1}`}</strong>
+                      <span>{plugin.intervalMs / 1_000}s · {plugin.enabled ? 'On' : 'Off'}</span>
+                    </span>
+                    <span class="status-plugin-list-chevron" aria-hidden="true">
+                      <ChevronRight size={16} strokeWidth={1.8} />
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    onclick={() => movePlugin(index, 1)}
-                    disabled={index === plugins.length - 1}
-                    aria-label={`Move ${plugin.name || `plugin ${index + 1}`} down`}
+                  <DropdownMenuShell
+                    triggerLabel={`Actions for ${plugin.name || `widget ${index + 1}`}`}
+                    triggerTitle="Widget actions"
+                    triggerClass="status-row-menu-trigger"
+                    align="end"
                   >
-                    <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
-                  </button>
-                </div>
-                <div class="status-plugin-editor__fields">
-                  <div class="status-plugin-editor__top">
-                    <label class="name-field">
-                      <span>Name</span>
-                      <input bind:value={plugin.name} maxlength={STATUS_PLUGIN_NAME_MAX_LENGTH}>
-                    </label>
-                    <label class="interval-field">
-                      <span>Every</span>
-                      <span class="interval-input"
-                        ><input
-                          type="number"
-                          min="1"
-                          max="86400"
-                          step="1"
-                          value={plugin.intervalMs / 1_000}
-                          oninput={(event) => updateInterval(plugin, event)}
-                        ><em>sec</em></span
+                    {#snippet trigger()}
+                      <Ellipsis size={17} strokeWidth={1.9} aria-hidden="true" />
+                    {/snippet}
+
+                    {#snippet children()}
+                      <DropdownMenu.Item
+                        class="vampire-menu-item"
+                        disabled={index === 0}
+                        aria-label={`Move ${plugin.name || `widget ${index + 1}`} up`}
+                        onSelect={() => movePlugin(index, -1)}
                       >
-                    </label>
-                    <label class="enabled-field">
-                      <input type="checkbox" bind:checked={plugin.enabled}>
-                      <span>On</span>
-                    </label>
-                    <button
-                      class="remove-plugin"
-                      type="button"
-                      onclick={() => removePlugin(plugin.id)}
-                      aria-label={`Remove ${plugin.name || `plugin ${index + 1}`}`}
+                        <ChevronUp size={15} strokeWidth={1.8} aria-hidden="true" />
+                        <span>Move up</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        class="vampire-menu-item"
+                        disabled={index === plugins.length - 1}
+                        aria-label={`Move ${plugin.name || `widget ${index + 1}`} down`}
+                        onSelect={() => movePlugin(index, 1)}
+                      >
+                        <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
+                        <span>Move down</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator class="vampire-menu-separator" />
+                      <DropdownMenu.Item
+                        class="vampire-menu-item danger"
+                        aria-label={`Remove ${plugin.name || `widget ${index + 1}`}`}
+                        onSelect={() => removePlugin(plugin.id)}
+                      >
+                        <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                        <span>Remove</span>
+                      </DropdownMenu.Item>
+                    {/snippet}
+                  </DropdownMenuShell>
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <p class="vampire-dialog-empty-state">No status widgets</p>
+          {/if}
+        {:else if selectedPlugin}
+          <div class="status-detail">
+            <div class="status-plugin-editor status-detail-editor">
+              <div class="status-plugin-editor__fields">
+                <div class="status-plugin-editor__top">
+                  <label class="name-field">
+                    <span>Name</span>
+                    <input
+                      value={selectedPlugin.name}
+                      oninput={(event) => (selectedPlugin.name = (event.currentTarget as HTMLInputElement).value)}
+                      maxlength={STATUS_PLUGIN_NAME_MAX_LENGTH}
                     >
-                      <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
-                    </button>
-                  </div>
-                  <label class="command-field">
-                    <span>Command</span>
-                    <textarea
-                      bind:value={plugin.source.command}
-                      maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
-                      spellcheck="false"
-                      rows="7"
-                      wrap="off"
-                    ></textarea>
+                  </label>
+                  <label class="interval-field">
+                    <span>Every</span>
+                    <span class="interval-input"
+                      ><input
+                        type="number"
+                        min="1"
+                        max="86400"
+                        step="1"
+                        value={selectedPlugin.intervalMs / 1_000}
+                        oninput={(event) => updateInterval(selectedPlugin, event)}
+                      ><em>sec</em></span
+                    >
                   </label>
                 </div>
-              </article>
-            {/each}
+                <div class="status-plugin-editor__options">
+                  <label class="enabled-field">
+                    <input
+                      type="checkbox"
+                      checked={selectedPlugin.enabled}
+                      onchange={(event) => (selectedPlugin.enabled = (event.currentTarget as HTMLInputElement).checked)}
+                    >
+                    <span>Enabled</span>
+                  </label>
+                  <button
+                    class="remove-plugin"
+                    type="button"
+                    onclick={() => removePlugin(selectedPlugin.id)}
+                    aria-label={`Remove ${selectedPlugin.name || 'widget'}`}
+                  >
+                    <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                    <span>Remove widget</span>
+                  </button>
+                </div>
+                <label class="command-field">
+                  <span>Command</span>
+                  <textarea
+                    value={selectedPlugin.source.command}
+                    oninput={(event) => (selectedPlugin.source.command = (event.currentTarget as HTMLTextAreaElement).value)}
+                    maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
+                    spellcheck="false"
+                    rows="7"
+                    wrap="off"
+                  ></textarea>
+                </label>
+              </div>
+            </div>
           </div>
         {/if}
 
@@ -299,33 +413,19 @@ onDestroy(() => unsubscribe?.());
 
   {#snippet footer()}
     <div class="status-settings-footer">
-      {#if guideOpen}
-        <button class="back-button" type="button" onclick={() => (guideOpen = false)}>
-          <ArrowLeft size={15} strokeWidth={1.9} aria-hidden="true" />
-          <span>Back to settings</span>
-        </button>
-      {:else}
-        <div class="status-settings-footer-actions">
-          <button
-            class="guide-button"
-            type="button"
-            onclick={() => (guideOpen = true)}
-            title="Learn how to create a status widget"
-          >
-            <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
-            <span>Guide</span>
-          </button>
-          <button
-            class="save-button"
-            type="button"
-            onclick={() => void save()}
-            disabled={loading || saving || !hasUnsavedChanges}
-          >
-            <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-            <span>{saving ? 'Saving…' : hasUnsavedChanges ? 'Save changes' : 'Saved'}</span>
-          </button>
-        </div>
-      {/if}
+      <button class="vampire-dialog-secondary-button" type="button" onclick={showGuide}>
+        <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
+        <span>Guide</span>
+      </button>
+      <button
+        class="vampire-dialog-primary-button"
+        type="button"
+        onclick={() => void save()}
+        disabled={loading || saving || !hasUnsavedChanges}
+      >
+        <Save size={15} strokeWidth={1.9} aria-hidden="true" />
+        <span>{saving ? 'Saving…' : 'Save changes'}</span>
+      </button>
     </div>
   {/snippet}
 </DialogShell>
@@ -333,124 +433,136 @@ onDestroy(() => unsubscribe?.());
 <style>
 .status-settings {
   display: grid;
+  align-content: start;
   gap: 0.85rem;
   min-width: 0;
-}
-.status-settings-intro {
-  display: grid;
-  gap: 0.65rem;
-}
-.status-settings-copy {
-  min-width: 0;
-}
-.status-settings-intro strong {
-  display: block;
-  color: var(--color-text);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-}
-.status-settings-intro p {
-  max-width: 48rem;
-  margin: 0.22rem 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-body);
-}
-.status-add-actions {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 0.35rem;
-}
-.status-add-actions button,
-.status-settings-footer button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  min-height: 2.25rem;
-  padding: 0 0.58rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .status-add-actions button:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-  }
-}
-.status-add-actions button:disabled,
-.status-settings-footer button:disabled {
-  cursor: default;
-  opacity: 0.5;
 }
 .status-loading {
   margin: 0;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }
-.status-plugin-editor-list {
+.status-plugin-list {
   display: grid;
   gap: 0.55rem;
-  max-height: min(31rem, 54dvh);
-  overflow-y: auto;
-  padding-right: 0.15rem;
+  overflow: visible;
 }
-.status-plugin-editor {
+.status-plugin-list-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.7rem;
-  padding: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--color-surface-raised);
 }
-.status-plugin-editor.disabled {
+.status-plugin-list-row.disabled {
   opacity: 0.62;
 }
-.status-plugin-editor__order {
+.status-plugin-list-summary {
   display: grid;
-  grid-template-columns: repeat(2, 1.75rem);
-  grid-template-rows: 1.5rem 1.75rem;
-  align-content: start;
-  gap: 0.15rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 3.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.status-plugin-editor__order > span {
-  grid-column: 1 / -1;
-  align-self: center;
+@media (hover: hover) {
+  .status-plugin-list-summary:hover {
+    background: var(--color-surface-hover);
+  }
+}
+.status-plugin-list-order {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm);
   color: var(--color-text-disabled);
   font-size: var(--text-nano);
   text-align: center;
 }
-.status-plugin-editor__order button,
-.remove-plugin {
+.status-plugin-list-main {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+.status-plugin-list-main strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-plugin-list-main span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+}
+.status-plugin-list-chevron {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  color: var(--color-text-disabled);
+}
+
+:global(.status-row-menu-trigger) {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  min-height: 3.2rem;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-left: 1px solid var(--color-border-subtle);
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
+
+:global(.status-row-menu-trigger[data-state="open"]) {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
 @media (hover: hover) {
-  .status-plugin-editor__order button:hover:not(:disabled) {
+  :global(.status-row-menu-trigger:hover) {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
 }
-.status-plugin-editor__order button:disabled {
-  opacity: 0.25;
-  cursor: default;
+
+.remove-plugin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 2.2rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.status-detail {
+  display: grid;
+  min-width: 0;
+  gap: 0.85rem;
+}
+.status-detail-editor {
+  display: block;
+  width: min(100%, 36rem);
+  margin: 0 auto;
+  padding: 0.15rem 0;
 }
 .status-plugin-editor__fields {
   display: grid;
@@ -459,9 +571,16 @@ onDestroy(() => unsubscribe?.());
 }
 .status-plugin-editor__top {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) 7rem auto auto;
+  grid-template-columns: minmax(8rem, 1fr) 7rem;
   align-items: end;
   gap: 0.5rem;
+}
+.status-plugin-editor__options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.2rem;
 }
 .status-plugin-editor label {
   display: grid;
@@ -514,11 +633,6 @@ onDestroy(() => unsubscribe?.());
 .enabled-field input {
   accent-color: var(--color-accent);
 }
-.remove-plugin {
-  align-self: end;
-  width: 2.2rem;
-  height: 2.2rem;
-}
 @media (hover: hover) {
   .remove-plugin:hover {
     background: var(--color-danger-surface-hover);
@@ -526,7 +640,7 @@ onDestroy(() => unsubscribe?.());
   }
 }
 .command-field textarea {
-  min-height: 8rem;
+  min-height: 12rem;
   padding-block: 0.5rem;
   resize: vertical;
   font-family: var(--font-mono) !important;
@@ -549,67 +663,17 @@ onDestroy(() => unsubscribe?.());
   display: flex;
   align-items: center;
   justify-content: flex-end;
-}
-.status-settings-footer-actions {
-  display: flex;
-  flex: 0 0 auto;
   gap: 0.45rem;
 }
-.status-settings-footer .save-button {
-  flex: 0 0 auto;
-  border-color: transparent;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-@media (hover: hover) {
-  .status-settings-footer .save-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-  .status-settings-footer .guide-button:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-  }
-  .status-settings-footer .back-button:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-  }
-}
-
 @media (max-width: 42rem) {
-  .status-settings-footer-actions {
-    width: 100%;
-  }
-  .status-settings-footer-actions button {
-    flex: 1 1 0;
-  }
-  .status-settings-footer .save-button {
-    width: 100%;
-  }
-  .status-plugin-editor__top {
-    grid-template-columns: minmax(0, 1fr) 6.5rem auto auto;
+  .status-detail-editor .status-plugin-editor__top {
+    grid-template-columns: minmax(0, 1fr) 6.5rem;
   }
 }
 
 @media (max-width: 32rem) {
-  .status-plugin-editor {
-    grid-template-columns: 1fr;
-  }
-  .status-plugin-editor__order {
-    display: flex;
-    align-items: center;
-  }
-  .status-plugin-editor__order > span {
-    min-width: 1.5rem;
-  }
-  .status-plugin-editor__top {
+  .status-detail-editor .status-plugin-editor__top {
     grid-template-columns: minmax(0, 1fr) 6.2rem;
-  }
-  .enabled-field,
-  .remove-plugin {
-    justify-self: start;
-  }
-  .status-plugin-editor-list {
-    max-height: none;
   }
 }
 </style>

@@ -2,15 +2,16 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
+const outputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
 
 await build({
-	entryPoints: [resolve(repositoryRoot, 'runtime/serve.ts')],
-	outfile: resolve(repositoryRoot, 'build/vampire-server.js'),
-	bundle: true,
-	format: 'esm',
-	platform: 'node',
-	target: 'node22.18',
-	packages: 'external',
-	legalComments: 'none',
-	logLevel: 'info'
+  entryPoints: [resolve(repositoryRoot, 'runtime/serve.ts')],
+  outfile: resolve(repositoryRoot, outputDirectory, 'vampire-server.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node22.18',
+  packages: 'external',
+  legalComments: 'none',
+  logLevel: 'info',
 });

@@ -260,27 +260,26 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
   const openBackground = page.getByRole('button', { name: 'Open background processes' });
   await expect(openBackground).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Run background command' })).toHaveCount(0);
   await openBackground.click();
-  const backgroundSheet = page.getByRole('dialog', { name: 'Background processes' });
+  const backgroundSheet = page.getByRole('dialog');
   const backgroundTitle = backgroundSheet.getByRole('heading', { name: 'Background processes' });
   await expect(backgroundSheet).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Background command' })).toHaveCount(0);
+  await expect(backgroundSheet.getByRole('button', { name: 'Run background command' })).toBeVisible();
   await backgroundSheet.getByRole('button', { name: 'Run background command' }).click();
   const backgroundCommand = page.getByRole('textbox', { name: 'Background command' });
   await expect(backgroundCommand).toBeFocused();
   await page.setViewportSize({ width: 412, height: 640 });
   await expect(backgroundCommand).toBeFocused();
-  const sheetHeightBeforeOutput = await backgroundSheet.evaluate((sheet) => sheet.getBoundingClientRect().height);
   const backgroundCommandValue = 'seq 1 300; sleep 30';
   await backgroundCommand.fill(backgroundCommandValue);
   await backgroundSheet.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(backgroundCommand).toHaveCount(0);
   const output = backgroundSheet.getByRole('region', { name: `Output for ${backgroundCommandValue}` }).locator('pre');
   await expect(output).toContainText('300');
+  await expect(backgroundSheet.getByRole('heading', { name: backgroundCommandValue })).toBeVisible();
   const stopBackground = page.getByRole('button', { name: `Stop ${backgroundCommandValue}` });
   await expect(stopBackground).toBeVisible();
-  const titleTopBeforeScroll = await backgroundTitle.evaluate((title) => title.getBoundingClientRect().top);
   const sheetLayout = await backgroundSheet.evaluate((sheet) => {
     const bounds = sheet.getBoundingClientRect();
     const viewport = window.visualViewport;
@@ -288,7 +287,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
     const bottom = top + (viewport?.height ?? window.innerHeight);
     return {
       fitsViewport: bounds.top >= top - 1 && bounds.bottom <= bottom + 1,
-      height: bounds.height,
+      anchoredToBottom: Math.abs(bounds.bottom - bottom) <= 1,
     };
   });
   const outputScrolls = await output.evaluate((terminalOutput) => {
@@ -296,10 +295,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
     return terminalOutput.scrollHeight > terminalOutput.clientHeight && terminalOutput.scrollTop > 0;
   });
   expect(sheetLayout.fitsViewport).toBe(true);
-  expect(Math.abs(sheetLayout.height - sheetHeightBeforeOutput)).toBeLessThan(1);
+  expect(sheetLayout.anchoredToBottom).toBe(true);
   expect(outputScrolls).toBe(true);
-  const titleTopAfterScroll = await backgroundTitle.evaluate((title) => title.getBoundingClientRect().top);
-  expect(Math.abs(titleTopAfterScroll - titleTopBeforeScroll)).toBeLessThan(1);
   await stopBackground.click();
   await expect(stopBackground).toBeHidden();
   await backgroundSheet.getByRole('button', { name: 'Close background manager' }).click();
@@ -310,7 +307,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.getByRole('button', { name: 'Open workspaces' }).click();
-  await expect(page.getByRole('heading', { name: 'Workspaces' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
   await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf 'unobserved-mobile-output\\n'"]);
   await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
   await page.getByRole('button', { name: /Open running workspace workspace/ }).click();
@@ -343,7 +340,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 });
 
-test('closes a status popover before opening the mobile workspace panel', async ({ context, page }) => {
+test('anchors a status popover to the mobile status bar and dismisses it for workspace tools', async ({
+  context,
+  page,
+}) => {
   await authenticate(context);
   const session = await createSession(context);
   sessionId = session.id;
@@ -369,20 +369,22 @@ test('closes a status popover before opening the mobile workspace panel', async 
   expect(Math.abs(portsLeftGap - portsRightGap)).toBeLessThan(1);
   await cpuPlugin.click();
   const popover = page.locator('.status-plugin-popover');
-  const workspaceButton = page.getByRole('button', { name: 'Open workspaces' });
+  const repositoryButton = page.getByRole('button', { name: 'Open repository' });
   await expect(popover).toBeVisible();
-  const [popoverBox, workspaceBox, viewportWidth] = await Promise.all([
+  const [popoverBox, statusBarBox, viewportWidth] = await Promise.all([
     popover.boundingBox(),
-    workspaceButton.boundingBox(),
+    statusBar.boundingBox(),
     page.evaluate(() => window.innerWidth),
   ]);
   expect(popoverBox).not.toBeNull();
-  expect(workspaceBox).not.toBeNull();
+  expect(statusBarBox).not.toBeNull();
   expect(popoverBox!.x).toBeGreaterThanOrEqual(7);
   expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(viewportWidth + 1);
-  expect(popoverBox!.y).toBeGreaterThanOrEqual(workspaceBox!.y + workspaceBox!.height);
+  const statusBarBottom = statusBarBox!.y + statusBarBox!.height;
+  expect(popoverBox!.y).toBeGreaterThanOrEqual(statusBarBottom);
+  expect(popoverBox!.y - statusBarBottom).toBeLessThan(16);
 
-  await workspaceButton.click();
-  await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
+  await repositoryButton.click();
+  await expect(page.getByRole('complementary', { name: 'Repository for workspace' })).toBeVisible();
   await expect(popover).toBeHidden();
 });

@@ -28,6 +28,10 @@
   width: min(calc(100% - 2rem), 46rem);
 }
 
+.vampire-dialog-content--form {
+  width: min(calc(100% - 2rem), 38.5rem);
+}
+
 .vampire-alert-dialog-overlay {
   z-index: 60;
 }
@@ -45,6 +49,17 @@
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
+.vampire-dialog-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.55rem;
+}
+
+.vampire-dialog-heading-copy {
+  min-width: 0;
+}
+
 .vampire-dialog-eyebrow {
   margin: 0;
   color: var(--color-text-tertiary);
@@ -54,16 +69,20 @@
 }
 
 .vampire-dialog-title {
+  overflow: hidden;
   margin: 0;
   font-size: var(--text-heading);
   font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vampire-dialog-eyebrow + .vampire-dialog-title {
   margin-top: 0.2rem;
 }
 
+.vampire-dialog-back,
 .vampire-dialog-close {
   display: grid;
   flex: 0 0 auto;
@@ -78,28 +97,40 @@
   cursor: pointer;
 }
 
+.vampire-dialog-back {
+  margin-left: -0.45rem;
+}
+
 @media (hover: hover) {
+  .vampire-dialog-back:hover:not(:disabled),
   .vampire-dialog-close:hover:not(:disabled) {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
 }
 
+.vampire-dialog-back:disabled,
 .vampire-dialog-close:disabled {
   cursor: wait;
   opacity: 0.62;
 }
 
 .vampire-dialog-body {
+  --vampire-dialog-body-inline-padding: max(1.1rem, env(safe-area-inset-right));
+  --vampire-dialog-body-inline-padding-start: max(1.1rem, env(safe-area-inset-left));
+  --vampire-dialog-body-block-padding: 1rem;
+  --vampire-dialog-body-bottom-padding: max(1.1rem, env(safe-area-inset-bottom));
   display: grid;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
+  align-content: start;
   gap: 1rem;
-  padding: 1rem max(1.1rem, env(safe-area-inset-right)) max(1.1rem, env(safe-area-inset-bottom))
-    max(1.1rem, env(safe-area-inset-left));
+  padding: var(--vampire-dialog-body-block-padding) var(--vampire-dialog-body-inline-padding)
+    var(--vampire-dialog-body-bottom-padding) var(--vampire-dialog-body-inline-padding-start);
 }
 
 .vampire-dialog-footer {
@@ -129,6 +160,7 @@
   justify-content: flex-start;
 }
 
+.vampire-dialog-primary-button,
 .vampire-dialog-secondary-button,
 .vampire-dialog-danger-button,
 .vampire-dialog-danger-outline-button {
@@ -145,28 +177,22 @@
   cursor: pointer;
 }
 
+.vampire-dialog-primary-button {
+  border: 0;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
 .vampire-dialog-secondary-button {
   border: 0;
   background: var(--color-surface-raised);
   color: var(--color-text);
 }
 
-@media (hover: hover) {
-  .vampire-dialog-secondary-button:hover:not(:disabled) {
-    background: var(--color-surface-hover);
-  }
-}
-
 .vampire-dialog-danger-button {
   border: 0;
   background: var(--color-danger-action);
   color: var(--color-danger-action-ink);
-}
-
-@media (hover: hover) {
-  .vampire-dialog-danger-button:hover:not(:disabled) {
-    background: var(--color-danger-action-hover);
-  }
 }
 
 .vampire-dialog-danger-outline-button {
@@ -178,11 +204,24 @@
 }
 
 @media (hover: hover) {
+  .vampire-dialog-primary-button:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+
+  .vampire-dialog-secondary-button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  .vampire-dialog-danger-button:hover:not(:disabled) {
+    background: var(--color-danger-action-hover);
+  }
+
   .vampire-dialog-danger-outline-button:hover:not(:disabled) {
     background: var(--color-danger-surface-hover);
   }
 }
 
+.vampire-dialog-primary-button:disabled,
 .vampire-dialog-secondary-button:disabled,
 .vampire-dialog-danger-button:disabled,
 .vampire-dialog-danger-outline-button:disabled {
@@ -194,7 +233,60 @@
   cursor: not-allowed;
 }
 
-@media (max-width: 63.999rem) {
+.vampire-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 2.75rem;
+  gap: 0.65rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+.vampire-dialog-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 5rem;
+  margin: 0;
+  padding: 1rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  text-align: center;
+}
+
+.vampire-dialog-primary-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-height: 2.35rem;
+  padding: 0 0.72rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.vampire-dialog-primary-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (hover: hover) {
+  .vampire-dialog-primary-action:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+}
+
+@media (max-width: 39.999rem), (max-width: 63.999rem) and (hover: none) and (pointer: coarse) {
   .vampire-dialog-content {
     top: auto;
     bottom: 0;
@@ -208,74 +300,25 @@
     border-radius: 1rem 1rem 0 0;
   }
 
-  .vampire-dialog-content--inspect {
-    overflow: hidden;
-    gap: 0;
-    padding: 0;
-  }
-
-  .vampire-dialog-content--inspect .vampire-dialog-header {
+  .vampire-dialog-header {
     align-items: center;
     padding: 0.55rem max(0.85rem, env(safe-area-inset-right)) 0.55rem max(0.85rem, env(safe-area-inset-left));
     border-bottom: 1px solid var(--color-border-subtle);
   }
 
-  .vampire-dialog-content--inspect .vampire-dialog-body {
+  .vampire-dialog-body {
+    --vampire-dialog-body-inline-padding: max(0.85rem, env(safe-area-inset-right));
+    --vampire-dialog-body-inline-padding-start: max(0.85rem, env(safe-area-inset-left));
+    --vampire-dialog-body-block-padding: 0.85rem;
+    --vampire-dialog-body-bottom-padding: max(0.85rem, env(safe-area-inset-bottom));
     min-height: 0;
     overflow-y: auto;
+    padding: var(--vampire-dialog-body-block-padding) var(--vampire-dialog-body-inline-padding)
+      var(--vampire-dialog-body-bottom-padding) var(--vampire-dialog-body-inline-padding-start);
+  }
+
+  .vampire-dialog-footer {
     padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom))
       max(0.85rem, env(safe-area-inset-left));
   }
-
-  .vampire-dialog-content--inspect .vampire-dialog-footer {
-    padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom))
-      max(0.85rem, env(safe-area-inset-left));
-  }
-
-  .vampire-dialog-content--inspect .vampire-dialog-title {
-    color: var(--color-text-secondary);
-    font-size: var(--text-body);
-    font-weight: var(--weight-medium);
-  }
-}
-
-.vampire-dialog-content--sheet {
-  top: var(--vampire-sheet-top, auto);
-  bottom: var(--vampire-sheet-bottom, 0);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  width: 100%;
-  height: var(--vampire-sheet-height, min(34rem, calc(100dvh - 0.5rem)));
-  max-height: none;
-  overflow: hidden;
-  transform: translateX(-50%);
-  gap: 0;
-  padding: 0;
-  border-right: 0;
-  border-bottom: 0;
-  border-left: 0;
-  border-radius: 1rem 1rem 0 0;
-}
-
-.vampire-dialog-content--sheet .vampire-dialog-header {
-  align-items: center;
-  padding: 0.55rem max(0.85rem, env(safe-area-inset-right)) 0.55rem max(0.85rem, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.vampire-dialog-content--sheet .vampire-dialog-title {
-  color: var(--color-text-secondary);
-  font-size: var(--text-body);
-  font-weight: var(--weight-medium);
-}
-
-.vampire-dialog-content--sheet .vampire-dialog-body {
-  min-height: 0;
-  overflow: hidden;
-  gap: 0;
-  padding: 0;
-}
-
-.vampire-dialog-content--sheet .vampire-dialog-footer {
-  padding: 0.85rem max(0.85rem, env(safe-area-inset-right)) max(0.85rem, env(safe-area-inset-bottom));
 }

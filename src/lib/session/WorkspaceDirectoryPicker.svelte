@@ -107,7 +107,11 @@ onMount(() => {
       {:else if errorMessage}
         <div class="directory-picker-error" role="alert">
           <p>{errorMessage}</p>
-          <button class="directory-picker-secondary-button" type="button" onclick={() => load(listing?.current?.path)}>
+          <button
+            class="vampire-dialog-secondary-button directory-picker-secondary-button"
+            type="button"
+            onclick={() => load(listing?.current?.path)}
+          >
             Try again
           </button>
         </div>
@@ -130,7 +134,7 @@ onMount(() => {
             </div>
           </div>
           <button
-            class="directory-picker-primary-button"
+            class="vampire-dialog-primary-button directory-picker-primary-button"
             type="button"
             onclick={() => submitWorkspace(listing?.current?.path ?? '')}
             disabled={starting || tmuxAvailable === false}
@@ -205,7 +209,7 @@ onMount(() => {
             disabled={starting}
           >
           <button
-            class="directory-picker-secondary-button"
+            class="vampire-dialog-secondary-button directory-picker-secondary-button"
             type="submit"
             disabled={starting || tmuxAvailable === false}
           >
@@ -335,41 +339,11 @@ onMount(() => {
   cursor: not-allowed;
   opacity: 0.4;
 }
-.directory-picker-primary-button,
-.directory-picker-secondary-button {
-  min-height: var(--control-height-md);
-  padding: 0 0.85rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
 .directory-picker-primary-button {
   width: 100%;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-@media (hover: hover) {
-  .directory-picker-primary-button:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-.directory-picker-primary-button:disabled,
-.directory-picker-secondary-button:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 .directory-picker-secondary-button {
   justify-self: start;
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-@media (hover: hover) {
-  .directory-picker-secondary-button:hover {
-    background: var(--color-surface-hover);
-  }
 }
 .directory-picker-manual {
   display: grid;
