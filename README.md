@@ -1,6 +1,6 @@
 # Vampire
 
-**A self-hosted browser workspace for persistent Codex, Claude Code, and shell sessions.**
+**A self-hosted browser workspace for persistent terminal workspaces.**
 
 <table>
   <tr>
@@ -13,13 +13,13 @@
   </tr>
 </table>
 
-Vampire runs your command-line sessions in tmux and lets you reconnect from a desktop or mobile browser. Your credentials, project files, and running processes stay on your machine.
+Vampire runs your terminal workspaces in tmux and lets you reconnect from a desktop or mobile browser. Your credentials, project files, and running processes stay on your machine.
 
 ## Features
 
-- Persistent tmux sessions for Codex, Claude Code, and any shell command.
+- Persistent tmux-backed terminal workspaces for Codex, Claude Code, and any shell command.
 - Browser workspaces for multiple projects, with desktop and mobile support.
-- At-a-glance session status, so you can see what needs your attention.
+- At-a-glance workspace status, so you can see what needs your attention.
 - Local-first and self-hosted, with optional authenticated remote access.
 
 ## Quick start
@@ -43,7 +43,7 @@ codex
 claude
 ```
 
-Your session keeps running when you close the browser. Reopen the workspace whenever you want to continue.
+Your workspace keeps running when you close the browser. Reopen the workspace whenever you want to continue.
 
 ## Remote access
 

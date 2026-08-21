@@ -6,6 +6,9 @@ const adapterOutputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
+    alias: {
+      '~': './src',
+    },
     outDir: svelteKitOutputDirectory,
     adapter: adapter({
       out: adapterOutputDirectory,

@@ -28,7 +28,7 @@ const buildExitCode = await exitCode(build);
 if (buildExitCode !== 0) {
   process.exitCode = buildExitCode;
 } else {
-  const server = start(process.execPath, ['e2e/server.ts']);
+  const server = start(process.execPath, ['--import', './tools/register-ts-alias.mjs', 'e2e/server.ts']);
   let stopping = false;
   const stopServer = (signal: NodeJS.Signals) => {
     if (stopping) return;

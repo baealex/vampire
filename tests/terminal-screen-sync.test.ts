@@ -4,7 +4,7 @@ import {
   TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT,
   TERMINAL_OUTPUT_BATCH_CHARACTER_LIMIT,
   TerminalScreenSync,
-} from '../src/lib/terminal/screen-sync.ts';
+} from '../src/lib/features/terminal/screen-sync.ts';
 
 class FakeScheduler {
   now = 0;

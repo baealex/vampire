@@ -1,16 +1,20 @@
 {
-	"compilerOptions": {
-		"allowImportingTsExtensions": true,
-		"erasableSyntaxOnly": true,
-		"forceConsistentCasingInFileNames": true,
-		"lib": ["ES2023", "DOM"],
-		"module": "NodeNext",
-		"moduleResolution": "NodeNext",
-		"noEmit": true,
-		"skipLibCheck": true,
-		"strict": true,
-		"target": "ES2023",
-		"types": ["node"]
-	},
-	"include": ["runtime/**/*.ts", "tools/**/*.ts"]
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["src/*"]
+    },
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2023",
+    "types": ["node"]
+  },
+  "include": ["src/server/**/*.ts", "tools/**/*.ts"]
 }

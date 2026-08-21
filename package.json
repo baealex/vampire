@@ -1,7 +1,7 @@
 {
   "name": "vampire",
   "version": "0.12.0",
-  "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux sessions.",
+  "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux-backed terminals.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -34,13 +34,13 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "node runtime/dev.ts",
+    "dev": "node --import ./tools/register-ts-alias.mjs src/server/dev.ts",
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
     "check": "node tools/check.ts",
     "format": "node tools/format-changed.ts --write",
     "format:check": "node tools/format-changed.ts",
-    "test": "pnpm check && node --test tests/*.test.ts && pnpm build",
+    "test": "pnpm check && node --import ./tools/register-ts-alias.mjs --test tests/*.test.ts && pnpm build",
     "test:e2e": "playwright test",
     "prepack": "pnpm build"
   },

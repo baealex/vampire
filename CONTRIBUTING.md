@@ -6,7 +6,7 @@ Thanks for helping make persistent project shells calmer, safer, and easier to r
 
 Vampire is deliberately small. Contributions should preserve these constraints:
 
-- The user's own computer and tmux sessions remain the source of truth.
+- The user's own computer and tmux state remain the source of truth.
 - No hosted relay or vendor service is required.
 - The product serves ordinary shell workflows rather than one command-line program.
 - Activity indicators describe observable terminal state without guessing task completion.
@@ -31,9 +31,22 @@ The development server listens on `127.0.0.1:7677` by default.
 
 1. Keep the change focused and explain the user problem it solves.
 2. Preserve backward compatibility for `~/.vampire/sessions.json` whenever possible.
-3. Add or update tests for protocol, security, session-lifecycle, and parsing changes.
+3. Add or update tests for protocol, security, workspace-lifecycle, and parsing changes.
 4. Check both a desktop viewport and a narrow mobile viewport for interface changes.
-5. Avoid committing real tokens, private project paths, terminal output, or personal session data.
+5. Avoid committing real tokens, private project paths, terminal output, or personal workspace data.
+
+## Project layout
+
+- `src/routes` contains SvelteKit page and API route entrypoints.
+- `src/lib/app` contains application composition and bootstrap state.
+- `src/lib/features/<feature>` contains feature-owned UI, client state, and feature-specific server behavior.
+- `src/lib/shared` contains domain-independent API helpers, contracts, theme, UI primitives, and utility code shared by features.
+- `src/server` contains the custom Node runtime entrypoint and its transport orchestration.
+- `src/lib` imports use the `~/lib/...` alias; same-feature leaf components may use relative imports.
+- The dependency direction is `app → features → shared`; `shared` must not depend on a feature, and SvelteKit routes should remain thin adapters.
+- `tools` contains development, build, release, and package smoke-test scripts; `bin` contains the npm executable entrypoint.
+- `tests` contains unit and integration tests, while `e2e` contains browser-server fixtures and Playwright tests.
+- `static` and `docs` contain shipped static assets and contributor-facing documentation.
 
 Run the full local verification before opening a pull request:
 

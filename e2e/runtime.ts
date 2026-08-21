@@ -16,16 +16,16 @@ export const E2E_RUNTIME_DIRECTORY = join(repositoryRoot, 'test-results', 'e2e-r
 export const E2E_STATE_DIRECTORY = join(E2E_RUNTIME_DIRECTORY, 'state');
 export const E2E_WORKSPACE_DIRECTORY = join(E2E_RUNTIME_DIRECTORY, 'workspace');
 
-const TEST_TMUX_SESSION_PATTERN = /^vampire-[a-f0-9]{8}$/;
+const TEST_TMUX_WORKSPACE_PATTERN = /^vampire-[a-f0-9]{8}$/;
 
 async function registeredTmuxSessions(): Promise<string[]> {
   try {
     const raw = await readFile(join(E2E_STATE_DIRECTORY, 'sessions.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { sessions?: Array<{ tmuxSession?: unknown } | null> };
-    if (!parsed || !Array.isArray(parsed.sessions)) return [];
-    return parsed.sessions
-      .map((session) => session?.tmuxSession)
-      .filter((name): name is string => typeof name === 'string' && TEST_TMUX_SESSION_PATTERN.test(name));
+    const parsed = JSON.parse(raw) as { workspaces?: Array<{ tmuxSession?: unknown } | null> };
+    if (!parsed || !Array.isArray(parsed.workspaces)) return [];
+    return parsed.workspaces
+      .map((workspace) => workspace?.tmuxSession)
+      .filter((name): name is string => typeof name === 'string' && TEST_TMUX_WORKSPACE_PATTERN.test(name));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT' || error instanceof SyntaxError) return [];
     throw error;
@@ -33,8 +33,8 @@ async function registeredTmuxSessions(): Promise<string[]> {
 }
 
 export async function cleanE2ERuntime(): Promise<void> {
-  for (const sessionName of await registeredTmuxSessions()) {
-    await run('tmux', ['kill-session', '-t', sessionName]).catch(() => undefined);
+  for (const workspaceName of await registeredTmuxSessions()) {
+    await run('tmux', ['kill-session', '-t', workspaceName]).catch(() => undefined);
   }
   await rm(E2E_RUNTIME_DIRECTORY, { recursive: true, force: true });
 }

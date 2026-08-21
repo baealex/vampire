@@ -1,71 +1,67 @@
 import { expect } from '@playwright/test';
 import type { APIRequestContext, BrowserContext, Page } from '@playwright/test';
-import type { ManagedSession } from '../src/lib/session/types.ts';
-import { defaultStatusPlugins } from '../src/lib/status/status-plugin.ts';
-import {
-	E2E_BASE_URL,
-	E2E_TOKEN,
-	E2E_WORKSPACE_DIRECTORY
-} from './runtime.ts';
+import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
+import { defaultStatusPlugins } from '../src/lib/shared/contracts/status-plugin.ts';
+import { E2E_BASE_URL, E2E_TOKEN, E2E_WORKSPACE_DIRECTORY } from './runtime.ts';
 
 export { E2E_WORKSPACE_DIRECTORY };
 
 export async function authenticate(context: BrowserContext): Promise<void> {
-	const response = await context.request.post(`${E2E_BASE_URL}/api/login`, {
-		data: { token: E2E_TOKEN }
-	});
-	expect(response.ok()).toBe(true);
+  const response = await context.request.post(`${E2E_BASE_URL}/api/login`, {
+    data: { token: E2E_TOKEN },
+  });
+  expect(response.ok()).toBe(true);
 }
 
-export async function createSession(context: BrowserContext): Promise<ManagedSession> {
-	const response = await context.request.post(`${E2E_BASE_URL}/api/sessions`, {
-		data: { cwd: E2E_WORKSPACE_DIRECTORY }
-	});
-	expect(response.status()).toBe(201);
-	const body = await response.json() as { session: ManagedSession };
-	return body.session;
+export async function createWorkspace(context: BrowserContext): Promise<ManagedWorkspace> {
+  const response = await context.request.post(`${E2E_BASE_URL}/api/workspaces`, {
+    data: { cwd: E2E_WORKSPACE_DIRECTORY },
+  });
+  expect(response.status()).toBe(201);
+  const body = (await response.json()) as { workspace: ManagedWorkspace };
+  return body.workspace;
 }
 
-export async function resetSessions(request: APIRequestContext): Promise<void> {
-	const headers = { authorization: `Bearer ${E2E_TOKEN}` };
-	const response = await request.get(`${E2E_BASE_URL}/api/sessions`, { headers });
-	expect(response.ok()).toBe(true);
-	const body = await response.json() as { sessions: ManagedSession[] };
-	for (const session of body.sessions) {
-		const removal = await request.delete(
-			`${E2E_BASE_URL}/api/sessions/${encodeURIComponent(session.id)}?terminate=true`,
-			{ headers }
-		);
-		expect(removal.ok()).toBe(true);
-	}
-	const launchProfiles = await request.put(`${E2E_BASE_URL}/api/launch-profiles`, {
-		headers,
-		data: { launchProfiles: [] }
-	});
-	expect(launchProfiles.ok()).toBe(true);
-	const preferences = await request.put(`${E2E_BASE_URL}/api/workspace-preferences`, {
-		headers,
-		data: { sessionOrderMode: 'activity', manualSessionOrder: [] }
-	});
-	expect(preferences.ok()).toBe(true);
+export async function resetWorkspaces(request: APIRequestContext): Promise<void> {
+  const headers = { authorization: `Bearer ${E2E_TOKEN}` };
+  const response = await request.get(`${E2E_BASE_URL}/api/workspaces`, { headers });
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { workspaces: ManagedWorkspace[] };
+  for (const workspace of body.workspaces) {
+    const removal = await request.delete(
+      `${E2E_BASE_URL}/api/workspaces/${encodeURIComponent(workspace.id)}?terminate=true`,
+      { headers }
+    );
+    expect(removal.ok()).toBe(true);
+  }
+  const launchProfiles = await request.put(`${E2E_BASE_URL}/api/launch-profiles`, {
+    headers,
+    data: { launchProfiles: [] },
+  });
+  expect(launchProfiles.ok()).toBe(true);
+  const preferences = await request.put(`${E2E_BASE_URL}/api/workspace-preferences`, {
+    headers,
+    data: { workspaceOrderMode: 'activity', manualWorkspaceOrder: [] },
+  });
+  expect(preferences.ok()).toBe(true);
 }
 
 export async function resetStatusPlugins(request: APIRequestContext): Promise<void> {
-	const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
-		headers: { authorization: `Bearer ${E2E_TOKEN}` },
-		data: { plugins: defaultStatusPlugins() }
-	});
-	expect(response.ok()).toBe(true);
+  const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
+    headers: { authorization: `Bearer ${E2E_TOKEN}` },
+    data: { plugins: defaultStatusPlugins() },
+  });
+  expect(response.ok()).toBe(true);
 }
 
-export async function removeSession(context: BrowserContext, sessionId: string | undefined): Promise<void> {
-	if (!sessionId) return;
-	await context.request
-		.delete(`${E2E_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}?terminate=true`)
-		.catch(() => undefined);
+export async function removeWorkspace(context: BrowserContext, workspaceId: string | undefined): Promise<void> {
+  if (!workspaceId) return;
+  await context.request
+    .delete(`${E2E_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}?terminate=true`)
+    .catch(() => undefined);
 }
 
 export async function expectTerminalReady(page: Page): Promise<void> {
-	await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible({ timeout: 15_000 });
-	await expect(page.locator('.terminal.screen-ready')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.terminal.screen-ready')).toBeVisible({ timeout: 20_000 });
 }

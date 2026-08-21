@@ -3,14 +3,14 @@ import { promisify } from 'node:util';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
 import {
   authenticate,
-  createSession,
+  createWorkspace,
   expectTerminalReady,
-  removeSession,
-  resetSessions,
+  removeWorkspace,
+  resetWorkspaces,
   resetStatusPlugins,
 } from './support.ts';
 
-let sessionId: string | undefined;
+let workspaceId: string | undefined;
 const run = promisify(execFile);
 
 function websocketMessageType(message: string | Buffer): string | undefined {
@@ -23,27 +23,27 @@ function websocketMessageType(message: string | Buffer): string | undefined {
 }
 
 test.beforeEach(async ({ request }) => {
-  sessionId = undefined;
-  await Promise.all([resetSessions(request), resetStatusPlugins(request)]);
+  workspaceId = undefined;
+  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request)]);
 });
 
 test.afterEach(async ({ context }) => {
-  await removeSession(context, sessionId);
-  sessionId = undefined;
+  await removeWorkspace(context, workspaceId);
+  workspaceId = undefined;
 });
 
 test('keeps a terminal connection failure inside the mobile viewport', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
   await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
     socket.close({ code: 1008, reason: 'authentication expired' });
   });
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   const terminalFrame = page.locator('.terminal-frame');
   const connectionError = page.locator('.terminal-error');
-  await expect(connectionError).toContainText('This terminal session is no longer authorized.');
+  await expect(connectionError).toContainText('This terminal workspace is no longer authorized.');
   const [frameBox, errorBox] = await Promise.all([terminalFrame.boundingBox(), connectionError.boundingBox()]);
   expect(frameBox).not.toBeNull();
   expect(errorBox).not.toBeNull();
@@ -61,10 +61,10 @@ test('keeps terminal IME input visible and focused while the mobile viewport res
     socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
   });
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
   await terminal.tap({ position: { x: 96, y: 96 } });
@@ -133,8 +133,8 @@ test('keeps terminal IME input visible and focused while the mobile viewport res
 test('defers a reconnect snapshot until terminal IME composition finishes', async ({ context, page }) => {
   test.setTimeout(60_000);
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
   let firstConnection: WebSocketRoute | undefined;
   let resolveFirstConnection!: () => void;
@@ -161,7 +161,7 @@ test('defers a reconnect snapshot until terminal IME composition finishes', asyn
     });
   });
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await firstConnectionOpened;
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
@@ -204,10 +204,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const statusBar = page.getByRole('region', { name: 'Server status plugins' });
   await expect(statusBar).toBeVisible();
@@ -231,12 +231,12 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await run('tmux', [
     'send-keys',
     '-t',
-    session.tmuxSession,
+    workspace.tmuxSession,
     '-l',
     '--',
     "printf '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀\\n'",
   ]);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(page.locator('.xterm-rows')).toContainText(
     '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀'
   );
@@ -244,8 +244,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.getByRole('button', { name: 'Scroll to terminal top' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal bottom' })).toBeVisible();
 
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', 'seq 1 200']);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', 'seq 1 200']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   const terminalRows = page.locator('.xterm-rows');
   const hasVisibleOutputLine = (value: string) =>
     terminalRows.evaluate(
@@ -308,8 +308,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf 'unobserved-mobile-output\\n'"]);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'unobserved-mobile-output\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await page.getByRole('button', { name: /Open running workspace workspace/ }).click();
   await expectTerminalReady(page);
   await expect.poll(() => pageErrors.filter((message) => message.includes('effect_update_depth_exceeded'))).toEqual([]);
@@ -345,10 +345,10 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   page,
 }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const statusBar = page.getByRole('region', { name: 'Server status plugins' });
   const cpuPlugin = statusBar.locator('.status-plugin').filter({ hasText: 'CPU' });

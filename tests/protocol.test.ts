@@ -5,18 +5,18 @@ import {
   decodeTerminalServerMessage,
   encodeTerminalClientMessage,
   encodeTerminalServerMessage,
-} from '../src/lib/terminal/protocol.ts';
+} from '../src/lib/shared/contracts/terminal-protocol.ts';
 import {
   decodeWorkspaceServerMessage,
   encodeWorkspaceServerMessage,
   type WorkspaceServerMessage,
-} from '../src/lib/app/workspace-protocol.ts';
-import type { ManagedSession } from '../src/lib/session/types.ts';
+} from '../src/lib/shared/contracts/workspace-protocol.ts';
+import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 
-function managedSession(overrides: Record<string, unknown> = {}): ManagedSession {
+function managedWorkspace(overrides: Record<string, unknown> = {}): ManagedWorkspace {
   return {
-    id: 'session-1',
-    tmuxSession: 'vampire-session-1',
+    id: 'workspace-1',
+    tmuxSession: 'vampire-workspace-1',
     cwd: '/tmp/workspace',
     createdAt: 1,
     lastActiveAt: 2,
@@ -44,7 +44,7 @@ function managedSession(overrides: Record<string, unknown> = {}): ManagedSession
     agentState: null,
     isGitRepository: true,
     ...overrides,
-  } as ManagedSession;
+  } as ManagedWorkspace;
 }
 
 test('round-trips valid terminal client messages and rejects invalid sizes', () => {
@@ -168,14 +168,14 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
 
 test('validates complete workspace messages before applying them to client state', () => {
   const snapshot: WorkspaceServerMessage = {
-    type: 'sessions-snapshot',
+    type: 'workspaces-snapshot',
     launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
     preferences: {
-      sessionOrderMode: 'manual',
-      manualSessionOrder: ['session-1'],
+      workspaceOrderMode: 'manual',
+      manualWorkspaceOrder: ['workspace-1'],
     },
-    sessions: [
-      managedSession({
+    workspaces: [
+      managedWorkspace({
         workspaceKind: 'worktree',
         repositoryPath: '/tmp/project',
         workspaceLabel: 'Fix login',
@@ -200,33 +200,33 @@ test('validates complete workspace messages before applying them to client state
     decodeWorkspaceServerMessage(
       encodeWorkspaceServerMessage({
         type: 'workspace-preferences-updated',
-        preferences: { sessionOrderMode: 'activity', manualSessionOrder: ['session-1'] },
+        preferences: { workspaceOrderMode: 'activity', manualWorkspaceOrder: ['workspace-1'] },
       })
     ),
     {
       type: 'workspace-preferences-updated',
-      preferences: { sessionOrderMode: 'activity', manualSessionOrder: ['session-1'] },
+      preferences: { workspaceOrderMode: 'activity', manualWorkspaceOrder: ['workspace-1'] },
     }
   );
   assert.deepEqual(
     decodeWorkspaceServerMessage(
       encodeWorkspaceServerMessage({
-        type: 'session-updated',
-        id: 'session-1',
+        type: 'workspace-updated',
+        id: 'workspace-1',
         changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
       })
     ),
     {
-      type: 'session-updated',
-      id: 'session-1',
+      type: 'workspace-updated',
+      id: 'workspace-1',
       changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
     }
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ attachedClients: '1' })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ attachedClients: '1' })],
       })
     ),
     undefined
@@ -234,8 +234,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ isGitRepository: 'true' })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ isGitRepository: 'true' })],
       })
     ),
     undefined
@@ -243,8 +243,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ workspaceLabel: 42 })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ workspaceLabel: 42 })],
       })
     ),
     undefined
@@ -252,8 +252,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ workspaceKind: 'clone' })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ workspaceKind: 'clone' })],
       })
     ),
     undefined
@@ -261,8 +261,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ workspaceAvailable: 'yes' })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ workspaceAvailable: 'yes' })],
       })
     ),
     undefined
@@ -270,9 +270,9 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [
-          managedSession({
+        type: 'workspaces-snapshot',
+        workspaces: [
+          managedWorkspace({
             note: 'private note',
             noteFile: true,
             automations: [{ prompt: 'private prompt' }],
@@ -285,9 +285,9 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession()],
-        preferences: { sessionOrderMode: 'manual', manualSessionOrder: [42] },
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace()],
+        preferences: { workspaceOrderMode: 'manual', manualWorkspaceOrder: [42] },
       })
     ),
     undefined
@@ -296,7 +296,7 @@ test('validates complete workspace messages before applying them to client state
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspace-preferences-updated',
-        preferences: { sessionOrderMode: 'smart', manualSessionOrder: [] },
+        preferences: { workspaceOrderMode: 'smart', manualWorkspaceOrder: [] },
       })
     ),
     undefined
@@ -304,8 +304,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [managedSession({ favoriteCommands: ['pnpm dev', 42] })],
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ favoriteCommands: ['pnpm dev', 42] })],
       })
     ),
     undefined
@@ -313,9 +313,9 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'sessions-snapshot',
-        sessions: [
-          managedSession({
+        type: 'workspaces-snapshot',
+        workspaces: [
+          managedWorkspace({
             terminals: [
               {
                 id: '0',
@@ -339,8 +339,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'session-updated',
-        id: 'session-1',
+        type: 'workspace-updated',
+        id: 'workspace-1',
         changes: { unknownField: true },
       })
     ),
@@ -349,8 +349,8 @@ test('validates complete workspace messages before applying them to client state
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'session-updated',
-        id: 'session-1',
+        type: 'workspace-updated',
+        id: 'workspace-1',
         changes: { agentState: 'done' },
       })
     ),
@@ -409,12 +409,12 @@ test('round-trips status plugin snapshots without exposing command configuration
   );
 });
 
-test('keeps activity from legacy terminal updates without erasing richer terminal metadata', () => {
+test('keeps activity from compatibility terminal updates without erasing richer terminal metadata', () => {
   assert.deepEqual(
     decodeWorkspaceServerMessage(
       JSON.stringify({
-        type: 'session-updated',
-        id: 'session-1',
+        type: 'workspace-updated',
+        id: 'workspace-1',
         changes: {
           lastOutputAt: 4,
           terminals: [
@@ -431,8 +431,8 @@ test('keeps activity from legacy terminal updates without erasing richer termina
       })
     ),
     {
-      type: 'session-updated',
-      id: 'session-1',
+      type: 'workspace-updated',
+      id: 'workspace-1',
       changes: { lastOutputAt: 4 },
     }
   );

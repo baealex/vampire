@@ -1,16 +1,17 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, type Plugin } from 'vite';
 import type { Server as NodeHttpServer } from 'node:http';
-import { installTerminalWebSocket } from './runtime/websocket.ts';
-import { installWorkspaceWebSocket } from './runtime/workspace-websocket.ts';
 
 const viteCacheDirectory = process.env.VAMPIRE_VITE_CACHE_DIR?.trim() || 'node_modules/.vite';
 
 function vampireRuntimeWebSocketPlugin(): Plugin {
   return {
     name: 'vampire-runtime-websockets',
-    configureServer(server) {
+    async configureServer(server) {
       if (!server.httpServer) return;
+
+      const { installTerminalWebSocket } = await server.ssrLoadModule('/src/server/terminal/websocket.ts');
+      const { installWorkspaceWebSocket } = await server.ssrLoadModule('/src/server/workspace/workspace-websocket.ts');
 
       // The dev runtime intentionally uses Vite's plain HTTP server. Vite's
       // public type also allows HTTP/2, so narrow it at this integration point.

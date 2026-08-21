@@ -5,15 +5,15 @@ import { promisify } from 'node:util';
 import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import {
   authenticate,
-  createSession,
+  createWorkspace,
   E2E_WORKSPACE_DIRECTORY,
   expectTerminalReady,
-  removeSession,
-  resetSessions,
+  removeWorkspace,
+  resetWorkspaces,
   resetStatusPlugins,
 } from './support.ts';
 import { E2E_STATE_DIRECTORY } from './runtime.ts';
-import type { ManagedSession } from '../src/lib/session/types.ts';
+import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 
 declare global {
   interface Window {
@@ -22,7 +22,7 @@ declare global {
   }
 }
 
-let sessionId: string | undefined;
+let workspaceId: string | undefined;
 const run = promisify(execFile);
 
 async function gitWorkspace(...args: string[]): Promise<string> {
@@ -210,13 +210,13 @@ function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): b
 }
 
 test.beforeEach(async ({ request }) => {
-  sessionId = undefined;
-  await Promise.all([resetSessions(request), resetStatusPlugins(request)]);
+  workspaceId = undefined;
+  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request)]);
 });
 
 test.afterEach(async ({ context }) => {
-  await removeSession(context, sessionId);
-  sessionId = undefined;
+  await removeWorkspace(context, workspaceId);
+  workspaceId = undefined;
 });
 
 test('rejects a wrong token and unlocks without waiting for the workspace stream', async ({ page }) => {
@@ -235,8 +235,8 @@ test('rejects a wrong token and unlocks without waiting for the workspace stream
 
 test('inspects listening ports as an on-demand system utility', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
   let portsRequests = 0;
   let releaseRevalidation: (() => void) | undefined;
   const revalidationGate = new Promise<void>((resolve) => {
@@ -302,7 +302,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
     });
   });
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const statusBar = page.getByRole('region', { name: 'Server status plugins' });
   await expect(statusBar).toBeVisible();
@@ -347,9 +347,9 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 
 test('stores agent automations and exposes the exact live note path only on request', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
@@ -375,10 +375,12 @@ test('stores agent automations and exposes the exact live note path only on requ
   await noteDialog.getByRole('button', { name: 'Summarize with agent' }).click();
   await expect(noteDialog.getByRole('button', { name: 'Waiting for note update' })).toBeVisible();
 
-  const notePath = join(E2E_STATE_DIRECTORY, `${session.id}.note.md`);
+  const notePath = join(E2E_STATE_DIRECTORY, `${workspace.id}.note.md`);
   await expect(noteDialog.locator('.note-agent-target')).toContainText(notePath);
   await expect.poll(async () => readFile(notePath, 'utf8')).toBe('Existing project context\n');
-  const automationsResponse = await context.request.get(`/api/sessions/${encodeURIComponent(session.id)}/automations`);
+  const automationsResponse = await context.request.get(
+    `/api/workspaces/${encodeURIComponent(workspace.id)}/automations`
+  );
   expect(automationsResponse.ok()).toBe(true);
   const automationsBody = (await automationsResponse.json()) as {
     automations: Array<{ kind: string; prompt: string }>;
@@ -393,9 +395,9 @@ test('stores agent automations and exposes the exact live note path only on requ
 
 test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
@@ -446,7 +448,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
   const secondPage = await context.newPage();
-  await secondPage.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await secondPage.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(secondPage);
   const secondBar = secondPage.getByRole('region', { name: 'Server status plugins' });
   await expect(secondBar.locator('.status-plugin').first()).toContainText('Build');
@@ -460,13 +462,13 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   page,
 }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
   const profileCommand = "printf 'launch-profile-marker\\n'";
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  let actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+  let actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await actions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
   await expect(page.getByRole('menu')).toBeHidden();
@@ -486,30 +488,30 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   expect(profilesBody.launchProfiles).toHaveLength(1);
   expect(profilesBody.launchProfiles[0]).toMatchObject({ name: 'Codex', command: profileCommand });
 
-  const reuseSession = await createSession(context);
-  await page.goto(`/sessions/${encodeURIComponent(reuseSession.id)}`);
+  const reuseWorkspace = await createWorkspace(context);
+  await page.goto(`/workspaces/${encodeURIComponent(reuseWorkspace.id)}`);
   await expectTerminalReady(page);
-  actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+  actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await actions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
   await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
   await expect(page.getByRole('radio', { name: /No startup profile/ })).toBeChecked();
   await page.locator('.profile-card').getByRole('radio', { name: 'Use here' }).click();
   await page.getByRole('button', { name: 'Save changes' }).click();
-  const reuseSessionsResponse = await context.request.get('/api/sessions');
-  const reuseSessionsBody = (await reuseSessionsResponse.json()) as { sessions: ManagedSession[] };
-  expect(reuseSessionsBody.sessions.find((candidate) => candidate.id === reuseSession.id)?.startupProfileId).toBe(
+  const reuseWorkspacesResponse = await context.request.get('/api/workspaces');
+  const reuseWorkspacesBody = (await reuseWorkspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
+  expect(reuseWorkspacesBody.workspaces.find((candidate) => candidate.id === reuseWorkspace.id)?.startupProfileId).toBe(
     profilesBody.launchProfiles[0]!.id
   );
-  await removeSession(context, reuseSession.id);
+  await removeWorkspace(context, reuseWorkspace.id);
 
-  const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+  const closeResponse = await context.request.post(`/api/workspaces/${encodeURIComponent(workspace.id)}/close`);
   expect(closeResponse.ok()).toBe(true);
 
   await page.goto('/');
-  const endedGroup = page.locator('.session-group.ended');
+  const endedGroup = page.locator('.workspace-group.ended');
   await endedGroup.getByRole('button', { name: /Ended/ }).click();
-  const endedActions = endedGroup.locator('.session-actions-menu .vampire-menu-trigger');
+  const endedActions = endedGroup.locator('.workspace-actions-menu .vampire-menu-trigger');
   await expect(endedActions).toBeVisible();
   await endedActions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
@@ -520,13 +522,13 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   await expect(startupDialog.locator('.vampire-dialog-footer')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
-  const restartResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}`);
+  const restartResponse = await context.request.post(`/api/workspaces/${encodeURIComponent(workspace.id)}`);
   expect(restartResponse.ok()).toBe(true);
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
-  actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+  actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
@@ -536,8 +538,8 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
 
 test('reopens with a one-time profile without changing the default startup', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
   const profileCommand = "printf 'one-time-profile-marker\\n'";
 
   const profilesResponse = await context.request.put('/api/launch-profiles', {
@@ -553,13 +555,13 @@ test('reopens with a one-time profile without changing the default startup', asy
   });
   expect(profilesResponse.ok()).toBe(true);
 
-  const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+  const closeResponse = await context.request.post(`/api/workspaces/${encodeURIComponent(workspace.id)}/close`);
   expect(closeResponse.ok()).toBe(true);
 
   await page.goto('/');
-  const endedGroup = page.locator('.session-group.ended');
+  const endedGroup = page.locator('.workspace-group.ended');
   await endedGroup.getByRole('button', { name: /Ended/ }).click();
-  await endedGroup.locator('.session-row').click();
+  await endedGroup.locator('.workspace-row').click();
   await expect(page.getByRole('heading', { name: 'This shell has ended' })).toBeVisible();
   await page.getByRole('button', { name: 'Reopen with…' }).click();
   const menu = page.getByRole('menu');
@@ -569,39 +571,41 @@ test('reopens with a one-time profile without changing the default startup', asy
   await expectTerminalReady(page);
   await expect(page.locator('.xterm-rows')).toContainText('one-time-profile-marker');
 
-  const restartedSessionsResponse = await context.request.get('/api/sessions');
-  expect(restartedSessionsResponse.ok()).toBe(true);
-  const restartedSessionsBody = (await restartedSessionsResponse.json()) as { sessions: ManagedSession[] };
-  expect(restartedSessionsBody.sessions.find((candidate) => candidate.id === session.id)?.startupProfileId).toBeNull();
+  const restartedWorkspacesResponse = await context.request.get('/api/workspaces');
+  expect(restartedWorkspacesResponse.ok()).toBe(true);
+  const restartedWorkspacesBody = (await restartedWorkspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
+  expect(
+    restartedWorkspacesBody.workspaces.find((candidate) => candidate.id === workspace.id)?.startupProfileId
+  ).toBeNull();
 
-  const secondCloseResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+  const secondCloseResponse = await context.request.post(`/api/workspaces/${encodeURIComponent(workspace.id)}/close`);
   expect(secondCloseResponse.ok()).toBe(true);
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expect(page.getByRole('heading', { name: 'This shell has ended' })).toBeVisible();
   await page.getByRole('button', { name: 'Reopen shell' }).click();
   await expectTerminalReady(page);
   await expect
-    .poll(async () => (await tmuxPaneRows(session.tmuxSession)).join('\n'))
+    .poll(async () => (await tmuxPaneRows(workspace.tmuxSession)).join('\n'))
     .not.toContain('one-time-profile-marker');
 });
 
-test('closes the workspace action menu after closing a session', async ({ context, page }) => {
+test('closes the workspace action menu after closing a workspace', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  await page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger').click();
+  await page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger').click();
   const menu = page.getByRole('menu');
-  await menu.getByRole('menuitem', { name: 'Close session' }).click();
-  const confirmation = menu.getByRole('group', { name: 'Confirm closing session' });
+  await menu.getByRole('menuitem', { name: 'Close workspace' }).click();
+  const confirmation = menu.getByRole('group', { name: 'Confirm closing workspace' });
   await expect(confirmation).toBeVisible();
-  await confirmation.getByRole('menuitem', { name: 'Close session' }).click();
+  await confirmation.getByRole('menuitem', { name: 'Close workspace' }).click();
 
   await expect(menu).toBeHidden();
-  await expect(page.locator('.session-group.ended')).toContainText('Ended');
+  await expect(page.locator('.workspace-group.ended')).toContainText('Ended');
 });
 
 test('creates, auto-starts, and safely removes an isolated Git workspace', async ({ context, page }) => {
@@ -618,8 +622,8 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
 
   try {
     await authenticate(context);
-    const source = await createSession(context);
-    sessionId = source.id;
+    const source = await createWorkspace(context);
+    workspaceId = source.id;
     const profileResponse = await context.request.put('/api/launch-profiles', {
       data: {
         launchProfiles: [
@@ -633,16 +637,16 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     });
     expect(profileResponse.ok()).toBe(true);
     const selectionResponse = await context.request.put(
-      `/api/sessions/${encodeURIComponent(source.id)}/startup-profile`,
+      `/api/workspaces/${encodeURIComponent(source.id)}/startup-profile`,
       {
         data: { startupProfileId: 'profile-isolated' },
       }
     );
     expect(selectionResponse.ok()).toBe(true);
-    await page.goto(`/sessions/${encodeURIComponent(source.id)}`);
+    await page.goto(`/workspaces/${encodeURIComponent(source.id)}`);
     await expectTerminalReady(page);
 
-    const actions = page.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger');
+    const actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
     await actions.click();
     await page.getByRole('menuitem', { name: 'New isolated workspace' }).click();
     await expect(page.getByRole('heading', { name: 'New isolated workspace' })).toBeVisible();
@@ -653,10 +657,10 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
     await expectTerminalReady(page);
 
-    const sessionsResponse = await context.request.get('/api/sessions');
-    expect(sessionsResponse.ok()).toBe(true);
-    const sessionsBody = (await sessionsResponse.json()) as { sessions: ManagedSession[] };
-    const isolated = sessionsBody.sessions.find((session) => session.workspaceLabel === 'Parallel task');
+    const workspacesResponse = await context.request.get('/api/workspaces');
+    expect(workspacesResponse.ok()).toBe(true);
+    const workspacesBody = (await workspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
+    const isolated = workspacesBody.workspaces.find((workspace) => workspace.workspaceLabel === 'Parallel task');
     expect(isolated).toBeDefined();
     expect(isolated?.workspaceKind).toBe('worktree');
     expect(isolated?.cwd).toBe(join(E2E_STATE_DIRECTORY, 'worktrees', isolated!.id, basename(E2E_WORKSPACE_DIRECTORY)));
@@ -670,7 +674,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     await page.reload();
     await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
     await expect(page.locator('.terminal-identity-title .worktree-badge')).toHaveText('Worktree');
-    await expect(page.locator('.session-row-shell.selected .workspace-origin')).toContainText(
+    await expect(page.locator('.workspace-row-shell.selected .workspace-origin')).toContainText(
       isolated!.worktreeBranch!
     );
     await expectTerminalReady(page);
@@ -682,7 +686,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
       isolated!.worktreeBranch!
     );
 
-    const removal = await context.request.delete(`/api/sessions/${encodeURIComponent(isolated!.id)}?terminate=true`);
+    const removal = await context.request.delete(`/api/workspaces/${encodeURIComponent(isolated!.id)}?terminate=true`);
     expect(removal.ok()).toBe(true);
     expect((await gitWorkspace('worktree', 'list', '--porcelain')).match(/^worktree /gm)).toHaveLength(1);
     expect(
@@ -695,14 +699,14 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
       isolated!.worktreeBranch!
     );
   } finally {
-    const sessionsResponse = await context.request.get('/api/sessions').catch(() => undefined);
-    if (sessionsResponse?.ok()) {
-      const sessionsBody = (await sessionsResponse.json()) as { sessions: ManagedSession[] };
-      for (const session of sessionsBody.sessions.filter((candidate) => candidate.worktreeBranch)) {
-        await removeSession(context, session.id);
-        await gitWorkspace('worktree', 'remove', '--force', session.cwd).catch(() => undefined);
-        await gitWorkspace('branch', '-D', session.worktreeBranch!).catch(() => undefined);
-        await rm(dirname(session.cwd), { recursive: true, force: true });
+    const workspacesResponse = await context.request.get('/api/workspaces').catch(() => undefined);
+    if (workspacesResponse?.ok()) {
+      const workspacesBody = (await workspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
+      for (const workspace of workspacesBody.workspaces.filter((candidate) => candidate.worktreeBranch)) {
+        await removeWorkspace(context, workspace.id);
+        await gitWorkspace('worktree', 'remove', '--force', workspace.cwd).catch(() => undefined);
+        await gitWorkspace('branch', '-D', workspace.worktreeBranch!).catch(() => undefined);
+        await rm(dirname(workspace.cwd), { recursive: true, force: true });
       }
     }
     if (isolatedBranch) await gitWorkspace('branch', '-D', isolatedBranch).catch(() => undefined);
@@ -715,31 +719,34 @@ test('shares workspace aliases and manual order across devices', async ({ browse
   test.setTimeout(45_000);
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
-  let firstSession: ManagedSession | undefined;
-  let secondSession: ManagedSession | undefined;
+  let firstWorkspace: ManagedWorkspace | undefined;
+  let secondWorkspace: ManagedWorkspace | undefined;
   try {
     await authenticate(firstContext);
     await authenticate(secondContext);
-    firstSession = await createSession(firstContext);
-    secondSession = await createSession(firstContext);
-    const betaResponse = await firstContext.request.put(`/api/sessions/${encodeURIComponent(secondSession.id)}/alias`, {
-      data: { alias: 'Beta' },
-    });
+    firstWorkspace = await createWorkspace(firstContext);
+    secondWorkspace = await createWorkspace(firstContext);
+    const betaResponse = await firstContext.request.put(
+      `/api/workspaces/${encodeURIComponent(secondWorkspace.id)}/alias`,
+      {
+        data: { alias: 'Beta' },
+      }
+    );
     expect(betaResponse.ok()).toBe(true);
 
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
     await secondPage.goto('/');
-    await expect(secondPage.locator('.session-title strong', { hasText: 'Beta' })).toBeVisible();
+    await expect(secondPage.locator('.workspace-title strong', { hasText: 'Beta' })).toBeVisible();
 
-    await firstPage.goto(`/sessions/${encodeURIComponent(firstSession.id)}`);
+    await firstPage.goto(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
     await expectTerminalReady(firstPage);
-    await firstPage.locator('.session-row-shell.selected .session-actions-menu .vampire-menu-trigger').click();
+    await firstPage.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger').click();
     await firstPage.getByRole('menuitem', { name: 'Set workspace alias' }).click();
     await firstPage.getByRole('textbox', { name: 'Alias' }).fill('Alpha');
     await firstPage.getByRole('button', { name: 'Save alias' }).click();
     await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Alpha');
-    await expect(secondPage.locator('.session-title strong', { hasText: 'Alpha' })).toBeVisible({ timeout: 12_000 });
+    await expect(secondPage.locator('.workspace-title strong', { hasText: 'Alpha' })).toBeVisible({ timeout: 12_000 });
 
     await firstPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
     await expect(secondPage.getByRole('button', { name: 'Arrange workspaces manually' })).toHaveAttribute(
@@ -747,20 +754,20 @@ test('shares workspace aliases and manual order across devices', async ({ browse
       'true',
       { timeout: 12_000 }
     );
-    const alphaRow = firstPage.locator('.session-row-shell', { hasText: 'Alpha' });
-    await alphaRow.locator('.session-row').press('Alt+ArrowDown');
-    await expect(firstPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha']);
-    await expect(secondPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha'], { timeout: 12_000 });
+    const alphaRow = firstPage.locator('.workspace-row-shell', { hasText: 'Alpha' });
+    await alphaRow.locator('.workspace-row').press('Alt+ArrowDown');
+    await expect(firstPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha']);
+    await expect(secondPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha'], { timeout: 12_000 });
 
     await secondPage.reload();
     await expect(secondPage.getByRole('button', { name: 'Arrange workspaces manually' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-    await expect(secondPage.locator('.session-title strong')).toHaveText(['Beta', 'Alpha']);
+    await expect(secondPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha']);
   } finally {
-    await removeSession(firstContext, firstSession?.id);
-    await removeSession(firstContext, secondSession?.id);
+    await removeWorkspace(firstContext, firstWorkspace?.id);
+    await removeWorkspace(firstContext, secondWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
   }
 });
@@ -785,7 +792,7 @@ test('keeps the new workspace dialog header fixed while browsing folders', async
 
   await page.setViewportSize({ width: 412, height: 640 });
   await page.goto('/');
-  await page.locator('.new-session-toggle').click();
+  await page.locator('.new-workspace-toggle').click();
   const dialog = page.getByRole('dialog', { name: 'Open a project' });
   const body = dialog.locator('.vampire-dialog-body');
   const header = dialog.locator('.vampire-dialog-header');
@@ -812,8 +819,8 @@ test('keeps the new workspace dialog header fixed while browsing folders', async
 
 test('reconnects the terminal after a transient WebSocket close', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
   let firstConnection: WebSocketRoute | undefined;
   let resolveFirstConnection!: () => void;
@@ -836,7 +843,7 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
     }
   });
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await firstConnectionOpened;
   await expectTerminalReady(page);
   await firstConnection!.close({ code: 1012, reason: 'browser test restart' });
@@ -850,13 +857,13 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
 
 test('loads retained terminal history only after an upward scroll', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
-  await fillTerminalWithNumberedRows(session.tmuxSession, 900);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
   const messages: ObservedTerminalMessage[] = [];
   await observeTerminalMessages(page, messages);
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await expect
     .poll(() => messages.find((message) => message.direction === 'server' && message.type === 'snapshot'))
@@ -913,20 +920,22 @@ test('loads retained terminal history only after an upward scroll', async ({ con
     });
 });
 
-test('preserves alternate-screen row backgrounds after returning to a session', async ({ context, page }) => {
+test('preserves alternate-screen row backgrounds after returning to a workspace', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const command =
     "printf '\\033[?1049h\\033[2J\\033[H\\033[1;1H\\033[48;2;60;60;60m\\033[2K\\033[1;20H\\033[38;2;240;240;240mtop-background\\033[0m\\033[4;1H\\033[48;2;60;60;60m\\033[2K\\033[4;20H\\033[38;2;240;240;240mmiddle-background\\033[0m\\033[8;1H\\033[48;2;60;60;60m\\033[2K\\033[8;20H\\033[38;2;240;240;240mbottom-background\\033[0m'";
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', command]);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'C-m']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'C-m']);
   await expect
     .poll(async () =>
-      (await tmuxPaneRows(session.tmuxSession)).some((row) => row.includes('top-background') && !row.includes('printf'))
+      (await tmuxPaneRows(workspace.tmuxSession)).some(
+        (row) => row.includes('top-background') && !row.includes('printf')
+      )
     )
     .toBe(true);
   await expect(page.locator('.xterm-rows')).toContainText('top-background');
@@ -938,7 +947,7 @@ test('preserves alternate-screen row backgrounds after returning to a session', 
   for (const row of before) expect(row).toContain('background-color:#3c3c3c');
 
   await page.goto('/');
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await expect(page.locator('.xterm-rows')).toContainText('top-background');
   await expect(page.locator('.xterm-rows')).toContainText('middle-background');
@@ -950,8 +959,8 @@ test('preserves alternate-screen row backgrounds after returning to a session', 
 
 test('keeps geometry messages away from a pre-geometry browser tab', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
   await page.goto('/');
 
   const messageTypes = await page.evaluate(
@@ -959,13 +968,13 @@ test('keeps geometry messages away from a pre-geometry browser tab', async ({ co
       new Promise<string[]>((resolve, reject) => {
         const url = new URL('/ws/terminal', location.href);
         url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        url.searchParams.set('session', id);
+        url.searchParams.set('workspace', id);
         if (terminalId) url.searchParams.set('terminal', terminalId);
         const socket = new WebSocket(url);
         const types: string[] = [];
         const timer = window.setTimeout(() => {
           socket.close();
-          reject(new Error('legacy terminal connection timed out'));
+          reject(new Error('compatibility terminal connection timed out'));
         }, 10_000);
         socket.onmessage = (event) => {
           const message = JSON.parse(String(event.data)) as { type?: string };
@@ -978,10 +987,10 @@ test('keeps geometry messages away from a pre-geometry browser tab', async ({ co
         };
         socket.onerror = () => {
           window.clearTimeout(timer);
-          reject(new Error('legacy terminal connection failed'));
+          reject(new Error('compatibility terminal connection failed'));
         };
       }),
-    { id: session.id, terminalId: session.terminals[0]?.id }
+    { id: workspace.id, terminalId: workspace.terminals[0]?.id }
   );
 
   expect(messageTypes).toContain('snapshot');
@@ -991,10 +1000,10 @@ test('keeps geometry messages away from a pre-geometry browser tab', async ({ co
 
 test('ignores transient terminal container collapse until a usable size returns', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
   const visibleRows = await terminal.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
@@ -1011,8 +1020,8 @@ test('ignores transient terminal container collapse until a usable size returns'
     element.style.removeProperty('width');
     element.style.removeProperty('height');
   });
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(terminal.locator('.xterm-rows')).toContainText('stable-terminal-size');
 });
 
@@ -1021,13 +1030,13 @@ test('keeps the desktop font default on a wide touch display', async ({ browser 
     viewport: { width: 1280, height: 800 },
     hasTouch: true,
   });
-  let createdSessionId: string | undefined;
+  let createdWorkspaceId: string | undefined;
   try {
     await authenticate(context);
-    const session = await createSession(context);
-    createdSessionId = session.id;
+    const workspace = await createWorkspace(context);
+    createdWorkspaceId = workspace.id;
     const page = await context.newPage();
-    await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     const fontSize = await page
       .getByRole('application', { name: 'Interactive shell terminal' })
@@ -1035,38 +1044,38 @@ test('keeps the desktop font default on a wide touch display', async ({ browser 
       .evaluate((rows) => getComputedStyle(rows).fontSize);
     expect(fontSize).toBe('14px');
   } finally {
-    await removeSession(context, createdSessionId);
+    await removeWorkspace(context, createdWorkspaceId);
     await context.close();
   }
 });
 
-test('does not treat another device terminal redraw as main-session output', async ({ browser }) => {
+test('does not treat another device terminal redraw as main-workspace output', async ({ browser }) => {
   test.setTimeout(60_000);
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(firstContext);
     await authenticate(secondContext);
-    createdSession = await createSession(firstContext);
+    createdWorkspace = await createWorkspace(firstContext);
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
 
-    await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(firstPage);
-    await expect(firstPage.locator('.session-row-shell.selected .workspace-state')).toHaveCount(0);
+    await expect(firstPage.locator('.workspace-row-shell.selected .workspace-state')).toHaveCount(0);
     await firstPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
-    const firstState = firstPage.locator('.session-row-shell.selected .workspace-state');
+    const firstState = firstPage.locator('.workspace-row-shell.selected .workspace-state');
     await expect(firstState).toHaveText('Idle');
     await firstPage.evaluate(() => {
       window.__vampireObservedWorkspaceStates = [];
       window.__vampireWorkspaceStateTimer = window.setInterval(() => {
-        const state = document.querySelector('.session-row-shell.selected .workspace-state')?.textContent?.trim();
+        const state = document.querySelector('.workspace-row-shell.selected .workspace-state')?.textContent?.trim();
         if (state) window.__vampireObservedWorkspaceStates.push(state);
       }, 40);
     });
 
-    await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(secondPage);
     await firstPage.waitForTimeout(2_000);
     const observedStates = await firstPage.evaluate(() => {
@@ -1077,12 +1086,12 @@ test('does not treat another device terminal redraw as main-session output', asy
     expect(observedStates).not.toContain('Review');
 
     await firstPage.goto('/');
-    const workspaceState = firstPage.locator('.session-row', { hasText: 'workspace' }).locator('.workspace-state');
+    const workspaceState = firstPage.locator('.workspace-row', { hasText: 'workspace' }).locator('.workspace-state');
     await expect(workspaceState).toHaveText('Idle');
     await firstPage.waitForTimeout(8_200);
     await expect(workspaceState).toHaveText('Idle');
   } finally {
-    await removeSession(firstContext, createdSession?.id);
+    await removeWorkspace(firstContext, createdWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
   }
 });
@@ -1091,21 +1100,21 @@ test('publishes output sent immediately after terminal resize to other devices',
   test.setTimeout(45_000);
   const observerContext = await browser.newContext();
   const controllerContext = await browser.newContext();
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(observerContext);
     await authenticate(controllerContext);
-    createdSession = await createSession(observerContext);
+    createdWorkspace = await createWorkspace(observerContext);
     const observerPage = await observerContext.newPage();
     const controllerPage = await controllerContext.newPage();
 
     await observerPage.goto('/');
-    await expect(observerPage.locator('.session-row', { hasText: 'workspace' })).toBeVisible();
+    await expect(observerPage.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
     await observerPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
-    const observerState = observerPage.locator('.session-row', { hasText: 'workspace' }).locator('.workspace-state');
+    const observerState = observerPage.locator('.workspace-row', { hasText: 'workspace' }).locator('.workspace-state');
     await expect(observerState).toHaveText('Idle');
 
-    await controllerPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await controllerPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(controllerPage);
     const composer = controllerPage.getByPlaceholder('Send to shell…');
     await composer.fill("printf 'immediate-resize-output\\n'");
@@ -1113,7 +1122,7 @@ test('publishes output sent immediately after terminal resize to other devices',
 
     await expect(observerState).toHaveText('Working', { timeout: 3_000 });
   } finally {
-    await removeSession(observerContext, createdSession?.id);
+    await removeWorkspace(observerContext, createdWorkspace?.id);
     await Promise.all([observerContext.close(), controllerContext.close()]);
   }
 });
@@ -1122,35 +1131,35 @@ test('restores a pending-autowrap cursor before the next terminal character', as
   test.setTimeout(45_000);
   const firstContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const secondContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(firstContext);
     await authenticate(secondContext);
-    createdSession = await createSession(firstContext);
+    createdWorkspace = await createWorkspace(firstContext);
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
-    await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(firstPage);
-    const geometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+    const geometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
     const fullRow = 'W'.repeat(geometry.columns);
     const firstComposer = firstPage.getByPlaceholder('Send to shell…');
     await firstComposer.fill(`printf '${fullRow}'; IFS= read -r value; printf '\\nVAMP_WRAP_INPUT=%s\\n' "$value"`);
     await firstComposer.press('Enter');
-    await expect.poll(() => tmuxPaneCursor(createdSession!.tmuxSession)).toMatchObject({ column: geometry.columns });
+    await expect.poll(() => tmuxPaneCursor(createdWorkspace!.tmuxSession)).toMatchObject({ column: geometry.columns });
 
-    await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(secondPage);
-    await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(geometry);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, firstPage, secondPage);
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(geometry);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, firstPage, secondPage);
     const secondComposer = secondPage.getByPlaceholder('Send to shell…');
     await secondComposer.fill('Z');
     await secondComposer.press('Enter');
     await expect
-      .poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession)).some((row) => row === 'VAMP_WRAP_INPUT=Z'))
+      .poll(async () => (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_WRAP_INPUT=Z'))
       .toBe(true);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, firstPage, secondPage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, firstPage, secondPage);
   } finally {
-    await removeSession(firstContext, createdSession?.id);
+    await removeWorkspace(firstContext, createdWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
   }
 });
@@ -1158,20 +1167,20 @@ test('restores a pending-autowrap cursor before the next terminal character', as
 test('offers layout takeover when another same-sized device has control', async ({ browser }) => {
   const firstContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
   const secondContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(firstContext);
     await authenticate(secondContext);
-    createdSession = await createSession(firstContext);
+    createdWorkspace = await createWorkspace(firstContext);
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
-    await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(firstPage);
-    const geometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+    const geometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
 
-    await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(secondPage);
-    await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(geometry);
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(geometry);
     const firstTakeover = firstPage.getByRole('button', { name: 'Use this device' });
     const secondTakeover = secondPage.getByRole('button', { name: 'Use this device' });
     await expect(firstTakeover).toBeVisible();
@@ -1181,7 +1190,7 @@ test('offers layout takeover when another same-sized device has control', async 
     await expect(firstTakeover).toBeHidden();
     await expect(secondTakeover).toBeVisible();
   } finally {
-    await removeSession(firstContext, createdSession?.id);
+    await removeWorkspace(firstContext, createdWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
   }
 });
@@ -1190,12 +1199,12 @@ test('hands terminal layout between entered devices and restores it on disconnec
   test.setTimeout(60_000);
   const desktopContext = await browser.newContext({ viewport: { width: 2_560, height: 1_400 } });
   const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(desktopContext);
     await authenticate(phoneContext);
-    createdSession = await createSession(desktopContext);
-    await fillTerminalWithNumberedRows(createdSession.tmuxSession);
+    createdWorkspace = await createWorkspace(desktopContext);
+    await fillTerminalWithNumberedRows(createdWorkspace.tmuxSession);
     const desktopPage = await desktopContext.newPage();
     const phonePage = await phoneContext.newPage();
     await desktopPage.addInitScript(() => {
@@ -1205,38 +1214,40 @@ test('hands terminal layout between entered devices and restores it on disconnec
       Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     });
 
-    await desktopPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await desktopPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(desktopPage);
     const desktopRows = await desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
-    await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows).toBe(desktopRows);
-    const desktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+    await expect.poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows).toBe(desktopRows);
+    const desktopGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
     expect(desktopGeometry.columns).toBeGreaterThan(240);
     const initialDesktopRender = await renderedTerminalGeometry(desktopPage);
     expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
     const desktopComposer = desktopPage.getByPlaceholder('Send to shell…');
     const alternateScreenCommand =
       "printf '\\033[?1049h\\033[2J\\033[8;20HVAMP_TUI_READY\\033[12;7H'; IFS= read -r value; printf '\\033[?1049lVAMP_TUI_INPUT=%s\\n' \"$value\"";
     await desktopComposer.fill(alternateScreenCommand);
     await desktopComposer.press('Enter');
     await expect
-      .poll(async () => (await tmuxPaneRows(createdSession!.tmuxSession)).some((row) => row.includes('VAMP_TUI_READY')))
+      .poll(async () =>
+        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row.includes('VAMP_TUI_READY'))
+      )
       .toBe(true);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
 
-    await phonePage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await phonePage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(phonePage);
     await expect
-      .poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows)
+      .poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows)
       .toBeLessThan(desktopGeometry.rows);
-    const phoneGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+    const phoneGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
     await expect
       .poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
       .toBe(phoneGeometry.rows);
     await expect.poll(() => renderedTerminalGeometry(phonePage)).toMatchObject({ rows: phoneGeometry.rows });
     const phoneRender = await renderedTerminalGeometry(phonePage);
     expect(phoneRender.screenWidth).toBeLessThanOrEqual(phoneRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
     const desktopHandoff = desktopPage.getByText('Sized for another device');
     const phoneHandoff = phonePage.getByText('Sized for another device');
     await expect(desktopHandoff).toBeVisible();
@@ -1246,54 +1257,56 @@ test('hands terminal layout between entered devices and restores it on disconnec
     await phoneComposer.press('Enter');
     await expect
       .poll(async () =>
-        (await tmuxPaneRows(createdSession!.tmuxSession)).some((row) => row === 'VAMP_TUI_INPUT=VAMP_TUI_MOBILE_INPUT')
+        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some(
+          (row) => row === 'VAMP_TUI_INPUT=VAMP_TUI_MOBILE_INPUT'
+        )
       )
       .toBe(true);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
 
     await desktopPage.getByRole('button', { name: 'Use this device' }).click();
-    await expect.poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).columns).toBeGreaterThan(240);
+    await expect.poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).columns).toBeGreaterThan(240);
     await expect
-      .poll(async () => (await tmuxPaneGeometry(createdSession!.tmuxSession)).rows)
+      .poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows)
       .toBe(desktopGeometry.rows);
-    const restoredDesktopGeometry = await tmuxPaneGeometry(createdSession.tmuxSession);
+    const restoredDesktopGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
     await expect(desktopHandoff).toBeHidden();
     await expect(phoneHandoff).toBeVisible();
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
 
     await phonePage.getByRole('button', { name: 'Use this device' }).click();
-    await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(phoneGeometry);
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
     await expect(desktopHandoff).toBeVisible();
     await expect(phoneHandoff).toBeHidden();
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
     await phoneComposer.fill("printf 'VAMP_AFTER_PHONE_HANDOFF\\n'");
     await phoneComposer.press('Enter');
     await expect
       .poll(async () =>
-        (await tmuxPaneRows(createdSession!.tmuxSession)).some((row) => row === 'VAMP_AFTER_PHONE_HANDOFF')
+        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_AFTER_PHONE_HANDOFF')
       )
       .toBe(true);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage, phonePage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
 
     await phonePage.close();
-    await expect.poll(() => tmuxPaneGeometry(createdSession!.tmuxSession)).toEqual(restoredDesktopGeometry);
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(restoredDesktopGeometry);
     await expect(desktopHandoff).toBeHidden();
     await expect
       .poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
       .toBe(restoredDesktopGeometry.rows);
     const restoredDesktopRender = await renderedTerminalGeometry(desktopPage);
     expect(restoredDesktopRender.screenWidth).toBeLessThanOrEqual(restoredDesktopRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
     await desktopComposer.fill("printf 'VAMP_AFTER_DESKTOP_RESTORE\\n'");
     await desktopComposer.press('Enter');
     await expect
       .poll(async () =>
-        (await tmuxPaneRows(createdSession!.tmuxSession)).some((row) => row === 'VAMP_AFTER_DESKTOP_RESTORE')
+        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_AFTER_DESKTOP_RESTORE')
       )
       .toBe(true);
-    await expectTerminalRowsMatchTmux(createdSession.tmuxSession, desktopPage);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
   } finally {
-    await removeSession(desktopContext, createdSession?.id);
+    await removeWorkspace(desktopContext, createdWorkspace?.id);
     await Promise.all([desktopContext.close(), phoneContext.close()]);
   }
 });
@@ -1302,11 +1315,11 @@ test('re-reports each device theme whenever terminal control changes', async ({ 
   test.setTimeout(60_000);
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
-  let createdSession: Awaited<ReturnType<typeof createSession>> | undefined;
+  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
   try {
     await authenticate(firstContext);
     await authenticate(secondContext);
-    createdSession = await createSession(firstContext);
+    createdWorkspace = await createWorkspace(firstContext);
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
     await firstPage.addInitScript(() => window.localStorage.setItem('vampire:theme', 'light'));
@@ -1316,14 +1329,14 @@ test('re-reports each device theme whenever terminal control changes', async ({ 
     await observeTerminalMessages(firstPage, firstMessages);
     await observeTerminalMessages(secondPage, secondMessages);
 
-    await firstPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(firstPage);
     await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
     const firstRequestCount = firstMessages.filter(
       (message) => message.direction === 'server' && message.type === 'request-terminal-theme'
     ).length;
 
-    await secondPage.goto(`/sessions/${encodeURIComponent(createdSession.id)}`);
+    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(secondPage);
     await expect.poll(() => reportedThemeAfterLatestRequest(secondMessages)).toBe(true);
 
@@ -1337,24 +1350,24 @@ test('re-reports each device theme whenever terminal control changes', async ({ 
       .toBe(firstRequestCount + 1);
     await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
   } finally {
-    await removeSession(firstContext, createdSession?.id);
+    await removeWorkspace(firstContext, createdWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
   }
 });
 
-test('runs and stops a background command without replacing the main session', async ({ context, page }) => {
+test('runs and stops a background command without replacing the main workspace', async ({ context, page }) => {
   test.setTimeout(60_000);
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const composer = page.getByPlaceholder('Send to shell…');
-  await composer.fill("printf 'main-session-marker\\n'");
+  await composer.fill("printf 'main-workspace-marker\\n'");
   await composer.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText('main-session-marker');
-  const mainWorkspaceProcess = await page.locator('.session-row-shell.selected .session-program').textContent();
+  await expect(page.locator('.xterm-rows')).toContainText('main-workspace-marker');
+  const mainWorkspaceProcess = await page.locator('.workspace-row-shell.selected .workspace-program').textContent();
   await expect(page.getByRole('tab')).toHaveCount(0);
 
   const backgroundTrigger = page.getByRole('button', { name: 'Open background processes' });
@@ -1368,11 +1381,13 @@ test('runs and stops a background command without replacing the main session', a
   await backgroundDialog.getByRole('button', { name: 'Run', exact: true }).click();
   const backgroundOutput = backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` }).locator('pre');
   await expect(backgroundOutput).toContainText('background-process-marker', { timeout: 10_000 });
-  await expect(page.locator('.xterm-rows')).toContainText('main-session-marker');
+  await expect(page.locator('.xterm-rows')).toContainText('main-workspace-marker');
   await expect(page.locator('.xterm-rows')).not.toContainText('background-process-marker');
-  await expect(page.locator('.session-row-shell.selected .session-program')).toHaveText(mainWorkspaceProcess || 'zsh');
-  await expect(page.locator('.session-row-shell.selected .runtime-summary')).toHaveText('1 background');
-  await expect(page.locator('.session-group.idle .session-row-shell.selected')).toBeVisible({ timeout: 12_000 });
+  await expect(page.locator('.workspace-row-shell.selected .workspace-program')).toHaveText(
+    mainWorkspaceProcess || 'zsh'
+  );
+  await expect(page.locator('.workspace-row-shell.selected .runtime-summary')).toHaveText('1 background');
+  await expect(page.locator('.workspace-group.idle .workspace-row-shell.selected')).toBeVisible({ timeout: 12_000 });
   await backgroundDialog.getByRole('button', { name: `Save ${longCommand} as favorite`, exact: true }).click();
   await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
   await expect(
@@ -1385,7 +1400,7 @@ test('runs and stops a background command without replacing the main session', a
   await expect(
     backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })
   ).toBeVisible();
-  const outputRoute = '**/api/sessions/*/background/*/output';
+  const outputRoute = '**/api/workspaces/*/background/*/output';
   await page.route(outputRoute, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     await route.continue();
@@ -1421,7 +1436,7 @@ test('runs and stops a background command without replacing the main session', a
   await expect(
     backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true })
   ).toHaveCount(0);
-  await expect(page.locator('.session-row-shell.selected .runtime-summary')).toBeHidden();
+  await expect(page.locator('.workspace-row-shell.selected .runtime-summary')).toBeHidden();
   await backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true }).click();
   await expect(backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` })).toBeVisible({
     timeout: 15_000,
@@ -1466,11 +1481,11 @@ test('runs and stops a background command without replacing the main session', a
 test('moves terminal output through active, review, idle, and ended', async ({ context, page }) => {
   test.setTimeout(45_000);
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
   await page.goto('/');
-  const workspaceRow = page.locator('.session-row', { hasText: 'workspace' });
+  const workspaceRow = page.locator('.workspace-row', { hasText: 'workspace' });
   await expect(workspaceRow).toBeVisible();
   await expect(workspaceRow.locator('.workspace-state')).toHaveCount(0);
   await page.getByRole('button', { name: 'Arrange workspaces manually' }).click();
@@ -1478,35 +1493,35 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   await page.getByRole('button', { name: 'Group workspaces by status' }).click();
   await expect(workspaceRow.locator('.workspace-state')).toHaveCount(0);
   await page.waitForTimeout(1_100);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, '-l', '--', "printf 'vampire activity check\\n'"]);
-  await run('tmux', ['send-keys', '-t', session.tmuxSession, 'Enter']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'vampire activity check\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
 
-  await expect(page.locator('.session-group.working .session-row', { hasText: 'workspace' })).toBeVisible({
+  await expect(page.locator('.workspace-group.working .workspace-row', { hasText: 'workspace' })).toBeVisible({
     timeout: 3_000,
   });
-  await expect(page.locator('.session-group.review .session-row', { hasText: 'workspace' })).toBeVisible({
+  await expect(page.locator('.workspace-group.review .workspace-row', { hasText: 'workspace' })).toBeVisible({
     timeout: 12_000,
   });
   await page.reload();
-  await expect(page.locator('.session-group.review .session-row', { hasText: 'workspace' })).toBeVisible();
+  await expect(page.locator('.workspace-group.review .workspace-row', { hasText: 'workspace' })).toBeVisible();
   await workspaceRow.click();
   await expectTerminalReady(page);
-  await expect(page.locator('.session-group.idle .session-row', { hasText: 'workspace' })).toBeVisible();
+  await expect(page.locator('.workspace-group.idle .workspace-row', { hasText: 'workspace' })).toBeVisible();
 
-  await run('tmux', ['kill-session', '-t', session.tmuxSession]);
-  const endedGroup = page.locator('.session-group.ended');
+  await run('tmux', ['kill-session', '-t', workspace.tmuxSession]);
+  const endedGroup = page.locator('.workspace-group.ended');
   await expect(endedGroup.getByRole('button', { name: /Ended/ })).toHaveAttribute('aria-expanded', 'true', {
     timeout: 3_000,
   });
-  await expect(endedGroup.locator('.session-row', { hasText: 'workspace' })).toBeVisible();
+  await expect(endedGroup.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
 });
 
 test('resizes the terminal area when opening the repository panel', async ({ context, page }) => {
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminalWidthBeforePanel = await page
     .locator('.workspace-primary')
@@ -1527,10 +1542,10 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
   const conflictFile = join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt');
   await writeFile(conflictFile, 'initial browser test content\n', 'utf8');
   await authenticate(context);
-  const session = await createSession(context);
-  sessionId = session.id;
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
 
-  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await page.getByRole('button', { name: 'Open repository' }).click();
   await page.getByRole('tab', { name: 'Files' }).click();
@@ -1574,9 +1589,9 @@ test('adds and moves files through repository menus and drop points', async ({ c
 
   try {
     await authenticate(context);
-    const session = await createSession(context);
-    sessionId = session.id;
-    await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+    const workspace = await createWorkspace(context);
+    workspaceId = workspace.id;
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
 
@@ -1704,9 +1719,9 @@ test('discards tracked and untracked changes from the Git changes UI', async ({ 
 
   try {
     await authenticate(context);
-    const session = await createSession(context);
-    sessionId = session.id;
-    await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+    const workspace = await createWorkspace(context);
+    workspaceId = workspace.id;
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
     await page.getByRole('tab', { name: 'Changes' }).click();
@@ -1754,9 +1769,9 @@ test('does not restart a slow file open while repository status refreshes', asyn
 
   try {
     await authenticate(context);
-    const session = await createSession(context);
-    sessionId = session.id;
-    await page.route('**/api/sessions/*/repository/file?*', async (route) => {
+    const workspace = await createWorkspace(context);
+    workspaceId = workspace.id;
+    await page.route('**/api/workspaces/*/repository/file?*', async (route) => {
       const url = new URL(route.request().url());
       if (url.searchParams.get('path') !== 'slow-open.txt') {
         await route.continue();
@@ -1767,7 +1782,7 @@ test('does not restart a slow file open while repository status refreshes', asyn
       await route.continue().catch(() => undefined);
     });
 
-    await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
     await expect(page.getByRole('complementary', { name: 'Repository for workspace' })).toHaveCSS(

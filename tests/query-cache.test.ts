@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { QueryCache } from '../src/lib/client/query-cache.ts';
+import { QueryCache } from '../src/lib/shared/api/query-cache.ts';
 
 test('caches successful results, coalesces requests, and reloads after invalidation', async () => {
   const cache = new QueryCache();
@@ -69,15 +69,25 @@ test('does not let cleared or mutated queries commit an old pending response', a
 test('does not cache a failed request and allows retry', async () => {
   const cache = new QueryCache();
   let calls = 0;
-  await assert.rejects(cache.fetch('workspace', async () => {
-    calls += 1;
-    throw new Error('offline');
-  }, true), /offline/);
+  await assert.rejects(
+    cache.fetch(
+      'workspace',
+      async () => {
+        calls += 1;
+        throw new Error('offline');
+      },
+      true
+    ),
+    /offline/
+  );
 
   assert.equal(cache.has('workspace'), false);
-  assert.deepEqual(await cache.fetch('workspace', async () => {
-    calls += 1;
-    return { value: 1 };
-  }), { value: 1 });
+  assert.deepEqual(
+    await cache.fetch('workspace', async () => {
+      calls += 1;
+      return { value: 1 };
+    }),
+    { value: 1 }
+  );
   assert.equal(calls, 2);
 });
