@@ -125,6 +125,9 @@ function normalizeSessionChanges(value: SessionChanges): SessionChanges {
 
 export function isManagedSessionMessage(value: unknown): value is ManagedSession {
 	return isRecord(value)
+		&& !('note' in value)
+		&& !('noteFile' in value)
+		&& !('automations' in value)
 		&& typeof value.id === 'string'
 		&& typeof value.tmuxSession === 'string'
 		&& typeof value.cwd === 'string'

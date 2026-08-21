@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { errorHasCode } from './path-policy.ts';
+import { normalizeSessionAutomations, type SessionAutomation } from '../session/automations.ts';
 import { MAX_LAUNCH_PROFILES, normalizeLaunchProfiles } from '../session/launch-profiles.ts';
 import type { LaunchProfile, WorkspacePreferences } from '../session/types.ts';
 
@@ -20,7 +21,7 @@ export interface StoredSession {
 	worktreeBranch?: string;
 	createdAt: number;
 	lastActiveAt: number;
-	note: string;
+	automations: SessionAutomation[];
 	favoriteCommands: string[];
 	startupProfileId: string | null;
 }
@@ -62,6 +63,9 @@ function isStoredSession(value: unknown): value is Record<string, unknown> & Pic
 		&& typeof value.createdAt === 'number'
 		&& (value.lastActiveAt === undefined || typeof value.lastActiveAt === 'number')
 		&& (value.note === undefined || typeof value.note === 'string')
+		&& (value.noteFile === undefined || typeof value.noteFile === 'boolean')
+		&& (value.agentNoteFile === undefined || typeof value.agentNoteFile === 'boolean')
+		&& (value.automations === undefined || Array.isArray(value.automations))
 		&& (value.favoriteCommands === undefined || (
 			Array.isArray(value.favoriteCommands)
 			&& value.favoriteCommands.every((command) => typeof command === 'string')
@@ -183,7 +187,7 @@ function parseSessionStore(value: unknown): SessionStore {
 				...(typeof session.worktreeBranch === 'string' ? { worktreeBranch: session.worktreeBranch } : {}),
 				createdAt: session.createdAt,
 				lastActiveAt: typeof session.lastActiveAt === 'number' ? session.lastActiveAt : session.createdAt,
-				note: typeof session.note === 'string' ? session.note : '',
+				automations: normalizeSessionAutomations(session.automations),
 				favoriteCommands: normalizeFavoriteCommands(session.favoriteCommands),
 				startupProfileId
 			};

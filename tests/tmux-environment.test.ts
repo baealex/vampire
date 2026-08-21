@@ -41,6 +41,14 @@ test('keeps Vampire server configuration out of new tmux sessions', () => {
 		'-F',
 		'#{session_name}\t#{session_created}\t#{session_attached}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{window_activity}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{@vampire_background_command}\t#{@vampire_background_started_at}\t#{pane_dead}\t#{pane_dead_status}'
 	]);
+	assert.deepEqual(tmux.tmuxPromptSubmissionArguments('@12', 'First line\nsecond line', false), [
+		'send-keys',
+		'-t',
+		'@12',
+		'-l',
+		'--',
+		'First line second line'
+	]);
 });
 
 test('treats a missing tmux server socket as an empty server', () => {
@@ -50,6 +58,22 @@ test('treats a missing tmux server socket as an empty server', () => {
 	});
 
 	assert.equal(tmux.isTmuxUnavailable(error), true);
+});
+
+test('submits an automation prompt literally to one terminal before pressing Enter', () => {
+	assert.deepEqual(tmux.tmuxPromptSubmissionArguments('@12', 'Review;\ndo not run $HOME', true), [
+		'send-keys',
+		'-t',
+		'@12',
+		'-l',
+		'--',
+		'\u001b[200~Review;\rdo not run $HOME\u001b[201~'
+	]);
+	assert.deepEqual(tmux.tmuxPromptEnterArguments('@12'), ['send-keys', '-t', '@12', 'Enter']);
+	assert.throws(
+		() => tmux.tmuxPromptSubmissionArguments('workspace', 'unsafe target', false),
+		/terminal identifier/i
+	);
 });
 
 test('labels sessions with the lower-case executable at the front of the command', () => {

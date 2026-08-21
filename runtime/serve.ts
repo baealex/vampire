@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { runtimeConfig } from '../src/lib/server/runtime-config.ts';
 import { installTerminalWebSocket } from './websocket.ts';
 import { installWorkspaceWebSocket } from './workspace-websocket.ts';
+import { installSessionAutomationRunner } from './session-automations.ts';
 
 const DEFAULT_PROTOCOL_HEADER = 'x-forwarded-proto';
 
@@ -24,6 +25,7 @@ const server = createServer((request, response) => {
 });
 const closeTerminalSockets = installTerminalWebSocket(server);
 const closeWorkspaceSockets = installWorkspaceWebSocket(server);
+const closeAutomationRunner = await installSessionAutomationRunner();
 
 server.listen(config.port, config.host, () => {
 	console.log(`Vampire listening on http://${config.host}:${config.port}`);
@@ -38,6 +40,7 @@ let closing = false;
 const shutdown = () => {
 	if (closing) return;
 	closing = true;
+	closeAutomationRunner();
 	closeTerminalSockets();
 	closeWorkspaceSockets();
 	server.close((error) => {

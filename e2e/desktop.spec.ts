@@ -302,6 +302,53 @@ test('inspects listening ports as an on-demand system utility', async ({ context
 	await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
 
+test('stores agent automations and exposes the exact live note path only on request', async ({ context, page }) => {
+	await authenticate(context);
+	const session = await createSession(context);
+	sessionId = session.id;
+	await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+	await expectTerminalReady(page);
+
+	await page.getByRole('button', { name: /Workspace actions for/ }).click();
+	await page.getByRole('menuitem', { name: 'Agent automations' }).click();
+	const automationDialog = page.getByRole('dialog', { name: 'Agent automations' });
+	await expect(automationDialog).toBeVisible();
+	await automationDialog.getByLabel('Name').fill('Review project state');
+	await automationDialog.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
+	await automationDialog.getByRole('button', { name: 'Add automation' }).click();
+	const savedAutomation = automationDialog.locator('article', { hasText: 'Review project state' });
+	await expect(savedAutomation).toBeVisible();
+	await expect(savedAutomation).toContainText('One time');
+	await savedAutomation.getByRole('button', { name: 'Delete' }).click();
+	await expect(savedAutomation).toBeHidden();
+	await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
+
+	await page.getByRole('button', { name: 'Add workspace note' }).click();
+	const noteDialog = page.getByRole('dialog', { name: 'Workspace note' });
+	const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
+	await noteInput.fill('Existing project context');
+	await expect(noteDialog.getByText('Saved', { exact: true })).toBeVisible();
+	await noteDialog.getByRole('button', { name: 'Summarize with agent' }).click();
+	await expect(noteDialog.getByRole('button', { name: 'Waiting for note update' })).toBeVisible();
+
+	const notePath = join(E2E_STATE_DIRECTORY, `${session.id}.note.md`);
+	await expect(noteDialog.locator('.note-agent-target')).toContainText(notePath);
+	await expect.poll(async () => readFile(notePath, 'utf8')).toBe('Existing project context\n');
+	const automationsResponse = await context.request.get(
+		`/api/sessions/${encodeURIComponent(session.id)}/automations`
+	);
+	expect(automationsResponse.ok()).toBe(true);
+	const automationsBody = await automationsResponse.json() as {
+		automations: Array<{ kind: string; prompt: string }>;
+	};
+	expect(automationsBody.automations).toHaveLength(1);
+	expect(automationsBody.automations[0]?.kind).toBe('note');
+	expect(automationsBody.automations[0]?.prompt).toContain(notePath);
+	expect(automationsBody.automations[0]?.prompt).toContain(
+		"Infer the document language from the user's language and the conversation context."
+	);
+});
+
 test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {
 	await authenticate(context);
 	const session = await createSession(context);

@@ -2,6 +2,10 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TmuxStatus } from '../tmux-status.ts';
 import {
+	terminalSubmissionData,
+	terminalSubmissionSettleMs
+} from '../terminal/submission.ts';
+import {
 	listProcesses,
 	terminateProcessTrees,
 	type ProcessRecord
@@ -191,7 +195,7 @@ function backgroundWindowName(command: string): string {
 }
 
 async function assertTmuxTerminalOwner(name: string, terminalId: string): Promise<void> {
-	if (!/^@\d+$/.test(terminalId)) throw new Error('Background process identifier is invalid.');
+	if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
 	const { stdout } = await execFile('tmux', [
 		'display-message',
 		'-p',
@@ -199,7 +203,7 @@ async function assertTmuxTerminalOwner(name: string, terminalId: string): Promis
 		terminalId,
 		'#{session_name}'
 	], { timeout: 3_000 });
-	if (stdout.trim() !== name) throw new Error('Background process does not belong to this workspace.');
+	if (stdout.trim() !== name) throw new Error('Terminal does not belong to this workspace.');
 }
 
 function isMissingTmuxTarget(error: unknown): boolean {
@@ -313,6 +317,41 @@ export async function captureTmuxBackgroundOutput(name: string, terminalId: stri
 export async function sendTmuxInput(name: string, data: string): Promise<void> {
 	if (Buffer.byteLength(data) > MAX_INPUT_BYTES) throw new Error('Input is too large.');
 	await execFile('tmux', ['send-keys', '-t', name, '-l', '--', data]);
+}
+
+export function tmuxPromptSubmissionArguments(
+	terminalId: string,
+	data: string,
+	bracketedPaste: boolean
+): string[] {
+	if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
+	if (Buffer.byteLength(data) > MAX_INPUT_BYTES) throw new Error('Input is too large.');
+	// Without bracketed paste, CR/LF is indistinguishable from Enter to a TUI.
+	// Collapse multiline prompts so an automation always submits exactly once.
+	const submission = bracketedPaste
+		? terminalSubmissionData(data, true)
+		: data.replace(/\r?\n|\r/g, ' ');
+	return ['send-keys', '-t', terminalId, '-l', '--', submission];
+}
+
+export function tmuxPromptEnterArguments(terminalId: string): string[] {
+	if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
+	return ['send-keys', '-t', terminalId, 'Enter'];
+}
+
+export async function submitTmuxPrompt(name: string, terminalId: string, data: string): Promise<void> {
+	await assertTmuxTerminalOwner(name, terminalId);
+	const { stdout } = await execFile('tmux', [
+		'display-message',
+		'-p',
+		'-t',
+		terminalId,
+		'#{bracket_paste_flag}'
+	], { timeout: 3_000 });
+	const bracketedPaste = stdout.trim() === '1';
+	await execFile('tmux', tmuxPromptSubmissionArguments(terminalId, data, bracketedPaste), { timeout: 5_000 });
+	await new Promise((resolve) => setTimeout(resolve, terminalSubmissionSettleMs(bracketedPaste)));
+	await execFile('tmux', tmuxPromptEnterArguments(terminalId), { timeout: 3_000 });
 }
 
 export async function killTmuxSession(name: string): Promise<void> {

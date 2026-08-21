@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
+	import Clock3 from '@lucide/svelte/icons/clock-3';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 	import LogOut from '@lucide/svelte/icons/log-out';
@@ -19,7 +20,8 @@
 		remove,
 		onSettings,
 		onAlias,
-		onNewWorktree
+		onNewWorktree,
+		onAutomations
 	}: {
 		session: ManagedSession;
 		open?: boolean;
@@ -30,6 +32,7 @@
 		onSettings: (session: ManagedSession) => void;
 		onAlias: (session: ManagedSession) => void;
 		onNewWorktree: (session: ManagedSession) => void;
+		onAutomations: (session: ManagedSession) => void;
 	} = $props();
 
 	let confirming = $state<'close' | 'remove'>();
@@ -127,6 +130,10 @@
 			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onSettings(session)}>
 				<SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
 				Startup profile
+			</DropdownMenu.Item>
+			<DropdownMenu.Item class="vampire-menu-item" onSelect={() => onAutomations(session)}>
+				<Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
+				Agent automations
 			</DropdownMenu.Item>
 			<DropdownMenu.Separator class="vampire-menu-separator" />
 			{#if session.state === 'running'}

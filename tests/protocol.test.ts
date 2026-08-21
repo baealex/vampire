@@ -197,6 +197,14 @@ test('validates complete workspace messages before applying them to client state
 	})), undefined);
 	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
 		type: 'sessions-snapshot',
+		sessions: [managedSession({
+			note: 'private note',
+			noteFile: true,
+			automations: [{ prompt: 'private prompt' }]
+		})]
+	})), undefined);
+	assert.equal(decodeWorkspaceServerMessage(JSON.stringify({
+		type: 'sessions-snapshot',
 		sessions: [managedSession()],
 		preferences: { sessionOrderMode: 'manual', manualSessionOrder: [42] }
 	})), undefined);

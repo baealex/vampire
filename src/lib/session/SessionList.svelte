@@ -38,6 +38,7 @@
 		onSettings,
 		onAlias,
 		onNewWorktree,
+		onAutomations,
 		onNewSession
 	}: {
 		sessions: ManagedSession[];
@@ -54,6 +55,7 @@
 		onSettings: (session: ManagedSession) => void;
 		onAlias: (session: ManagedSession) => void;
 		onNewWorktree: (session: ManagedSession) => void;
+		onAutomations: (session: ManagedSession) => void;
 		onNewSession: () => void;
 	} = $props();
 
@@ -246,6 +248,7 @@
 					onSettings={(target) => void openSessionDialog(target, onSettings)}
 					onAlias={(target) => void openSessionDialog(target, onAlias)}
 					onNewWorktree={(target) => void openSessionDialog(target, onNewWorktree)}
+					onAutomations={(target) => void openSessionDialog(target, onAutomations)}
 				/>
 			</div>
 		</div>

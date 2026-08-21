@@ -1,17 +1,21 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import X from '@lucide/svelte/icons/x';
 
 	const AUTOSAVE_DELAY_MS = 700;
+	const AGENT_NOTE_REFRESH_MS = 2_000;
 
 	let {
 		getNote,
 		close,
-		save
+		save,
+		summarize
 	}: {
-		getNote: () => Promise<string>;
+		getNote: (refresh?: boolean) => Promise<string>;
 		close: () => void;
 		save: (note: string) => Promise<void>;
+		summarize: () => Promise<{ notePath: string }>;
 	} = $props();
 
 	let draft = $state('');
@@ -24,6 +28,14 @@
 	let textarea = $state<HTMLTextAreaElement | undefined>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 	let savePromise: Promise<void> | undefined;
+	let agentNoteSyncTimer: ReturnType<typeof setInterval> | undefined;
+	let summarizing = $state(false);
+	let summaryQueued = $state(false);
+	let summaryMessage = $state('');
+	let summaryError = $state('');
+	let summaryTargetPath = $state('');
+	let refreshingAgentNote = false;
+	let destroyed = false;
 	let saveStatus = $derived(
 		saving ? 'Saving…' : saveError ? 'Save failed' : draft === savedNote ? 'Saved' : 'Saving soon…'
 	);
@@ -37,6 +49,7 @@
 			savedNote = note;
 			noteLoaded = true;
 			noteLoading = false;
+			startAgentNoteSync();
 			await tick();
 			textarea?.focus();
 		} catch (error) {
@@ -108,6 +121,57 @@
 		close();
 	}
 
+	function stopAgentNoteSync() {
+		if (agentNoteSyncTimer === undefined) return;
+		clearInterval(agentNoteSyncTimer);
+		agentNoteSyncTimer = undefined;
+	}
+
+	async function refreshAgentNote() {
+		if (!noteLoaded || refreshingAgentNote || saving || draft !== savedNote) return;
+		refreshingAgentNote = true;
+		try {
+			const note = await getNote(true);
+			if (destroyed || note === savedNote || draft !== savedNote) return;
+			draft = note;
+			savedNote = note;
+			if (summaryQueued) {
+				summaryQueued = false;
+				summaryMessage = 'The live note changed. Live sync remains active.';
+			}
+		} catch {
+			// The regular save/load surfaces errors; live sync remains quiet and retries.
+		} finally {
+			refreshingAgentNote = false;
+		}
+	}
+
+	function startAgentNoteSync() {
+		stopAgentNoteSync();
+		agentNoteSyncTimer = setInterval(() => void refreshAgentNote(), AGENT_NOTE_REFRESH_MS);
+	}
+
+	async function summarizeNote() {
+		if (!noteLoaded || summarizing || summaryQueued) return;
+		clearSaveTimer();
+		await saveDraft();
+		if (draft !== savedNote) return;
+		summarizing = true;
+		summaryError = '';
+		summaryMessage = '';
+		try {
+			const result = await summarize();
+			summaryTargetPath = result.notePath;
+			summaryQueued = true;
+			summaryMessage = 'Queued — the live note will update when the main agent saves it.';
+			startAgentNoteSync();
+		} catch (error) {
+			summaryError = error instanceof Error ? error.message : 'The note update could not be queued.';
+		} finally {
+			summarizing = false;
+		}
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
@@ -119,14 +183,18 @@
 		}
 	}
 
-	onDestroy(clearSaveTimer);
+	onDestroy(() => {
+		destroyed = true;
+		clearSaveTimer();
+		stopAgentNoteSync();
+	});
 </script>
 
 <div class="note-editor" role="dialog" aria-labelledby="workspace-note-title" tabindex="-1" onkeydown={handleKeydown}>
 	<header>
 		<div>
 			<h2 id="workspace-note-title">Workspace note</h2>
-			<p>Keep the intent, decisions, and next step close to this shell.</p>
+			<p>Keep the workspace summary, next step, and Markdown context close to this shell.</p>
 		</div>
 		<button type="button" class="close-button" onclick={() => void closeEditor()} aria-label="Close workspace note">
 			<X size={17} strokeWidth={1.9} aria-hidden="true" />
@@ -143,15 +211,27 @@
 				bind:this={textarea}
 				bind:value={draft}
 				oninput={scheduleSave}
-				maxlength="4000"
 				placeholder="What is this workspace for? What changed? What comes next?"
 				aria-label="Workspace note"
 			></textarea>
 			<div class="note-footer">
-				<span>{draft.length.toLocaleString()} / 4,000</span>
 				<span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}>{saveStatus}</span>
 			</div>
 			{#if saveError}<p class="note-error" role="alert">{saveError}</p>{/if}
+			<div class="agent-note-action">
+				<button
+					type="button"
+					onclick={() => void summarizeNote()}
+					disabled={summarizing || summaryQueued || Boolean(saveError)}
+				>
+					<Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+					{summarizing ? 'Queuing…' : summaryQueued ? 'Waiting for note update' : 'Summarize with agent'}
+				</button>
+				<p>Vampire keeps this live note in its state directory. Only this action sends the exact path to a recognized waiting agent; writing outside the workspace may require agent approval.</p>
+			</div>
+			{#if summaryMessage}<p class="note-agent-status" role="status">{summaryMessage}</p>{/if}
+			{#if summaryTargetPath}<p class="note-agent-target">Target: <code>{summaryTargetPath}</code></p>{/if}
+			{#if summaryError}<p class="note-error" role="alert">{summaryError}</p>{/if}
 		{/if}
 	</form>
 </div>
@@ -175,6 +255,14 @@
 	.note-save-status { color: var(--color-text-tertiary); }
 	.note-save-status.error { color: var(--color-danger-text); }
 	.note-error { margin: 0; color: var(--color-danger-text); font-size: var(--text-label); line-height: var(--leading-ui); }
+	.agent-note-action { display: grid; gap: 0.38rem; padding-top: 0.2rem; border-top: 1px solid var(--color-border-subtle); }
+	.agent-note-action button { display: inline-flex; align-items: center; justify-content: center; gap: 0.42rem; min-height: 2.45rem; padding: 0 0.78rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); background: var(--color-control-background); color: var(--color-text); font: inherit; font-size: var(--text-label); font-weight: var(--weight-medium); cursor: pointer; }
+	.agent-note-action button:hover:not(:disabled) { background: var(--color-control-hover); }
+	.agent-note-action button:disabled { color: var(--color-text-disabled); cursor: wait; }
+	.agent-note-action p, .note-agent-status { margin: 0; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
+	.note-agent-status { color: var(--color-command); }
+	.note-agent-target { margin: 0; overflow-wrap: anywhere; color: var(--color-text-tertiary); font-size: var(--text-caption); line-height: var(--leading-ui); }
+	.note-agent-target code { color: var(--color-text-secondary); font-family: var(--font-mono); }
 
 	@media (max-width: 32rem) {
 		textarea { min-height: 7.5rem; font-size: 1rem; }

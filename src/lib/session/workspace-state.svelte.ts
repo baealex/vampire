@@ -7,6 +7,7 @@ import {
 } from './view.ts';
 import { SessionActivityController } from './activity-controller.ts';
 import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
+import type { SessionAutomation } from './automations.ts';
 import type {
 	LaunchProfile,
 	ManagedSession,
@@ -138,7 +139,11 @@ export class SessionWorkspaceState {
 			: session);
 	}
 
-	applyWorkspacePreferences(preferences: WorkspacePreferences | null) {
+	applyWorkspacePreferences(
+		preferences: WorkspacePreferences | null,
+		options: { initialSnapshot?: boolean } = {}
+	) {
+		if (options.initialSnapshot && this.#preferencesInitialized) return;
 		if (preferences === null) {
 			if (this.#preferencesInitialized || this.#pendingPreferenceWrites > 0) return;
 			this.#preferencesInitialized = true;
@@ -363,8 +368,8 @@ export class SessionWorkspaceState {
 		}
 	}
 
-	async loadSessionNote(sessionId: string): Promise<string> {
-		const cached = this.#sessionNotes.get(sessionId);
+	async loadSessionNote(sessionId: string, refresh = false): Promise<string> {
+		const cached = refresh ? undefined : this.#sessionNotes.get(sessionId);
 		if (cached !== undefined) return cached;
 		const pending = this.#sessionNoteRequests.get(sessionId);
 		if (pending) return pending;
@@ -379,6 +384,19 @@ export class SessionWorkspaceState {
 			});
 		this.#sessionNoteRequests.set(sessionId, request);
 		return request;
+	}
+
+	async queueSessionNoteSummary(sessionId: string): Promise<{ automation: SessionAutomation; notePath: string }> {
+		try {
+			return await requestJson<{ automation: SessionAutomation; notePath: string }>(
+				`/api/sessions/${encodeURIComponent(sessionId)}/note/summarize`,
+				{ method: 'POST' },
+				'Unable to queue the workspace note update'
+			);
+		} catch (error) {
+			if (isUnauthorized(error)) this.#options.onUnauthorized();
+			throw error;
+		}
 	}
 
 	async updateWorkspaceStartup(

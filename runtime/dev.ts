@@ -3,6 +3,7 @@ import type { Server as NodeHttpServer } from 'node:http';
 import { runtimeConfig } from '../src/lib/server/runtime-config.ts';
 import { installTerminalWebSocket } from './websocket.ts';
 import { installWorkspaceWebSocket } from './workspace-websocket.ts';
+import { installSessionAutomationRunner } from './session-automations.ts';
 
 const config = runtimeConfig();
 const vite = await createServer({
@@ -18,6 +19,7 @@ if (!vite.httpServer) throw new Error('Vite did not create an HTTP server.');
 const httpServer = vite.httpServer as NodeHttpServer;
 const closeTerminalSockets = installTerminalWebSocket(httpServer);
 const closeWorkspaceSockets = installWorkspaceWebSocket(httpServer);
+const closeAutomationRunner = await installSessionAutomationRunner();
 
 await vite.listen();
 vite.printUrls();
@@ -31,6 +33,7 @@ let closing = false;
 const shutdown = () => {
 	if (closing) return;
 	closing = true;
+	closeAutomationRunner();
 	closeTerminalSockets();
 	closeWorkspaceSockets();
 	void vite.close().finally(() => process.exit());

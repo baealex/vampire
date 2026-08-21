@@ -16,6 +16,7 @@
 	import NewWorktreeDialog from '$lib/session/NewWorktreeDialog.svelte';
 	import SessionNavigator from '$lib/session/SessionNavigator.svelte';
 	import WorkspaceAliasDialog from '$lib/session/WorkspaceAliasDialog.svelte';
+	import WorkspaceAutomationsDialog from '$lib/session/WorkspaceAutomationsDialog.svelte';
 	import WorkspaceSettings from '$lib/session/WorkspaceSettings.svelte';
 	import { SessionWorkspaceState } from '$lib/session/workspace-state.svelte';
 	import type { ManagedSession, MobilePanel } from '$lib/session/types';
@@ -29,6 +30,7 @@
 	let repositoryTab = $state<RepositoryTab>('changes');
 	let workspaceSettingsOpen = $state(false);
 	let workspaceAliasSession = $state<ManagedSession>();
+	let workspaceAutomationsSession = $state<ManagedSession>();
 	let worktreeSourceSession = $state<ManagedSession>();
 	let presentedTerminalSessionId = $state<string | undefined>(undefined);
 	let sessionShortcutModifier = $state('Ctrl');
@@ -54,7 +56,8 @@
 			&& mobilePanel === undefined
 			&& !workspaceSettingsOpen
 			&& !workspaceAliasSession
-			&& !worktreeSourceSession;
+			&& !worktreeSourceSession
+			&& !workspaceAutomationsSession;
 	}
 
 	function setTerminalPresentation(sessionId: string, presented: boolean) {
@@ -108,6 +111,7 @@
 		workspaceSettingsOpen = false;
 		workspaceAliasSession = undefined;
 		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = undefined;
 		repositoryPanelOpen = false;
 		mobilePanel = 'sessions';
 		pushState('/', {});
@@ -117,6 +121,7 @@
 		workspaceSettingsOpen = false;
 		workspaceAliasSession = undefined;
 		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = undefined;
 		workspace.openSession(session);
 		restorePanelAfterWorkspaceChange();
 	}
@@ -124,6 +129,7 @@
 	function openStartupProfile(session: ManagedSession) {
 		workspaceAliasSession = undefined;
 		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = undefined;
 		if (workspace.requestedSessionId !== session.id) {
 			workspace.openSession(session);
 			restorePanelAfterWorkspaceChange();
@@ -136,7 +142,15 @@
 	function openWorkspaceAlias(session: ManagedSession) {
 		workspaceSettingsOpen = false;
 		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = undefined;
 		workspaceAliasSession = session;
+	}
+
+	function openWorkspaceAutomations(session: ManagedSession) {
+		workspaceSettingsOpen = false;
+		workspaceAliasSession = undefined;
+		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = session;
 	}
 
 	async function saveWorkspaceAlias(alias: string): Promise<{ ok: boolean; error?: string }> {
@@ -148,6 +162,7 @@
 	function openNewWorktree(session: ManagedSession) {
 		workspaceSettingsOpen = false;
 		workspaceAliasSession = undefined;
+		workspaceAutomationsSession = undefined;
 		worktreeSourceSession = session;
 	}
 
@@ -170,6 +185,7 @@
 		workspaceSettingsOpen = false;
 		workspaceAliasSession = undefined;
 		worktreeSourceSession = undefined;
+		workspaceAutomationsSession = undefined;
 		mobilePanel = 'sessions';
 		workspace.clearActiveSession();
 	}
@@ -196,6 +212,7 @@
 	async function closeSession(session: ManagedSession): Promise<{ ok: boolean; error?: string }> {
 		const wasActive = workspace.requestedSessionId === session.id;
 		if (!await workspace.closeSession(session)) return { ok: false, error: workspace.sessionActionError };
+		if (workspaceAutomationsSession?.id === session.id) workspaceAutomationsSession = undefined;
 		if (wasActive) mobilePanel = 'sessions';
 		return { ok: true };
 	}
@@ -203,6 +220,7 @@
 	async function removeSession(session: ManagedSession): Promise<{ ok: boolean; error?: string }> {
 		const wasActive = workspace.requestedSessionId === session.id;
 		if (!await workspace.removeSession(session)) return { ok: false, error: workspace.sessionActionError };
+		if (workspaceAutomationsSession?.id === session.id) workspaceAutomationsSession = undefined;
 		if (wasActive) mobilePanel = 'sessions';
 		return { ok: true };
 	}
@@ -256,6 +274,10 @@
 				if (event.type === 'sessions-snapshot') {
 					workspace.applySessionSnapshot(event.sessions);
 					if (event.preferences !== undefined) workspace.applyWorkspacePreferences(event.preferences);
+					if (event.launchProfiles !== undefined) workspace.applyLaunchProfiles(event.launchProfiles);
+					if (event.preferences !== undefined) {
+						workspace.applyWorkspacePreferences(event.preferences, { initialSnapshot: true });
+					}
 					if (event.launchProfiles !== undefined) workspace.applyLaunchProfiles(event.launchProfiles);
 				}
 				else if (event.type === 'session-added') workspace.applySessionAdded(event.session);
@@ -340,6 +362,7 @@
 				onSettings={openStartupProfile}
 				onAlias={openWorkspaceAlias}
 				onNewWorktree={openNewWorktree}
+				onAutomations={openWorkspaceAutomations}
 				sessionAction={workspace.sessionAction}
 				onCloseSession={closeSession}
 				onRemoveSession={removeSession}
@@ -395,7 +418,8 @@
 						backgroundActionError={workspace.backgroundActionErrorSessionId === workspace.activeSession.id ? workspace.backgroundActionError : ''}
 						close={openSessionNavigator}
 						onUpdateNote={(sessionId, note) => workspace.updateSessionNote(sessionId, note)}
-						onLoadNote={(sessionId) => workspace.loadSessionNote(sessionId)}
+						onLoadNote={(sessionId, refresh) => workspace.loadSessionNote(sessionId, refresh)}
+						onSummarizeNote={(sessionId) => workspace.queueSessionNoteSummary(sessionId)}
 						onInputActivity={(sessionId, timestamp) => workspace.recordSessionInput(sessionId, timestamp)}
 						onOutputActivity={(sessionId, active, timestamp) => workspace.recordSessionOutput(sessionId, active, timestamp, terminalIsObserved(sessionId))}
 						onTerminalPresentationChange={setTerminalPresentation}
@@ -442,6 +466,13 @@
 						settings.launchProfiles,
 						settings.startupProfileId
 					)}
+				/>
+			{/if}
+
+			{#if workspaceAutomationsSession}
+				<WorkspaceAutomationsDialog
+					session={workspace.sessions.find((candidate) => candidate.id === workspaceAutomationsSession?.id) ?? workspaceAutomationsSession}
+					close={() => workspaceAutomationsSession = undefined}
 				/>
 			{/if}
 

@@ -29,6 +29,7 @@
 		close,
 		onUpdateNote,
 		onLoadNote,
+		onSummarizeNote,
 		onInputActivity = () => undefined,
 		onOutputActivity = () => undefined,
 		repositoryOpen = false,
@@ -54,7 +55,8 @@
 		backgroundActionError?: string;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
-		onLoadNote: (sessionId: string) => Promise<string>;
+		onLoadNote: (sessionId: string, refresh?: boolean) => Promise<string>;
+		onSummarizeNote: (sessionId: string) => Promise<{ notePath: string }>;
 		onInputActivity?: (sessionId: string, timestamp: number) => void;
 		onOutputActivity?: (sessionId: string, active: boolean, timestamp?: number) => void;
 		repositoryOpen?: boolean;
@@ -86,6 +88,10 @@
 
 	function changeTerminalFontSize(delta: number) {
 		terminalFontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, terminalFontSize + delta));
+	}
+
+	function toggleNote() {
+		noteOpen = !noteOpen;
 	}
 
 	onMount(() => {
@@ -142,13 +148,14 @@
 			{backgroundTriggerId}
 			toggleRepository={onToggleRepository}
 			toggleBackground={() => backgroundOpen = !backgroundOpen}
-			toggleNote={() => noteOpen = !noteOpen}
+			{toggleNote}
 			decreaseFontSize={() => changeTerminalFontSize(-1)}
 			increaseFontSize={() => changeTerminalFontSize(1)}
 		>
 			{#snippet noteEditor()}
 				<SessionNoteEditor
-					getNote={() => onLoadNote(session.id)}
+					getNote={(refresh) => onLoadNote(session.id, refresh)}
+					summarize={() => onSummarizeNote(session.id)}
 					close={() => noteOpen = false}
 					save={async (note) => {
 						await onUpdateNote(session.id, note);

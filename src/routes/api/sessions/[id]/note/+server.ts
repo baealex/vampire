@@ -1,11 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '$lib/server/auth';
-import {
-	findManagedSessionNote,
-	SESSION_NOTE_MAX_LENGTH,
-	SessionMutationError,
-	updateManagedSessionNote
-} from '$lib/server/session-registry';
+import { findManagedSessionNote, SessionMutationError, updateManagedSessionNote } from '$lib/server/session-registry';
+import { normalizeSessionNote, sessionNoteByteLength, SESSION_NOTE_MAX_BYTES } from '$lib/server/session-note';
 
 export const GET: RequestHandler = async (event) => {
 	requireAuthentication(event);
@@ -33,8 +29,9 @@ export const PUT: RequestHandler = async (event) => {
 		? (body as Record<string, unknown>).note
 		: undefined;
 	if (typeof note !== 'string') throw error(400, 'Note must be a string.');
-	if (note.length > SESSION_NOTE_MAX_LENGTH) {
-		throw error(400, `Note must be ${SESSION_NOTE_MAX_LENGTH.toLocaleString('en-US')} characters or fewer.`);
+	const normalizedNote = normalizeSessionNote(note);
+	if (sessionNoteByteLength(normalizedNote) > SESSION_NOTE_MAX_BYTES) {
+		throw error(413, 'Note must be 128 KB or smaller.');
 	}
 
 	try {

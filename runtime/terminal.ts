@@ -14,9 +14,14 @@ import {
 	terminalColorReport,
 	type TerminalColorSlot
 } from '../src/lib/terminal/color-report.ts';
+import {
+	terminalSubmissionData,
+	terminalSubmissionSettleMs
+} from '../src/lib/terminal/submission.ts';
 import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
 
 export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
+export { terminalSubmissionData, terminalSubmissionSettleMs };
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -25,8 +30,6 @@ const TMUX_INPUT_CHUNK_BYTES = 4 * 1024;
 const MAX_MESSAGES_PER_WINDOW = 600;
 const MESSAGE_WINDOW_MS = 10_000;
 const CONTROL_COMMAND_TIMEOUT_MS = 3_000;
-const BRACKETED_SUBMIT_SETTLE_MS = 20;
-const UNBRACKETED_SUBMIT_SETTLE_MS = 140;
 const MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES = 512 * 1024;
 const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
 const TERMINAL_RESIZE_SETTLE_MS = 1_000;
@@ -362,15 +365,6 @@ export function terminalActivityTimestamp(output: string): number | undefined {
 	if (!/^\d+$/.test(value)) return undefined;
 	const milliseconds = Number(value) * 1_000;
 	return Number.isSafeInteger(milliseconds) && milliseconds > 0 ? milliseconds : undefined;
-}
-
-export function terminalSubmissionData(data: string, bracketedPaste: boolean): string {
-	const normalized = data.replace(/\r?\n/g, '\r');
-	return bracketedPaste ? `\u001b[200~${normalized}\u001b[201~` : normalized;
-}
-
-export function terminalSubmissionSettleMs(bracketedPaste: boolean): number {
-	return bracketedPaste ? BRACKETED_SUBMIT_SETTLE_MS : UNBRACKETED_SUBMIT_SETTLE_MS;
 }
 
 interface OutputActivityState {

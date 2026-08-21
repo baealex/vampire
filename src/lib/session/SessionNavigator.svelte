@@ -33,6 +33,7 @@
 		onSettings,
 		onAlias,
 		onNewWorktree,
+		onAutomations,
 		onCreate
 	}: {
 		sessions: ManagedSession[];
@@ -61,6 +62,7 @@
 		onSettings: (session: ManagedSession) => void;
 		onAlias: (session: ManagedSession) => void;
 		onNewWorktree: (session: ManagedSession) => void;
+		onAutomations: (session: ManagedSession) => void;
 		onCreate: () => void;
 	} = $props();
 
@@ -105,6 +107,7 @@
 			{onSettings}
 			{onAlias}
 			{onNewWorktree}
+			{onAutomations}
 			onNewSession={openNewSession}
 		/>
 	</section>

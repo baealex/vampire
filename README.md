@@ -66,39 +66,18 @@ claude
 
 The process keeps running in tmux when you close the browser. Reopen the workspace from any device to continue.
 
-Open a workspace's actions menu and choose **Startup profile** to add a startup command there or reuse one previously created in another workspace. Profile definitions are shared by the whole Vampire server and synchronized to every connected device, while each workspace independently chooses which one to run whenever Vampire creates or reopens its shell. Saving does not run anything in the current session, and profiles do not create additional terminals.
-
-On tmux 3.7a or newer, Vampire answers terminal color probes with the active browser theme. Older tmux versions remain supported but cannot relay these probes. Start a TUI after the terminal is connected so it can detect the correct palette. Some TUIs, including Codex, cache that palette for the lifetime of the process; after switching between light and dark, exit and resume the TUI once to refresh application-drawn RGB backgrounds.
-
-Use the **Background** bar below the terminal to run a development server or watcher without touching the main session. Background commands keep running when the browser disconnects, expose read-only output, and can be stopped directly from the bar. Completed commands can be run again or deleted, and commands you explicitly star are saved per workspace for later use. Vampire never adds commands to favorites automatically, so a command containing a token or password is not persisted in the workspace registry unless you choose to star it.
-
-For parallel work in a Git repository, open the workspace actions menu and choose **New isolated workspace**. Vampire creates a new branch and Git worktree from the source workspace's current commit, then opens a separate tmux session there. Uncommitted source changes are not copied; the source workspace's startup profile selection and favorite background commands are inherited. An inherited startup profile runs as soon as the new workspace opens.
-
-Managed worktrees live at `$VAMPIRE_STATE_DIR/worktrees/<workspace-id>/<project-name>` (under `~/.vampire` by default). Removing one from Vampire stops its shell, deletes the managed working copy (including uncommitted files), and clears its Git worktree registration while preserving its branch. If another tool or coding agent removes the directory first, Vampire keeps any live terminal available and marks the working copy as missing; explicitly removing that workspace later clears the stale Git registration.
-
-Use **Set workspace alias** from any workspace actions menu to give a regular directory or worktree a separate display name. A new isolated workspace starts with its task name as the alias. Aliases do not rename directories or branches, and they are stored on the Vampire server so every connected device sees the same name.
-
-The **Smart** or **Manual** workspace ordering mode and the manual row order are also stored on the server and synchronized between devices. Existing browser-local ordering preferences are imported the first time a server without shared ordering preferences is opened.
-
-### Customize the status bar
-
-The server-wide status bar runs editable command plugins and shares each result with every connected browser. CPU, RAM, Codex Limit, and Claude Limit are starting points rather than special UI types.
-
-See [Status plugins](docs/status-plugins.md) for the SwiftBar-style text format and generic JSON menu model.
-
 ## What you get
 
 - Persistent tmux sessions for Codex, Claude Code, and any CLI.
-- Git worktree-based isolated workspaces for parallel tasks in one repository.
-- Supervised background commands with live output, reruns, deletion, and explicit favorites.
-- A SwiftBar-style server status strip with ordered presets and user-defined command plugins.
+- Workspace actions for startup profiles, aliases, ordering, and **New isolated workspace**.
+- Background commands, server-side agent automations, and shared Markdown workspace notes.
+- A customizable status bar with user-defined command plugins.
 - The same workspace from a desktop or mobile browser.
-- Server-synchronized workspace aliases and manual ordering.
 - Smart status groups for main sessions that are working, need review, are idle, or have ended.
-- Notes and process labels in the workspace list.
-- On-demand host TCP port inspection with guarded process termination.
-- Git diffs, image previews, text editing, and inline file/folder creation.
+- Repository browsing, Git diffs, image previews, text editing, and port inspection.
 - Light and dark themes with a mobile-friendly terminal.
+
+See [Status plugins](docs/status-plugins.md) for the plugin format.
 
 | State | Meaning |
 | --- | --- |

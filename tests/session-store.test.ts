@@ -27,6 +27,7 @@ test('finds the terminal and workspace registered for a session ID', async (t) =
 	assert.equal(stored.workspacePreferences, undefined);
 	assert.deepEqual(stored.launchProfiles, []);
 	assert.equal(stored.sessions[0]?.startupProfileId, null);
+	assert.deepEqual(stored.sessions[0]?.automations, []);
 	assert.equal(await findSessionConnection('47b7cc7d-b47e-4ab7-a1ee-f462eb779c46', file), undefined);
 });
 
@@ -48,8 +49,7 @@ test('migrates legacy sessions without inventing command favorites', async (t) =
 		tmuxSession: 'vampire-favorite-store-test',
 		cwd: tmpdir(),
 		createdAt: 1,
-		lastActiveAt: 1,
-		note: ''
+		lastActiveAt: 1
 	};
 
 	await writeFile(file, JSON.stringify({ version: SESSION_STATE_VERSION, sessions: [session] }));

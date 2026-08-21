@@ -30,6 +30,7 @@
 		close,
 		onUpdateNote,
 		onLoadNote,
+		onSummarizeNote,
 		onInputActivity,
 		onOutputActivity,
 		onTerminalPresentationChange = () => undefined,
@@ -53,7 +54,8 @@
 		backgroundActionError?: string;
 		close: () => void;
 		onUpdateNote: (sessionId: string, note: string) => Promise<void>;
-		onLoadNote: (sessionId: string) => Promise<string>;
+		onLoadNote: (sessionId: string, refresh?: boolean) => Promise<string>;
+		onSummarizeNote: (sessionId: string) => Promise<{ notePath: string }>;
 		onInputActivity: (sessionId: string, timestamp: number) => void;
 		onOutputActivity: (sessionId: string, active: boolean, timestamp?: number) => void;
 		onTerminalPresentationChange?: (sessionId: string, presented: boolean) => void;
@@ -199,6 +201,7 @@
 			close={openSessionNavigator}
 			{onUpdateNote}
 			{onLoadNote}
+			{onSummarizeNote}
 			{onInputActivity}
 			{onOutputActivity}
 			{statusPlugins}

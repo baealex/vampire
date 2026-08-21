@@ -35,7 +35,7 @@ test('deleting a global profile clears workspace selections without blocking the
 			cwd: tmpdir(),
 			createdAt: 1,
 			lastActiveAt: 1,
-			note: '',
+			automations: [],
 			favoriteCommands: [],
 			startupProfileId: 'codex'
 		}]
@@ -77,7 +77,7 @@ test('saving from a workspace updates the shared cache and its local selection a
 			cwd: tmpdir(),
 			createdAt: index + 1,
 			lastActiveAt: index + 1,
-			note: '',
+			automations: [],
 			favoriteCommands: [],
 			startupProfileId: 'old'
 		}))

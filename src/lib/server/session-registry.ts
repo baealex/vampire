@@ -13,6 +13,11 @@ import {
 	type TmuxTerminal
 } from './tmux.ts';
 import { isGitRepository as readIsGitRepository } from './repository.ts';
+import {
+	ensureManagedSessionNoteFile,
+	readManagedSessionNoteFile,
+	writeManagedSessionNoteFile
+} from './session-note-file.ts';
 import { createSessionNotePreview } from './session-note.ts';
 import {
 	BACKGROUND_COMMAND_MAX_LENGTH,
@@ -35,12 +40,11 @@ import {
 } from '../session/launch-profiles.ts';
 import type { LaunchProfile, WorkspacePreferences } from '../session/types.ts';
 
-export const SESSION_NOTE_MAX_LENGTH = 4_000;
 export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
 export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS };
 
-export interface ManagedSession extends Omit<StoredSession, 'note'> {
+export interface ManagedSession extends Omit<StoredSession, 'automations'> {
 	notePreview: string;
 	state: 'running' | 'missing';
 	lastOutputAt: number | null;
@@ -89,6 +93,18 @@ async function validateExistingCwd(cwd: string): Promise<string> {
 	} catch (cause) {
 		if (cause instanceof WorkspaceRootError) throw new SessionLaunchError('invalid-cwd', cause.message);
 		throw new SessionLaunchError('invalid-cwd', 'Working directory does not exist or is not a directory.');
+	}
+}
+
+async function initializeManagedSessionNote(stored: StoredSession): Promise<void> {
+	await ensureManagedSessionNoteFile(stored.id, '');
+}
+
+async function readManagedSessionNotePreview(stored: StoredSession): Promise<string> {
+	try {
+		return createSessionNotePreview(await readManagedSessionNoteFile(stored.id) ?? '');
+	} catch {
+		return '';
 	}
 }
 
@@ -171,7 +187,7 @@ const mutationState = registryGlobal.__vampireSessionRegistryMutationState ??= {
 	queue: Promise.resolve()
 };
 
-async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
+export async function withSessionRegistryMutation<T>(operation: () => Promise<T>): Promise<T> {
 	const previous = mutationState.queue;
 	let release: () => void;
 	mutationState.queue = new Promise<void>((resolve) => {
@@ -184,6 +200,8 @@ async function exclusively<T>(operation: () => Promise<T>): Promise<T> {
 		release!();
 	}
 }
+
+const exclusively = withSessionRegistryMutation;
 
 export async function listManagedSessions(): Promise<ManagedSession[]> {
 	const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);
@@ -199,13 +217,14 @@ export async function listManagedSessions(): Promise<ManagedSession[]> {
 	const repositoryByCwd = new Map(workspaceStates.map(([cwd, isGitRepository]) => [cwd, isGitRepository]));
 	const availabilityByCwd = new Map(workspaceStates.map(([cwd, , workspaceAvailable]) => [cwd, workspaceAvailable]));
 	const tmuxByName = new Map(tmuxSessions.map((session) => [session.name, session]));
+	const notePreviews = await Promise.all(state.sessions.map((session) => readManagedSessionNotePreview(session)));
 
-	return state.sessions.map((session) => {
+	return state.sessions.map((session, index) => {
 		const tmux = tmuxByName.get(session.tmuxSession);
-		const { note, ...stored } = session;
+		const { automations: _automations, ...stored } = session;
 		return {
 			...stored,
-			notePreview: createSessionNotePreview(note),
+			notePreview: notePreviews[index] ?? '',
 			state: tmux ? 'running' : 'missing',
 			lastOutputAt: tmux?.lastOutputAt ?? null,
 			attachedClients: tmux?.attachedClients ?? 0,
@@ -264,10 +283,11 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			workspaceKind: 'directory',
 			createdAt: Date.now(),
 			lastActiveAt: Date.now(),
-			note: '',
+			automations: [],
 			favoriteCommands: [],
 			startupProfileId: null
 		};
+		await initializeManagedSessionNote(stored);
 		const current = await readState();
 		await writeState({ ...current, sessions: [...current.sessions, stored] });
 
@@ -295,7 +315,7 @@ export async function createManagedSession(input: { cwd: string }): Promise<Mana
 			lastActiveAt: stored.lastActiveAt,
 			favoriteCommands: stored.favoriteCommands,
 			startupProfileId: stored.startupProfileId,
-			notePreview: createSessionNotePreview(stored.note),
+			notePreview: '',
 			state: 'running',
 			lastOutputAt: tmux.lastOutputAt,
 			attachedClients: tmux.attachedClients,
@@ -327,12 +347,12 @@ export async function createManagedWorktreeSession(input: { sourceSessionId: str
 			worktreeBranch: worktree.branch,
 			createdAt: now,
 			lastActiveAt: now,
-			note: '',
+			automations: [],
 			favoriteCommands: [...source.favoriteCommands],
 			startupProfileId: source.startupProfileId
 		};
-
 		try {
+			await initializeManagedSessionNote(stored);
 			await writeState({ ...current, sessions: [...current.sessions, stored] });
 		} catch (error) {
 			await rollbackGitWorktree(worktree);
@@ -409,7 +429,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 				lastActiveAt: stored.lastActiveAt,
 				favoriteCommands: stored.favoriteCommands,
 				startupProfileId: stored.startupProfileId,
-				notePreview: createSessionNotePreview(stored.note),
+				notePreview: await readManagedSessionNotePreview(stored),
 				state: 'running',
 				lastOutputAt: existingTmux.lastOutputAt,
 				attachedClients: existingTmux.attachedClients,
@@ -453,7 +473,7 @@ export async function restartManagedSession(id: string): Promise<ManagedSession>
 			lastActiveAt: restarted.lastActiveAt,
 			favoriteCommands: restarted.favoriteCommands,
 			startupProfileId: restarted.startupProfileId,
-			notePreview: createSessionNotePreview(restarted.note),
+			notePreview: await readManagedSessionNotePreview(restarted),
 			state: 'running',
 			lastOutputAt: restartedTmux.lastOutputAt,
 			attachedClients: restartedTmux.attachedClients,
@@ -661,10 +681,9 @@ export async function updateManagedSessionNote(id: string, note: string): Promis
 		const index = state.sessions.findIndex((session) => session.id === id);
 		if (index < 0) throw new SessionMutationError('not-found', 'Session was not found.');
 
+		const stored = state.sessions[index];
 		const normalizedNote = note.trim();
-		const sessions = [...state.sessions];
-		sessions[index] = { ...sessions[index], note: normalizedNote };
-		await writeState({ ...state, sessions });
+		await writeManagedSessionNoteFile(stored.id, normalizedNote);
 		return createSessionNotePreview(normalizedNote);
 	});
 }
@@ -685,7 +704,9 @@ export async function updateManagedWorkspaceAlias(id: string, alias: string): Pr
 
 export async function findManagedSessionNote(id: string): Promise<string | undefined> {
 	const state = await readState();
-	return state.sessions.find((session) => session.id === id)?.note;
+	const stored = state.sessions.find((session) => session.id === id);
+	if (!stored) return undefined;
+	return await readManagedSessionNoteFile(stored.id) ?? '';
 }
 
 export async function closeManagedSession(id: string): Promise<void> {
