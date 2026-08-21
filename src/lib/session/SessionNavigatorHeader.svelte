@@ -1,12 +1,11 @@
 <script lang="ts">
 import LogOut from '@lucide/svelte/icons/log-out';
+import ListOrdered from '@lucide/svelte/icons/list-ordered';
 import X from '@lucide/svelte/icons/x';
-import ThemeToggle from '$lib/theme/ThemeToggle.svelte';
 import IconButton from '$lib/ui/IconButton.svelte';
 import type { SessionOrderMode } from './types';
 
 let {
-  sessionCount,
   authenticationRequired,
   hasOpenSession,
   sessionOrderMode,
@@ -15,7 +14,6 @@ let {
   onClose,
   onOrderModeChange,
 }: {
-  sessionCount: number;
   authenticationRequired: boolean;
   hasOpenSession: boolean;
   sessionOrderMode: SessionOrderMode;
@@ -26,30 +24,30 @@ let {
 } = $props();
 </script>
 
-<header class="section-header">
-  <div class="session-panel-title">
-    <h1 id="workspaces-title">Workspaces</h1>
-    <span class="session-count" aria-label={`${sessionCount} workspaces`}>{sessionCount}</span>
-  </div>
-  <div class="section-actions">
-    <ThemeToggle />
-    {#if authenticationRequired}
-      <IconButton label="Sign out" onclick={onLogout}>
-        <LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
-      </IconButton>
-    {/if}
-    {#if hasOpenSession}
-      <span class="navigator-close">
-        <IconButton label="Close workspace navigator" title="Close workspaces" onclick={onClose}>
-          <X size={19} strokeWidth={1.8} aria-hidden="true" />
+{#if authenticationRequired || hasOpenSession}
+  <header class="section-header" class:mobile-only-header={!authenticationRequired}>
+    <div class="section-actions">
+      {#if authenticationRequired}
+        <IconButton label="Sign out" onclick={onLogout}>
+          <LogOut size={18} strokeWidth={1.8} aria-hidden="true" />
         </IconButton>
-      </span>
-    {/if}
-  </div>
-</header>
+      {/if}
+      {#if hasOpenSession}
+        <span class="navigator-close">
+          <IconButton label="Close workspace navigator" title="Close workspaces" onclick={onClose}>
+            <X size={19} strokeWidth={1.8} aria-hidden="true" />
+          </IconButton>
+        </span>
+      {/if}
+    </div>
+  </header>
+{/if}
 
 <div class="session-order-toolbar">
-  <div class="session-order-control" role="group" aria-label="Workspace order">
+  <span class="session-order-hint" title="Workspace ordering" aria-hidden="true">
+    <ListOrdered size={15} strokeWidth={1.8} />
+  </span>
+  <div class="session-order-control" role="group" aria-label="Workspace ordering">
     <button
       type="button"
       class:active={sessionOrderMode === 'activity'}
@@ -71,13 +69,9 @@ let {
       Manual
     </button>
   </div>
-  <span
-    class:error={Boolean(workspacePreferencesError)}
-    class="session-order-help"
-    role={workspacePreferencesError ? 'alert' : 'status'}
-  >
-    {workspacePreferencesError || (sessionOrderMode === 'activity' ? 'Main session status' : 'Drag rows to reorder')}
-  </span>
+  {#if workspacePreferencesError}
+    <span class="session-order-error" role="alert">{workspacePreferencesError}</span>
+  {/if}
 </div>
 
 <style>
@@ -89,105 +83,96 @@ let {
   min-height: 3.25rem;
   padding: 0.65rem 1rem;
 }
-.section-header h1 {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: var(--text-body);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-panel-title {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
 .section-actions {
   display: flex;
-  flex: 0 0 auto;
+  width: 100%;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.25rem;
-}
-.session-count {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.85rem;
-  height: 1.4rem;
-  padding: 0 0.42rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-micro);
-  font-weight: var(--weight-medium);
-  font-variant-numeric: tabular-nums;
 }
 .session-order-toolbar {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
-  padding: 0 1rem 0.6rem;
+  padding: 0.4rem 1rem 0.45rem;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }
+.session-order-error {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--color-danger-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-order-hint {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.1rem;
+  color: var(--color-text-tertiary);
+}
+.session-order-hint:hover {
+  color: var(--color-text-secondary);
+}
 .session-order-control {
   display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 0.42rem;
-  background: var(--color-surface-sunken);
+  align-items: stretch;
+  gap: 0.75rem;
 }
 .session-order-control button {
-  min-height: 1.8rem;
-  padding: 0 0.55rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.95rem;
+  padding: 0.1rem 0.05rem 0.15rem;
   border: 0;
-  border-right: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-tertiary);
   font: inherit;
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.session-order-control button:last-child {
-  border-right: 0;
-}
 .session-order-control button:hover {
   color: var(--color-text);
 }
+.session-order-control button::after {
+  position: absolute;
+  right: 0;
+  bottom: 0.28rem;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: '';
+}
 .session-order-control button.active {
-  background: var(--color-surface-selected);
   color: var(--color-text);
 }
-.session-order-help {
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-order-help.error {
-  color: var(--color-danger-text);
+.session-order-control button.active::after {
+  background: var(--color-accent);
 }
 .navigator-close {
   display: none;
 }
 
 @media (max-width: 63.999rem) {
+  .section-header.mobile-only-header {
+    display: flex;
+  }
   .session-order-control button {
-    min-height: 2.75rem;
+    min-height: 2rem;
   }
   .navigator-close {
     display: grid;
+  }
+}
+
+@media (min-width: 64rem) {
+  .section-header.mobile-only-header {
+    display: none;
   }
 }
 
@@ -199,7 +184,6 @@ let {
     gap: 0.4rem 0.65rem;
     padding-block: 0.6rem;
   }
-  .session-panel-title,
   .section-actions {
     flex-basis: 100%;
   }

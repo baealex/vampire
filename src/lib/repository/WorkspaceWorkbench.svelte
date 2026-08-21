@@ -234,7 +234,6 @@ onMount(() => {
       close={openSessionNavigator}
       {onInputActivity}
       {onOutputActivity}
-      {statusPlugins}
       {repositoryOpen}
       {noteOpen}
       isGitRepository={repository.snapshot?.isGitRepository ?? session.isGitRepository}
@@ -245,6 +244,7 @@ onMount(() => {
       onToggleNote={() => void toggleNote()}
       {pathInsertionRequest}
       onExternalFileDrop={addDroppedFilesToTerminal}
+      {statusPlugins}
     >
       {#if repository.selection}
         <RepositoryViewer

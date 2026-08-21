@@ -278,7 +278,7 @@ function handleCloseAutoFocus(event: Event) {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   outline: none;
-  background: var(--color-surface-overlay);
+  background: var(--color-surface);
   box-shadow: var(--shadow-popover);
   color: var(--color-text-secondary);
   font-size: var(--text-caption);
@@ -325,7 +325,7 @@ function handleCloseAutoFocus(event: Event) {
   gap: 0.75rem;
   padding: 0.48rem 0.55rem;
   border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-raised);
+  background: var(--color-surface);
   color: var(--color-text-secondary);
 }
 :global(.status-plugin-menu-heading strong) {
@@ -343,10 +343,9 @@ function handleCloseAutoFocus(event: Event) {
   font-weight: var(--weight-medium);
 }
 :global(.status-plugin-menu-separator) {
-  height: 0.42rem;
+  height: 0;
+  margin: 0.2rem 0;
   border-top: 1px solid var(--color-border-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-overlay);
 }
 :global(.status-plugin-menu-item > a),
 :global(.status-plugin-menu-item > div) {
