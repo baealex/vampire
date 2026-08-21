@@ -527,6 +527,58 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 });
 
+test('reopens with a one-time profile without changing the default startup', async ({ context, page }) => {
+  await authenticate(context);
+  const session = await createSession(context);
+  sessionId = session.id;
+  const profileCommand = "printf 'one-time-profile-marker\\n'";
+
+  const profilesResponse = await context.request.put('/api/launch-profiles', {
+    data: {
+      launchProfiles: [
+        {
+          id: 'profile-one-time',
+          name: 'Codex',
+          command: profileCommand,
+        },
+      ],
+    },
+  });
+  expect(profilesResponse.ok()).toBe(true);
+
+  const closeResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+  expect(closeResponse.ok()).toBe(true);
+
+  await page.goto('/');
+  const endedGroup = page.locator('.session-group.ended');
+  await endedGroup.getByRole('button', { name: /Ended/ }).click();
+  await endedGroup.locator('.session-row').click();
+  await expect(page.getByRole('heading', { name: 'This shell has ended' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reopen with…' }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Blank terminal' })).toBeVisible();
+  await menu.getByRole('menuitem', { name: /Codex/ }).click();
+
+  await expectTerminalReady(page);
+  await expect(page.locator('.xterm-rows')).toContainText('one-time-profile-marker');
+
+  const restartedSessionsResponse = await context.request.get('/api/sessions');
+  expect(restartedSessionsResponse.ok()).toBe(true);
+  const restartedSessionsBody = (await restartedSessionsResponse.json()) as { sessions: ManagedSession[] };
+  expect(restartedSessionsBody.sessions.find((candidate) => candidate.id === session.id)?.startupProfileId).toBeNull();
+
+  const secondCloseResponse = await context.request.post(`/api/sessions/${encodeURIComponent(session.id)}/close`);
+  expect(secondCloseResponse.ok()).toBe(true);
+
+  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await expect(page.getByRole('heading', { name: 'This shell has ended' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reopen shell' }).click();
+  await expectTerminalReady(page);
+  await expect
+    .poll(async () => (await tmuxPaneRows(session.tmuxSession)).join('\n'))
+    .not.toContain('one-time-profile-marker');
+});
+
 test('closes the workspace action menu after closing a session', async ({ context, page }) => {
   await authenticate(context);
   const session = await createSession(context);

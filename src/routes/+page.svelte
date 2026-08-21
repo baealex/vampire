@@ -1,12 +1,16 @@
 <script lang="ts">
+import { DropdownMenu } from 'bits-ui';
 import { dev } from '$app/environment';
 import { pushState } from '$app/navigation';
 import { onMount } from 'svelte';
+import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import CircleHelp from '@lucide/svelte/icons/circle-help';
 import Keyboard from '@lucide/svelte/icons/keyboard';
+import SquarePlay from '@lucide/svelte/icons/square-play';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import LoginScreen from '$lib/LoginScreen.svelte';
 import TmuxSetupScreen from '$lib/TmuxSetupScreen.svelte';
+import DropdownMenuShell from '$lib/ui/DropdownMenuShell.svelte';
 import Spinner from '$lib/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '$lib/ui/overlay';
 import { WorkspaceConnectionState } from '$lib/app/workspace-connection-state.svelte';
@@ -29,6 +33,7 @@ let mobilePanel = $state<MobilePanel | undefined>(undefined);
 let repositoryPanelOpen = $state(false);
 let repositoryTab = $state<RepositoryTab>('files');
 let workspaceSettingsOpen = $state(false);
+let reopenWithOpen = $state(false);
 let workspaceAliasSession = $state<ManagedSession>();
 let workspaceAutomationsSession = $state<ManagedSession>();
 let worktreeSourceSession = $state<ManagedSession>();
@@ -111,6 +116,7 @@ async function logout() {
   if (!(await connection.logout())) return;
   workspace.reset();
   workspaceSettingsOpen = false;
+  reopenWithOpen = false;
   workspaceAliasSession = undefined;
   worktreeSourceSession = undefined;
   workspaceAutomationsSession = undefined;
@@ -121,6 +127,7 @@ async function logout() {
 
 function openSession(session: ManagedSession) {
   workspaceSettingsOpen = false;
+  reopenWithOpen = false;
   workspaceAliasSession = undefined;
   worktreeSourceSession = undefined;
   workspaceAutomationsSession = undefined;
@@ -185,6 +192,7 @@ async function createSession() {
 
 function clearActiveSession() {
   workspaceSettingsOpen = false;
+  reopenWithOpen = false;
   workspaceAliasSession = undefined;
   worktreeSourceSession = undefined;
   workspaceAutomationsSession = undefined;
@@ -207,8 +215,16 @@ function syncSessionFromLocation(pathname = location.pathname) {
   markActiveSessionObserved();
 }
 
-async function restartSession(session: ManagedSession) {
-  await workspace.restartSession(session);
+async function restartSession(
+  session: ManagedSession,
+  launchProfileId?: string | null
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await workspace.restartSession(session, launchProfileId))) {
+    return { ok: false, error: workspace.sessionActionError };
+  }
+  const restartedSession = workspace.sessions.find((candidate) => candidate.id === session.id);
+  if (restartedSession) openSession(restartedSession);
+  return { ok: true };
 }
 
 async function closeSession(session: ManagedSession): Promise<{ ok: boolean; error?: string }> {
@@ -409,13 +425,54 @@ onMount(() => {
               <code>{workspace.activeSession.cwd}</code>
               <div class="unavailable-actions">
                 {#if workspace.activeSession.workspaceAvailable !== false}
-                  <button
-                    class="primary-button"
-                    onclick={() => void restartSession(workspace.activeSession!)}
-                    disabled={Boolean(workspace.sessionAction)}
-                  >
-                    {workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
-                  </button>
+                  <div class="unavailable-reopen-control">
+                    <button
+                      class="primary-button unavailable-reopen-primary"
+                      onclick={() => void restartSession(workspace.activeSession!)}
+                      disabled={Boolean(workspace.sessionAction)}
+                    >
+                      {workspace.sessionAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
+                    </button>
+                    <DropdownMenuShell
+                      open={reopenWithOpen}
+                      onOpenChange={(open) => reopenWithOpen = open}
+                      triggerLabel="Reopen with…"
+                      triggerTitle="Reopen with a different startup profile"
+                      triggerClass="unavailable-reopen-menu-trigger"
+                    >
+                      {#snippet trigger()}
+                        <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                      {/snippet}
+
+                      {#snippet children()}
+                        <div class="unavailable-reopen-menu" role="group" aria-label="Reopen with">
+                          <strong>Reopen with</strong>
+                          <p>Runs once; it does not change the saved startup profile.</p>
+                          <DropdownMenu.Item
+                            class="vampire-menu-item unavailable-reopen-option"
+                            disabled={Boolean(workspace.sessionAction)}
+                            onSelect={() => void restartSession(workspace.activeSession!, null)}
+                          >
+                            <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
+                            <span class="unavailable-reopen-copy"><strong>Blank terminal</strong></span>
+                          </DropdownMenu.Item>
+                          {#each workspace.launchProfiles as profile (profile.id)}
+                            <DropdownMenu.Item
+                              class="vampire-menu-item unavailable-reopen-option"
+                              disabled={Boolean(workspace.sessionAction)}
+                              onSelect={() => void restartSession(workspace.activeSession!, profile.id)}
+                            >
+                              <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
+                              <span class="unavailable-reopen-copy">
+                                <strong>{profile.name}</strong>
+                                <span>{profile.command}</span>
+                              </span>
+                            </DropdownMenu.Item>
+                          {/each}
+                        </div>
+                      {/snippet}
+                    </DropdownMenuShell>
+                  </div>
                 {/if}
                 <button
                   class="remove-button"
@@ -641,8 +698,86 @@ main {
   gap: 0.65rem;
   width: 100%;
 }
-.unavailable-actions button {
+.unavailable-actions > button {
   flex: 1 1 10rem;
+}
+.unavailable-reopen-control {
+  display: flex;
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+}
+.unavailable-reopen-primary {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: 0;
+}
+:global(.unavailable-reopen-menu-trigger) {
+  display: grid;
+  flex: 0 0 var(--control-height-lg);
+  place-items: center;
+  width: var(--control-height-lg);
+  min-height: var(--control-height-lg);
+  padding: 0;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--color-accent-ink) 24%, transparent);
+  background: transparent;
+  color: var(--color-accent-ink);
+  cursor: pointer;
+}
+:global(.unavailable-reopen-menu-trigger[data-state="open"]) {
+  background: color-mix(in srgb, var(--color-accent-ink) 12%, transparent);
+}
+@media (hover: hover) {
+  :global(.unavailable-reopen-menu-trigger:hover) {
+    background: color-mix(in srgb, var(--color-accent-ink) 12%, transparent);
+  }
+}
+.unavailable-reopen-menu {
+  display: grid;
+  max-height: min(24rem, calc(100vh - 2rem));
+  gap: 0.35rem;
+  overflow-y: auto;
+  padding: 0.45rem 0.55rem 0.55rem;
+}
+.unavailable-reopen-menu > strong {
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.unavailable-reopen-menu > p {
+  margin: 0 0 0.1rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+:global(.unavailable-reopen-option) {
+  align-items: flex-start;
+  min-height: 2.5rem;
+  padding-block: 0.35rem;
+}
+.unavailable-reopen-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+.unavailable-reopen-copy strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unavailable-reopen-copy span {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .remove-button {
   min-height: var(--control-height-lg);
