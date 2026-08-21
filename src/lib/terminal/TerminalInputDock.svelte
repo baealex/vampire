@@ -319,8 +319,10 @@ function handleImageSelection(event: Event) {
   cursor: pointer;
   touch-action: manipulation;
 }
-.touch-toolbar button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
+@media (hover: hover) {
+  .touch-toolbar button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
 }
 .touch-toolbar button:disabled {
   color: var(--color-text-disabled);
@@ -406,16 +408,20 @@ function handleImageSelection(event: Event) {
   background: transparent;
   color: var(--color-text-secondary);
 }
-.image-button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .image-button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 .send-button {
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.send-button:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+@media (hover: hover) {
+  .send-button:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
 }
 .composer button:disabled {
   background: transparent;

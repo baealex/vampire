@@ -1,7 +1,7 @@
 <script lang="ts">
 import ListOrdered from '@lucide/svelte/icons/list-ordered';
 import X from '@lucide/svelte/icons/x';
-import IconButton from '$lib/ui/IconButton.svelte';
+import ToolbarButton from '$lib/ui/ToolbarButton.svelte';
 import type { SessionOrderMode } from './types';
 
 let {
@@ -18,20 +18,6 @@ let {
   onOrderModeChange: (mode: SessionOrderMode) => void;
 } = $props();
 </script>
-
-{#if hasOpenSession}
-  <header class="section-header mobile-only-header">
-    <div class="section-actions">
-      {#if hasOpenSession}
-        <span class="navigator-close">
-          <IconButton label="Close workspace navigator" title="Close workspaces" onclick={onClose}>
-            <X size={19} strokeWidth={1.8} aria-hidden="true" />
-          </IconButton>
-        </span>
-      {/if}
-    </div>
-  </header>
-{/if}
 
 <div class="session-order-toolbar">
   <span class="session-order-hint" title="Workspace ordering" aria-hidden="true">
@@ -62,24 +48,16 @@ let {
   {#if workspacePreferencesError}
     <span class="session-order-error" role="alert">{workspacePreferencesError}</span>
   {/if}
+  {#if hasOpenSession}
+    <span class="navigator-close">
+      <ToolbarButton label="Close workspace navigator" title="Close workspaces" onclick={onClose} compact>
+        <X size={17} strokeWidth={1.8} aria-hidden="true" />
+      </ToolbarButton>
+    </span>
+  {/if}
 </div>
 
 <style>
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.65rem;
-  min-height: 3.25rem;
-  padding: 0.65rem 1rem;
-}
-.section-actions {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.25rem;
-}
 .session-order-toolbar {
   display: flex;
   align-items: center;
@@ -104,9 +82,6 @@ let {
   width: 1.1rem;
   color: var(--color-text-tertiary);
 }
-.session-order-hint:hover {
-  color: var(--color-text-secondary);
-}
 .session-order-control {
   display: inline-flex;
   align-items: stretch;
@@ -126,9 +101,6 @@ let {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.session-order-control button:hover {
-  color: var(--color-text);
-}
 .session-order-control button::after {
   position: absolute;
   right: 0;
@@ -144,14 +116,22 @@ let {
 .session-order-control button.active::after {
   background: var(--color-accent);
 }
+
+@media (hover: hover) {
+  .session-order-hint:hover {
+    color: var(--color-text-secondary);
+  }
+  .session-order-control button:hover {
+    color: var(--color-text);
+  }
+}
 .navigator-close {
   display: none;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 @media (max-width: 63.999rem) {
-  .section-header.mobile-only-header {
-    display: flex;
-  }
   .session-order-control button {
     min-height: 2rem;
   }
@@ -160,25 +140,13 @@ let {
   }
 }
 
-@media (min-width: 64rem) {
-  .section-header.mobile-only-header {
-    display: none;
-  }
-}
-
 @media (max-width: 24rem) {
-  .section-header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    min-height: 0;
-    gap: 0.4rem 0.65rem;
-    padding-block: 0.6rem;
+  .session-order-toolbar {
+    gap: 0.35rem;
+    padding-inline: 0.75rem;
   }
-  .section-actions {
-    flex-basis: 100%;
-  }
-  .section-actions {
-    justify-content: flex-end;
+  .session-order-control {
+    gap: 0.55rem;
   }
 }
 </style>

@@ -380,9 +380,11 @@ onDestroy(() => unsubscribe?.());
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.status-add-actions button:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+@media (hover: hover) {
+  .status-add-actions button:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
 }
 .status-add-actions button:disabled,
 .status-settings-footer button:disabled {
@@ -440,9 +442,11 @@ onDestroy(() => unsubscribe?.());
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
-.status-plugin-editor__order button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .status-plugin-editor__order button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 .status-plugin-editor__order button:disabled {
   opacity: 0.25;
@@ -515,9 +519,11 @@ onDestroy(() => unsubscribe?.());
   width: 2.2rem;
   height: 2.2rem;
 }
-.remove-plugin:hover {
-  background: var(--color-danger-surface-hover);
-  color: var(--color-danger-text);
+@media (hover: hover) {
+  .remove-plugin:hover {
+    background: var(--color-danger-surface-hover);
+    color: var(--color-danger-text);
+  }
 }
 .command-field textarea {
   min-height: 8rem;
@@ -555,16 +561,18 @@ onDestroy(() => unsubscribe?.());
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.status-settings-footer .save-button:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-.status-settings-footer .guide-button:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.status-settings-footer .back-button:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+@media (hover: hover) {
+  .status-settings-footer .save-button:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+  .status-settings-footer .guide-button:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  .status-settings-footer .back-button:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
 }
 
 @media (max-width: 42rem) {

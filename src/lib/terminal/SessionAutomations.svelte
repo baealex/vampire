@@ -434,9 +434,11 @@ header p {
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.close-button:hover {
-  background: var(--color-control-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .close-button:hover {
+    background: var(--color-control-hover);
+    color: var(--color-text);
+  }
 }
 form {
   display: grid;
@@ -504,8 +506,10 @@ select:focus {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.create-button:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+@media (hover: hover) {
+  .create-button:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
 }
 .create-button:disabled {
   cursor: wait;
@@ -595,10 +599,12 @@ select:focus {
   font-size: var(--text-caption);
   cursor: pointer;
 }
-.automation-actions button:hover:not(:disabled),
-.automation-empty button:hover {
-  background: var(--color-control-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .automation-actions button:hover:not(:disabled),
+  .automation-empty button:hover {
+    background: var(--color-control-hover);
+    color: var(--color-text);
+  }
 }
 .automation-actions .delete-button {
   color: var(--color-danger-text);

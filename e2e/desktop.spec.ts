@@ -390,8 +390,8 @@ test('manages server-wide status plugins and shares their ordered output across 
   await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
   await expectTerminalReady(page);
 
-  await page.getByRole('button', { name: 'Manage status plugins' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Status plugins' });
+  await page.getByRole('button', { name: 'Manage status widgets' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Status widgets' });
   await expect(dialog).toBeVisible();
   const introCopy = dialog.locator('.status-settings-copy');
   const addActions = dialog.locator('.status-add-actions');

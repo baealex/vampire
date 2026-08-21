@@ -246,6 +246,7 @@ onMount(() => {
       onToggleNote={() => void toggleNote()}
       {pathInsertionRequest}
       onExternalFileDrop={addDroppedFilesToTerminal}
+      dismissStatusPopovers={!desktop && mobilePanel !== undefined}
       {statusPlugins}
     >
       {#if repository.selection}

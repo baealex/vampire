@@ -598,9 +598,11 @@ function restoreTriggerFocus(event: Event) {
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
-.favorite-command button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .favorite-command button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 .favorite-command button:disabled {
   cursor: default;
@@ -654,10 +656,12 @@ function restoreTriggerFocus(event: Event) {
   padding: 0.45rem 0.65rem 0.45rem max(0.85rem, env(safe-area-inset-left));
   text-align: left;
 }
-.process-summary:hover,
-.process-icon-action:hover:not(:disabled),
-.stop-process:hover:not(:disabled) {
-  background: var(--color-surface-hover);
+@media (hover: hover) {
+  .process-summary:hover,
+  .process-icon-action:hover:not(:disabled),
+  .stop-process:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
 }
 .process-state {
   width: 0.48rem;
@@ -824,17 +828,21 @@ function restoreTriggerFocus(event: Event) {
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.sheet-run-button:hover {
-  background: var(--color-accent-hover);
+@media (hover: hover) {
+  .sheet-run-button:hover {
+    background: var(--color-accent-hover);
+  }
 }
 .sheet-back {
   padding-left: 0.55rem;
   background: transparent;
   color: var(--color-text-secondary);
 }
-.sheet-back:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .sheet-back:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 .mobile-background-view .process-list {
   border-right: 0;

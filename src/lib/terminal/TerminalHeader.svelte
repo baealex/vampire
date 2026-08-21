@@ -160,9 +160,6 @@ let {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.back-button:hover {
-  background: var(--color-surface-hover);
-}
 .terminal-identity {
   display: grid;
   min-width: 0;
@@ -265,17 +262,28 @@ let {
   font: inherit;
   cursor: pointer;
 }
-.note-button:hover,
 .note-button:focus-visible,
-.background-button:hover,
 .background-button:focus-visible,
 .background-button.active,
-.repository-button:hover,
 .repository-button:focus-visible {
   border-color: var(--color-border-strong);
   background: transparent;
   color: var(--color-text);
   outline: none;
+}
+
+@media (hover: hover) {
+  .back-button:hover {
+    background: var(--color-surface-hover);
+  }
+  .note-button:hover,
+  .background-button:hover,
+  .repository-button:hover {
+    border-color: var(--color-border-strong);
+    background: transparent;
+    color: var(--color-text);
+    outline: none;
+  }
 }
 .background-button span,
 .repository-button span {

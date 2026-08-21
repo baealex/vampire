@@ -375,9 +375,16 @@ function endDragSession() {
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.repository-actions button:hover {
+.repository-actions button:focus-visible {
   background: var(--color-surface-raised);
   color: var(--color-text);
+  outline: none;
+}
+@media (hover: hover) {
+  .repository-actions button:hover {
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+  }
 }
 .repository-actions button:disabled {
   cursor: wait;
@@ -462,8 +469,14 @@ function endDragSession() {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.repository-tabs button:hover {
+.repository-tabs button:focus-visible {
   color: var(--color-text);
+  outline: none;
+}
+@media (hover: hover) {
+  .repository-tabs button:hover {
+    color: var(--color-text);
+  }
 }
 .repository-tabs button.active {
   border-bottom-color: var(--color-accent);

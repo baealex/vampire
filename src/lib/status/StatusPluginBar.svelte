@@ -1,4 +1,5 @@
 <script lang="ts">
+import { onMount } from 'svelte';
 import { Popover } from 'bits-ui';
 import Check from '@lucide/svelte/icons/check';
 import ExternalLink from '@lucide/svelte/icons/external-link';
@@ -9,9 +10,27 @@ import StatusPluginSettings from './StatusPluginSettings.svelte';
 
 type StatusPluginItem = Extract<StatusPluginMenuEntry, { type: 'item' }>;
 
-let { plugins }: { plugins: StatusPluginSnapshot[] } = $props();
+let {
+  plugins,
+  dismissPopovers = false,
+}: {
+  plugins: StatusPluginSnapshot[];
+  dismissPopovers?: boolean;
+} = $props();
 let settingsOpen = $state(false);
+let openPluginId = $state<string>();
+let compactViewport = $state(false);
 let closedByOutsidePointer = false;
+const popoverSideOffset = $derived(compactViewport ? 71 : 6);
+const popoverAlignOffset = $derived(compactViewport ? 8 : 0);
+
+onMount(() => {
+  const media = window.matchMedia('(max-width: 32rem)');
+  const sync = () => (compactViewport = media.matches);
+  sync();
+  media.addEventListener('change', sync);
+  return () => media.removeEventListener('change', sync);
+});
 
 function timestampLabel(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -39,6 +58,14 @@ function handleCloseAutoFocus(event: Event) {
   closedByOutsidePointer = false;
   event.preventDefault();
 }
+
+function handlePopoverOpenChange(pluginId: string, open: boolean) {
+  openPluginId = open ? pluginId : openPluginId === pluginId ? undefined : openPluginId;
+}
+
+$effect(() => {
+  if (dismissPopovers) openPluginId = undefined;
+});
 </script>
 
 {#snippet menuItemContent(entry: StatusPluginItem)}
@@ -83,7 +110,10 @@ function handleCloseAutoFocus(event: Event) {
   <div class="status-plugin-scroll">
     <div class="status-plugin-list">
       {#each plugins as plugin (plugin.id)}
-        <Popover.Root>
+        <Popover.Root
+          open={openPluginId === plugin.id}
+          onOpenChange={(open) => handlePopoverOpenChange(plugin.id, open)}
+        >
           <Popover.Trigger
             type="button"
             class={`status-plugin${plugin.state === 'error' || plugin.state === 'stale' ? ' status-plugin--problem' : ''}`}
@@ -97,80 +127,83 @@ function handleCloseAutoFocus(event: Event) {
               <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
             {/if}
           </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              class="status-plugin-popover"
-              side="bottom"
-              align="start"
-              sideOffset={6}
-              trapFocus={false}
-              onInteractOutside={handleInteractOutside}
-              onCloseAutoFocus={handleCloseAutoFocus}
-            >
-              <div class="status-plugin-popover__header">
-                <strong>{plugin.name}</strong>
-                <output>{plugin.state === 'loading' ? 'Loading…' : (plugin.text ?? '—')}</output>
-              </div>
-              {#if plugin.progress !== undefined}
-                <div
-                  class="status-plugin-progress"
-                  role="progressbar"
-                  aria-label={`${plugin.name} usage`}
-                  aria-valuenow={plugin.progress}
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                >
-                  <span style={`width: ${plugin.progress}%`}></span>
+          {#if !dismissPopovers}
+            <Popover.Portal>
+              <Popover.Content
+                class="status-plugin-popover"
+                side="bottom"
+                align="start"
+                sideOffset={popoverSideOffset}
+                alignOffset={popoverAlignOffset}
+                trapFocus={false}
+                onInteractOutside={handleInteractOutside}
+                onCloseAutoFocus={handleCloseAutoFocus}
+              >
+                <div class="status-plugin-popover__header">
+                  <strong>{plugin.name}</strong>
+                  <output>{plugin.state === 'loading' ? 'Loading…' : (plugin.text ?? '—')}</output>
                 </div>
-              {/if}
-              {#if plugin.menu?.length}
-                <div class="status-plugin-menu" role="list">
-                  {#each plugin.menu as entry}
-                    {#if entry.type === 'separator'}
-                      <div class="status-plugin-menu-separator" role="separator"></div>
-                    {:else if entry.type === 'heading'}
-                      <div class="status-plugin-menu-heading">
-                        <strong>{entry.text}</strong>
-                        {#if entry.badge}
-                          <span>{entry.badge}</span>
-                        {/if}
-                      </div>
-                    {:else}
-                      <div
-                        class="status-plugin-menu-item"
-                        data-tone={entry.tone ?? 'neutral'}
-                        style={`--status-menu-indent: ${(entry.indent ?? 0) * 0.8}rem`}
-                        role="listitem"
-                      >
-                        {#if entry.href}
-                          <a href={entry.href} target="_blank" rel="noreferrer">{@render menuItemContent(entry)}</a>
-                        {:else}
-                          <div>{@render menuItemContent(entry)}</div>
-                        {/if}
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-              {#if plugin.error}
-                <p class="status-plugin-error" role="status">{plugin.error}</p>
-              {/if}
-              <div class="status-plugin-times">
-                {#if plugin.updatedAt}
-                  <span>Updated {timestampLabel(plugin.updatedAt)}</span>
+                {#if plugin.progress !== undefined}
+                  <div
+                    class="status-plugin-progress"
+                    role="progressbar"
+                    aria-label={`${plugin.name} usage`}
+                    aria-valuenow={plugin.progress}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                  >
+                    <span style={`width: ${plugin.progress}%`}></span>
+                  </div>
                 {/if}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
+                {#if plugin.menu?.length}
+                  <div class="status-plugin-menu" role="list">
+                    {#each plugin.menu as entry}
+                      {#if entry.type === 'separator'}
+                        <div class="status-plugin-menu-separator" role="separator"></div>
+                      {:else if entry.type === 'heading'}
+                        <div class="status-plugin-menu-heading">
+                          <strong>{entry.text}</strong>
+                          {#if entry.badge}
+                            <span>{entry.badge}</span>
+                          {/if}
+                        </div>
+                      {:else}
+                        <div
+                          class="status-plugin-menu-item"
+                          data-tone={entry.tone ?? 'neutral'}
+                          style={`--status-menu-indent: ${(entry.indent ?? 0) * 0.8}rem`}
+                          role="listitem"
+                        >
+                          {#if entry.href}
+                            <a href={entry.href} target="_blank" rel="noreferrer">{@render menuItemContent(entry)}</a>
+                          {:else}
+                            <div>{@render menuItemContent(entry)}</div>
+                          {/if}
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
+                {/if}
+                {#if plugin.error}
+                  <p class="status-plugin-error" role="status">{plugin.error}</p>
+                {/if}
+                <div class="status-plugin-times">
+                  {#if plugin.updatedAt}
+                    <span>Updated {timestampLabel(plugin.updatedAt)}</span>
+                  {/if}
+                </div>
+              </Popover.Content>
+            </Popover.Portal>
+          {/if}
         </Popover.Root>
       {/each}
       <button
         type="button"
         class="status-plugin-add"
         onclick={() => (settingsOpen = true)}
-        aria-label="Add status widget"
+        aria-label="Manage status widgets"
         aria-expanded={settingsOpen}
-        title="Add status widget"
+        title="Manage status widgets"
       >
         <Plus size={14} strokeWidth={1.9} aria-hidden="true" />
       </button>
@@ -224,10 +257,15 @@ function handleCloseAutoFocus(event: Event) {
   white-space: nowrap;
   cursor: pointer;
 }
-:global(.status-plugin:hover),
 :global(.status-plugin:focus-visible) {
   background: var(--color-surface-hover);
   color: var(--color-text);
+}
+@media (hover: hover) {
+  :global(.status-plugin:hover) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 :global(.status-plugin > span) {
   color: var(--color-text-tertiary);
@@ -261,13 +299,20 @@ function handleCloseAutoFocus(event: Event) {
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
-.status-plugin-add:hover,
 .status-plugin-add:focus-visible {
   background: var(--color-surface-hover);
   color: var(--color-text);
   outline: none;
 }
+@media (hover: hover) {
+  .status-plugin-add:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+    outline: none;
+  }
+}
 :global(.status-plugin-popover) {
+  box-sizing: border-box;
   z-index: 70;
   display: grid;
   gap: 0.55rem;
@@ -360,10 +405,15 @@ function handleCloseAutoFocus(event: Event) {
 :global(.status-plugin-menu-item + .status-plugin-menu-item) {
   border-top: 1px solid var(--color-border-subtle);
 }
-:global(.status-plugin-menu-item > a:hover),
 :global(.status-plugin-menu-item > a:focus-visible) {
   outline: none;
   background: var(--color-surface-hover);
+}
+@media (hover: hover) {
+  :global(.status-plugin-menu-item > a:hover) {
+    outline: none;
+    background: var(--color-surface-hover);
+  }
 }
 :global(.status-plugin-menu-item__content) {
   display: grid;
@@ -450,6 +500,11 @@ function handleCloseAutoFocus(event: Event) {
 @media (max-width: 32rem) {
   :global(.status-plugin) {
     padding-inline: 0.48rem;
+  }
+  :global(.status-plugin-popover) {
+    width: min(22rem, calc(100vw - 1rem));
+    min-width: 0;
+    max-width: calc(100vw - 1rem);
   }
   .status-plugin-add {
     width: 2.65rem;

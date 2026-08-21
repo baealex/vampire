@@ -329,9 +329,11 @@ onDestroy(() => unsubscribe?.());
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.listening-ports-toolbar button:hover:not(:disabled),
-.listening-ports-error button:hover {
-  background: var(--color-surface-hover);
+@media (hover: hover) {
+  .listening-ports-toolbar button:hover:not(:disabled),
+  .listening-ports-error button:hover {
+    background: var(--color-surface-hover);
+  }
 }
 .listening-ports-toolbar button:disabled {
   cursor: wait;
@@ -416,8 +418,10 @@ onDestroy(() => unsubscribe?.());
 .listening-port-row:last-child {
   border-bottom: 0;
 }
-.listening-port-row:hover {
-  background: var(--color-surface-hover);
+@media (hover: hover) {
+  .listening-port-row:hover {
+    background: var(--color-surface-hover);
+  }
 }
 .listening-port-endpoint,
 .listening-port-process {
@@ -481,9 +485,11 @@ onDestroy(() => unsubscribe?.());
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.listening-port-stop:hover {
-  background: var(--color-danger-surface-hover);
-  color: var(--color-danger-text);
+@media (hover: hover) {
+  .listening-port-stop:hover {
+    background: var(--color-danger-surface-hover);
+    color: var(--color-danger-text);
+  }
 }
 .listening-port-unavailable {
   max-width: 5.5rem;

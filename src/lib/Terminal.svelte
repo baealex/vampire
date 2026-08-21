@@ -36,6 +36,7 @@ let {
   pathInsertionRequest,
   onExternalFileDrop = async () => [],
   statusPlugins = [],
+  dismissStatusPopovers = false,
   children,
 }: {
   session: ManagedSession;
@@ -63,6 +64,7 @@ let {
   pathInsertionRequest?: TerminalPathInsertionRequest;
   onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
   statusPlugins?: StatusPluginSnapshot[];
+  dismissStatusPopovers?: boolean;
   children?: Snippet;
 } = $props();
 
@@ -107,7 +109,7 @@ onMount(() => {
 
 <section class="terminal-sheet" style={viewportStyle} aria-label={`Terminal for ${projectName}`}>
   <div class="terminal-topbar">
-    <GlobalStatusBar plugins={statusPlugins} {onLogout} />
+    <GlobalStatusBar plugins={statusPlugins} {onLogout} dismissPopovers={dismissStatusPopovers} />
     <TerminalHeader
       {projectName}
       cwd={session.cwd}

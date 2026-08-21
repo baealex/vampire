@@ -213,7 +213,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(statusBar).toBeVisible();
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
-  await expect(page.getByRole('button', { name: 'Manage status plugins' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Manage status widgets' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
   const terminalTypography = await page
     .getByRole('application', { name: 'Interactive shell terminal' })
@@ -341,4 +341,48 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
   await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
+});
+
+test('closes a status popover before opening the mobile workspace panel', async ({ context, page }) => {
+  await authenticate(context);
+  const session = await createSession(context);
+  sessionId = session.id;
+
+  await page.goto(`/sessions/${encodeURIComponent(session.id)}`);
+  await expectTerminalReady(page);
+  const statusBar = page.getByRole('region', { name: 'Server status plugins' });
+  const cpuPlugin = statusBar.locator('.status-plugin').filter({ hasText: 'CPU' });
+  await expect(cpuPlugin).toBeVisible();
+  const ports = page.getByRole('button', { name: 'Inspect listening ports' });
+  const theme = page.getByRole('button', { name: /Switch to .* theme/ });
+  const [portsBox, portsIconBox, themeBox] = await Promise.all([
+    ports.boundingBox(),
+    ports.locator('svg').boundingBox(),
+    theme.boundingBox(),
+  ]);
+  expect(portsBox).not.toBeNull();
+  expect(portsIconBox).not.toBeNull();
+  expect(themeBox).not.toBeNull();
+  expect(Math.abs(portsBox!.width - themeBox!.width)).toBeLessThan(1);
+  const portsLeftGap = portsIconBox!.x - portsBox!.x;
+  const portsRightGap = portsBox!.x + portsBox!.width - (portsIconBox!.x + portsIconBox!.width);
+  expect(Math.abs(portsLeftGap - portsRightGap)).toBeLessThan(1);
+  await cpuPlugin.click();
+  const popover = page.locator('.status-plugin-popover');
+  const workspaceButton = page.getByRole('button', { name: 'Open workspaces' });
+  await expect(popover).toBeVisible();
+  const [popoverBox, workspaceBox, viewportWidth] = await Promise.all([
+    popover.boundingBox(),
+    workspaceButton.boundingBox(),
+    page.evaluate(() => window.innerWidth),
+  ]);
+  expect(popoverBox).not.toBeNull();
+  expect(workspaceBox).not.toBeNull();
+  expect(popoverBox!.x).toBeGreaterThanOrEqual(7);
+  expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(viewportWidth + 1);
+  expect(popoverBox!.y).toBeGreaterThanOrEqual(workspaceBox!.y + workspaceBox!.height);
+
+  await workspaceButton.click();
+  await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
+  await expect(popover).toBeHidden();
 });

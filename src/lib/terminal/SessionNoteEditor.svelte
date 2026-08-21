@@ -329,9 +329,11 @@ header p {
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.close-button:hover {
-  background: var(--color-control-hover);
-  color: var(--color-text);
+@media (hover: hover) {
+  .close-button:hover {
+    background: var(--color-control-hover);
+    color: var(--color-text);
+  }
 }
 form {
   display: grid;
@@ -353,8 +355,10 @@ form {
   font: inherit;
   cursor: pointer;
 }
-.retry-button:hover {
-  background: var(--color-control-hover);
+@media (hover: hover) {
+  .retry-button:hover {
+    background: var(--color-control-hover);
+  }
 }
 textarea {
   width: 100%;
@@ -426,8 +430,10 @@ textarea:focus {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.agent-note-action button:hover:not(:disabled) {
-  background: var(--color-control-hover);
+@media (hover: hover) {
+  .agent-note-action button:hover:not(:disabled) {
+    background: var(--color-control-hover);
+  }
 }
 .agent-note-action button:disabled {
   color: var(--color-text-disabled);

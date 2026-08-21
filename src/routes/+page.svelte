@@ -550,8 +550,10 @@ main {
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.primary-button:hover {
-  background: var(--color-accent-hover);
+@media (hover: hover) {
+  .primary-button:hover {
+    background: var(--color-accent-hover);
+  }
 }
 .primary-button:disabled {
   cursor: wait;
@@ -653,8 +655,10 @@ main {
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
-.remove-button:hover {
-  background: var(--color-danger-surface-hover);
+@media (hover: hover) {
+  .remove-button:hover {
+    background: var(--color-danger-surface-hover);
+  }
 }
 .remove-button:disabled {
   cursor: wait;

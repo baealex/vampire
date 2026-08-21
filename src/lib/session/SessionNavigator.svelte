@@ -162,8 +162,10 @@ function createWorkspace(path: string) {
   text-align: left;
   cursor: pointer;
 }
-.new-session-toggle:hover {
-  background: var(--color-surface-raised);
+@media (hover: hover) {
+  .new-session-toggle:hover {
+    background: var(--color-surface-raised);
+  }
 }
 .new-session-toggle__icon {
   display: grid;

@@ -92,8 +92,10 @@ let {
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.workspace-panel-close:hover {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
+@media (hover: hover) {
+  .workspace-panel-close:hover {
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+  }
 }
 </style>
