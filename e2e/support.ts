@@ -47,11 +47,21 @@ export async function resetWorkspaces(request: APIRequestContext): Promise<void>
 }
 
 export async function resetStatusPlugins(request: APIRequestContext): Promise<void> {
-  const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
-    headers: { authorization: `Bearer ${E2E_TOKEN}` },
-    data: { plugins: defaultStatusPlugins() },
-  });
-  expect(response.ok()).toBe(true);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
+        headers: { authorization: `Bearer ${E2E_TOKEN}` },
+        data: { plugins: defaultStatusPlugins() },
+      });
+      expect(response.ok()).toBe(true);
+      return;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const transientConnection = /\b(?:ECONNRESET|ECONNREFUSED|EPIPE)\b/.test(message);
+      if (!transientConnection || attempt === 2) throw cause;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
 }
 
 export async function removeWorkspace(context: BrowserContext, workspaceId: string | undefined): Promise<void> {
