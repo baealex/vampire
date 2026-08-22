@@ -31,6 +31,14 @@ let {
       <p>The working tree is clean.</p>
     </div>
   {:else}
+    <div
+      class="change-stats"
+      aria-label={`${snapshot.changeStats.additions} lines added, ${snapshot.changeStats.deletions} lines deleted`}
+    >
+      <span class="change-stats-label">Line changes</span>
+      <span class="change-stat added" title="Added lines">+{snapshot.changeStats.additions}</span>
+      <span class="change-stat deleted" title="Deleted lines">−{snapshot.changeStats.deletions}</span>
+    </div>
     <div class="change-list">
       {#each snapshot.changes as change (change.path)}
         {@const badge = changeBadge(change)}
@@ -105,6 +113,30 @@ let {
   border-bottom: 1px solid var(--color-divider-subtle);
   background: transparent;
   color: inherit;
+}
+.change-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.35rem;
+  padding: 0 0.85rem;
+  border-bottom: 1px solid var(--color-divider-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-micro);
+}
+.change-stats-label {
+  margin-right: auto;
+}
+.change-stat {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.change-stat.added {
+  color: var(--color-change-add-text);
+}
+.change-stat.deleted {
+  color: var(--color-change-delete-text);
 }
 @media (hover: hover) {
   .change-row:hover {

@@ -107,6 +107,15 @@ test('counts the main and linked Git worktrees without scanning their files', as
   assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
 });
 
+test('reports added and deleted lines for tracked and untracked changes', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\nconst other = true;\n');
+  await writeFile(join(directory, 'notes.md'), '# New note\nSecond line\n');
+
+  const snapshot = await readRepositorySnapshot(directory);
+  assert.deepEqual(snapshot.changeStats, { additions: 4, deletions: 1 });
+});
+
 test('does not count a deleted worktree that only remains in Git metadata', async (t) => {
   const directory = await createRepository(t);
   const worktreeParent = await mkdtemp(join(tmpdir(), 'vampire-worktrees-'));

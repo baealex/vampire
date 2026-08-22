@@ -4,6 +4,11 @@ export type RepositoryChange = {
   previousPath?: string;
 };
 
+export type RepositoryChangeStats = {
+  additions: number;
+  deletions: number;
+};
+
 export type RepositoryDiscardResult = {
   path: string;
   untracked: boolean;
@@ -15,6 +20,7 @@ export type RepositorySnapshot = {
   directories: string[];
   ignored: string[];
   changes: RepositoryChange[];
+  changeStats: RepositoryChangeStats;
   truncated: boolean;
 };
 

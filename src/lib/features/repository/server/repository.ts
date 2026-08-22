@@ -21,6 +21,7 @@ import { basename, dirname, extname, isAbsolute, join, normalize, relative, reso
 import { promisify } from 'node:util';
 import type {
   RepositoryChange,
+  RepositoryChangeStats,
   RepositoryDiscardResult,
   RepositoryDiff,
   RepositoryDirectoryListing,
@@ -267,6 +268,55 @@ async function readGitChanges(cwd: string): Promise<RepositoryChange[]> {
   return parseGitChanges(stdout);
 }
 
+function parseGitNumstat(output: string): RepositoryChangeStats {
+  const stats: RepositoryChangeStats = { additions: 0, deletions: 0 };
+  for (const line of output.split('\n')) {
+    const [additionValue, deletionValue] = line.split('\t');
+    const additions = Number(additionValue);
+    const deletions = Number(deletionValue);
+    if (!Number.isInteger(additions) || additions < 0 || !Number.isInteger(deletions) || deletions < 0) continue;
+    stats.additions += additions;
+    stats.deletions += deletions;
+  }
+  return stats;
+}
+
+function addRepositoryChangeStats(target: RepositoryChangeStats, source: RepositoryChangeStats) {
+  target.additions += source.additions;
+  target.deletions += source.deletions;
+}
+
+async function readRepositoryChangeStats(cwd: string, changes: RepositoryChange[]): Promise<RepositoryChangeStats> {
+  if (changes.length === 0) return { additions: 0, deletions: 0 };
+
+  const stats: RepositoryChangeStats = { additions: 0, deletions: 0 };
+  const hasHead = await gitHeadExists(cwd);
+  const trackedChanges = changes.some((change) => change.status !== '??');
+  if (trackedChanges) {
+    const comparison = hasHead ? ['HEAD'] : ['--cached'];
+    const { stdout } = await runGit(cwd, ['diff', '--numstat', '--no-renames', ...comparison, '--', '.']);
+    addRepositoryChangeStats(stats, parseGitNumstat(stdout));
+
+    // An unborn repository has no HEAD comparison, so include its unstaged diff
+    // as well. This follows the staged/working sections shown in the diff viewer.
+    if (!hasHead) {
+      const { stdout: workingStdout } = await runGit(cwd, ['diff', '--numstat', '--no-renames', '--', '.']);
+      addRepositoryChangeStats(stats, parseGitNumstat(workingStdout));
+    }
+  }
+
+  for (const change of changes) {
+    if (change.status !== '??') continue;
+    const { stdout } = await runGit(
+      cwd,
+      ['diff', '--no-index', '--numstat', '--no-renames', '--', '/dev/null', change.path],
+      { acceptedExitCodes: [0, 1] }
+    );
+    addRepositoryChangeStats(stats, parseGitNumstat(stdout));
+  }
+  return stats;
+}
+
 async function gitHeadExists(cwd: string): Promise<boolean> {
   const { stdout } = await runGit(cwd, ['rev-parse', '--verify', 'HEAD'], { acceptedExitCodes: [0, 128] });
   return Boolean(stdout.trim());
@@ -418,6 +468,7 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
       directories: directory.directories,
       ignored: [],
       changes: [],
+      changeStats: { additions: 0, deletions: 0 },
       truncated: directory.truncated,
     };
   }
@@ -432,6 +483,7 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
     directories: directory.directories,
     ignored,
     changes,
+    changeStats: await readRepositoryChangeStats(root, changes),
     truncated: directory.truncated,
   };
 }
