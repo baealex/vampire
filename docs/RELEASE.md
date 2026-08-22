@@ -14,6 +14,13 @@ PRs or version inputs.
 - The tag is a release candidate until the final Release step succeeds.
 - npm publish and the GitHub Release happen only after all earlier steps pass.
 
+## Release notes
+
+Write the GitHub Release body using the project convention in
+[docs/RELEASE_NOTES.md](RELEASE_NOTES.md). Keep the note focused on
+user-visible outcomes, use the exact versioned install commands, and include
+the comparison link for the previous tag.
+
 ## Release gate
 
 When vX.Y.Z is pushed, Publish checks that the tag points to main and matches
