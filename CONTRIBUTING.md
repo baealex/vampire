@@ -39,13 +39,14 @@ The development server listens on `127.0.0.1:7677` by default.
 
 - `src/routes` contains SvelteKit page and API route entrypoints.
 - `src/lib/app` contains application composition and bootstrap state.
-- `src/lib/features/<feature>` contains feature-owned UI, client state, and feature-specific server behavior.
+- `src/lib/features/<feature>` contains feature-owned code. Keep Svelte components and browser-facing UI behavior in `ui`, external calls and client adapters in `api`, feature state and transformations in `model`, and Node-only implementation in `server`.
 - `src/lib/shared` contains domain-independent API helpers, contracts, theme, UI primitives, and utility code shared by features.
-- `src/server` contains the custom Node runtime entrypoint and its transport orchestration.
+- `src/lib/app/server` contains the custom Node runtime entrypoints; feature server behavior stays with its owning feature.
 - `src/lib` imports use the `~/lib/...` alias; same-feature leaf components may use relative imports.
 - The dependency direction is `app → features → shared`; `shared` must not depend on a feature, and SvelteKit routes should remain thin adapters.
 - `tools` contains development, build, release, and package smoke-test scripts; `bin` contains the npm executable entrypoint.
-- `tests` contains unit and integration tests, while `e2e` contains browser-server fixtures and Playwright tests.
+- Tests live beside the code they own; repository-level checks stay in `tools`, while `e2e` contains browser-server fixtures and Playwright tests.
+- Source tests use `.test.ts`, Svelte component tests use `.component.test.ts`, and `.spec.ts` is reserved for Playwright E2E.
 - `static` and `docs` contain shipped static assets and contributor-facing documentation.
 
 Run the local verification before squashing a working branch into main:

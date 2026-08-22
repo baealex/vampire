@@ -1,11 +1,14 @@
 {
-	"extends": "./tsconfig.node.json",
-	"compilerOptions": {
-		"types": ["node"]
-	},
-	"include": [
-		"e2e/**/*.ts",
-		"playwright.config.ts",
-		"tests/**/*.ts"
-	]
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "src/**/*.test.ts",
+    "tools/**/*.test.ts"
+  ]
 }

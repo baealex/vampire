@@ -5,7 +5,7 @@ const repositoryRoot = resolve(import.meta.dirname, '..');
 const outputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
 
 await build({
-  entryPoints: [resolve(repositoryRoot, 'src/server/serve.ts')],
+  entryPoints: [resolve(repositoryRoot, 'src/lib/app/server/serve.ts')],
   outfile: resolve(repositoryRoot, outputDirectory, 'vampire-server.js'),
   bundle: true,
   format: 'esm',

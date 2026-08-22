@@ -34,13 +34,16 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "node --import ./tools/register-ts-alias.mjs src/server/dev.ts",
+    "dev": "node --import ./tools/register-ts-alias.mjs src/lib/app/server/dev.ts",
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
     "check": "node tools/check.ts",
     "format": "node tools/format-changed.ts --write",
     "format:check": "node tools/format-changed.ts",
-    "test": "pnpm check && node --import ./tools/register-ts-alias.mjs --test tests/*.test.ts && pnpm build",
+    "test": "pnpm check && pnpm test:node && pnpm test:component && pnpm build",
+    "test:node": "node tools/run-node-tests.ts",
+    "test:component": "vitest run --config vitest.config.ts",
+    "test:component:watch": "vitest --config vitest.config.ts",
     "test:e2e": "playwright test",
     "prepack": "pnpm build"
   },
@@ -57,15 +60,20 @@
     "@sveltejs/adapter-node": "^5.5.7",
     "@sveltejs/kit": "^2.70.1",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@testing-library/user-event": "^14.6.5",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "bits-ui": "^2.18.1",
     "esbuild": "^0.28.1",
+    "jsdom": "^30.0.1",
     "svelte": "^5.56.7",
     "svelte-check": "^4.7.3",
     "typescript": "^5.0.0",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.11"
   }
 }

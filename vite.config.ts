@@ -10,8 +10,10 @@ function vampireRuntimeWebSocketPlugin(): Plugin {
     async configureServer(server) {
       if (!server.httpServer) return;
 
-      const { installTerminalWebSocket } = await server.ssrLoadModule('/src/server/terminal/websocket.ts');
-      const { installWorkspaceWebSocket } = await server.ssrLoadModule('/src/server/workspace/workspace-websocket.ts');
+      const { installTerminalWebSocket } = await server.ssrLoadModule('/src/lib/features/terminal/server/websocket.ts');
+      const { installWorkspaceWebSocket } = await server.ssrLoadModule(
+        '/src/lib/features/workspace/server/workspace-websocket.ts'
+      );
 
       // The dev runtime intentionally uses Vite's plain HTTP server. Vite's
       // public type also allows HTTP/2, so narrow it at this integration point.

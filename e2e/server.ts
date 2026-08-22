@@ -14,4 +14,4 @@ process.env.VAMPIRE_TOKEN = E2E_TOKEN;
 process.env.VAMPIRE_STATE_DIR = E2E_STATE_DIRECTORY;
 process.env.VAMPIRE_WORKSPACE_ROOTS = E2E_WORKSPACE_DIRECTORY;
 
-await import('../src/server/serve.ts');
+await import('../src/lib/app/server/serve.ts');

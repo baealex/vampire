@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { error, type RequestEvent } from '@sveltejs/kit';
-import { createSessionCookie, isAuthorized } from './session-cookie.ts';
+import { createSessionCookie, isAuthorized } from '~/lib/shared/server/session-cookie.ts';
 import { loginRetryAfter, recordLoginFailure, resetLoginFailures } from './login-rate-limit.ts';
 
 const MAX_LOGIN_BODY_BYTES = 8 * 1024;

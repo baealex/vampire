@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status.ts';
-import { terminalSubmissionData, terminalSubmissionSettleMs } from '~/lib/features/terminal/submission.ts';
+import { terminalSubmissionData, terminalSubmissionSettleMs } from '~/lib/features/terminal/ui/submission.ts';
 import { listProcesses, terminateProcessTrees, type ProcessRecord } from './process-cleanup.ts';
 
 const execFile = promisify(execFileCallback);

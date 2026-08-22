@@ -8,24 +8,28 @@ import CircleHelp from '@lucide/svelte/icons/circle-help';
 import Keyboard from '@lucide/svelte/icons/keyboard';
 import SquarePlay from '@lucide/svelte/icons/square-play';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
-import LoginScreen from '~/lib/features/auth/LoginScreen.svelte';
-import TmuxSetupScreen from '~/lib/features/system/TmuxSetupScreen.svelte';
+import LoginScreen from '~/lib/features/auth/ui/LoginScreen.svelte';
+import TmuxSetupScreen from '~/lib/features/system/ui/TmuxSetupScreen.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import { WorkspaceConnectionState } from '~/lib/app/workspace-connection-state.svelte';
-import WorkspaceWorkbench from '~/lib/features/repository/WorkspaceWorkbench.svelte';
+import WorkspaceWorkbench from '~/lib/features/repository/ui/WorkspaceWorkbench.svelte';
 import type { RepositoryTab } from '~/lib/shared/contracts/repository';
-import NewWorktreeDialog from '~/lib/features/workspace/NewWorktreeDialog.svelte';
-import WorkspaceNavigator from '~/lib/features/workspace/WorkspaceNavigator.svelte';
-import WorkspaceAliasDialog from '~/lib/features/workspace/WorkspaceAliasDialog.svelte';
-import WorkspaceAutomationsDialog from '~/lib/features/workspace/WorkspaceAutomationsDialog.svelte';
-import WorkspaceSettings from '~/lib/features/workspace/WorkspaceSettings.svelte';
-import { WorkspaceState } from '~/lib/features/workspace/workspace-state.svelte';
+import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.svelte';
+import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
+import WorkspaceAliasDialog from '~/lib/features/workspace/ui/WorkspaceAliasDialog.svelte';
+import WorkspaceAutomationsDialog from '~/lib/features/workspace/ui/WorkspaceAutomationsDialog.svelte';
+import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
+import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
 import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/workspace';
-import { isWorktreeWorkspace, workspaceName, workspaceRepositoryName } from '~/lib/features/workspace/workspace-view';
+import {
+  isWorktreeWorkspace,
+  workspaceName,
+  workspaceRepositoryName,
+} from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
-import TerminalHeader from '~/lib/features/terminal/TerminalHeader.svelte';
+import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 
 let { initialWorkspaceId = undefined }: { initialWorkspaceId?: string } = $props();
 

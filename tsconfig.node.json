@@ -16,5 +16,5 @@
     "target": "ES2023",
     "types": ["node"]
   },
-  "include": ["src/server/**/*.ts", "tools/**/*.ts"]
+  "include": ["src/lib/app/server/**/*.ts", "tools/**/*.ts"]
 }
