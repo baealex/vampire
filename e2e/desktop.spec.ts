@@ -795,7 +795,6 @@ test('keeps the new workspace dialog header fixed while browsing folders', async
 
   await page.setViewportSize({ width: 412, height: 640 });
   await page.goto('/');
-  await page.locator('.new-workspace-toggle').click();
   const dialog = page.getByRole('dialog', { name: 'Open a project' });
   const body = dialog.locator('.vampire-dialog-body');
   const header = dialog.locator('.vampire-dialog-header');
