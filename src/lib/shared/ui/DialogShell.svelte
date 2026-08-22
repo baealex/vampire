@@ -3,6 +3,7 @@ import { Dialog } from 'bits-ui';
 import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import X from '@lucide/svelte/icons/x';
 import type { Snippet } from 'svelte';
+import { focusFirstOverlayInput } from './overlay.ts';
 
 let {
   eyebrow,
@@ -34,8 +35,14 @@ let {
   footerVisible?: boolean;
 } = $props();
 
+let contentElement = $state<HTMLElement | null>(null);
+
 function handleOpenChange(open: boolean) {
   if (!open && !closeDisabled) close();
+}
+
+function handleOpenAutoFocus(event: Event) {
+  focusFirstOverlayInput(contentElement, event);
 }
 </script>
 
@@ -43,9 +50,11 @@ function handleOpenChange(open: boolean) {
   <Dialog.Portal>
     <Dialog.Overlay class="vampire-dialog-overlay" />
     <Dialog.Content
+      bind:ref={contentElement}
       id={contentId}
       data-vampire-overlay
       class={`vampire-dialog-content${variant === 'default' ? '' : ` vampire-dialog-content--${variant}`}`}
+      onOpenAutoFocus={handleOpenAutoFocus}
       {onCloseAutoFocus}
       escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}
       interactOutsideBehavior={closeDisabled ? 'ignore' : 'close'}

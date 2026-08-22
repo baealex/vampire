@@ -312,6 +312,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await page.getByRole('button', { name: 'Inspect listening ports' }).click();
   const portsDialog = page.getByRole('dialog', { name: 'Listening ports' });
   await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
+  await expect(portsDialog.getByRole('searchbox', { name: 'Filter listening ports' })).toBeFocused();
   await expect(page.getByText('2 ports')).toBeVisible();
   const developmentServer = page.locator('.listening-port-row', { hasText: '5173' });
   await expect(developmentServer).toContainText('Localhost');
@@ -356,6 +357,7 @@ test('stores agent automations and exposes the exact live note path only on requ
   await page.getByRole('menuitem', { name: 'Agent automations' }).click();
   const automationDialog = page.getByRole('dialog', { name: 'Agent automations' });
   await expect(automationDialog).toBeVisible();
+  await expect(automationDialog.getByLabel('Name')).toBeFocused();
   await automationDialog.getByLabel('Name').fill('Review project state');
   await automationDialog.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
   await automationDialog.getByRole('button', { name: 'Add automation' }).click();
@@ -651,6 +653,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     await page.getByRole('menuitem', { name: 'New isolated workspace' }).click();
     await expect(page.getByRole('heading', { name: 'New isolated workspace' })).toBeVisible();
     const taskName = page.getByLabel('Task name');
+    await expect(taskName).toBeFocused();
     expect(await taskName.getAttribute('placeholder')).toBeNull();
     await taskName.fill('Parallel task');
     await page.getByRole('button', { name: 'Create workspace' }).click();
