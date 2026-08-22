@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { errorHasCode } from '~/lib/shared/server/path-policy.ts';
+import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
 import {
   normalizeWorkspaceAutomations,
   type WorkspaceAutomation,
@@ -41,12 +41,30 @@ export interface WorkspaceConnection {
   cwd: string;
 }
 
-export function workspaceStatePath(): string {
-  const directory = process.env.VAMPIRE_STATE_DIR?.trim() || join(homedir(), '.vampire');
-  return join(resolve(directory), 'sessions.json');
+type WorkspaceStoreGlobal = typeof globalThis & {
+  __vampireWorkspaceStoreMutationState?: { queue: Promise<void> };
+};
+
+const storeGlobal = globalThis as WorkspaceStoreGlobal;
+const mutationState = (storeGlobal.__vampireWorkspaceStoreMutationState ??= {
+  queue: Promise.resolve(),
+});
+
+export async function withWorkspaceStoreMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = mutationState.queue;
+  let release: () => void;
+  mutationState.queue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release!();
+  }
 }
 
-export async function readWorkspaceStateFile(file = workspaceStatePath()): Promise<unknown> {
+export async function readWorkspaceStateFile(file = vampireStatePath()): Promise<unknown> {
   return JSON.parse(await readFile(file, 'utf8')) as unknown;
 }
 
@@ -221,7 +239,7 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
   };
 }
 
-export async function readWorkspaceStore(file = workspaceStatePath()): Promise<WorkspaceStore> {
+export async function readWorkspaceStore(file = vampireStatePath()): Promise<WorkspaceStore> {
   try {
     return parseWorkspaceStore(await readWorkspaceStateFile(file));
   } catch (error) {
@@ -230,7 +248,7 @@ export async function readWorkspaceStore(file = workspaceStatePath()): Promise<W
   }
 }
 
-export async function writeWorkspaceStore(state: WorkspaceStore, file = workspaceStatePath()): Promise<void> {
+export async function writeWorkspaceStore(state: WorkspaceStore, file = vampireStatePath()): Promise<void> {
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   const temporaryFile = `${file}.${randomUUID()}.tmp`;
   await writeFile(temporaryFile, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });

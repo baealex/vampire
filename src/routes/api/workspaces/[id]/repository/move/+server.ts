@@ -1,7 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '~/lib/features/auth/server/auth';
 import { moveWorkspaceEntry, RepositoryReadError } from '~/lib/features/repository/server/repository.ts';
-import { findWorkspaceDirectory } from '~/lib/features/workspace/server/workspace-registry';
+import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
 import type { WorkspaceEntryKind, WorkspaceMoveConflict } from '~/lib/shared/contracts/repository';
 
 function repositoryErrorStatus(reason: string): number {

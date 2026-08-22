@@ -5,7 +5,7 @@ import {
   favoriteManagedBackgroundCommand,
   removeManagedBackgroundCommandFavorite,
   WorkspaceMutationError,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 
 async function readCommand(request: Request): Promise<string> {
   const body: unknown = await request.json().catch(() => undefined);

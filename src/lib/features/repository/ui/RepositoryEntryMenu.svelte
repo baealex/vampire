@@ -1,10 +1,11 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import FilePlus from '@lucide/svelte/icons/file-plus';
 import FolderPlus from '@lucide/svelte/icons/folder-plus';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import type { WorkspaceEntryKind } from '~/lib/shared/contracts/repository';
 
@@ -48,27 +49,27 @@ const name = $derived(path.split('/').pop() || path);
       <strong>{name}</strong>
       <span>{kind === 'directory' ? 'Folder actions' : 'File actions'}</span>
     </div>
-    <DropdownMenu.Separator class="vampire-menu-separator" />
+    <DropdownMenuSeparator class="vampire-menu-separator" />
     {#if kind === 'directory'}
-      <DropdownMenu.Item class="vampire-menu-item" onSelect={onCreateFile}>
+      <DropdownMenuItem class="vampire-menu-item" onSelect={onCreateFile}>
         <FilePlus size={16} strokeWidth={1.8} aria-hidden="true" />
         New file
-      </DropdownMenu.Item>
-      <DropdownMenu.Item class="vampire-menu-item" onSelect={onCreateFolder}>
+      </DropdownMenuItem>
+      <DropdownMenuItem class="vampire-menu-item" onSelect={onCreateFolder}>
         <FolderPlus size={16} strokeWidth={1.8} aria-hidden="true" />
         New folder
-      </DropdownMenu.Item>
-      <DropdownMenu.Separator class="vampire-menu-separator" />
+      </DropdownMenuItem>
+      <DropdownMenuSeparator class="vampire-menu-separator" />
     {/if}
-    <DropdownMenu.Item class="vampire-menu-item" onSelect={onInsertPath}>
+    <DropdownMenuItem class="vampire-menu-item" onSelect={onInsertPath}>
       <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
       Insert path into terminal
-    </DropdownMenu.Item>
-    <DropdownMenu.Separator class="vampire-menu-separator" />
-    <DropdownMenu.Item class="vampire-menu-item danger" onSelect={onDelete}>
+    </DropdownMenuItem>
+    <DropdownMenuSeparator class="vampire-menu-separator" />
+    <DropdownMenuItem class="vampire-menu-item danger" onSelect={onDelete}>
       <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
       Delete
-    </DropdownMenu.Item>
+    </DropdownMenuItem>
   {/snippet}
 </DropdownMenuShell>
 

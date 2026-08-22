@@ -4,7 +4,7 @@ import {
   findManagedWorkspaceNote,
   WorkspaceMutationError,
   updateManagedWorkspaceNote,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 import {
   normalizeWorkspaceNote,
   workspaceNoteByteLength,

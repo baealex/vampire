@@ -4,7 +4,7 @@ import {
   WorkspaceMutationError,
   updateManagedStartupProfile,
   updateManagedWorkspaceStartup,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 import { isLaunchProfileList } from '~/lib/shared/contracts/launch-profiles';
 
 export const PUT: RequestHandler = async (event) => {

@@ -4,7 +4,7 @@ import {
   readManagedLaunchProfiles,
   WorkspaceMutationError,
   updateManagedLaunchProfiles,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 import { isLaunchProfileList } from '~/lib/shared/contracts/launch-profiles';
 
 export const GET: RequestHandler = async (event) => {

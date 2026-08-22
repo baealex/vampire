@@ -8,10 +8,7 @@ import {
   queueManagedWorkspaceNoteSummary,
 } from '~/lib/features/workspace/server/workspace-automations.ts';
 import { managedWorkspaceNotePath } from '~/lib/features/workspace/server/workspace-note-file.ts';
-import {
-  findManagedWorkspaceNote,
-  updateManagedWorkspaceNote,
-} from '~/lib/features/workspace/server/workspace-registry.ts';
+import { findManagedWorkspaceNote, updateManagedWorkspaceNote } from '~/lib/app/server/workspace-registry.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,

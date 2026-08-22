@@ -1,6 +1,6 @@
 import { createServer } from 'vite';
 import { runtimeConfig } from '~/lib/shared/server/runtime-config.ts';
-import { installWorkspaceAutomationRunner } from '~/lib/features/workspace/server/workspace-automation-runner.ts';
+import { installWorkspaceAutomationRunner } from './workspace-automation-runner.ts';
 
 const config = runtimeConfig();
 const vite = await createServer({

@@ -4,7 +4,7 @@ import LogOut from '@lucide/svelte/icons/log-out';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 import ThemeToggle from '~/lib/shared/theme/ThemeToggle.svelte';
 import ToolbarButton from '~/lib/shared/ui/ToolbarButton.svelte';
-import StatusPluginBar from './StatusPluginBar.svelte';
+import StatusPluginBar from '~/lib/features/status/ui/StatusPluginBar.svelte';
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';
 
 let {

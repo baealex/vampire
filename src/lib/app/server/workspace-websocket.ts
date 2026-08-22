@@ -7,7 +7,7 @@ import {
   listManagedWorkspaces,
   readManagedLaunchProfiles,
   readManagedWorkspacePreferences,
-} from '~/lib/features/workspace/server/workspace-registry.ts';
+} from './workspace-registry.ts';
 import {
   listTmuxSessionActivity,
   type TmuxProcessHint,

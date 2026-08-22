@@ -7,7 +7,7 @@ import {
   workspaceRepositoryName,
 } from '~/lib/features/workspace/model/workspace-view';
 import BackgroundProcesses from '~/lib/features/terminal/ui/BackgroundProcesses.svelte';
-import GlobalStatusBar from '~/lib/features/status/ui/GlobalStatusBar.svelte';
+import GlobalStatusBar from './GlobalStatusBar.svelte';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 import TerminalViewport from '~/lib/features/terminal/ui/TerminalViewport.svelte';
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';

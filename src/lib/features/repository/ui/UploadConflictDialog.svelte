@@ -1,6 +1,8 @@
 <script lang="ts">
-import { AlertDialog } from 'bits-ui';
 import AlertDialogShell from '~/lib/shared/ui/AlertDialogShell.svelte';
+import AlertDialogAction from '~/lib/shared/ui/AlertDialogAction.svelte';
+import AlertDialogCancel from '~/lib/shared/ui/AlertDialogCancel.svelte';
+import AlertDialogDescription from '~/lib/shared/ui/AlertDialogDescription.svelte';
 
 let {
   count,
@@ -35,11 +37,11 @@ async function resolve(conflict: 'skip' | 'rename' | 'overwrite') {
   closeDisabled={Boolean(action)}
 >
   {#snippet children()}
-    <AlertDialog.Description class="upload-conflict-description">
+    <AlertDialogDescription class="upload-conflict-description">
       {count === 1
 				? `“${firstPath}” is already in this workspace.`
 				: `“${firstPath}” and ${count - 1} more files are already in this workspace.`}
-    </AlertDialog.Description>
+    </AlertDialogDescription>
     <p class="upload-conflict-help">Keep both adds a numbered copy. Replace overwrites the existing files.</p>
     {#if errorMessage}
       <p class="upload-conflict-error" role="alert">{errorMessage}</p>
@@ -47,27 +49,27 @@ async function resolve(conflict: 'skip' | 'rename' | 'overwrite') {
   {/snippet}
   {#snippet footer()}
     <div class="vampire-dialog-actions upload-conflict-actions">
-      <AlertDialog.Cancel
+      <AlertDialogCancel
         class="vampire-dialog-secondary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('skip'); }}
       >
         {action === 'skip' ? 'Skipping…' : 'Skip existing'}
-      </AlertDialog.Cancel>
-      <AlertDialog.Action
+      </AlertDialogCancel>
+      <AlertDialogAction
         class="vampire-dialog-primary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('rename'); }}
       >
         {action === 'rename' ? 'Saving copies…' : 'Keep both'}
-      </AlertDialog.Action>
-      <AlertDialog.Action
+      </AlertDialogAction>
+      <AlertDialogAction
         class="vampire-dialog-danger-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('overwrite'); }}
       >
         {action === 'overwrite' ? 'Replacing…' : 'Replace'}
-      </AlertDialog.Action>
+      </AlertDialogAction>
     </div>
   {/snippet}
 </AlertDialogShell>

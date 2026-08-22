@@ -1,6 +1,8 @@
 <script lang="ts">
-import { AlertDialog } from 'bits-ui';
 import AlertDialogShell from '~/lib/shared/ui/AlertDialogShell.svelte';
+import AlertDialogAction from '~/lib/shared/ui/AlertDialogAction.svelte';
+import AlertDialogCancel from '~/lib/shared/ui/AlertDialogCancel.svelte';
+import AlertDialogDescription from '~/lib/shared/ui/AlertDialogDescription.svelte';
 import type { WorkspaceEntryKind } from '~/lib/shared/contracts/repository';
 
 let {
@@ -40,9 +42,9 @@ async function resolve(resolution: 'cancel' | 'rename') {
   closeDisabled={Boolean(action)}
 >
   {#snippet children()}
-    <AlertDialog.Description class="move-conflict-description">
+    <AlertDialogDescription class="move-conflict-description">
       “{name}” already exists in {destination}.
-    </AlertDialog.Description>
+    </AlertDialogDescription>
     <p class="move-conflict-help">
       Keep both moves the {kind === 'directory' ? 'folder' : 'file'} with a numbered name. Existing content will not be
       replaced.
@@ -53,20 +55,20 @@ async function resolve(resolution: 'cancel' | 'rename') {
   {/snippet}
   {#snippet footer()}
     <div class="vampire-dialog-actions move-conflict-actions">
-      <AlertDialog.Cancel
+      <AlertDialogCancel
         class="vampire-dialog-secondary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('cancel'); }}
       >
         {action === 'cancel' ? 'Canceling…' : 'Cancel'}
-      </AlertDialog.Cancel>
-      <AlertDialog.Action
+      </AlertDialogCancel>
+      <AlertDialogAction
         class="vampire-dialog-primary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('rename'); }}
       >
         {action === 'rename' ? 'Moving…' : 'Keep both'}
-      </AlertDialog.Action>
+      </AlertDialogAction>
     </div>
   {/snippet}
 </AlertDialogShell>

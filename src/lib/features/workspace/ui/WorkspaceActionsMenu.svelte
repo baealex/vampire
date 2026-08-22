@@ -1,5 +1,4 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import Clock3 from '@lucide/svelte/icons/clock-3';
 import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
@@ -7,6 +6,8 @@ import LogOut from '@lucide/svelte/icons/log-out';
 import Tags from '@lucide/svelte/icons/tags';
 import SquarePlay from '@lucide/svelte/icons/square-play';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace';
 import { isWorktreeWorkspace, workspaceName } from '../model/workspace-view';
@@ -83,7 +84,7 @@ async function confirmSelectedAction() {
       <strong>{workspaceName(workspace)}</strong>
       <span>{workspace.cwd}</span>
     </div>
-    <DropdownMenu.Separator class="vampire-menu-separator" />
+    <DropdownMenuSeparator class="vampire-menu-separator" />
 
     {#if confirming}
       <div
@@ -107,59 +108,59 @@ async function confirmSelectedAction() {
           {/if}
         </p>
         <div class="vampire-menu-confirm-actions">
-          <DropdownMenu.Item class="vampire-menu-item" onSelect={() => confirming = undefined}>
+          <DropdownMenuItem class="vampire-menu-item" onSelect={() => confirming = undefined}>
             Cancel
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
+          </DropdownMenuItem>
+          <DropdownMenuItem
             class="vampire-menu-item danger"
             disabled={Boolean(action)}
             onSelect={(event) => { event.preventDefault(); void confirmSelectedAction(); }}
           >
             {action ? (confirming === 'close' ? 'Closing…' : 'Removing…') : (confirming === 'close' ? 'Close workspace' : 'Remove workspace')}
-          </DropdownMenu.Item>
+          </DropdownMenuItem>
         </div>
         {#if confirmError}
           <p class="vampire-menu-error" role="alert">{confirmError}</p>
         {/if}
       </div>
     {:else}
-      <DropdownMenu.Item class="vampire-menu-item" onSelect={() => onAlias(workspace)}>
+      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onAlias(workspace)}>
         <Tags size={16} strokeWidth={1.8} aria-hidden="true" />
         {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
-      </DropdownMenu.Item>
+      </DropdownMenuItem>
       {#if workspace.isGitRepository && workspace.workspaceAvailable !== false}
-        <DropdownMenu.Item class="vampire-menu-item" onSelect={() => onNewWorktree(workspace)}>
+        <DropdownMenuItem class="vampire-menu-item" onSelect={() => onNewWorktree(workspace)}>
           <GitBranchPlus size={16} strokeWidth={1.8} aria-hidden="true" />
           New isolated workspace
-        </DropdownMenu.Item>
+        </DropdownMenuItem>
       {/if}
-      <DropdownMenu.Item class="vampire-menu-item" onSelect={() => onSettings(workspace)}>
+      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onSettings(workspace)}>
         <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
         Startup profile
-      </DropdownMenu.Item>
-      <DropdownMenu.Item class="vampire-menu-item" onSelect={() => onAutomations(workspace)}>
+      </DropdownMenuItem>
+      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onAutomations(workspace)}>
         <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
         Agent automations
-      </DropdownMenu.Item>
-      <DropdownMenu.Separator class="vampire-menu-separator" />
+      </DropdownMenuItem>
+      <DropdownMenuSeparator class="vampire-menu-separator" />
       {#if workspace.state === 'running'}
-        <DropdownMenu.Item
+        <DropdownMenuItem
           class="vampire-menu-item"
           disabled={Boolean(action)}
           onSelect={(event) => requestConfirmation(event, 'close')}
         >
           <LogOut size={16} strokeWidth={1.8} aria-hidden="true" />
           Close workspace
-        </DropdownMenu.Item>
+        </DropdownMenuItem>
       {/if}
-      <DropdownMenu.Item
+      <DropdownMenuItem
         class="vampire-menu-item danger"
         disabled={Boolean(action)}
         onSelect={(event) => requestConfirmation(event, 'remove')}
       >
         <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
         Remove workspace
-      </DropdownMenu.Item>
+      </DropdownMenuItem>
     {/if}
   {/snippet}
 </DropdownMenuShell>

@@ -17,15 +17,16 @@ import {
   ensureManagedWorkspaceNoteFile,
   readManagedWorkspaceNoteFile,
   writeManagedWorkspaceNoteFile,
-} from './workspace-note-file.ts';
-import { createWorkspaceNotePreview } from './workspace-note.ts';
+} from '~/lib/features/workspace/server/workspace-note-file.ts';
+import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
   readWorkspaceStore as readState,
   type StoredWorkspace,
+  withWorkspaceStoreMutation,
   writeWorkspaceStore as writeState,
-} from './workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.ts';
 import {
   resolveAllowedWorkspaceDirectory,
   resolveExistingWorkspaceDirectory,
@@ -190,30 +191,7 @@ function normalizeWorkspaceAlias(alias: string): string {
   return normalizedAlias;
 }
 
-type WorkspaceRegistryGlobal = typeof globalThis & {
-  __vampireWorkspaceRegistryMutationState?: { queue: Promise<void> };
-};
-
-const registryGlobal = globalThis as WorkspaceRegistryGlobal;
-const mutationState = (registryGlobal.__vampireWorkspaceRegistryMutationState ??= {
-  queue: Promise.resolve(),
-});
-
-export async function withWorkspaceRegistryMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const previous = mutationState.queue;
-  let release: () => void;
-  mutationState.queue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release!();
-  }
-}
-
-const exclusively = withWorkspaceRegistryMutation;
+const exclusively = withWorkspaceStoreMutation;
 
 export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
   const [state, tmuxSessions] = await Promise.all([readState(), listTmuxSessions()]);

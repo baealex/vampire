@@ -1,11 +1,11 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { Popover } from 'bits-ui';
 import Check from '@lucide/svelte/icons/check';
 import ExternalLink from '@lucide/svelte/icons/external-link';
 import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
 import Plus from '@lucide/svelte/icons/plus';
 import type { StatusPluginMenuEntry, StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin.ts';
+import PopoverShell from '~/lib/shared/ui/PopoverShell.svelte';
 import StatusPluginSettings from './StatusPluginSettings.svelte';
 
 type StatusPluginItem = Extract<StatusPluginMenuEntry, { type: 'item' }>;
@@ -109,92 +109,87 @@ $effect(() => {
   <div class="status-plugin-scroll">
     <div class="status-plugin-list">
       {#each plugins as plugin (plugin.id)}
-        <Popover.Root
+        <PopoverShell
           open={openPluginId === plugin.id}
           onOpenChange={(open) => handlePopoverOpenChange(plugin.id, open)}
+          contentEnabled={!dismissPopovers}
+          contentClass="status-plugin-popover"
+          align="start"
+          sideOffset={6}
+          alignOffset={popoverAlignOffset}
+          trapFocus={false}
+          onInteractOutside={handleInteractOutside}
+          onCloseAutoFocus={handleCloseAutoFocus}
+          triggerClass={`status-plugin${plugin.state === 'error' || plugin.state === 'stale' ? ' status-plugin--problem' : ''}`}
+          triggerLabel={pluginLabel(plugin)}
+          triggerTitle={plugin.tooltip}
+          triggerTone={plugin.tone ?? 'neutral'}
         >
-          <Popover.Trigger
-            type="button"
-            class={`status-plugin${plugin.state === 'error' || plugin.state === 'stale' ? ' status-plugin--problem' : ''}`}
-            data-tone={plugin.tone ?? 'neutral'}
-            aria-label={pluginLabel(plugin)}
-            title={plugin.tooltip}
-          >
+          {#snippet trigger()}
             <span>{plugin.name}</span>
             <output>{plugin.state === 'loading' ? '…' : (plugin.text ?? '—')}</output>
             {#if plugin.state === 'error' || plugin.state === 'stale'}
               <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
             {/if}
-          </Popover.Trigger>
-          {#if !dismissPopovers}
-            <Popover.Portal>
-              <Popover.Content
-                class="status-plugin-popover"
-                side="bottom"
-                align="start"
-                sideOffset={6}
-                alignOffset={popoverAlignOffset}
-                trapFocus={false}
-                onInteractOutside={handleInteractOutside}
-                onCloseAutoFocus={handleCloseAutoFocus}
-              >
-                <div class="status-plugin-popover__header">
-                  <strong>{plugin.name}</strong>
-                  <output>{plugin.state === 'loading' ? 'Loading…' : (plugin.text ?? '—')}</output>
+          {/snippet}
+          {#snippet children()}
+            {#if !dismissPopovers}
+              <div class="status-plugin-popover__header">
+                <strong>{plugin.name}</strong>
+                <output>{plugin.state === 'loading' ? 'Loading…' : (plugin.text ?? '—')}</output>
+              </div>
+              {#if plugin.progress !== undefined}
+                <div
+                  class="status-plugin-progress"
+                  role="progressbar"
+                  aria-label={`${plugin.name} usage`}
+                  aria-valuenow={plugin.progress}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <span style={`width: ${plugin.progress}%`}></span>
                 </div>
-                {#if plugin.progress !== undefined}
-                  <div
-                    class="status-plugin-progress"
-                    role="progressbar"
-                    aria-label={`${plugin.name} usage`}
-                    aria-valuenow={plugin.progress}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                  >
-                    <span style={`width: ${plugin.progress}%`}></span>
-                  </div>
-                {/if}
-                {#if plugin.menu?.length}
-                  <div class="status-plugin-menu" role="list">
-                    {#each plugin.menu as entry}
-                      {#if entry.type === 'separator'}
-                        <div class="status-plugin-menu-separator" role="separator"></div>
-                      {:else if entry.type === 'heading'}
-                        <div class="status-plugin-menu-heading">
-                          <strong>{entry.text}</strong>
-                          {#if entry.badge}
-                            <span>{entry.badge}</span>
-                          {/if}
-                        </div>
-                      {:else}
-                        <div
-                          class="status-plugin-menu-item"
-                          data-tone={entry.tone ?? 'neutral'}
-                          style={`--status-menu-indent: ${(entry.indent ?? 0) * 0.8}rem`}
-                          role="listitem"
-                        >
-                          {#if entry.href}
-                            <a href={entry.href} target="_blank" rel="noreferrer">{@render menuItemContent(entry)}</a>
-                          {:else}
-                            <div>{@render menuItemContent(entry)}</div>
-                          {/if}
-                        </div>
-                      {/if}
-                    {/each}
-                  </div>
-                {/if}
-                {#if plugin.error}
-                  <p class="status-plugin-error" role="status">{plugin.error}</p>
-                {/if}
-                <div class="status-plugin-times">
-                  {#if plugin.updatedAt}
-                    <span>Updated {timestampLabel(plugin.updatedAt)}</span>
-                  {/if}
+              {/if}
+              {#if plugin.menu?.length}
+                <div class="status-plugin-menu" role="list">
+                  {#each plugin.menu as entry}
+                    {#if entry.type === 'separator'}
+                      <div class="status-plugin-menu-separator" role="separator"></div>
+                    {:else if entry.type === 'heading'}
+                      <div class="status-plugin-menu-heading">
+                        <strong>{entry.text}</strong>
+                        {#if entry.badge}
+                          <span>{entry.badge}</span>
+                        {/if}
+                      </div>
+                    {:else}
+                      <div
+                        class="status-plugin-menu-item"
+                        data-tone={entry.tone ?? 'neutral'}
+                        style={`--status-menu-indent: ${(entry.indent ?? 0) * 0.8}rem`}
+                        role="listitem"
+                      >
+                        {#if entry.href}
+                          <a href={entry.href} target="_blank" rel="noreferrer">{@render menuItemContent(entry)}</a>
+                        {:else}
+                          <div>{@render menuItemContent(entry)}</div>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/each}
                 </div>
-              </Popover.Content>
-            </Popover.Portal>
-          {/if}
-        </Popover.Root>
+              {/if}
+              {#if plugin.error}
+                <p class="status-plugin-error" role="status">{plugin.error}</p>
+              {/if}
+              <div class="status-plugin-times">
+                {#if plugin.updatedAt}
+                  <span>Updated {timestampLabel(plugin.updatedAt)}</span>
+                {/if}
+              </div>
+            {/if}
+          {/snippet}
+        </PopoverShell>
       {/each}
       <button
         type="button"

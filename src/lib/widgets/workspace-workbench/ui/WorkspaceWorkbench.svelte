@@ -1,6 +1,6 @@
 <script lang="ts">
 import { onMount, untrack } from 'svelte';
-import Terminal from '~/lib/features/terminal/ui/Terminal.svelte';
+import Terminal from './Terminal.svelte';
 import type { ManagedWorkspace, MobilePanel, WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
 import { workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';
@@ -8,13 +8,13 @@ import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
-import MoveConflictDialog from './MoveConflictDialog.svelte';
-import RepositoryPanel from './RepositoryPanel.svelte';
-import RepositoryViewer from './RepositoryViewer.svelte';
-import WorkspaceNoteEditor from '~/lib/features/terminal/ui/WorkspaceNoteEditor.svelte';
-import UploadConflictDialog from './UploadConflictDialog.svelte';
-import { uploadSelectionFromDataTransfer } from '../api/upload';
-import { RepositoryWorkspaceState } from '../model/workspace-state.svelte';
+import MoveConflictDialog from '~/lib/features/repository/ui/MoveConflictDialog.svelte';
+import RepositoryPanel from '~/lib/features/repository/ui/RepositoryPanel.svelte';
+import RepositoryViewer from '~/lib/features/repository/ui/RepositoryViewer.svelte';
+import WorkspaceNoteEditor from '~/lib/features/workspace/ui/WorkspaceNoteEditor.svelte';
+import UploadConflictDialog from '~/lib/features/repository/ui/UploadConflictDialog.svelte';
+import { uploadSelectionFromDataTransfer } from '~/lib/features/repository/api/upload';
+import { RepositoryWorkspaceState } from '~/lib/features/repository/model/workspace-state.svelte';
 import type { RepositorySelection, RepositoryTab } from '~/lib/shared/contracts/repository';
 
 let {

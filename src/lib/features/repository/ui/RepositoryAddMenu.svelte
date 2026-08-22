@@ -1,10 +1,11 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import FilePlus from '@lucide/svelte/icons/file-plus';
 import Files from '@lucide/svelte/icons/files';
 import FolderPlus from '@lucide/svelte/icons/folder-plus';
 import FolderUp from '@lucide/svelte/icons/folder-up';
 import Plus from '@lucide/svelte/icons/plus';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 
 let {
@@ -37,24 +38,24 @@ let {
       <strong>Add to workspace</strong>
       <span>Create or choose</span>
     </div>
-    <DropdownMenu.Separator class="vampire-menu-separator" />
-    <DropdownMenu.Item class="vampire-menu-item" {disabled} onSelect={onCreateFile}>
+    <DropdownMenuSeparator class="vampire-menu-separator" />
+    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onCreateFile}>
       <FilePlus size={16} strokeWidth={1.8} aria-hidden="true" />
       New file
-    </DropdownMenu.Item>
-    <DropdownMenu.Item class="vampire-menu-item" {disabled} onSelect={onCreateFolder}>
+    </DropdownMenuItem>
+    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onCreateFolder}>
       <FolderPlus size={16} strokeWidth={1.8} aria-hidden="true" />
       New folder
-    </DropdownMenu.Item>
-    <DropdownMenu.Separator class="vampire-menu-separator" />
-    <DropdownMenu.Item class="vampire-menu-item" {disabled} onSelect={onUploadFiles}>
+    </DropdownMenuItem>
+    <DropdownMenuSeparator class="vampire-menu-separator" />
+    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onUploadFiles}>
       <Files size={16} strokeWidth={1.8} aria-hidden="true" />
       Choose files…
-    </DropdownMenu.Item>
-    <DropdownMenu.Item class="vampire-menu-item" {disabled} onSelect={onUploadFolder}>
+    </DropdownMenuItem>
+    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onUploadFolder}>
       <FolderUp size={16} strokeWidth={1.8} aria-hidden="true" />
       Choose folder…
-    </DropdownMenu.Item>
+    </DropdownMenuItem>
   {/snippet}
 </DropdownMenuShell>
 

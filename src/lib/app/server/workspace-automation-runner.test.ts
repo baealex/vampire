@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  automationSubmissionTerminal,
-  prepareAutomationSubmission,
-} from '~/lib/features/workspace/server/workspace-automation-runner.ts';
+import { automationSubmissionTerminal, prepareAutomationSubmission } from './workspace-automation-runner.ts';
 import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.ts';
 import type { TmuxSession } from '~/lib/features/terminal/server/tmux.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';

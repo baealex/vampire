@@ -4,7 +4,7 @@ import { mkdir, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { errorHasCode, pathStaysInside } from '~/lib/shared/server/path-policy.ts';
-import { workspaceStatePath } from '~/lib/features/workspace/server/workspace-store.ts';
+import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
 
 export const WORKTREE_LABEL_MAX_LENGTH = 80;
 
@@ -211,7 +211,7 @@ export async function createGitWorktree(
   const suffix = id.slice(0, 8);
   const slug = slugify(label);
   const { sourceRoot, commonDirectory } = await repositoryDetails(cwd);
-  const requestedManagedRoot = resolve(options.managedRoot ?? join(dirname(workspaceStatePath()), 'worktrees'));
+  const requestedManagedRoot = resolve(options.managedRoot ?? join(dirname(vampireStatePath()), 'worktrees'));
   await mkdir(requestedManagedRoot, { recursive: true, mode: 0o700 });
   const managedRoot = await realpath(requestedManagedRoot);
   if (pathStaysInside(sourceRoot, managedRoot)) {
@@ -262,7 +262,7 @@ export async function removeManagedGitWorktree(
   options: RemoveManagedGitWorktreeOptions = {}
 ): Promise<void> {
   const id = creationId(worktree.id);
-  const requestedManagedRoot = resolve(options.managedRoot ?? join(dirname(workspaceStatePath()), 'worktrees'));
+  const requestedManagedRoot = resolve(options.managedRoot ?? join(dirname(vampireStatePath()), 'worktrees'));
   const managedRoot = (await canonicalLocation(requestedManagedRoot)).path;
   const workspaceDirectory = join(managedRoot, id);
   const targetLocation = await canonicalLocation(worktree.cwd);

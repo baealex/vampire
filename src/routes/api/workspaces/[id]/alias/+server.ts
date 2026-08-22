@@ -1,9 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import {
-  WorkspaceMutationError,
-  updateManagedWorkspaceAlias,
-} from '~/lib/features/workspace/server/workspace-registry';
+import { WorkspaceMutationError, updateManagedWorkspaceAlias } from '~/lib/app/server/workspace-registry';
 
 export const PUT: RequestHandler = async (event) => {
   requireAuthentication(event);

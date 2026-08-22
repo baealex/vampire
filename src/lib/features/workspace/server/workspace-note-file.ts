@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasCode } from '~/lib/shared/server/path-policy.ts';
+import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
 import { normalizeWorkspaceNote, workspaceNoteByteLength, WORKSPACE_NOTE_MAX_BYTES } from './workspace-note.ts';
-import { workspaceStatePath } from './workspace-store.ts';
 
 const SAFE_WORKSPACE_NOTE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -13,7 +13,7 @@ function managedWorkspaceNoteFileName(workspaceId: string): string {
 }
 
 export function managedWorkspaceNotePath(workspaceId: string): string {
-  return join(dirname(workspaceStatePath()), managedWorkspaceNoteFileName(workspaceId));
+  return join(dirname(vampireStatePath()), managedWorkspaceNoteFileName(workspaceId));
 }
 
 async function ensureStateDirectory(path: string): Promise<void> {

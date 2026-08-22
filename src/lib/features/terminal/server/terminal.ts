@@ -2,7 +2,6 @@ import { execFile as execFileCallback, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import WebSocket from 'ws';
 
-import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.ts';
 import {
   decodeTerminalClientMessage,
   encodeTerminalServerMessage,
@@ -11,7 +10,7 @@ import {
   type TerminalServerMessage,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { terminalColorReport, type TerminalColorSlot } from '~/lib/shared/contracts/terminal-color.ts';
-import { terminalSubmissionData, terminalSubmissionSettleMs } from '~/lib/features/terminal/ui/submission.ts';
+import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.ts';
 import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
 
 export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
@@ -422,13 +421,10 @@ function message(socket: WebSocket, payload: TerminalServerMessage): void {
 
 export async function attachTerminal(
   socket: WebSocket,
-  workspaceId: string,
+  tmuxSession: string,
   initialSize: TerminalSize | undefined,
   options: AttachTerminalOptions = {}
 ): Promise<void> {
-  const connection = await findWorkspaceConnection(workspaceId);
-  if (!connection) throw new Error('Unknown Vampire workspace.');
-  const { tmuxSession } = connection;
   const snapshotHistoryLines = terminalSnapshotHistoryLines(options.historyLines);
 
   const { windowId, paneId, geometry: targetGeometry } = await terminalTarget(tmuxSession, options.terminalId);

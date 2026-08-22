@@ -2,10 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
 
-import {
-  closeRepositoryStatusObservers,
-  observeRepositoryStatus,
-} from '~/lib/features/workspace/server/repository-status.ts';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.ts';
 import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
@@ -22,10 +19,8 @@ import {
   type TerminalSize,
   type TerminalSizeController,
 } from '~/lib/features/terminal/server/terminal.ts';
-import {
-  recordWorkspaceOutput,
-  suppressWorkspaceActivity,
-} from '~/lib/features/workspace/server/workspace-websocket.ts';
+import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.ts';
+import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.ts';
 import {
   encodeTerminalServerMessage,
   TERMINAL_PROTOCOL_VERSION,
@@ -244,55 +239,60 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
     socket.once('close', releaseAttachment);
     void observeRepositoryStatus(socket, context.workspaceId).catch(() => undefined);
 
-    void attachTerminal(socket, context.workspaceId, context.initialSize, {
-      terminalId: context.terminalId,
-      historyLines: context.historyLines,
-      lazyHistory: context.lazyHistory,
-      ignoreSize: true,
-      canResize: () => state.activeAttachment === attachment && !attachment.released,
-      canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
-      getGeometry: () => state.geometry,
-      hasControl: () => state.activeAttachment === attachment && !attachment.released,
-      sendGeometry: context.supportsGeometry,
-      onAttached: async (setIgnoreSize, synchronizeScreen) => {
-        attachment.setIgnoreSize = setIgnoreSize;
-        attachment.synchronizeScreen = synchronizeScreen;
-        attachment.resolveReady();
-        if (attachment.released) return;
-        // A newly entered workspace may explicitly claim control on its first
-        // attachment. Reconnects stay passive, but can fill an unclaimed terminal.
-        await activateAttachment(state, attachment, context.claimControl ? {} : { onlyIfUnclaimed: true });
-      },
-      onActivate: async () => {
-        await attachment.readyPromise;
-        if (!attachment.released) await activateAttachment(state, attachment);
-      },
-      onGeometryChange: (geometry) => {
-        if (updateTerminalGeometry(state, attachment, geometry)) {
-          broadcastTerminalGeometry(state, geometry);
-        }
-      },
-      onResizeComplete: async (geometry) => {
-        await Promise.allSettled(
-          [...state.attachments]
-            .filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
-            .map((candidate) => candidate.synchronizeScreen?.(geometry))
-        );
-        state.syntheticOutputUntil = 0;
-      },
-      onInput: () => {
-        state.syntheticOutputUntil = 0;
-      },
-      onSyntheticOutput: (timestamp) => {
-        state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
-      },
-      isOutputSuppressed: () => Date.now() < state.syntheticOutputUntil,
-      onSyntheticActivity: (timestamp) => suppressWorkspaceActivity(context.workspaceId, timestamp),
-      isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
-      onOutputActivity: (timestamp) => recordWorkspaceOutput(context.workspaceId, context.terminalId, timestamp),
-    }).catch(() => {
-      socket.close(1011, 'terminal unavailable');
-    });
+    void findWorkspaceConnection(context.workspaceId)
+      .then((connection) => {
+        if (!connection) throw new Error('Unknown Vampire workspace.');
+        return attachTerminal(socket, connection.tmuxSession, context.initialSize, {
+          terminalId: context.terminalId,
+          historyLines: context.historyLines,
+          lazyHistory: context.lazyHistory,
+          ignoreSize: true,
+          canResize: () => state.activeAttachment === attachment && !attachment.released,
+          canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
+          getGeometry: () => state.geometry,
+          hasControl: () => state.activeAttachment === attachment && !attachment.released,
+          sendGeometry: context.supportsGeometry,
+          onAttached: async (setIgnoreSize, synchronizeScreen) => {
+            attachment.setIgnoreSize = setIgnoreSize;
+            attachment.synchronizeScreen = synchronizeScreen;
+            attachment.resolveReady();
+            if (attachment.released) return;
+            // A newly entered workspace may explicitly claim control on its first
+            // attachment. Reconnects stay passive, but can fill an unclaimed terminal.
+            await activateAttachment(state, attachment, context.claimControl ? {} : { onlyIfUnclaimed: true });
+          },
+          onActivate: async () => {
+            await attachment.readyPromise;
+            if (!attachment.released) await activateAttachment(state, attachment);
+          },
+          onGeometryChange: (geometry) => {
+            if (updateTerminalGeometry(state, attachment, geometry)) {
+              broadcastTerminalGeometry(state, geometry);
+            }
+          },
+          onResizeComplete: async (geometry) => {
+            await Promise.allSettled(
+              [...state.attachments]
+                .filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
+                .map((candidate) => candidate.synchronizeScreen?.(geometry))
+            );
+            state.syntheticOutputUntil = 0;
+          },
+          onInput: () => {
+            state.syntheticOutputUntil = 0;
+          },
+          onSyntheticOutput: (timestamp) => {
+            state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
+          },
+          isOutputSuppressed: () => Date.now() < state.syntheticOutputUntil,
+          onSyntheticActivity: (timestamp) => suppressWorkspaceActivity(context.workspaceId, timestamp),
+          isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
+          onOutputActivity: (timestamp) => recordWorkspaceOutput(context.workspaceId, context.terminalId, timestamp),
+        });
+      })
+      .catch(() => {
+        socket.close(1011, 'terminal unavailable');
+      });
   });
   const closeHeartbeat = installWebSocketHeartbeat(terminalSockets, HEARTBEAT_INTERVAL_MS);
 

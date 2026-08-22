@@ -9,7 +9,7 @@ import {
   updateManagedLaunchProfiles,
   updateManagedStartupProfile,
   updateManagedWorkspaceStartup,
-} from '~/lib/features/workspace/server/workspace-registry.ts';
+} from './workspace-registry.ts';
 import {
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,

@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import { closeManagedWorkspace, WorkspaceMutationError } from '~/lib/features/workspace/server/workspace-registry';
+import { closeManagedWorkspace, WorkspaceMutationError } from '~/lib/app/server/workspace-registry';
 
 export const POST: RequestHandler = async (event) => {
   requireAuthentication(event);

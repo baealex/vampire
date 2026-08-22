@@ -4,7 +4,7 @@ import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   createManagedBackgroundProcess,
   WorkspaceMutationError,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 
 export const POST: RequestHandler = async (event) => {
   requireAuthentication(event);

@@ -1,9 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import {
-  captureManagedBackgroundOutput,
-  WorkspaceMutationError,
-} from '~/lib/features/workspace/server/workspace-registry';
+import { captureManagedBackgroundOutput, WorkspaceMutationError } from '~/lib/app/server/workspace-registry';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

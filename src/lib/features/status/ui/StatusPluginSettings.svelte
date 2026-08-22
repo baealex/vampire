@@ -1,5 +1,4 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import { onDestroy, onMount } from 'svelte';
 import BookOpen from '@lucide/svelte/icons/book-open';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -12,6 +11,8 @@ import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import {
   cloneStatusPlugins,
@@ -257,20 +258,20 @@ onDestroy(() => unsubscribe?.());
 
               {#snippet children()}
                 {#each presets as preset (preset.id)}
-                  <DropdownMenu.Item
+                  <DropdownMenuItem
                     class="vampire-menu-item"
                     disabled={loading || atCapacity}
                     onSelect={() => addPreset(preset.id)}
                   >
                     <Plus size={14} strokeWidth={2} aria-hidden="true" />
                     <span>{preset.name}</span>
-                  </DropdownMenu.Item>
+                  </DropdownMenuItem>
                 {/each}
-                <DropdownMenu.Separator class="vampire-menu-separator" />
-                <DropdownMenu.Item class="vampire-menu-item" disabled={loading || atCapacity} onSelect={addCommand}>
+                <DropdownMenuSeparator class="vampire-menu-separator" />
+                <DropdownMenuItem class="vampire-menu-item" disabled={loading || atCapacity} onSelect={addCommand}>
                   <Plus size={14} strokeWidth={2} aria-hidden="true" />
                   <span>Command</span>
-                </DropdownMenu.Item>
+                </DropdownMenuItem>
               {/snippet}
             </DropdownMenuShell>
           </div>
@@ -307,33 +308,33 @@ onDestroy(() => unsubscribe?.());
                     {/snippet}
 
                     {#snippet children()}
-                      <DropdownMenu.Item
+                      <DropdownMenuItem
                         class="vampire-menu-item"
                         disabled={index === 0}
-                        aria-label={`Move ${plugin.name || `widget ${index + 1}`} up`}
+                        ariaLabel={`Move ${plugin.name || `widget ${index + 1}`} up`}
                         onSelect={() => movePlugin(index, -1)}
                       >
                         <ChevronUp size={15} strokeWidth={1.8} aria-hidden="true" />
                         <span>Move up</span>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         class="vampire-menu-item"
                         disabled={index === plugins.length - 1}
-                        aria-label={`Move ${plugin.name || `widget ${index + 1}`} down`}
+                        ariaLabel={`Move ${plugin.name || `widget ${index + 1}`} down`}
                         onSelect={() => movePlugin(index, 1)}
                       >
                         <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
                         <span>Move down</span>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator class="vampire-menu-separator" />
-                      <DropdownMenu.Item
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator class="vampire-menu-separator" />
+                      <DropdownMenuItem
                         class="vampire-menu-item danger"
-                        aria-label={`Remove ${plugin.name || `widget ${index + 1}`}`}
+                        ariaLabel={`Remove ${plugin.name || `widget ${index + 1}`}`}
                         onSelect={() => removePlugin(plugin.id)}
                       >
                         <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
                         <span>Remove</span>
-                      </DropdownMenu.Item>
+                      </DropdownMenuItem>
                     {/snippet}
                   </DropdownMenuShell>
                 </article>

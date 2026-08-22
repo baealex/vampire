@@ -1,9 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import {
-  WorkspaceMutationError,
-  stopManagedBackgroundProcess,
-} from '~/lib/features/workspace/server/workspace-registry';
+import { WorkspaceMutationError, stopManagedBackgroundProcess } from '~/lib/app/server/workspace-registry';
 
 export const DELETE: RequestHandler = async (event) => {
   requireAuthentication(event);

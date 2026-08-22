@@ -1,8 +1,8 @@
 <script lang="ts">
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
-import WorkspaceAutomations from '~/lib/features/terminal/ui/WorkspaceAutomations.svelte';
+import WorkspaceAutomations from '~/lib/features/workspace/ui/WorkspaceAutomations.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
-import { workspaceName } from '../model/workspace-view.ts';
+import { workspaceName } from '~/lib/features/workspace/model/workspace-view.ts';
 
 let {
   workspace,

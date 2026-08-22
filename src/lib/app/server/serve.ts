@@ -2,9 +2,9 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runtimeConfig } from '~/lib/shared/server/runtime-config.ts';
-import { installTerminalWebSocket } from '~/lib/features/terminal/server/websocket.ts';
-import { installWorkspaceWebSocket } from '~/lib/features/workspace/server/workspace-websocket.ts';
-import { installWorkspaceAutomationRunner } from '~/lib/features/workspace/server/workspace-automation-runner.ts';
+import { installTerminalWebSocket } from './terminal-websocket.ts';
+import { installWorkspaceWebSocket } from './workspace-websocket.ts';
+import { installWorkspaceAutomationRunner } from './workspace-automation-runner.ts';
 
 const DEFAULT_PROTOCOL_HEADER = 'x-forwarded-proto';
 

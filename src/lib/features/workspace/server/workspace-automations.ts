@@ -10,11 +10,11 @@ import {
   type WorkspaceAutomation,
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import { ensureManagedWorkspaceNoteFile, managedWorkspaceNotePath } from './workspace-note-file.ts';
-import { withWorkspaceRegistryMutation } from './workspace-registry.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
   type StoredWorkspace,
+  withWorkspaceStoreMutation,
   writeWorkspaceStore,
 } from './workspace-store.ts';
 
@@ -130,7 +130,7 @@ export async function createManagedWorkspaceAutomation(
   now = Date.now()
 ): Promise<WorkspaceAutomation> {
   const input = normalizeCreateInput(value);
-  return withWorkspaceRegistryMutation(async () => {
+  return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const index = state.workspaces.findIndex((workspace) => workspace.id === id);
     if (index < 0) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
@@ -155,7 +155,7 @@ export async function setManagedWorkspaceAutomationEnabled(
   enabled: boolean,
   now = Date.now()
 ): Promise<WorkspaceAutomation> {
-  return withWorkspaceRegistryMutation(async () => {
+  return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
@@ -181,7 +181,7 @@ export async function setManagedWorkspaceAutomationEnabled(
 }
 
 export async function deleteManagedWorkspaceAutomation(workspaceId: string, automationId: string): Promise<void> {
-  await withWorkspaceRegistryMutation(async () => {
+  await withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
@@ -240,7 +240,7 @@ export async function dispatchManagedWorkspaceAutomation(
   now: number,
   prepare: PrepareAutomationSubmission
 ): Promise<'submitted' | 'failed' | 'not-ready' | 'not-due'> {
-  return withWorkspaceRegistryMutation(async () => {
+  return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     const current = stored?.automations.find((automation) => automation.id === automationId);
@@ -308,7 +308,7 @@ export async function queueManagedWorkspaceNoteSummary(
   workspaceId: string,
   now = Date.now()
 ): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
-  return withWorkspaceRegistryMutation(async () => {
+  return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
@@ -351,7 +351,7 @@ export async function queueManagedWorkspaceNoteSummary(
 }
 
 export async function migrateManagedWorkspaceNotes(): Promise<number> {
-  return withWorkspaceRegistryMutation(async () => {
+  return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     let rawState: unknown;
     try {

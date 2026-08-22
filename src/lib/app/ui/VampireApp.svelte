@@ -1,5 +1,4 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import { dev } from '$app/environment';
 import { pushState } from '$app/navigation';
 import { onMount } from 'svelte';
@@ -11,15 +10,16 @@ import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import LoginScreen from '~/lib/features/auth/ui/LoginScreen.svelte';
 import TmuxSetupScreen from '~/lib/features/system/ui/TmuxSetupScreen.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
-import { WorkspaceConnectionState } from '~/lib/app/workspace-connection-state.svelte';
-import WorkspaceWorkbench from '~/lib/features/repository/ui/WorkspaceWorkbench.svelte';
+import { WorkspaceConnectionState } from '~/lib/app/model/workspace-connection-state.svelte';
+import WorkspaceWorkbench from '~/lib/widgets/workspace-workbench/ui/WorkspaceWorkbench.svelte';
 import type { RepositoryTab } from '~/lib/shared/contracts/repository';
 import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.svelte';
 import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
 import WorkspaceAliasDialog from '~/lib/features/workspace/ui/WorkspaceAliasDialog.svelte';
-import WorkspaceAutomationsDialog from '~/lib/features/workspace/ui/WorkspaceAutomationsDialog.svelte';
+import WorkspaceAutomationsDialog from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsDialog.svelte';
 import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
 import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
 import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/workspace';
@@ -457,16 +457,16 @@ onMount(() => {
                         <div class="unavailable-reopen-menu" role="group" aria-label="Reopen with">
                           <strong>Reopen with</strong>
                           <p>Runs once; it does not change the saved startup profile.</p>
-                          <DropdownMenu.Item
+                          <DropdownMenuItem
                             class="vampire-menu-item unavailable-reopen-option"
                             disabled={Boolean(workspaceState.workspaceAction)}
                             onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, null)}
                           >
                             <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
                             <span class="unavailable-reopen-copy"><strong>Blank terminal</strong></span>
-                          </DropdownMenu.Item>
+                          </DropdownMenuItem>
                           {#each workspaceState.launchProfiles as profile (profile.id)}
-                            <DropdownMenu.Item
+                            <DropdownMenuItem
                               class="vampire-menu-item unavailable-reopen-option"
                               disabled={Boolean(workspaceState.workspaceAction)}
                               onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, profile.id)}
@@ -476,7 +476,7 @@ onMount(() => {
                                 <strong>{profile.name}</strong>
                                 <span>{profile.command}</span>
                               </span>
-                            </DropdownMenu.Item>
+                            </DropdownMenuItem>
                           {/each}
                         </div>
                       {/snippet}

@@ -6,7 +6,7 @@ import {
   pasteImageToWorkspace,
   SUPPORTED_IMAGE_TYPES,
 } from '~/lib/features/terminal/server/image-paste';
-import { findManagedWorkspace } from '~/lib/features/workspace/server/workspace-registry';
+import { findManagedWorkspace } from '~/lib/app/server/workspace-registry';
 
 const MAX_UPLOAD_BODY_BYTES = MAX_IMAGE_PASTE_BYTES + 64 * 1024;
 

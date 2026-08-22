@@ -1,8 +1,9 @@
 <script lang="ts">
-import { DropdownMenu } from 'bits-ui';
 import Minus from '@lucide/svelte/icons/minus';
 import Plus from '@lucide/svelte/icons/plus';
 import Type from '@lucide/svelte/icons/type';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 
 let {
@@ -40,23 +41,23 @@ function keepOpen(event: Event, change: () => void) {
         <strong>Terminal display</strong>
         <span>Text size: {fontSize}px</span>
       </div>
-      <DropdownMenu.Separator class="vampire-menu-separator" />
-      <DropdownMenu.Item
+      <DropdownMenuSeparator class="vampire-menu-separator" />
+      <DropdownMenuItem
         class="vampire-menu-item"
         disabled={fontSize <= minimumFontSize}
         onSelect={(event) => keepOpen(event, decreaseFontSize)}
       >
         <Minus size={15} strokeWidth={2} aria-hidden="true" />
         Decrease text size
-      </DropdownMenu.Item>
-      <DropdownMenu.Item
+      </DropdownMenuItem>
+      <DropdownMenuItem
         class="vampire-menu-item"
         disabled={fontSize >= maximumFontSize}
         onSelect={(event) => keepOpen(event, increaseFontSize)}
       >
         <Plus size={15} strokeWidth={2} aria-hidden="true" />
         Increase text size
-      </DropdownMenu.Item>
+      </DropdownMenuItem>
     {/snippet}
   </DropdownMenuShell>
 </div>

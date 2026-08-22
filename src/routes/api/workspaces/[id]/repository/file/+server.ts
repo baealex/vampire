@@ -6,7 +6,7 @@ import {
   RepositoryReadError,
   writeWorkspaceFile,
 } from '~/lib/features/repository/server/repository.ts';
-import { findWorkspaceDirectory } from '~/lib/features/workspace/server/workspace-registry';
+import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
 
 function repositoryErrorStatus(reason: string): number {
   if (reason === 'conflict') return 409;

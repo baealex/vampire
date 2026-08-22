@@ -7,7 +7,7 @@ import {
   WorkspaceMutationError,
   stopAndRemoveManagedWorkspace,
   touchManagedWorkspace,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 
 export const PATCH: RequestHandler = async (event) => {
   requireAuthentication(event);

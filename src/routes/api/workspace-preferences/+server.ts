@@ -4,7 +4,7 @@ import {
   readManagedWorkspacePreferences,
   WorkspaceMutationError,
   updateManagedWorkspacePreferences,
-} from '~/lib/features/workspace/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

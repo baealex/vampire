@@ -17,6 +17,7 @@ function run(command: string, args: string[]): Promise<number> {
 }
 
 const checks: Array<[string, string[]]> = [
+  [process.execPath, ['tools/check-architecture.ts']],
   ['svelte-kit', ['sync']],
   ['svelte-check', ['--tsconfig', './tsconfig.check.json']],
   ['tsc', ['--project', 'tsconfig.node.json']],
@@ -24,7 +25,8 @@ const checks: Array<[string, string[]]> = [
 ];
 
 for (const [command, args] of checks) {
-  const code = await run(bin(command), args);
+  const executable = command === process.execPath ? command : bin(command);
+  const code = await run(executable, args);
   if (code !== 0) {
     process.exitCode = code;
     break;
