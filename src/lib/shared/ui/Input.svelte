@@ -125,6 +125,17 @@ const inputClass = $derived(
   font-family: var(--font-mono);
 }
 
+.input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.input[type="number"]::-webkit-outer-spin-button,
+.input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 .input--embedded {
   min-height: 0;
   padding: 0 var(--space-2);

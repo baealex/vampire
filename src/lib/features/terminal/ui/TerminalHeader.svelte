@@ -56,9 +56,8 @@ let {
 </script>
 
 <header class="terminal-header" class:terminal-header-no-tools={!showTools}>
-  <Button class="back-button" size="lg" variant="secondary" onclick={close} ariaLabel="Open workspaces">
+  <Button class="back-button" variant="icon" onclick={close} ariaLabel="Open workspaces">
     <PanelLeft size={18} strokeWidth={1.8} aria-hidden="true" />
-    <span>Workspaces</span>
   </Button>
   <div class="terminal-identity">
     <div class="terminal-identity-title">
@@ -146,11 +145,14 @@ let {
   background: var(--color-panel);
 }
 :global(.back-button) {
-  display: inline-flex;
+  display: grid;
   align-items: center;
-  gap: 0.25rem;
-  min-height: 2.65rem;
-  padding: 0 0.65rem 0 0.45rem;
+  justify-content: center;
+  width: var(--control-size-icon);
+  min-width: var(--control-size-icon);
+  min-height: var(--control-size-icon);
+  height: var(--control-size-icon);
+  padding: 0;
   border: 1px solid var(--color-border);
   border-radius: 0.55rem;
   background: var(--color-control-background);
@@ -325,7 +327,7 @@ let {
     grid-template-columns: minmax(0, 1fr) auto;
   }
   :global(.back-button) {
-    display: none;
+    display: none !important;
   }
   .terminal-identity {
     justify-items: start;
@@ -346,11 +348,14 @@ let {
     grid-template-columns: auto minmax(0, 1fr);
   }
   :global(.back-button) {
-    width: 2.65rem;
+    display: grid;
+    width: var(--control-size-icon);
+    min-width: var(--control-size-icon);
+    min-height: var(--control-size-icon);
+    height: var(--control-size-icon);
     padding: 0;
     justify-content: center;
   }
-  :global(.back-button span),
   .terminal-identity > span {
     display: none;
   }
@@ -361,16 +366,18 @@ let {
 
 @media (max-width: 32rem) {
   .terminal-header {
-    grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+    grid-template-columns: var(--control-size-icon) minmax(0, 1fr) auto;
     gap: 0.35rem;
     padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right));
   }
   .terminal-header-no-tools {
-    grid-template-columns: 2.75rem minmax(0, 1fr);
+    grid-template-columns: var(--control-size-icon) minmax(0, 1fr);
   }
   :global(.back-button) {
-    width: 2.75rem;
-    min-height: 2.75rem;
+    width: var(--control-size-icon);
+    min-width: var(--control-size-icon);
+    min-height: var(--control-size-icon);
+    height: var(--control-size-icon);
   }
   .terminal-identity-title {
     gap: 0.3rem;
