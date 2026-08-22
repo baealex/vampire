@@ -496,7 +496,7 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await actions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
-  await expect(page.locator('input.command-input')).toHaveValue(profileCommand);
+  await expect(page.locator('.profile-card').getByLabel('Command')).toHaveValue(profileCommand);
   await expect(page.getByRole('radio', { name: /No startup profile/ })).toBeChecked();
   await page.locator('.profile-card').getByRole('radio', { name: 'Use here' }).click();
   await page.getByRole('button', { name: 'Save changes' }).click();
