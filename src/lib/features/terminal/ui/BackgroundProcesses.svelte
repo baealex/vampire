@@ -7,7 +7,11 @@ import Star from '@lucide/svelte/icons/star';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { onMount, untrack } from 'svelte';
 import type { WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
+import Button from '~/lib/shared/ui/Button.svelte';
+import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 
 let {
   open,
@@ -212,16 +216,20 @@ function restoreTriggerFocus(event: Event) {
 {#snippet commandRunner()}
   <div class="background-runner">
     <form onsubmit={startProcess}>
-      <input
-        bind:this={commandInput}
+      <Input
+        bind:element={commandInput}
         bind:value={command}
+        class="background-command-input"
         placeholder="Command to run…"
-        aria-label="Background command"
+        ariaLabel="Background command"
         autocomplete="off"
         spellcheck="false"
-        maxlength="1000"
+        maxlength={1000}
+        mono
+      />
+      <Button class="background-run-submit" type="submit" variant="primary" disabled={!command.trim() || starting}
+        >{starting ? 'Starting…' : 'Run'}</Button
       >
-      <button type="submit" disabled={!command.trim() || starting}>{starting ? 'Starting…' : 'Run'}</button>
     </form>
     {#if actionError}
       <p class="background-error runner-error" role="alert">{actionError}</p>
@@ -342,7 +350,7 @@ function restoreTriggerFocus(event: Event) {
 {#snippet processList()}
   <div class="process-list" aria-label="Background process list">
     {#if orderedProcesses.length === 0}
-      <p class="vampire-dialog-empty-state">No background commands</p>
+      <DialogEmptyState>No background commands</DialogEmptyState>
     {:else}
       {#each orderedProcesses as process (process.id)}
         <div class="process-item">
@@ -391,20 +399,20 @@ function restoreTriggerFocus(event: Event) {
     {#snippet children()}
       <div class="background-view">
         {#if view === 'list'}
-          <div class="vampire-dialog-toolbar">
+          <DialogToolbar>
             {#if orderedProcesses.length > 0}
               <span>{processCountLabel(orderedProcesses.length)}</span>
             {/if}
-            <button
-              type="button"
-              class="vampire-dialog-primary-action background-run-action"
+            <Button
+              variant="primary"
+              class="background-run-action"
               onclick={openRunner}
-              aria-label="Run background command"
+              ariaLabel="Run background command"
             >
               <Plus size={16} strokeWidth={2} aria-hidden="true" />
               <span>Run command</span>
-            </button>
-          </div>
+            </Button>
+          </DialogToolbar>
           {@render favorites()}
           <div class="background-content">{@render processList()}</div>
         {:else if view === 'runner'}
@@ -435,7 +443,7 @@ function restoreTriggerFocus(event: Event) {
   min-width: 0;
   min-height: 0;
 }
-.background-run-action {
+:global(.background-run-action) {
   margin-left: auto;
 }
 .background-runner {
@@ -451,39 +459,21 @@ function restoreTriggerFocus(event: Event) {
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
 }
-.background-runner input {
-  min-width: 0;
+:global(.background-command-input) {
   height: 2.35rem;
-  padding: 0 0.72rem;
-  border: 1px solid var(--color-border);
+  min-height: 2.35rem;
+  border-color: var(--color-border);
   border-right: 0;
   border-radius: var(--radius-control) 0 0 var(--radius-control);
-  outline: none;
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-family: var(--font-mono);
   font-size: var(--text-caption);
 }
-.background-runner input:focus {
+:global(.background-command-input:focus) {
   border-color: var(--color-accent);
   box-shadow: inset 0 0 0 1px var(--color-accent);
 }
-.background-runner form button {
+:global(.background-run-submit) {
   min-width: 4.5rem;
-  padding: 0 0.85rem;
-  border: 0;
   border-radius: 0 var(--radius-control) var(--radius-control) 0;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-.background-runner form button:disabled {
-  cursor: wait;
-  opacity: 0.55;
 }
 .background-error {
   margin: 0;

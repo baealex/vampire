@@ -1,4 +1,7 @@
 <script lang="ts">
+import Button from '~/lib/shared/ui/Button.svelte';
+import Field from '~/lib/shared/ui/Field.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import ThemeToggle from '~/lib/shared/theme/ThemeToggle.svelte';
 
 let {
@@ -23,20 +26,19 @@ let {
       </div>
       <ThemeToggle />
     </header>
-    <div class="field">
-      <label for="token">Access token</label>
-      <input
+    <Field label="Access token" id="token">
+      <Input
         id="token"
         type="password"
         value={token}
-        oninput={(event) => onTokenChange(event.currentTarget.value)}
+        oninput={(event) => onTokenChange((event.currentTarget as HTMLInputElement).value)}
         autocomplete="current-password"
-        aria-invalid={error ? 'true' : undefined}
-        aria-describedby={error ? 'login-error' : undefined}
+        ariaInvalid={error ? 'true' : undefined}
+        ariaDescribedby={error ? 'login-error' : undefined}
         required
-      >
-    </div>
-    <button type="submit">Continue</button>
+      />
+    </Field>
+    <Button variant="primary" size="lg" block type="submit">Continue</Button>
     {#if error}
       <p id="login-error" class="error" role="alert">{error}</p>
     {/if}
@@ -88,59 +90,6 @@ let {
   height: 2.75rem;
   border-radius: var(--radius-md);
 }
-.field {
-  display: grid;
-  gap: 0.5rem;
-}
-label {
-  color: var(--color-text);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-}
-input {
-  width: 100%;
-  min-width: 0;
-  min-height: var(--control-height-lg);
-  padding: 0 0.8rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--color-field-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-body);
-}
-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-accent-focus);
-}
-input[aria-invalid="true"] {
-  border-color: var(--color-danger-border-strong);
-}
-button {
-  display: inline-flex;
-  min-height: var(--control-height-lg);
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-strong);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  button:hover {
-    background: var(--color-accent-hover);
-  }
-}
-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-accent-focus);
-}
 .error {
   margin: 0.1rem 0 0;
   color: var(--color-danger);
@@ -151,9 +100,6 @@ button:focus-visible {
 @media (max-width: 48rem) {
   .login-screen {
     overflow: auto;
-  }
-  input {
-    font-size: 1rem;
   }
 }
 </style>

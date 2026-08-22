@@ -2,6 +2,8 @@
 import { tick } from 'svelte';
 import FilePlus from '@lucide/svelte/icons/file-plus';
 import FolderPlus from '@lucide/svelte/icons/folder-plus';
+import Button from '~/lib/shared/ui/Button.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 
 let {
   kind,
@@ -57,19 +59,37 @@ $effect(() => {
       <FilePlus size={15} strokeWidth={1.7} />
     {/if}
   </span>
-  <input
-    bind:this={input}
+  <Input
+    bind:element={input}
     bind:value
-    class:error={Boolean(error)}
+    class={`tree-create-input${error ? ' error' : ''}`}
+    size="sm"
+    mono
     placeholder={kind === 'directory' ? 'Folder name' : 'File name'}
-    aria-label={kind === 'directory' ? 'New folder name' : 'New file name'}
+    ariaLabel={kind === 'directory' ? 'New folder name' : 'New file name'}
     autocomplete="off"
     spellcheck="false"
     disabled={creating}
     onkeydown={handleKeydown}
+  />
+  <Button
+    variant="icon"
+    class="tree-create-action"
+    onclick={onSubmit}
+    disabled={creating}
+    ariaLabel="Create"
+    title="Create"
+    >↵</Button
   >
-  <button type="button" onclick={onSubmit} disabled={creating} aria-label="Create" title="Create">↵</button>
-  <button type="button" onclick={onCancel} disabled={creating} aria-label="Cancel" title="Cancel">×</button>
+  <Button
+    variant="icon"
+    class="tree-create-action"
+    onclick={onCancel}
+    disabled={creating}
+    ariaLabel="Cancel"
+    title="Cancel"
+    >×</Button
+  >
 </div>
 {#if error}
   <p class="tree-create-error" class:nested-error={nested}>{error}</p>
@@ -87,10 +107,11 @@ $effect(() => {
 .tree-create-row.nested {
   background: var(--color-surface-raised);
 }
-.tree-create-row input {
+:global(.tree-create-input) {
   flex: 1 1 auto;
   min-width: 0;
   height: 1.7rem;
+  min-height: 1.7rem;
   padding: 0 0.4rem;
   border: 1px solid var(--color-accent);
   border-radius: 0.35rem;
@@ -100,39 +121,27 @@ $effect(() => {
   font-family: var(--font-mono);
   font-size: var(--text-caption);
 }
-.tree-create-row input::placeholder {
-  color: var(--color-field-placeholder);
-}
-.tree-create-row input.error {
+:global(.tree-create-input.error) {
   border-color: var(--color-danger-border-strong);
 }
-.tree-create-row button {
-  display: grid;
+:global(.tree-create-action) {
   flex: 0 0 1.8rem;
-  place-items: center;
   width: 1.8rem;
+  min-width: 1.8rem;
   height: 1.8rem;
   padding: 0;
-  border: 0;
   border-radius: 0.35rem;
-  background: transparent;
-  color: var(--color-text-secondary);
   font-size: 1rem;
-  cursor: pointer;
 }
-.tree-create-row button:focus-visible {
+:global(.tree-create-action:focus-visible) {
   background: var(--color-control-hover);
   color: var(--color-text);
 }
 @media (hover: hover) {
-  .tree-create-row button:hover:not(:disabled) {
+  :global(.tree-create-action:hover:not(:disabled)) {
     background: var(--color-control-hover);
     color: var(--color-text);
   }
-}
-.tree-create-row button:disabled {
-  cursor: wait;
-  opacity: 0.5;
 }
 .tree-create-error {
   margin: -0.15rem 0 0.35rem;

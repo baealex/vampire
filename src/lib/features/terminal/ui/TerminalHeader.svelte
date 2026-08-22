@@ -4,6 +4,7 @@ import GitBranch from '@lucide/svelte/icons/git-branch';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import PanelLeft from '@lucide/svelte/icons/panel-left';
 import StickyNote from '@lucide/svelte/icons/sticky-note';
+import Button from '~/lib/shared/ui/Button.svelte';
 
 let {
   projectName,
@@ -55,10 +56,10 @@ let {
 </script>
 
 <header class="terminal-header" class:terminal-header-no-tools={!showTools}>
-  <button class="back-button" onclick={close} aria-label="Open workspaces">
+  <Button class="back-button" size="lg" variant="secondary" onclick={close} ariaLabel="Open workspaces">
     <PanelLeft size={18} strokeWidth={1.8} aria-hidden="true" />
     <span>Workspaces</span>
-  </button>
+  </Button>
   <div class="terminal-identity">
     <div class="terminal-identity-title">
       <strong>{projectName}</strong>
@@ -88,47 +89,45 @@ let {
   {#if showTools}
     <div class="terminal-controls">
       <div class="terminal-tools" role="group" aria-label="Terminal tools">
-        <button
+        <Button
           id={backgroundTriggerId}
-          type="button"
-          class="background-button"
-          class:active={backgroundOpen}
+          variant="icon"
+          class={`background-button${backgroundOpen ? ' active' : ''}`}
           onclick={toggleBackground}
-          aria-label={backgroundOpen ? 'Close background processes' : 'Open background processes'}
+          ariaLabel={backgroundOpen ? 'Close background processes' : 'Open background processes'}
           title={backgroundOpen ? 'Close background processes' : 'Open background processes'}
-          aria-expanded={backgroundOpen}
-          aria-controls={backgroundPanelId}
+          ariaExpanded={backgroundOpen}
+          ariaControls={backgroundPanelId}
         >
           <Activity size={16} strokeWidth={1.8} aria-hidden="true" />
           {#if backgroundCount > 0}
             <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>
           {/if}
-        </button>
+        </Button>
         {#if !noteOpen}
-          <button
-            type="button"
-            class="note-button"
-            class:has-note={hasNote}
+          <Button
+            variant="icon"
+            class={`note-button${hasNote ? ' has-note' : ''}`}
             onclick={toggleNote}
-            aria-label={hasNote ? 'Open workspace note' : 'Add workspace note'}
-            aria-expanded={noteOpen}
+            ariaLabel={hasNote ? 'Open workspace note' : 'Add workspace note'}
+            ariaExpanded={noteOpen}
           >
             <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
-          </button>
+          </Button>
         {/if}
         {#if !repositoryOpen}
-          <button
-            type="button"
+          <Button
+            variant="icon"
             class="repository-button"
             onclick={toggleRepository}
-            aria-label={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
-            aria-expanded={repositoryOpen}
+            ariaLabel={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
+            ariaExpanded={repositoryOpen}
           >
             <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />
             {#if isGitRepository && changeCount > 0}
               <span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>
             {/if}
-          </button>
+          </Button>
         {/if}
       </div>
     </div>
@@ -146,7 +145,7 @@ let {
     max(0.75rem, env(safe-area-inset-left));
   background: var(--color-panel);
 }
-.back-button {
+:global(.back-button) {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -245,9 +244,9 @@ let {
   align-items: center;
   gap: 0.15rem;
 }
-.note-button,
-.background-button,
-.repository-button {
+:global(.note-button),
+:global(.background-button),
+:global(.repository-button) {
   position: relative;
   display: grid;
   place-items: center;
@@ -262,10 +261,10 @@ let {
   font: inherit;
   cursor: pointer;
 }
-.note-button:focus-visible,
-.background-button:focus-visible,
-.background-button.active,
-.repository-button:focus-visible {
+:global(.note-button:focus-visible),
+:global(.background-button:focus-visible),
+:global(.background-button.active),
+:global(.repository-button:focus-visible) {
   border-color: var(--color-border-strong);
   background: transparent;
   color: var(--color-text);
@@ -273,20 +272,20 @@ let {
 }
 
 @media (hover: hover) {
-  .back-button:hover {
+  :global(.back-button:hover) {
     background: var(--color-surface-hover);
   }
-  .note-button:hover,
-  .background-button:hover,
-  .repository-button:hover {
+  :global(.note-button:hover),
+  :global(.background-button:hover),
+  :global(.repository-button:hover) {
     border-color: var(--color-border-strong);
     background: transparent;
     color: var(--color-text);
     outline: none;
   }
 }
-.background-button span,
-.repository-button span {
+:global(.background-button span),
+:global(.repository-button span) {
   position: absolute;
   z-index: 1;
   top: -0.18rem;
@@ -305,10 +304,10 @@ let {
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-.note-button.has-note {
+:global(.note-button.has-note) {
   color: var(--color-command);
 }
-.note-button.has-note::after {
+:global(.note-button.has-note::after) {
   position: absolute;
   top: 0.38rem;
   right: 0.38rem;
@@ -325,7 +324,7 @@ let {
   .terminal-header {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-  .back-button {
+  :global(.back-button) {
     display: none;
   }
   .terminal-identity {
@@ -346,12 +345,12 @@ let {
   .terminal-header-no-tools {
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .back-button {
+  :global(.back-button) {
     width: 2.65rem;
     padding: 0;
     justify-content: center;
   }
-  .back-button span,
+  :global(.back-button span),
   .terminal-identity > span {
     display: none;
   }
@@ -369,7 +368,7 @@ let {
   .terminal-header-no-tools {
     grid-template-columns: 2.75rem minmax(0, 1fr);
   }
-  .back-button {
+  :global(.back-button) {
     width: 2.75rem;
     min-height: 2.75rem;
   }
@@ -380,9 +379,9 @@ let {
   .terminal-tools {
     gap: 0;
   }
-  .note-button,
-  .background-button,
-  .repository-button {
+  :global(.note-button),
+  :global(.background-button),
+  :global(.repository-button) {
     width: 2.75rem;
     min-width: 2.75rem;
     height: 2.75rem;

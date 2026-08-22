@@ -1,7 +1,11 @@
 <script lang="ts">
 import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 import Tags from '@lucide/svelte/icons/tags';
+import Button from '~/lib/shared/ui/Button.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
+import Field from '~/lib/shared/ui/Field.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { projectName, workspaceName } from '../model/workspace-view.ts';
 
@@ -65,10 +69,16 @@ async function submit(event: SubmitEvent) {
         </div>
       </div>
 
-      <label class="alias-field" for="workspace-alias">
-        <span>Alias</span>
-        <input id="workspace-alias" type="text" bind:value={alias} maxlength="80" autocomplete="off" disabled={saving}>
-      </label>
+      <Field label="Alias" id="workspace-alias">
+        <Input
+          id="workspace-alias"
+          type="text"
+          bind:value={alias}
+          maxlength={80}
+          autocomplete="off"
+          disabled={saving}
+        />
+      </Field>
       <p class="alias-note">Leave this empty to use the folder name: <strong>{directoryName}</strong></p>
       {#if errorMessage}
         <p class="alias-error" role="alert">{errorMessage}</p>
@@ -77,20 +87,15 @@ async function submit(event: SubmitEvent) {
   {/snippet}
 
   {#snippet footer()}
-    <div class="vampire-dialog-actions">
-      <button class="vampire-dialog-secondary-button" type="button" onclick={close} disabled={saving}>Cancel</button>
-      <button
-        class="vampire-dialog-primary-button"
-        type="submit"
-        form="workspace-alias-form"
-        disabled={saving || unchanged}
-      >
+    <DialogActions>
+      <Button variant="secondary" onclick={close} disabled={saving}>Cancel</Button>
+      <Button variant="primary" type="submit" form="workspace-alias-form" disabled={saving || unchanged}>
         {#if saving}
           <LoaderCircle class="alias-spinner" size={15} strokeWidth={1.9} aria-hidden="true" />
         {/if}
         <span>{saving ? 'Saving…' : normalizedAlias ? 'Save alias' : 'Use folder name'}</span>
-      </button>
-    </div>
+      </Button>
+    </DialogActions>
   {/snippet}
 </DialogShell>
 
@@ -128,33 +133,6 @@ async function submit(event: SubmitEvent) {
   color: var(--color-text-secondary);
   font-size: var(--text-caption);
   line-height: var(--leading-body);
-}
-.alias-field {
-  display: grid;
-  gap: 0.4rem;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-.alias-field input {
-  width: 100%;
-  min-height: var(--control-height-md);
-  padding: 0 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-field-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-}
-.alias-field input:focus-visible {
-  border-color: var(--color-accent);
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-.alias-field input:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 .alias-note {
   margin: 0;

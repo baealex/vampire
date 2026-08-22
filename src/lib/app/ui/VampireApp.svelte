@@ -11,6 +11,7 @@ import LoginScreen from '~/lib/features/auth/ui/LoginScreen.svelte';
 import TmuxSetupScreen from '~/lib/features/system/ui/TmuxSetupScreen.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import { WorkspaceConnectionState } from '~/lib/app/model/workspace-connection-state.svelte';
@@ -435,13 +436,14 @@ onMount(() => {
               <div class="unavailable-actions">
                 {#if workspaceState.activeWorkspace.workspaceAvailable !== false}
                   <div class="unavailable-reopen-control">
-                    <button
-                      class="primary-button unavailable-reopen-primary"
+                    <Button
+                      class="unavailable-reopen-primary"
+                      variant="primary"
                       onclick={() => void restartWorkspace(workspaceState.activeWorkspace!)}
                       disabled={Boolean(workspaceState.workspaceAction)}
                     >
                       {workspaceState.workspaceAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
-                    </button>
+                    </Button>
                     <DropdownMenuShell
                       open={reopenWithOpen}
                       onOpenChange={(open) => reopenWithOpen = open}
@@ -458,7 +460,7 @@ onMount(() => {
                           <strong>Reopen with</strong>
                           <p>Runs once; it does not change the saved startup profile.</p>
                           <DropdownMenuItem
-                            class="vampire-menu-item unavailable-reopen-option"
+                            class="unavailable-reopen-option"
                             disabled={Boolean(workspaceState.workspaceAction)}
                             onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, null)}
                           >
@@ -467,7 +469,7 @@ onMount(() => {
                           </DropdownMenuItem>
                           {#each workspaceState.launchProfiles as profile (profile.id)}
                             <DropdownMenuItem
-                              class="vampire-menu-item unavailable-reopen-option"
+                              class="unavailable-reopen-option"
                               disabled={Boolean(workspaceState.workspaceAction)}
                               onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, profile.id)}
                             >
@@ -483,13 +485,14 @@ onMount(() => {
                     </DropdownMenuShell>
                   </div>
                 {/if}
-                <button
-                  class="remove-button"
+                <Button
+                  class="unavailable-remove-button"
+                  variant="danger-outline"
                   onclick={() => void removeWorkspace(workspaceState.activeWorkspace!)}
                   disabled={Boolean(workspaceState.workspaceAction)}
                 >
                   {workspaceState.workspaceAction === 'remove' ? 'Removing…' : 'Remove workspace'}
-                </button>
+                </Button>
               </div>
               {#if workspaceState.workspaceActionError}
                 <p class="error" role="alert">{workspaceState.workspaceActionError}</p>
@@ -532,7 +535,7 @@ onMount(() => {
               <span class="unavailable-icon" aria-hidden="true"><CircleHelp size={22} strokeWidth={1.7} /></span>
               <h2 id="missing-workspace-title">Workspace not found</h2>
               <p>This workspace is no longer registered on this Vampire server.</p>
-              <button class="secondary-button" onclick={openWorkspaceNavigator}>Open workspaces</button>
+              <Button variant="secondary" onclick={openWorkspaceNavigator}>Open workspaces</Button>
             </div>
           </section>
         {:else}
@@ -601,33 +604,6 @@ main {
   min-width: 0;
   min-height: 100dvh;
   padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
-}
-.primary-button,
-.secondary-button {
-  min-height: var(--control-height-lg);
-  padding: 0 1rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-.primary-button {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-@media (hover: hover) {
-  .primary-button:hover {
-    background: var(--color-accent-hover);
-  }
-}
-.primary-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-.secondary-button {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
 }
 .error {
   margin: 0;
@@ -707,7 +683,7 @@ main {
   gap: 0.65rem;
   width: 100%;
 }
-.unavailable-actions > button {
+:global(.unavailable-actions > .vampire-button) {
   flex: 1 1 10rem;
 }
 .unavailable-reopen-control {
@@ -718,7 +694,7 @@ main {
   border-radius: var(--radius-sm);
   background: var(--color-accent);
 }
-.unavailable-reopen-primary {
+:global(.unavailable-reopen-primary) {
   flex: 1 1 auto;
   min-width: 0;
   border-radius: 0;
@@ -787,26 +763,6 @@ main {
   font-size: var(--text-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.remove-button {
-  min-height: var(--control-height-lg);
-  padding: 0 1rem;
-  border: 1px solid var(--color-danger-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-danger-text);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .remove-button:hover {
-    background: var(--color-danger-surface-hover);
-  }
-}
-.remove-button:disabled {
-  cursor: wait;
-  opacity: 0.6;
 }
 .unavailable-body .error {
   margin-top: 0.9rem;

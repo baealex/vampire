@@ -2,6 +2,7 @@
 import CircleAlert from '@lucide/svelte/icons/circle-alert';
 import CircleCheck from '@lucide/svelte/icons/circle-check';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+import Button from '~/lib/shared/ui/Button.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 import {
@@ -212,15 +213,16 @@ function endDragWorkspace() {
           onUploadFiles={() => fileInput?.click()}
           onUploadFolder={() => folderInput?.click()}
         />
-        <button
-          class:spinning={loading}
+        <Button
+          class={`repository-refresh${loading ? ' spinning' : ''}`}
+          variant="icon"
           onclick={onRefresh}
           disabled={loading}
-          aria-label="Refresh repository"
+          ariaLabel="Refresh repository"
           title="Refresh repository"
         >
           <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
-        </button>
+        </Button>
       </div>
     {/snippet}
   </WorkspacePanelHeader>
@@ -363,33 +365,6 @@ function endDragWorkspace() {
   align-items: center;
   gap: 0.15rem;
 }
-.repository-actions button {
-  display: grid;
-  place-items: center;
-  width: var(--control-height-md);
-  height: var(--control-height-md);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-.repository-actions button:focus-visible {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  outline: none;
-}
-@media (hover: hover) {
-  .repository-actions button:hover {
-    background: var(--color-surface-raised);
-    color: var(--color-text);
-  }
-}
-.repository-actions button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
 .repository-file-input {
   display: none;
 }
@@ -444,7 +419,7 @@ function endDragWorkspace() {
   color: var(--color-accent-soft-text);
   font-size: var(--text-caption);
 }
-.repository-actions button.spinning :global(svg) {
+:global(.repository-refresh.spinning svg) {
   animation: spin 0.8s linear infinite;
 }
 .repository-tabs {
@@ -568,7 +543,7 @@ function endDragWorkspace() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .repository-actions button.spinning :global(svg) {
+  :global(.repository-refresh.spinning svg) {
     animation-duration: 1.6s;
   }
   .repository-panel {

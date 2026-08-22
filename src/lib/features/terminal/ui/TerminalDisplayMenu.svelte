@@ -2,6 +2,7 @@
 import Minus from '@lucide/svelte/icons/minus';
 import Plus from '@lucide/svelte/icons/plus';
 import Type from '@lucide/svelte/icons/type';
+import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
@@ -27,34 +28,19 @@ function keepOpen(event: Event, change: () => void) {
 </script>
 
 <div class="terminal-display-menu">
-  <DropdownMenuShell
-    align="end"
-    triggerClass="vampire-menu-trigger terminal-display-trigger"
-    triggerLabel="Terminal display settings"
-  >
+  <DropdownMenuShell align="end" triggerClass="terminal-display-trigger" triggerLabel="Terminal display settings">
     {#snippet trigger()}
       <Type size={17} strokeWidth={1.8} aria-hidden="true" />
     {/snippet}
 
     {#snippet children()}
-      <div class="vampire-menu-heading" role="presentation">
-        <strong>Terminal display</strong>
-        <span>Text size: {fontSize}px</span>
-      </div>
-      <DropdownMenuSeparator class="vampire-menu-separator" />
-      <DropdownMenuItem
-        class="vampire-menu-item"
-        disabled={fontSize <= minimumFontSize}
-        onSelect={(event) => keepOpen(event, decreaseFontSize)}
-      >
+      <DropdownMenuHeading title="Terminal display" subtitle={`Text size: ${fontSize}px`} />
+      <DropdownMenuSeparator />
+      <DropdownMenuItem disabled={fontSize <= minimumFontSize} onSelect={(event) => keepOpen(event, decreaseFontSize)}>
         <Minus size={15} strokeWidth={2} aria-hidden="true" />
         Decrease text size
       </DropdownMenuItem>
-      <DropdownMenuItem
-        class="vampire-menu-item"
-        disabled={fontSize >= maximumFontSize}
-        onSelect={(event) => keepOpen(event, increaseFontSize)}
-      >
+      <DropdownMenuItem disabled={fontSize >= maximumFontSize} onSelect={(event) => keepOpen(event, increaseFontSize)}>
         <Plus size={15} strokeWidth={2} aria-hidden="true" />
         Increase text size
       </DropdownMenuItem>

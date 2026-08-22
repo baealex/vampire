@@ -3,6 +3,7 @@ import { onDestroy } from 'svelte';
 import FilePenLine from '@lucide/svelte/icons/file-pen-line';
 import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 import X from '@lucide/svelte/icons/x';
+import Button from '~/lib/shared/ui/Button.svelte';
 import DocumentOpening from './DocumentOpening.svelte';
 import { RepositoryClient } from '../api/client';
 import { isPreviewableImage, parseDiffLines } from '../model/view';
@@ -171,34 +172,34 @@ $effect(() => {
         <span class="dirty-indicator" role="status">Unsaved</span>
       {/if}
       {#if selection.kind === 'diff'}
-        <button
+        <Button
           class="document-action edit-file"
-          type="button"
+          variant="icon"
           onclick={() => onEditFile(selection.path)}
-          aria-label={`Edit ${selection.path}`}
+          ariaLabel={`Edit ${selection.path}`}
           title="Edit file"
         >
           <FilePenLine size={17} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-        <button
+        </Button>
+        <Button
           class="document-action discard-file"
-          type="button"
+          variant="icon"
           onclick={() => onRequestDiscardChange(selection.path)}
-          aria-label={`Discard changes for ${selection.path}`}
+          ariaLabel={`Discard changes for ${selection.path}`}
           title="Discard changes"
         >
           <RotateCcw size={17} strokeWidth={1.8} aria-hidden="true" />
-        </button>
+        </Button>
       {/if}
-      <button
+      <Button
         class="document-action viewer-close"
-        type="button"
+        variant="icon"
         onclick={onClose}
-        aria-label={`Close ${selection.kind} and return to terminal`}
+        ariaLabel={`Close ${selection.kind} and return to terminal`}
         title={`Close ${selection.kind} and return to terminal`}
       >
         <X size={17} strokeWidth={1.8} aria-hidden="true" />
-      </button>
+      </Button>
     </div>
   </header>
 
@@ -331,34 +332,26 @@ $effect(() => {
   color: var(--color-warning-text);
   font-size: var(--text-caption);
 }
-.document-action {
-  display: grid;
-  place-items: center;
+:global(.document-action) {
   width: 2.15rem;
+  min-width: 2.15rem;
   height: 2.15rem;
   padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
 }
-.document-action:focus-visible {
+:global(.document-action:focus-visible) {
   background: var(--color-surface-raised);
   color: var(--color-text);
-  outline: none;
 }
-.discard-file:focus-visible {
+:global(.discard-file:focus-visible) {
   background: var(--color-danger-surface-hover);
   color: var(--color-danger-text);
-  outline: none;
 }
 @media (hover: hover) {
-  .document-action:hover {
+  :global(.document-action:hover:not(:disabled)) {
     background: var(--color-surface-raised);
     color: var(--color-text);
   }
-  .discard-file:hover {
+  :global(.discard-file:hover:not(:disabled)) {
     background: var(--color-danger-surface-hover);
     color: var(--color-danger-text);
   }

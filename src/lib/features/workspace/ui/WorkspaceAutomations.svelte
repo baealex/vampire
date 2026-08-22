@@ -15,6 +15,12 @@ import {
   type WorkspaceAutomation,
   type WorkspaceAutomationSchedule,
 } from '~/lib/shared/contracts/workspace-automations';
+import Button from '~/lib/shared/ui/Button.svelte';
+import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
+import Field from '~/lib/shared/ui/Field.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
+import Select from '~/lib/shared/ui/Select.svelte';
+import Textarea from '~/lib/shared/ui/Textarea.svelte';
 
 const REFRESH_INTERVAL_MS = 5_000;
 
@@ -234,58 +240,65 @@ onDestroy(() => {
   <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
 
   <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
-    <label>
-      <span>Name</span>
-      <input
+    <Field label="Name">
+      <Input
         bind:value={name}
         maxlength={WORKSPACE_AUTOMATION_NAME_MAX_LENGTH}
         placeholder="Daily project check"
         required
-      >
-    </label>
-    <label>
-      <span>Prompt</span>
-      <textarea
+      />
+    </Field>
+    <Field label="Prompt">
+      <Textarea
         bind:value={prompt}
         maxlength={WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH}
-        rows="4"
+        rows={4}
         placeholder="Review the current work and take the next useful step…"
         required
-      ></textarea>
-    </label>
+      />
+    </Field>
     <div class="schedule-row">
-      <label>
-        <span>Schedule</span>
-        <select bind:value={scheduleType}>
+      <Field label="Schedule">
+        <Select
+          value={scheduleType}
+          onchange={(event) => scheduleType = (event.currentTarget as HTMLSelectElement).value as 'once' | 'interval'}
+        >
           <option value="once">One time</option>
           <option value="interval">Repeat</option>
-        </select>
-      </label>
-      <label>
-        <span>{scheduleType === 'once' ? 'Run at' : 'First run'}</span>
-        <input type="datetime-local" bind:value={runAt} required>
-      </label>
+        </Select>
+      </Field>
+      <Field label={scheduleType === 'once' ? 'Run at' : 'First run'}>
+        <Input type="datetime-local" bind:value={runAt} required />
+      </Field>
     </div>
     {#if scheduleType === 'interval'}
       <div class="interval-row">
-        <label>
-          <span>Repeat every</span>
-          <input type="number" bind:value={intervalValue} min="1" step="1" required>
-        </label>
-        <label>
-          <span>Unit</span>
-          <select bind:value={intervalUnit}>
+        <Field label="Repeat every">
+          <Input
+            type="number"
+            value={String(intervalValue)}
+            min={1}
+            step={1}
+            required
+            oninput={(event) => intervalValue = (event.currentTarget as HTMLInputElement).valueAsNumber}
+          />
+        </Field>
+        <Field label="Unit">
+          <Select
+            value={intervalUnit}
+            onchange={(event) => intervalUnit = (event.currentTarget as HTMLSelectElement).value as typeof intervalUnit}
+          >
             <option value="minutes">Minutes</option>
             <option value="hours">Hours</option>
             <option value="days">Days</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
       </div>
     {/if}
-    <button class="vampire-dialog-primary-button create-button" type="submit" disabled={creating}>
+    <Button variant="primary" class="create-button" type="submit" disabled={creating}>
       <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
       {creating ? 'Saving…' : 'Add automation'}
-    </button>
+    </Button>
   </form>
 
   {#if mutationError}
@@ -294,14 +307,14 @@ onDestroy(() => {
 
   <div class="automation-list" aria-live="polite">
     {#if loading}
-      <p class="vampire-dialog-empty-state">Loading automations…</p>
+      <DialogEmptyState>Loading automations…</DialogEmptyState>
     {:else if loadError}
-      <div class="vampire-dialog-empty-state automation-empty">
+      <DialogEmptyState as="div" class="automation-empty">
         <p role="alert">{loadError}</p>
-        <button type="button" onclick={() => void loadAutomations(false, true)}>Retry</button>
-      </div>
+        <Button size="sm" onclick={() => void loadAutomations(false, true)}>Retry</Button>
+      </DialogEmptyState>
     {:else if automations.length === 0}
-      <p class="vampire-dialog-empty-state">No automations yet.</p>
+      <DialogEmptyState>No automations yet.</DialogEmptyState>
     {:else}
       {#each automations as automation (automation.id)}
         <article class:paused={!automation.enabled}>
@@ -320,8 +333,8 @@ onDestroy(() => {
             <p class="automation-error" role="alert">{automation.lastError}</p>
           {/if}
           <div class="automation-actions">
-            <button
-              type="button"
+            <Button
+              size="sm"
               disabled={Boolean(updatingId)}
               onclick={() => void setEnabled(automation, !automation.enabled)}
             >
@@ -331,16 +344,16 @@ onDestroy(() => {
               {:else}
                 <Play size={14} strokeWidth={1.9} aria-hidden="true" /> {resumeLabel(automation)}
               {/if}
-            </button>
-            <button
-              type="button"
-              class="delete-button"
+            </Button>
+            <Button
+              variant="danger-outline"
+              size="sm"
               disabled={Boolean(updatingId)}
               onclick={() => void deleteAutomation(automation)}
             >
               <Trash2 size={14} strokeWidth={1.9} aria-hidden="true" />
               Delete
-            </button>
+            </Button>
           </div>
         </article>
       {/each}
@@ -365,39 +378,6 @@ form {
   display: grid;
   gap: 0.7rem;
 }
-label {
-  display: grid;
-  gap: 0.32rem;
-  min-width: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-input,
-textarea,
-select {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.6rem 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-}
-textarea {
-  resize: vertical;
-  line-height: var(--leading-body);
-}
-input:focus,
-textarea:focus,
-select:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-accent-focus);
-}
 .schedule-row,
 .interval-row {
   display: grid;
@@ -407,7 +387,7 @@ select:focus {
 .interval-row {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
-.create-button {
+:global(.create-button) {
   justify-self: end;
 }
 .automation-list {
@@ -419,7 +399,7 @@ select:focus {
   gap: 0.55rem;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-md);
   background: var(--color-control-background);
 }
 .automation-list article.paused {
@@ -478,40 +458,10 @@ select:focus {
   justify-content: flex-end;
   gap: 0.45rem;
 }
-.automation-actions button,
-.automation-empty button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.32rem;
-  min-height: 2.15rem;
-  padding: 0 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: var(--text-caption);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .automation-actions button:hover:not(:disabled),
-  .automation-empty button:hover {
-    background: var(--color-control-hover);
-    color: var(--color-text);
-  }
-}
-.automation-actions .delete-button {
-  color: var(--color-danger-text);
-}
-.automation-actions button:disabled {
-  cursor: wait;
-  opacity: 0.55;
-}
-.automation-empty {
+:global(.automation-empty) {
   gap: 0.65rem;
 }
-.automation-empty p {
+:global(.automation-empty p) {
   margin: 0;
 }
 
@@ -519,11 +469,6 @@ select:focus {
   .schedule-row,
   .interval-row {
     grid-template-columns: 1fr;
-  }
-  input,
-  textarea,
-  select {
-    font-size: 1rem;
   }
 }
 </style>

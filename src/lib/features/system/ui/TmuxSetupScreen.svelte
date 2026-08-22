@@ -1,6 +1,7 @@
 <script lang="ts">
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status';
+import Button from '~/lib/shared/ui/Button.svelte';
 
 let { status }: { status: TmuxStatus } = $props();
 </script>
@@ -33,10 +34,10 @@ let { status }: { status: TmuxStatus } = $props();
       </div>
 
       <p class="install-note">{status.install.note}</p>
-      <button class="check-button" type="button" onclick={() => location.reload()}>
+      <Button variant="primary" size="lg" block onclick={() => location.reload()}>
         <RefreshCw size={16} strokeWidth={1.9} aria-hidden="true" />
         Check installation
-      </button>
+      </Button>
     </div>
   </div>
 </section>
@@ -168,32 +169,6 @@ h1 {
   font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
-.check-button {
-  display: inline-flex;
-  width: 100%;
-  min-height: var(--control-height-lg);
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-strong);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .check-button:hover {
-    background: var(--color-accent-hover);
-  }
-}
-.check-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-accent-focus);
-}
-
 @media (max-width: 48rem) {
   .setup-screen {
     overflow: auto;

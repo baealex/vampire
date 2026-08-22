@@ -1,5 +1,6 @@
 <script lang="ts">
 import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+import Button from '~/lib/shared/ui/Button.svelte';
 import { changeBadge, describeChange } from '../model/view';
 import type { RepositoryChange, RepositorySelection, RepositorySnapshot } from '~/lib/shared/contracts/repository';
 
@@ -23,7 +24,7 @@ let {
     <div class="repository-empty">
       <strong>Not a Git repository</strong>
       <p>Files are still available from the Files tab.</p>
-      <button type="button" onclick={onOpenFiles}>Open files</button>
+      <Button size="sm" variant="secondary" onclick={onOpenFiles}>Open files</Button>
     </div>
   {:else if snapshot.changes.length === 0}
     <div class="repository-empty">
@@ -93,16 +94,8 @@ let {
   font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
-.repository-empty button {
-  min-height: 2.2rem;
+:global(.repository-empty .vampire-button) {
   margin-top: 0.9rem;
-  padding: 0 0.75rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font-size: var(--text-label);
-  cursor: pointer;
 }
 .change-row {
   display: grid;

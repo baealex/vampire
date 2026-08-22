@@ -6,6 +6,7 @@ import FolderX from '@lucide/svelte/icons/folder-x';
 import GitBranch from '@lucide/svelte/icons/git-branch';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import StickyNote from '@lucide/svelte/icons/sticky-note';
+import Button from '~/lib/shared/ui/Button.svelte';
 import WorkspaceActionsMenu from './WorkspaceActionsMenu.svelte';
 import type { ManagedWorkspace, WorkspaceOrderMode } from '~/lib/shared/contracts/workspace';
 import type { WorkspaceActivityRecords, WorkspaceActivityState } from '../model/workspace-view';
@@ -279,7 +280,7 @@ async function runWorkspaceAction(
     <div class="empty-state__icon" aria-hidden="true"><SquareTerminal size={24} strokeWidth={1.7} /></div>
     <h2>No workspaces yet</h2>
     <p>Open a project shell. The workspace stays available until you remove it.</p>
-    <button class="secondary-button" onclick={onNewWorkspace}>New workspace</button>
+    <Button variant="secondary" onclick={onNewWorkspace}>New workspace</Button>
   </div>
 {:else}
   <div class="workspaces">
@@ -603,26 +604,6 @@ async function runWorkspaceAction(
   color: var(--color-text-secondary);
   font-size: var(--text-body);
   line-height: var(--leading-body);
-}
-.secondary-button {
-  min-height: var(--control-height-md);
-  padding: 0 0.9rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .secondary-button:hover:not(:disabled) {
-    background: var(--color-surface-hover);
-  }
-}
-.secondary-button:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 .error {
   margin: 0;

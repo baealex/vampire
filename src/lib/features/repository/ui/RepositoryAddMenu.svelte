@@ -4,6 +4,7 @@ import Files from '@lucide/svelte/icons/files';
 import FolderPlus from '@lucide/svelte/icons/folder-plus';
 import FolderUp from '@lucide/svelte/icons/folder-up';
 import Plus from '@lucide/svelte/icons/plus';
+import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
@@ -34,25 +35,22 @@ let {
   {/snippet}
 
   {#snippet children()}
-    <div class="vampire-menu-heading" role="presentation">
-      <strong>Add to workspace</strong>
-      <span>Create or choose</span>
-    </div>
-    <DropdownMenuSeparator class="vampire-menu-separator" />
-    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onCreateFile}>
+    <DropdownMenuHeading title="Add to workspace" subtitle="Create or choose" />
+    <DropdownMenuSeparator />
+    <DropdownMenuItem {disabled} onSelect={onCreateFile}>
       <FilePlus size={16} strokeWidth={1.8} aria-hidden="true" />
       New file
     </DropdownMenuItem>
-    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onCreateFolder}>
+    <DropdownMenuItem {disabled} onSelect={onCreateFolder}>
       <FolderPlus size={16} strokeWidth={1.8} aria-hidden="true" />
       New folder
     </DropdownMenuItem>
-    <DropdownMenuSeparator class="vampire-menu-separator" />
-    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onUploadFiles}>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem {disabled} onSelect={onUploadFiles}>
       <Files size={16} strokeWidth={1.8} aria-hidden="true" />
       Choose files…
     </DropdownMenuItem>
-    <DropdownMenuItem class="vampire-menu-item" {disabled} onSelect={onUploadFolder}>
+    <DropdownMenuItem {disabled} onSelect={onUploadFolder}>
       <FolderUp size={16} strokeWidth={1.8} aria-hidden="true" />
       Choose folder…
     </DropdownMenuItem>

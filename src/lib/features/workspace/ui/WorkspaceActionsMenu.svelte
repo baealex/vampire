@@ -6,6 +6,7 @@ import LogOut from '@lucide/svelte/icons/log-out';
 import Tags from '@lucide/svelte/icons/tags';
 import SquarePlay from '@lucide/svelte/icons/square-play';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
@@ -80,11 +81,8 @@ async function confirmSelectedAction() {
   {/snippet}
 
   {#snippet children()}
-    <div class="vampire-menu-heading" role="presentation">
-      <strong>{workspaceName(workspace)}</strong>
-      <span>{workspace.cwd}</span>
-    </div>
-    <DropdownMenuSeparator class="vampire-menu-separator" />
+    <DropdownMenuHeading title={workspaceName(workspace)} subtitle={workspace.cwd} />
+    <DropdownMenuSeparator />
 
     {#if confirming}
       <div
@@ -108,11 +106,10 @@ async function confirmSelectedAction() {
           {/if}
         </p>
         <div class="vampire-menu-confirm-actions">
-          <DropdownMenuItem class="vampire-menu-item" onSelect={() => confirming = undefined}>
-            Cancel
-          </DropdownMenuItem>
+          <DropdownMenuItem align="center" onSelect={() => confirming = undefined}> Cancel </DropdownMenuItem>
           <DropdownMenuItem
-            class="vampire-menu-item danger"
+            align="center"
+            tone="danger"
             disabled={Boolean(action)}
             onSelect={(event) => { event.preventDefault(); void confirmSelectedAction(); }}
           >
@@ -124,37 +121,33 @@ async function confirmSelectedAction() {
         {/if}
       </div>
     {:else}
-      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onAlias(workspace)}>
+      <DropdownMenuItem onSelect={() => onAlias(workspace)}>
         <Tags size={16} strokeWidth={1.8} aria-hidden="true" />
         {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
       </DropdownMenuItem>
       {#if workspace.isGitRepository && workspace.workspaceAvailable !== false}
-        <DropdownMenuItem class="vampire-menu-item" onSelect={() => onNewWorktree(workspace)}>
+        <DropdownMenuItem onSelect={() => onNewWorktree(workspace)}>
           <GitBranchPlus size={16} strokeWidth={1.8} aria-hidden="true" />
           New isolated workspace
         </DropdownMenuItem>
       {/if}
-      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onSettings(workspace)}>
+      <DropdownMenuItem onSelect={() => onSettings(workspace)}>
         <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
         Startup profile
       </DropdownMenuItem>
-      <DropdownMenuItem class="vampire-menu-item" onSelect={() => onAutomations(workspace)}>
+      <DropdownMenuItem onSelect={() => onAutomations(workspace)}>
         <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
         Agent automations
       </DropdownMenuItem>
-      <DropdownMenuSeparator class="vampire-menu-separator" />
+      <DropdownMenuSeparator />
       {#if workspace.state === 'running'}
-        <DropdownMenuItem
-          class="vampire-menu-item"
-          disabled={Boolean(action)}
-          onSelect={(event) => requestConfirmation(event, 'close')}
-        >
+        <DropdownMenuItem disabled={Boolean(action)} onSelect={(event) => requestConfirmation(event, 'close')}>
           <LogOut size={16} strokeWidth={1.8} aria-hidden="true" />
           Close workspace
         </DropdownMenuItem>
       {/if}
       <DropdownMenuItem
-        class="vampire-menu-item danger"
+        tone="danger"
         disabled={Boolean(action)}
         onSelect={(event) => requestConfirmation(event, 'remove')}
       >
@@ -187,11 +180,6 @@ async function confirmSelectedAction() {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.3rem;
   margin-top: 0.2rem;
-}
-:global(.vampire-menu-confirm-actions .vampire-menu-item) {
-  justify-content: center;
-  min-height: 2rem;
-  padding-inline: 0.35rem;
 }
 .vampire-menu-error {
   color: var(--color-danger-text) !important;

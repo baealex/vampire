@@ -11,9 +11,14 @@ import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
+import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
+import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
+import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import {
   cloneStatusPlugins,
   createStatusPluginPreset,
@@ -243,12 +248,12 @@ onDestroy(() => unsubscribe?.());
     {:else}
       <div class="status-settings" aria-busy={fetching}>
         {#if view === 'list'}
-          <div class="vampire-dialog-toolbar">
+          <DialogToolbar>
             <span>{plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}</span>
             <DropdownMenuShell
               triggerLabel="Add widget"
               triggerTitle="Add status widget"
-              triggerClass="vampire-dialog-primary-action"
+              triggerVariant="primary"
               align="end"
             >
               {#snippet trigger()}
@@ -258,23 +263,19 @@ onDestroy(() => unsubscribe?.());
 
               {#snippet children()}
                 {#each presets as preset (preset.id)}
-                  <DropdownMenuItem
-                    class="vampire-menu-item"
-                    disabled={loading || atCapacity}
-                    onSelect={() => addPreset(preset.id)}
-                  >
+                  <DropdownMenuItem disabled={loading || atCapacity} onSelect={() => addPreset(preset.id)}>
                     <Plus size={14} strokeWidth={2} aria-hidden="true" />
                     <span>{preset.name}</span>
                   </DropdownMenuItem>
                 {/each}
-                <DropdownMenuSeparator class="vampire-menu-separator" />
-                <DropdownMenuItem class="vampire-menu-item" disabled={loading || atCapacity} onSelect={addCommand}>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={loading || atCapacity} onSelect={addCommand}>
                   <Plus size={14} strokeWidth={2} aria-hidden="true" />
                   <span>Command</span>
                 </DropdownMenuItem>
               {/snippet}
             </DropdownMenuShell>
-          </div>
+          </DialogToolbar>
 
           {#if loading}
             <p class="status-loading" role="status">Loading status widgets…</p>
@@ -309,7 +310,6 @@ onDestroy(() => unsubscribe?.());
 
                     {#snippet children()}
                       <DropdownMenuItem
-                        class="vampire-menu-item"
                         disabled={index === 0}
                         ariaLabel={`Move ${plugin.name || `widget ${index + 1}`} up`}
                         onSelect={() => movePlugin(index, -1)}
@@ -318,7 +318,6 @@ onDestroy(() => unsubscribe?.());
                         <span>Move up</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        class="vampire-menu-item"
                         disabled={index === plugins.length - 1}
                         ariaLabel={`Move ${plugin.name || `widget ${index + 1}`} down`}
                         onSelect={() => movePlugin(index, 1)}
@@ -326,9 +325,9 @@ onDestroy(() => unsubscribe?.());
                         <ChevronDown size={15} strokeWidth={1.8} aria-hidden="true" />
                         <span>Move down</span>
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator class="vampire-menu-separator" />
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        class="vampire-menu-item danger"
+                        tone="danger"
                         ariaLabel={`Remove ${plugin.name || `widget ${index + 1}`}`}
                         onSelect={() => removePlugin(plugin.id)}
                       >
@@ -341,7 +340,7 @@ onDestroy(() => unsubscribe?.());
               {/each}
             </div>
           {:else}
-            <p class="vampire-dialog-empty-state">No status widgets</p>
+            <DialogEmptyState>No status widgets</DialogEmptyState>
           {/if}
         {:else if selectedPlugin}
           <div class="status-detail">
@@ -350,24 +349,27 @@ onDestroy(() => unsubscribe?.());
                 <div class="status-plugin-editor__top">
                   <label class="name-field">
                     <span>Name</span>
-                    <input
+                    <Input
                       value={selectedPlugin.name}
                       oninput={(event) => (selectedPlugin.name = (event.currentTarget as HTMLInputElement).value)}
                       maxlength={STATUS_PLUGIN_NAME_MAX_LENGTH}
-                    >
+                    />
                   </label>
                   <label class="interval-field">
                     <span>Every</span>
-                    <span class="interval-input"
-                      ><input
+                    <span class="interval-input">
+                      <Input
                         type="number"
-                        min="1"
-                        max="86400"
-                        step="1"
-                        value={selectedPlugin.intervalMs / 1_000}
+                        size="sm"
+                        variant="embedded"
+                        min={1}
+                        max={86400}
+                        step={1}
+                        value={String(selectedPlugin.intervalMs / 1_000)}
                         oninput={(event) => updateInterval(selectedPlugin, event)}
-                      ><em>sec</em></span
-                    >
+                      />
+                      <em>sec</em>
+                    </span>
                   </label>
                 </div>
                 <div class="status-plugin-editor__options">
@@ -379,26 +381,28 @@ onDestroy(() => unsubscribe?.());
                     >
                     <span>Enabled</span>
                   </label>
-                  <button
-                    class="remove-plugin"
-                    type="button"
+                  <Button
+                    variant="danger-outline"
+                    size="sm"
                     onclick={() => removePlugin(selectedPlugin.id)}
-                    aria-label={`Remove ${selectedPlugin.name || 'widget'}`}
+                    ariaLabel={`Remove ${selectedPlugin.name || 'widget'}`}
                   >
                     <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Remove widget</span>
-                  </button>
+                  </Button>
                 </div>
                 <label class="command-field">
                   <span>Command</span>
-                  <textarea
+                  <Textarea
+                    size="code"
+                    mono
                     value={selectedPlugin.source.command}
                     oninput={(event) => (selectedPlugin.source.command = (event.currentTarget as HTMLTextAreaElement).value)}
                     maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
-                    spellcheck="false"
-                    rows="7"
+                    spellcheck={false}
+                    rows={7}
                     wrap="off"
-                  ></textarea>
+                  />
                 </label>
               </div>
             </div>
@@ -414,19 +418,14 @@ onDestroy(() => unsubscribe?.());
 
   {#snippet footer()}
     <div class="status-settings-footer">
-      <button class="vampire-dialog-secondary-button" type="button" onclick={showGuide}>
+      <Button variant="secondary" onclick={showGuide}>
         <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
         <span>Guide</span>
-      </button>
-      <button
-        class="vampire-dialog-primary-button"
-        type="button"
-        onclick={() => void save()}
-        disabled={loading || saving || !hasUnsavedChanges}
-      >
+      </Button>
+      <Button variant="primary" onclick={() => void save()} disabled={loading || saving || !hasUnsavedChanges}>
         <Save size={15} strokeWidth={1.9} aria-hidden="true" />
         <span>{saving ? 'Saving…' : 'Save changes'}</span>
-      </button>
+      </Button>
     </div>
   {/snippet}
 </DialogShell>
@@ -538,22 +537,6 @@ onDestroy(() => unsubscribe?.());
   }
 }
 
-.remove-plugin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  height: 2.2rem;
-  padding: 0 0.5rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font: inherit;
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
 .status-detail {
   display: grid;
   min-width: 0;
@@ -591,19 +574,6 @@ onDestroy(() => unsubscribe?.());
   font-size: var(--text-nano);
   font-weight: var(--weight-medium);
 }
-.status-plugin-editor input:not([type="checkbox"]),
-.status-plugin-editor textarea {
-  width: 100%;
-  min-width: 0;
-  min-height: 2.2rem;
-  padding: 0 0.55rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-caption);
-}
 .interval-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -612,10 +582,6 @@ onDestroy(() => unsubscribe?.());
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-control-background);
-}
-.interval-input input {
-  border: 0 !important;
-  background: transparent !important;
 }
 .interval-input em {
   padding-right: 0.48rem;
@@ -633,22 +599,6 @@ onDestroy(() => unsubscribe?.());
 }
 .enabled-field input {
   accent-color: var(--color-accent);
-}
-@media (hover: hover) {
-  .remove-plugin:hover {
-    background: var(--color-danger-surface-hover);
-    color: var(--color-danger-text);
-  }
-}
-.command-field textarea {
-  min-height: 12rem;
-  padding-block: 0.5rem;
-  resize: vertical;
-  font-family: var(--font-mono) !important;
-  line-height: 1.45;
-  tab-size: 2;
-  white-space: pre;
-  overflow: auto;
 }
 .status-feedback {
   margin: 0;

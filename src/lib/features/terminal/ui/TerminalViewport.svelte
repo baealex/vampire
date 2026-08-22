@@ -3,6 +3,7 @@ import CircleAlert from '@lucide/svelte/icons/circle-alert';
 import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import { onMount, untrack, type Snippet } from 'svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
 import TerminalInputDock from './TerminalInputDock.svelte';
 import ShellOpening from './ShellOpening.svelte';
 import { TerminalImagePasteState } from './image-paste-state.svelte';
@@ -209,7 +210,9 @@ onMount(() => {
         <span class="terminal-control-label">
           {controlSizeMismatch ? 'Sized for another device' : 'Layout controlled by another device'}
         </span>
-        <button type="button" onclick={() => runtime?.claimControl()}>Use this device</button>
+        <Button class="terminal-status-action" size="sm" variant="secondary" onclick={() => runtime?.claimControl()}>
+          Use this device
+        </Button>
       </div>
     {/if}
     {#if !terminalError}
@@ -225,9 +228,14 @@ onMount(() => {
           <CircleAlert size={17} strokeWidth={1.9} />
         </span>
         <span class="terminal-status-message">{terminalError}</span>
-        <button type="button" onclick={terminalOutputPaused ? () => runtime?.reconnect() : () => location.reload()}>
+        <Button
+          class="terminal-status-action"
+          size="sm"
+          variant="danger-outline"
+          onclick={terminalOutputPaused ? () => runtime?.reconnect() : () => location.reload()}
+        >
           {terminalOutputPaused ? 'Resume output' : 'Reconnect'}
-        </button>
+        </Button>
       </div>
     {:else if terminalReconnecting}
       <div class="terminal-status-card terminal-connection-status" role="status" aria-live="polite">
@@ -235,7 +243,9 @@ onMount(() => {
           <RefreshCw size={16} strokeWidth={1.9} />
         </span>
         <span class="terminal-status-message">Reconnecting to terminal…</span>
-        <button type="button" onclick={() => runtime?.reconnect()}>Retry now</button>
+        <Button class="terminal-status-action" size="sm" variant="secondary" onclick={() => runtime?.reconnect()}>
+          Retry now
+        </Button>
       </div>
     {/if}
   </div>
@@ -379,31 +389,9 @@ onMount(() => {
 .terminal-control-label {
   padding: 0 0.18rem 0 0.05rem;
 }
-.terminal-control-handoff button,
-.terminal-status-card button {
+:global(.terminal-status-action) {
   flex: 0 0 auto;
-  min-height: 2.25rem;
-  padding: 0 0.72rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
-  background: var(--color-surface-selected);
-  color: var(--color-text);
-  font: inherit;
-  font-weight: var(--weight-medium);
-  cursor: pointer;
   touch-action: manipulation;
-}
-@media (hover: hover) {
-  .terminal-control-handoff button:hover,
-  .terminal-status-card button:hover {
-    border-color: var(--color-border-strong);
-    background: var(--color-control-hover);
-  }
-}
-.terminal-control-handoff button:focus-visible,
-.terminal-status-card button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-accent-focus);
 }
 .terminal-status-card {
   position: absolute;
@@ -436,10 +424,6 @@ onMount(() => {
 }
 .terminal-error {
   border-color: var(--color-danger-border);
-}
-.terminal-error button {
-  border-color: var(--color-danger-border);
-  color: var(--color-danger-text-strong);
 }
 .terminal-status-icon.reconnecting {
   background: var(--color-warning-surface);
@@ -499,10 +483,6 @@ onMount(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .terminal-control-handoff button,
-  .terminal-status-card button {
-    min-height: 2.75rem;
   }
   .terminal-status-card {
     right: 0.5rem;

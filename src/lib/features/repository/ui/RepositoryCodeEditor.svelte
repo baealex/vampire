@@ -3,6 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
 import { onMount } from 'svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
 import { themeState } from '~/lib/shared/theme/theme.svelte';
 import { RepositoryClient } from '../api/client';
 import type { WorkspaceFile } from '~/lib/shared/contracts/repository';
@@ -185,9 +186,9 @@ function formatBytes(bytes: number): string {
   <footer class="editor-status">
     <span>{formatBytes(byteSize)} / 5 MB</span>
     <span class:error={Boolean(saveError)} role="status">{saveStatus}</span>
-    <button type="button" class="save-button" onclick={() => void saveFile()} disabled={!dirty || saving}>
+    <Button size="sm" variant="primary" onclick={() => void saveFile()} disabled={!dirty || saving}>
       {saving ? 'Saving…' : 'Save'}
-    </button>
+    </Button>
   </footer>
   {#if saveError}
     <p class="editor-error" role="alert">{saveError}</p>
@@ -237,27 +238,6 @@ function formatBytes(bytes: number): string {
 }
 .editor-status .error {
   color: var(--color-danger-text);
-}
-.save-button {
-  min-height: 1.8rem;
-  padding: 0 0.6rem;
-  border: 1px solid var(--color-accent);
-  border-radius: 0.38rem;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .save-button:hover:not(:disabled) {
-    border-color: var(--color-accent-hover);
-    background: var(--color-accent-hover);
-  }
-}
-.save-button:disabled {
-  cursor: default;
-  opacity: 0.5;
 }
 .editor-error {
   flex: 0 0 auto;

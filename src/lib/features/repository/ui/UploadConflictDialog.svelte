@@ -3,6 +3,7 @@ import AlertDialogShell from '~/lib/shared/ui/AlertDialogShell.svelte';
 import AlertDialogAction from '~/lib/shared/ui/AlertDialogAction.svelte';
 import AlertDialogCancel from '~/lib/shared/ui/AlertDialogCancel.svelte';
 import AlertDialogDescription from '~/lib/shared/ui/AlertDialogDescription.svelte';
+import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
 
 let {
   count,
@@ -48,29 +49,27 @@ async function resolve(conflict: 'skip' | 'rename' | 'overwrite') {
     {/if}
   {/snippet}
   {#snippet footer()}
-    <div class="vampire-dialog-actions upload-conflict-actions">
+    <DialogActions class="upload-conflict-actions">
       <AlertDialogCancel
-        class="vampire-dialog-secondary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('skip'); }}
       >
         {action === 'skip' ? 'Skipping…' : 'Skip existing'}
       </AlertDialogCancel>
       <AlertDialogAction
-        class="vampire-dialog-primary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('rename'); }}
       >
         {action === 'rename' ? 'Saving copies…' : 'Keep both'}
       </AlertDialogAction>
       <AlertDialogAction
-        class="vampire-dialog-danger-button"
+        variant="danger"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('overwrite'); }}
       >
         {action === 'overwrite' ? 'Replacing…' : 'Replace'}
       </AlertDialogAction>
-    </div>
+    </DialogActions>
   {/snippet}
 </AlertDialogShell>
 
@@ -88,7 +87,7 @@ async function resolve(conflict: 'skip' | 'rename' | 'overwrite') {
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
-.upload-conflict-actions {
+:global(.upload-conflict-actions) {
   align-items: stretch;
 }
 .upload-conflict-error {
@@ -98,7 +97,7 @@ async function resolve(conflict: 'skip' | 'rename' | 'overwrite') {
   line-height: var(--leading-ui);
 }
 @media (max-width: 39.999rem) {
-  .upload-conflict-actions {
+  :global(.upload-conflict-actions) {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }

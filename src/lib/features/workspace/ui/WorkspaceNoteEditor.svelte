@@ -2,6 +2,8 @@
 import { onDestroy, onMount, tick } from 'svelte';
 import Sparkles from '@lucide/svelte/icons/sparkles';
 import X from '@lucide/svelte/icons/x';
+import Button from '~/lib/shared/ui/Button.svelte';
+import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 
 const AUTOSAVE_DELAY_MS = 700;
@@ -215,9 +217,15 @@ onDestroy(() => {
         <h2 id="workspace-note-title">Workspace note</h2>
         <p>Keep the next step here.</p>
       </div>
-      <button type="button" class="close-button" onclick={() => void closeEditor()} aria-label="Close workspace note">
+      <Button
+        variant="ghost"
+        size="sm"
+        class="close-button"
+        onclick={() => void closeEditor()}
+        ariaLabel="Close workspace note"
+      >
         <X size={17} strokeWidth={1.9} aria-hidden="true" />
-      </button>
+      </Button>
     </header>
   {/if}
   <form>
@@ -225,15 +233,16 @@ onDestroy(() => {
       <p class="note-loading" role="status">Loading note…</p>
     {:else if !noteLoaded}
       <p class="note-error" role="alert">{noteLoadError}</p>
-      <button type="button" class="retry-button" onclick={() => void loadNote()}>Retry</button>
+      <Button class="note-retry" size="sm" variant="secondary" onclick={() => void loadNote()}>Retry</Button>
     {:else}
-      <textarea
-        bind:this={textarea}
+      <Textarea
+        bind:element={textarea}
         bind:value={draft}
+        class="note-textarea"
         oninput={scheduleSave}
         placeholder="What is this workspace for? What changed? What comes next?"
-        aria-label="Workspace note"
-      ></textarea>
+        ariaLabel="Workspace note"
+      />
       <div class="note-footer">
         <span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}
           >{saveStatus}</span
@@ -243,14 +252,15 @@ onDestroy(() => {
         <p class="note-error" role="alert">{saveError}</p>
       {/if}
       <div class="agent-note-action">
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          block
           onclick={() => void summarizeNote()}
           disabled={summarizing || summaryQueued || Boolean(saveError)}
         >
           <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
           {summarizing ? 'Queuing…' : summaryQueued ? 'Waiting for note update' : 'Summarize with agent'}
-        </button>
+        </Button>
         <p>Ask the agent to update this note.</p>
       </div>
       {#if summaryMessage}
@@ -316,24 +326,12 @@ header p {
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
-.close-button {
-  display: grid;
+:global(.close-button) {
   flex: 0 0 auto;
-  place-items: center;
   width: 2rem;
+  min-width: 2rem;
   height: 2rem;
   padding: 0;
-  border: 0;
-  border-radius: 0.42rem;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .close-button:hover {
-    background: var(--color-control-hover);
-    color: var(--color-text);
-  }
 }
 form {
   display: grid;
@@ -345,43 +343,13 @@ form {
   font-size: var(--text-body);
   line-height: var(--leading-body);
 }
-.retry-button {
+:global(.note-retry) {
   justify-self: start;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.45rem;
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
 }
-@media (hover: hover) {
-  .retry-button:hover {
-    background: var(--color-control-hover);
-  }
-}
-textarea {
-  width: 100%;
+:global(.note-textarea) {
   min-height: 8.5rem;
-  resize: vertical;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
-  outline: none;
-  background: var(--color-field-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
 }
-textarea::placeholder {
-  color: var(--color-field-placeholder);
-}
-textarea:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-accent-focus);
-}
-.note-editor.panel textarea {
+:global(.note-editor.panel .note-textarea) {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -414,31 +382,6 @@ textarea:focus {
   padding-top: 0.2rem;
   border-top: 1px solid var(--color-border-subtle);
 }
-.agent-note-action button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.42rem;
-  min-height: 2.45rem;
-  padding: 0 0.78rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .agent-note-action button:hover:not(:disabled) {
-    background: var(--color-control-hover);
-  }
-}
-.agent-note-action button:disabled {
-  color: var(--color-text-disabled);
-  cursor: wait;
-}
 .agent-note-action p,
 .note-agent-status {
   margin: 0;
@@ -459,12 +402,5 @@ textarea:focus {
 .note-agent-target code {
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
-}
-
-@media (max-width: 32rem) {
-  textarea {
-    min-height: 7.5rem;
-    font-size: 1rem;
-  }
 }
 </style>

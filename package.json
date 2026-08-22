@@ -39,6 +39,7 @@
     "start": "node bin/vampire.js",
     "check": "node tools/check.ts",
     "check:architecture": "node tools/check-architecture.ts",
+    "check:design-system": "node tools/check-design-system.ts",
     "format": "node tools/format-changed.ts --write",
     "format:check": "node tools/format-changed.ts",
     "test": "pnpm check && pnpm test:node && pnpm test:component && pnpm build",

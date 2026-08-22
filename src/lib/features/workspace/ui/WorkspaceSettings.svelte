@@ -3,7 +3,10 @@ import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { untrack } from 'svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
+import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { workspaceName as getWorkspaceName } from '../model/workspace-view.ts';
@@ -128,15 +131,15 @@ async function save() {
             only the startup selection belongs to this workspace.
           </p>
         </div>
-        <button
-          class="vampire-dialog-secondary-button add-button"
-          type="button"
+        <Button
+          class="add-button"
+          variant="secondary"
           onclick={addProfile}
           disabled={editableProfiles.length >= MAX_LAUNCH_PROFILES}
         >
           <Plus size={15} strokeWidth={2} aria-hidden="true" />
           <span>Add profile</span>
-        </button>
+        </Button>
       </div>
 
       <label class:selected={selectedProfileId === null} class="no-startup-option">
@@ -157,22 +160,23 @@ async function save() {
           {#each editableProfiles as profile, index (profile.id)}
             <article class:selected={selectedProfileId === profile.id} class="profile-card">
               <div class="profile-card__top">
-                <label>
+                <label class="profile-field">
                   <span>Name</span>
-                  <input bind:value={profile.name} maxlength="80">
+                  <Input bind:value={profile.name} size="sm" maxlength={80} />
                 </label>
-                <button
+                <Button
+                  variant="danger-outline"
                   class="icon-danger"
-                  type="button"
+                  size="sm"
                   onclick={() => removeProfile(profile.id)}
-                  aria-label={`Remove ${profile.name || `profile ${index + 1}`}`}
+                  ariaLabel={`Remove ${profile.name || `profile ${index + 1}`}`}
                 >
                   <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
-                </button>
+                </Button>
               </div>
-              <label>
+              <label class="profile-field">
                 <span>Command</span>
-                <input class="command-input" bind:value={profile.command} maxlength="1000" spellcheck="false">
+                <Input bind:value={profile.command} size="sm" mono maxlength={1000} spellcheck={false} />
               </label>
               <div class="profile-card__footer">
                 <span
@@ -200,12 +204,12 @@ async function save() {
   {/snippet}
 
   {#snippet footer()}
-    <div class="vampire-dialog-actions">
-      <button class="vampire-dialog-primary-button" type="button" onclick={() => void save()} disabled={saving}>
+    <DialogActions>
+      <Button variant="primary" onclick={() => void save()} disabled={saving}>
         <Save size={15} strokeWidth={1.9} aria-hidden="true" />
         <span>{saving ? 'Saving…' : 'Save changes'}</span>
-      </button>
-    </div>
+      </Button>
+    </DialogActions>
   {/snippet}
 </DialogShell>
 
@@ -234,7 +238,7 @@ async function save() {
   font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
-.add-button {
+:global(.add-button) {
   flex: 0 0 auto;
 }
 .no-startup-option {
@@ -290,7 +294,7 @@ async function save() {
   align-items: end;
   gap: 0.55rem;
 }
-.profile-card label {
+.profile-field {
   display: grid;
   gap: 0.3rem;
   min-width: 0;
@@ -298,43 +302,16 @@ async function save() {
   font-size: var(--text-nano);
   font-weight: var(--weight-medium);
 }
-.profile-card input:not([type="radio"]) {
-  width: 100%;
-  min-height: 2.3rem;
-  padding: 0 0.6rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-control-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-caption);
-}
-.profile-card input:focus-visible,
+.profile-selection input:focus-visible,
 .no-startup-option input:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
-.command-input {
-  font-family: var(--font-mono) !important;
-}
-.icon-danger {
-  display: grid;
-  place-items: center;
+:global(.icon-danger) {
   width: 2.3rem;
+  min-width: 2.3rem;
   height: 2.3rem;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .icon-danger:hover {
-    border-color: var(--color-danger-border);
-    background: var(--color-danger-surface-hover);
-    color: var(--color-danger-text);
-  }
 }
 .profile-card__footer {
   display: flex;
@@ -369,7 +346,7 @@ async function save() {
     align-items: flex-start;
     flex-direction: column;
   }
-  .add-button {
+  :global(.add-button) {
     align-self: flex-start;
   }
 }

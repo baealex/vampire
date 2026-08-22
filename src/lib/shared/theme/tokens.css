@@ -17,6 +17,14 @@
     --leading-tight: 1.25;
     --leading-ui: 1.4;
     --leading-body: 1.55;
+    --space-1: 0.2rem;
+    --space-2: 0.35rem;
+    --space-3: 0.5rem;
+    --space-4: 0.65rem;
+    --space-5: 0.75rem;
+    --space-6: 1rem;
+    --space-7: 1.25rem;
+    --space-8: 1.5rem;
     --radius-xs: 0.4rem;
     --radius-control: 0.5rem;
     --radius-sm: 0.55rem;
@@ -27,6 +35,9 @@
     --control-height-md: 2.5rem;
     --control-height-lg: 2.85rem;
     --control-size-icon: 2.6rem;
+    --control-padding-inline-sm: 0.65rem;
+    --control-padding-inline-md: 0.85rem;
+    --control-padding-inline-lg: 1rem;
   }
 
   @media (pointer: coarse) {

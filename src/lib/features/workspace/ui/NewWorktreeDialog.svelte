@@ -1,7 +1,11 @@
 <script lang="ts">
 import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+import Button from '~/lib/shared/ui/Button.svelte';
+import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import Field from '~/lib/shared/ui/Field.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { workspaceName, workspaceRepositoryName } from '../model/workspace-view.ts';
 
@@ -55,18 +59,17 @@ async function submit(event: SubmitEvent) {
         </div>
       </div>
 
-      <label class="worktree-field" for="worktree-task-name">
-        <span>Task name</span>
-        <input
+      <Field label="Task name" id="worktree-task-name">
+        <Input
           id="worktree-task-name"
           type="text"
           bind:value={name}
-          maxlength="80"
+          maxlength={80}
           autocomplete="off"
           autocapitalize="sentences"
           disabled={creating}
-        >
-      </label>
+        />
+      </Field>
 
       <p class="worktree-note">
         The source workspace's startup profile selection and favorite background commands are inherited. Removing this
@@ -79,20 +82,15 @@ async function submit(event: SubmitEvent) {
   {/snippet}
 
   {#snippet footer()}
-    <div class="vampire-dialog-actions">
-      <button class="vampire-dialog-secondary-button" type="button" onclick={close} disabled={creating}>Cancel</button>
-      <button
-        class="vampire-dialog-primary-button"
-        type="submit"
-        form="new-worktree-form"
-        disabled={creating || !name.trim()}
-      >
+    <DialogActions>
+      <Button variant="secondary" onclick={close} disabled={creating}>Cancel</Button>
+      <Button variant="primary" type="submit" form="new-worktree-form" disabled={creating || !name.trim()}>
         {#if creating}
           <LoaderCircle class="worktree-spinner" size={15} strokeWidth={1.9} aria-hidden="true" />
         {/if}
         <span>{creating ? 'Creating…' : 'Create workspace'}</span>
-      </button>
-    </div>
+      </Button>
+    </DialogActions>
   {/snippet}
 </DialogShell>
 
@@ -130,33 +128,6 @@ async function submit(event: SubmitEvent) {
   color: var(--color-text-secondary);
   font-size: var(--text-caption);
   line-height: var(--leading-body);
-}
-.worktree-field {
-  display: grid;
-  gap: 0.4rem;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-.worktree-field input {
-  width: 100%;
-  min-height: var(--control-height-md);
-  padding: 0 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-field-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-}
-.worktree-field input:focus-visible {
-  border-color: var(--color-accent);
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-.worktree-field input:disabled {
-  cursor: wait;
-  opacity: 0.62;
 }
 .worktree-note {
   margin: 0;

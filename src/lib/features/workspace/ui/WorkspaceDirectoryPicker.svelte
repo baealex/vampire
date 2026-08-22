@@ -4,7 +4,9 @@ import ArrowUp from '@lucide/svelte/icons/arrow-up';
 import ChevronRight from '@lucide/svelte/icons/chevron-right';
 import Folder from '@lucide/svelte/icons/folder';
 import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+import Button from '~/lib/shared/ui/Button.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import { requestJson } from '~/lib/shared/api/request';
 
 type WorkspaceRoot = {
@@ -107,13 +109,14 @@ onMount(() => {
       {:else if errorMessage}
         <div class="directory-picker-error" role="alert">
           <p>{errorMessage}</p>
-          <button
-            class="vampire-dialog-secondary-button directory-picker-secondary-button"
-            type="button"
+          <Button
+            class="directory-picker-retry"
+            size="sm"
+            variant="secondary"
             onclick={() => load(listing?.current?.path)}
           >
             Try again
-          </button>
+          </Button>
         </div>
       {:else if listing?.current}
         <div class="directory-picker-current">
@@ -133,14 +136,14 @@ onMount(() => {
               <span title={listing.current.path}>{listing.current.path}</span>
             </div>
           </div>
-          <button
-            class="vampire-dialog-primary-button directory-picker-primary-button"
-            type="button"
+          <Button
+            variant="primary"
+            block
             onclick={() => submitWorkspace(listing?.current?.path ?? '')}
             disabled={starting || tmuxAvailable === false}
           >
             {starting ? 'Opening…' : 'Open workspace here'}
-          </button>
+          </Button>
         </div>
 
         {#if listing.directories.length > 0}
@@ -198,7 +201,7 @@ onMount(() => {
           <span>Use an absolute path on the server.</span>
         </div>
         <div class="directory-picker-input-row">
-          <input
+          <Input
             id="workspace-path"
             type="text"
             bind:value={manualPath}
@@ -207,14 +210,10 @@ onMount(() => {
             autocomplete="off"
             spellcheck="false"
             disabled={starting}
-          >
-          <button
-            class="vampire-dialog-secondary-button directory-picker-secondary-button"
-            type="submit"
-            disabled={starting || tmuxAvailable === false}
-          >
+          />
+          <Button size="sm" variant="secondary" type="submit" disabled={starting || tmuxAvailable === false}>
             Open path
-          </button>
+          </Button>
         </div>
       </form>
     </div>
@@ -339,12 +338,6 @@ onMount(() => {
   cursor: not-allowed;
   opacity: 0.4;
 }
-.directory-picker-primary-button {
-  width: 100%;
-}
-.directory-picker-secondary-button {
-  justify-self: start;
-}
 .directory-picker-manual {
   display: grid;
   gap: 0.55rem;
@@ -372,25 +365,6 @@ onMount(() => {
   gap: 0.5rem;
   min-width: 0;
 }
-.directory-picker-input-row input {
-  width: 100%;
-  min-width: 0;
-  min-height: var(--control-height-md);
-  padding: 0 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-field-background);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-}
-.directory-picker-input-row input::placeholder {
-  color: var(--color-field-placeholder);
-}
-.directory-picker-input-row input:disabled {
-  cursor: wait;
-  opacity: 0.62;
-}
 .directory-picker-status {
   display: flex;
   align-items: center;
@@ -405,6 +379,9 @@ onMount(() => {
 .directory-picker-error {
   display: grid;
   gap: 0.75rem;
+}
+:global(.directory-picker-retry) {
+  justify-self: start;
 }
 .directory-picker-error p {
   margin: 0;

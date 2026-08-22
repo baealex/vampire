@@ -3,6 +3,7 @@ import AlertDialogShell from '~/lib/shared/ui/AlertDialogShell.svelte';
 import AlertDialogAction from '~/lib/shared/ui/AlertDialogAction.svelte';
 import AlertDialogCancel from '~/lib/shared/ui/AlertDialogCancel.svelte';
 import AlertDialogDescription from '~/lib/shared/ui/AlertDialogDescription.svelte';
+import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
 import type { WorkspaceEntryKind } from '~/lib/shared/contracts/repository';
 
 let {
@@ -54,22 +55,20 @@ async function resolve(resolution: 'cancel' | 'rename') {
     {/if}
   {/snippet}
   {#snippet footer()}
-    <div class="vampire-dialog-actions move-conflict-actions">
+    <DialogActions class="move-conflict-actions">
       <AlertDialogCancel
-        class="vampire-dialog-secondary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('cancel'); }}
       >
         {action === 'cancel' ? 'Canceling…' : 'Cancel'}
       </AlertDialogCancel>
       <AlertDialogAction
-        class="vampire-dialog-primary-button"
         disabled={Boolean(action)}
         onclick={(event) => { event.preventDefault(); void resolve('rename'); }}
       >
         {action === 'rename' ? 'Moving…' : 'Keep both'}
       </AlertDialogAction>
-    </div>
+    </DialogActions>
   {/snippet}
 </AlertDialogShell>
 
@@ -94,7 +93,7 @@ async function resolve(resolution: 'cancel' | 'rename') {
   line-height: var(--leading-ui);
 }
 @media (max-width: 39.999rem) {
-  .move-conflict-actions {
+  :global(.move-conflict-actions) {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }

@@ -4,10 +4,13 @@ import CircleStop from '@lucide/svelte/icons/circle-stop';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import Search from '@lucide/svelte/icons/search';
 import Shield from '@lucide/svelte/icons/shield';
+import Button from '~/lib/shared/ui/Button.svelte';
 import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
 import type { QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
+import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
 import {
   getCachedListeningPorts,
   refreshListeningPorts,
@@ -152,12 +155,13 @@ onDestroy(() => unsubscribe?.());
       <div class="listening-ports-toolbar">
         <label class="listening-ports-filter">
           <Search size={15} strokeWidth={1.8} aria-hidden="true" />
-          <input
+          <Input
             type="search"
             bind:value={filter}
-            aria-label="Filter listening ports"
+            variant="embedded"
+            ariaLabel="Filter listening ports"
             placeholder="Port, process, or path"
-          >
+          />
         </label>
         <p class="listening-ports-count" aria-live="polite">
           {#if filter.trim()}
@@ -168,15 +172,16 @@ onDestroy(() => unsubscribe?.());
             ports
           {/if}
         </p>
-        <button
-          type="button"
+        <Button
+          variant="icon"
+          class="listening-ports-refresh"
           onclick={() => void loadPorts()}
           disabled={fetching || stopping}
-          aria-label="Refresh listening ports"
+          ariaLabel="Refresh listening ports"
           title="Refresh"
         >
           <span class:spinning={fetching} aria-hidden="true"><RefreshCw size={15} strokeWidth={1.9} /></span>
-        </button>
+        </Button>
       </div>
 
       {#if statusMessage}
@@ -185,14 +190,16 @@ onDestroy(() => unsubscribe?.());
       {#if errorMessage}
         <div class="listening-ports-error" role="alert">
           <p>{errorMessage}</p>
-          <button type="button" onclick={() => void loadPorts()} disabled={fetching || stopping}>Try again</button>
+          <Button size="sm" variant="secondary" onclick={() => void loadPorts()} disabled={fetching || stopping}
+            >Try again</Button
+          >
         </div>
       {:else if loading && ports.length === 0}
-        <p class="vampire-dialog-empty-state" role="status">Checking for listening ports…</p>
+        <DialogEmptyState role="status">Checking for listening ports…</DialogEmptyState>
       {:else if ports.length === 0}
-        <p class="vampire-dialog-empty-state">No TCP ports are listening.</p>
+        <DialogEmptyState>No TCP ports are listening.</DialogEmptyState>
       {:else if filteredPorts.length === 0}
-        <p class="vampire-dialog-empty-state">No listening ports match “{filter.trim()}”.</p>
+        <DialogEmptyState>No listening ports match “{filter.trim()}”.</DialogEmptyState>
       {:else}
         <div class="listening-port-results">
           <ul class="listening-port-list" aria-label="TCP listening ports">
@@ -223,17 +230,18 @@ onDestroy(() => unsubscribe?.());
                   {/if}
                 </div>
                 {#if listener.termination === 'available'}
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     class="listening-port-action listening-port-stop"
                     onclick={() => confirming = listener}
                     disabled={fetching || stopping}
-                    aria-label={`Stop ${processLabel(listener)} on port ${listener.port}`}
+                    ariaLabel={`Stop ${processLabel(listener)} on port ${listener.port}`}
                     title="Stop process"
                   >
                     <CircleStop size={13} strokeWidth={1.8} aria-hidden="true" />
                     <span>Stop</span>
-                  </button>
+                  </Button>
                 {:else}
                   <span class="listening-port-action listening-port-unavailable" title={terminationTitle(listener)}>
                     <Shield size={13} strokeWidth={1.8} aria-hidden="true" />
@@ -306,58 +314,7 @@ onDestroy(() => unsubscribe?.());
   border-color: var(--color-accent);
   box-shadow: var(--shadow-accent-focus);
 }
-.listening-ports-filter input {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-}
-.listening-ports-filter input::placeholder {
-  color: var(--color-text-disabled);
-}
-.listening-ports-toolbar button {
-  display: grid;
-  place-items: center;
-  width: var(--control-height-sm);
-  height: var(--control-height-sm);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-.listening-ports-error button {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-height-sm);
-  padding: 0 0.7rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .listening-ports-toolbar button:hover:not(:disabled),
-  .listening-ports-error button:hover {
-    background: var(--color-surface-hover);
-  }
-}
-.listening-ports-toolbar button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-.listening-ports-toolbar .spinning {
+:global(.listening-ports-refresh .spinning) {
   display: grid;
   animation: listening-ports-spin 800ms linear infinite;
 }
@@ -493,7 +450,7 @@ onDestroy(() => unsubscribe?.());
 .listening-port-scope.network > span {
   background: var(--color-warning-accent);
 }
-.listening-port-action {
+:global(.listening-port-action) {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -510,11 +467,11 @@ onDestroy(() => unsubscribe?.());
   font-weight: var(--weight-medium);
   white-space: nowrap;
 }
-.listening-port-stop {
+:global(.listening-port-stop) {
   cursor: pointer;
 }
 @media (hover: hover) {
-  .listening-port-stop:hover {
+  :global(.listening-port-stop:hover:not(:disabled)) {
     color: var(--color-danger-text);
   }
 }
@@ -540,18 +497,18 @@ onDestroy(() => unsubscribe?.());
     grid-column: 1 / span 2;
     grid-row: 2;
   }
-  .listening-port-stop,
+  :global(.listening-port-stop),
   .listening-port-unavailable {
     grid-column: 2;
     grid-row: 1;
   }
-  .listening-port-action {
+  :global(.listening-port-action) {
     width: 5.75rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .listening-ports-toolbar .spinning {
+  :global(.listening-ports-refresh .spinning) {
     animation: none;
   }
 }

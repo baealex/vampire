@@ -1,11 +1,64 @@
-.vampire-dialog-overlay {
+<script lang="ts">
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+import type { Snippet } from 'svelte';
+
+let {
+  eyebrow,
+  onBack,
+  backDisabled = false,
+  backLabel = 'Back',
+  titleContent,
+  closeContent,
+  children,
+  footer,
+  footerVisible = true,
+}: {
+  eyebrow?: string;
+  onBack?: () => void;
+  backDisabled?: boolean;
+  backLabel?: string;
+  titleContent: Snippet;
+  closeContent: Snippet;
+  children?: Snippet;
+  footer?: Snippet;
+  footerVisible?: boolean;
+} = $props();
+</script>
+
+<header class="vampire-dialog-header">
+  <div class="vampire-dialog-heading">
+    {#if onBack}
+      <button type="button" class="vampire-dialog-back" onclick={onBack} disabled={backDisabled} aria-label={backLabel}>
+        <ArrowLeft size={18} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+    {/if}
+    <div class="vampire-dialog-heading-copy">
+      {#if eyebrow}
+        <p class="vampire-dialog-eyebrow">{eyebrow}</p>
+      {/if}
+      {@render titleContent()}
+    </div>
+  </div>
+  {@render closeContent()}
+</header>
+<div class="vampire-dialog-body">
+  {@render children?.()}
+</div>
+{#if footer && footerVisible}
+  <footer class="vampire-dialog-footer">
+    {@render footer()}
+  </footer>
+{/if}
+
+<style>
+:global(.vampire-dialog-overlay) {
   position: fixed;
   z-index: 50;
   inset: 0;
   background: var(--color-backdrop);
 }
 
-.vampire-dialog-content {
+:global(.vampire-dialog-content) {
   position: fixed;
   z-index: 51;
   top: 50%;
@@ -19,24 +72,24 @@
   gap: 0;
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: 0.9rem;
+  border-radius: var(--radius-lg);
   background: var(--color-surface-overlay);
   box-shadow: var(--shadow-dialog);
 }
 
-.vampire-dialog-content--inspect {
+:global(.vampire-dialog-content--inspect) {
   width: min(calc(100% - 2rem), 46rem);
 }
 
-.vampire-dialog-content--form {
+:global(.vampire-dialog-content--form) {
   width: min(calc(100% - 2rem), 38.5rem);
 }
 
-.vampire-alert-dialog-overlay {
+:global(.vampire-alert-dialog-overlay) {
   z-index: 60;
 }
 
-.vampire-alert-dialog-content {
+:global(.vampire-alert-dialog-content) {
   z-index: 61;
 }
 
@@ -68,7 +121,8 @@
   line-height: var(--leading-ui);
 }
 
-.vampire-dialog-title {
+:global(.vampire-dialog-title) {
+  display: block;
   overflow: hidden;
   margin: 0;
   font-size: var(--text-heading);
@@ -78,12 +132,12 @@
   white-space: nowrap;
 }
 
-.vampire-dialog-eyebrow + .vampire-dialog-title {
+.vampire-dialog-eyebrow + :global(.vampire-dialog-title) {
   margin-top: 0.2rem;
 }
 
 .vampire-dialog-back,
-.vampire-dialog-close {
+:global(.vampire-dialog-close) {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -103,14 +157,14 @@
 
 @media (hover: hover) {
   .vampire-dialog-back:hover:not(:disabled),
-  .vampire-dialog-close:hover:not(:disabled) {
+  :global(.vampire-dialog-close:hover:not(:disabled)) {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
 }
 
-.vampire-dialog-back:disabled,
-.vampire-dialog-close:disabled {
+:global(.vampire-dialog-close:disabled),
+.vampire-dialog-back:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -122,10 +176,10 @@
   --vampire-dialog-body-bottom-padding: max(1.1rem, env(safe-area-inset-bottom));
   display: grid;
   flex: 1 1 auto;
-  min-height: 0;
   min-width: 0;
-  overflow-y: auto;
+  min-height: 0;
   overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   align-content: start;
   gap: 1rem;
@@ -141,153 +195,69 @@
   border-top: 1px solid var(--color-border-subtle);
 }
 
-.vampire-dialog-description {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
-}
-
-.vampire-dialog-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.vampire-dialog-actions--split {
-  justify-content: flex-start;
-}
-
-.vampire-dialog-primary-button,
-.vampire-dialog-secondary-button,
-.vampire-dialog-danger-button,
-.vampire-dialog-danger-outline-button {
+:global(.vampire-dialog-button) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: var(--space-2);
   min-height: var(--control-height-md);
-  padding: 0 0.85rem;
+  padding: 0 var(--control-padding-inline-md);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
   font: inherit;
   font-size: var(--text-label);
   font-weight: var(--weight-medium);
   cursor: pointer;
 }
 
-.vampire-dialog-primary-button {
-  border: 0;
+:global(.vampire-dialog-button--primary) {
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
 
-.vampire-dialog-secondary-button {
-  border: 0;
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-
-.vampire-dialog-danger-button {
-  border: 0;
+:global(.vampire-dialog-button--danger) {
   background: var(--color-danger-action);
   color: var(--color-danger-action-ink);
 }
 
-.vampire-dialog-danger-outline-button {
-  justify-self: start;
-  width: auto;
-  border: 1px solid var(--color-danger-border);
+:global(.vampire-dialog-button--danger-outline) {
+  border-color: var(--color-danger-border);
   background: transparent;
   color: var(--color-danger-text);
 }
 
+:global(.vampire-dialog-button:focus-visible) {
+  outline: none;
+  box-shadow: var(--shadow-accent-focus);
+}
+
 @media (hover: hover) {
-  .vampire-dialog-primary-button:hover:not(:disabled) {
+  :global(.vampire-dialog-button--primary:hover:not(:disabled)) {
     background: var(--color-accent-hover);
   }
 
-  .vampire-dialog-secondary-button:hover:not(:disabled) {
+  :global(.vampire-dialog-button:hover:not(:disabled)) {
     background: var(--color-surface-hover);
   }
 
-  .vampire-dialog-danger-button:hover:not(:disabled) {
+  :global(.vampire-dialog-button--danger:hover:not(:disabled)) {
     background: var(--color-danger-action-hover);
   }
 
-  .vampire-dialog-danger-outline-button:hover:not(:disabled) {
+  :global(.vampire-dialog-button--danger-outline:hover:not(:disabled)) {
     background: var(--color-danger-surface-hover);
   }
 }
 
-.vampire-dialog-primary-button:disabled,
-.vampire-dialog-secondary-button:disabled,
-.vampire-dialog-danger-button:disabled,
-.vampire-dialog-danger-outline-button:disabled {
+:global(.vampire-dialog-button:disabled) {
   cursor: wait;
   opacity: 0.62;
 }
 
-.vampire-dialog-danger-outline-button:disabled {
-  cursor: not-allowed;
-}
-
-.vampire-dialog-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  min-height: 2.75rem;
-  gap: 0.65rem;
-  padding-bottom: 0.7rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-}
-
-.vampire-dialog-empty-state {
-  display: grid;
-  place-items: center;
-  min-height: 5rem;
-  margin: 0;
-  padding: 1rem;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  text-align: center;
-}
-
-.vampire-dialog-primary-action {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 0.38rem;
-  min-height: 2.35rem;
-  padding: 0 0.72rem;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  font: inherit;
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-
-.vampire-dialog-primary-action:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-@media (hover: hover) {
-  .vampire-dialog-primary-action:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-  }
-}
-
 @media (max-width: 39.999rem), (max-width: 63.999rem) and (hover: none) and (pointer: coarse) {
-  .vampire-dialog-content {
+  :global(.vampire-dialog-content) {
     top: auto;
     bottom: 0;
     width: 100%;
@@ -297,7 +267,7 @@
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 1rem 1rem 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
   .vampire-dialog-header {
@@ -312,7 +282,6 @@
     --vampire-dialog-body-block-padding: 0.85rem;
     --vampire-dialog-body-bottom-padding: max(0.85rem, env(safe-area-inset-bottom));
     min-height: 0;
-    overflow-y: auto;
     padding: var(--vampire-dialog-body-block-padding) var(--vampire-dialog-body-inline-padding)
       var(--vampire-dialog-body-bottom-padding) var(--vampire-dialog-body-inline-padding-start);
   }
@@ -322,3 +291,4 @@
       max(0.85rem, env(safe-area-inset-left));
   }
 }
+</style>

@@ -1,7 +1,10 @@
 <script lang="ts">
 import { AlertDialog } from 'bits-ui';
 import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+import AlertDialogAction from './AlertDialogAction.svelte';
+import AlertDialogCancel from './AlertDialogCancel.svelte';
 import AlertDialogShell from '~/lib/shared/ui/AlertDialogShell.svelte';
+import DialogActions from './DialogActions.svelte';
 
 let {
   title,
@@ -47,16 +50,16 @@ async function confirm() {
   {/snippet}
   {#snippet footer()}
     <div class="confirm-dialog-footer">
-      <div class="vampire-dialog-actions">
-        <AlertDialog.Cancel class="vampire-dialog-secondary-button" disabled={action}>Cancel</AlertDialog.Cancel>
-        <AlertDialog.Action
-          class="vampire-dialog-danger-button"
+      <DialogActions>
+        <AlertDialogCancel disabled={action}>Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          variant="danger"
           disabled={action}
           onclick={(event) => { event.preventDefault(); void confirm(); }}
         >
           {action ? busyLabel : confirmLabel}
-        </AlertDialog.Action>
-      </div>
+        </AlertDialogAction>
+      </DialogActions>
       {#if errorMessage}
         <p class="error" role="alert">{errorMessage}</p>
       {/if}

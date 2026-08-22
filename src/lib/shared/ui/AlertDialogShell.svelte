@@ -1,6 +1,7 @@
 <script lang="ts">
 import { AlertDialog } from 'bits-ui';
 import X from '@lucide/svelte/icons/x';
+import DialogChrome from './DialogChrome.svelte';
 import type { Snippet } from 'svelte';
 import { focusFirstOverlayInput } from './overlay.ts';
 
@@ -41,27 +42,16 @@ function handleOpenAutoFocus(event: Event) {
       onOpenAutoFocus={handleOpenAutoFocus}
       escapeKeydownBehavior={closeDisabled ? 'ignore' : 'close'}
     >
-      <header class="vampire-dialog-header">
-        <div class="vampire-dialog-heading">
-          <div class="vampire-dialog-heading-copy">
-            {#if eyebrow}
-              <p class="vampire-dialog-eyebrow">{eyebrow}</p>
-            {/if}
-            <AlertDialog.Title class="vampire-dialog-title">{title}</AlertDialog.Title>
-          </div>
-        </div>
-        <AlertDialog.Cancel class="vampire-dialog-close" disabled={closeDisabled} aria-label="Close">
-          <X size={18} strokeWidth={1.8} aria-hidden="true" />
-        </AlertDialog.Cancel>
-      </header>
-      <div class="vampire-dialog-body">
-        {@render children?.()}
-      </div>
-      {#if footer}
-        <footer class="vampire-dialog-footer">
-          {@render footer()}
-        </footer>
-      {/if}
+      <DialogChrome {eyebrow} {children} {footer}>
+        {#snippet titleContent()}
+          <AlertDialog.Title class="vampire-dialog-title">{title}</AlertDialog.Title>
+        {/snippet}
+        {#snippet closeContent()}
+          <AlertDialog.Cancel class="vampire-dialog-close" disabled={closeDisabled} aria-label="Close">
+            <X size={18} strokeWidth={1.8} aria-hidden="true" />
+          </AlertDialog.Cancel>
+        {/snippet}
+      </DialogChrome>
     </AlertDialog.Content>
   </AlertDialog.Portal>
 </AlertDialog.Root>

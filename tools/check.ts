@@ -18,6 +18,7 @@ function run(command: string, args: string[]): Promise<number> {
 
 const checks: Array<[string, string[]]> = [
   [process.execPath, ['tools/check-architecture.ts']],
+  [process.execPath, ['tools/check-design-system.ts']],
   ['svelte-kit', ['sync']],
   ['svelte-check', ['--tsconfig', './tsconfig.check.json']],
   ['tsc', ['--project', 'tsconfig.node.json']],
