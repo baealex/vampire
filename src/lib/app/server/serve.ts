@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runtimeConfig } from '~/lib/shared/server/runtime-config.ts';
+import { resolveAdapterHandlerPath } from './adapter-handler-path.ts';
 import { installTerminalWebSocket } from './terminal-websocket.ts';
 import { installWorkspaceWebSocket } from './workspace-websocket.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.ts';
@@ -19,9 +19,8 @@ if (!process.env.VAMPIRE_ADAPTER_PROTOCOL_HEADER?.trim()) {
 }
 
 const config = runtimeConfig();
-const repositoryRoot = resolve(import.meta.dirname, '../..');
 const adapterOutputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
-const handlerPath = resolve(repositoryRoot, adapterOutputDirectory, 'handler.js');
+const handlerPath = resolveAdapterHandlerPath(import.meta.dirname, adapterOutputDirectory);
 const handlerUrl = pathToFileURL(handlerPath);
 const { handler } = await import(handlerUrl.href);
 const server = createServer((request, response) => {

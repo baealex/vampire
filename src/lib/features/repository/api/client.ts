@@ -1,4 +1,4 @@
-import { requestJson, requestResponse } from '~/lib/shared/api/request';
+import { requestJson, requestResponse } from '~/lib/shared/api/request.ts';
 import type {
   RepositoryChange,
   RepositoryDiscardResult,
@@ -11,7 +11,7 @@ import type {
   WorkspaceMoveResult,
   WorkspaceUploadConflict,
   WorkspaceUploadResult,
-} from '~/lib/shared/contracts/repository';
+} from '~/lib/shared/contracts/repository.ts';
 
 type RepositoryEntryKind = 'file' | 'directory';
 

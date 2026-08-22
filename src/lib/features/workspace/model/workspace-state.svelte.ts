@@ -1,4 +1,4 @@
-import { isUnauthorized, requestJson } from '~/lib/shared/api/request';
+import { isUnauthorized, requestJson } from '~/lib/shared/api/request.ts';
 import {
   maxTimestamp,
   reconcileWorkspaceOrder,
