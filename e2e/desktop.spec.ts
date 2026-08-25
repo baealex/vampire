@@ -1,19 +1,19 @@
 import { execFile } from 'node:child_process';
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
+import { expect, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
+import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
+import { E2E_STATE_DIRECTORY } from './runtime.ts';
 import {
   authenticate,
   createWorkspace,
   E2E_WORKSPACE_DIRECTORY,
   expectTerminalReady,
   removeWorkspace,
-  resetWorkspaces,
   resetStatusPlugins,
+  resetWorkspaces,
 } from './support.ts';
-import { E2E_STATE_DIRECTORY } from './runtime.ts';
-import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 
 declare global {
   interface Window {
@@ -346,7 +346,10 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
 
-test('stores agent automations and exposes the exact live note path only on request', async ({ context, page }) => {
+test('stores custom note-agent instructions and exposes the exact live note path only on request', async ({
+  context,
+  page,
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -374,7 +377,10 @@ test('stores agent automations and exposes the exact live note path only on requ
   const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
   await expect(noteDialog.getByText('Saved', { exact: true })).toBeVisible();
-  await noteDialog.getByRole('button', { name: 'Summarize with agent' }).click();
+  await noteDialog.getByRole('button', { name: 'Ask agent…' }).click();
+  const noteAgentInstructions = 'Preserve the existing text and append only the current release blocker.';
+  await noteDialog.getByRole('textbox', { name: 'Agent instructions' }).fill(noteAgentInstructions);
+  await noteDialog.getByRole('button', { name: 'Queue update' }).click();
   await expect(noteDialog.getByRole('button', { name: 'Waiting for note update' })).toBeVisible();
 
   const notePath = join(E2E_STATE_DIRECTORY, `${workspace.id}.note.md`);
@@ -390,9 +396,25 @@ test('stores agent automations and exposes the exact live note path only on requ
   expect(automationsBody.automations).toHaveLength(1);
   expect(automationsBody.automations[0]?.kind).toBe('note');
   expect(automationsBody.automations[0]?.prompt).toContain(notePath);
-  expect(automationsBody.automations[0]?.prompt).toContain(
-    "Infer the document language from the user's language and the conversation context."
+  expect(automationsBody.automations[0]?.prompt).toContain(noteAgentInstructions);
+  expect(automationsBody.automations[0]?.prompt).not.toContain('After that line and a blank line');
+
+  const removeResponse = await context.request.delete(
+    `/api/workspaces/${encodeURIComponent(workspace.id)}?terminate=true`
   );
+  expect(removeResponse.ok()).toBe(true);
+  workspaceId = undefined;
+  await expect
+    .poll(async () => {
+      try {
+        await stat(notePath);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+      }
+    })
+    .toBe(false);
 });
 
 test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {
@@ -592,7 +614,7 @@ test('reopens with a one-time profile without changing the default startup', asy
     .not.toContain('one-time-profile-marker');
 });
 
-test('closes the workspace action menu after closing a workspace', async ({ context, page }) => {
+test('closes the workspace action menu without expanding Ended', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -607,7 +629,10 @@ test('closes the workspace action menu after closing a workspace', async ({ cont
   await confirmation.getByRole('menuitem', { name: 'Close workspace' }).click();
 
   await expect(menu).toBeHidden();
-  await expect(page.locator('.workspace-group.ended')).toContainText('Ended');
+  const endedGroup = page.locator('.workspace-group.ended');
+  await expect(endedGroup).toContainText('Ended');
+  await expect(endedGroup.getByRole('button', { name: /Ended/ })).toHaveAttribute('aria-expanded', 'false');
+  await expect(endedGroup.locator('.workspace-row')).toHaveCount(0);
 });
 
 test('creates, auto-starts, and safely removes an isolated Git workspace', async ({ context, page }) => {
@@ -667,7 +692,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     expect(isolated).toBeDefined();
     expect(isolated?.workspaceKind).toBe('worktree');
     expect(isolated?.cwd).toBe(join(E2E_STATE_DIRECTORY, 'worktrees', isolated!.id, basename(E2E_WORKSPACE_DIRECTORY)));
-    expect(isolated?.worktreeBranch).toMatch(/^vampire\/parallel-task-[a-f0-9]{8}$/);
+    expect(isolated?.worktreeBranch).toMatch(/^parallel-task-[a-f0-9]{8}$/);
     isolatedBranch = isolated!.worktreeBranch;
     expect(isolated?.startupProfileId).toBe('profile-isolated');
     expect(await readFile(join(isolated!.cwd, 'conflict.txt'), 'utf8')).toBe('committed workspace content\n');
@@ -761,6 +786,16 @@ test('shares workspace aliases and manual order across devices', async ({ browse
     await alphaRow.locator('.workspace-row').press('Alt+ArrowDown');
     await expect(firstPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha']);
     await expect(secondPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha'], { timeout: 12_000 });
+
+    await firstPage.keyboard.press('Alt+1');
+    await expect(firstPage).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
+    await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Beta');
+    await expectTerminalReady(firstPage);
+
+    await firstPage.keyboard.press('Alt+2');
+    await expect(firstPage).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
+    await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Alpha');
+    await expectTerminalReady(firstPage);
 
     await secondPage.reload();
     await expect(secondPage.getByRole('button', { name: 'Arrange workspaces manually' })).toHaveAttribute(
@@ -1565,6 +1600,81 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
   await expect(page.getByRole('alert')).toHaveCount(1);
   await expect(page.locator('.editor-error')).toContainText('This file changed elsewhere. Reload it before saving.');
   expect(await readFile(conflictFile, 'utf8')).toBe('external process content\n');
+});
+
+test('keeps edits made while a file save is pending unsaved and protected', async ({ context, page }) => {
+  test.setTimeout(45_000);
+  const pendingFile = join(E2E_WORKSPACE_DIRECTORY, 'pending-save.txt');
+  const nextFile = join(E2E_WORKSPACE_DIRECTORY, 'next-after-save.txt');
+  await Promise.all([
+    writeFile(pendingFile, 'initial content', 'utf8'),
+    writeFile(nextFile, 'next file content', 'utf8'),
+  ]);
+
+  let releaseFirstSave!: () => void;
+  let markFirstSaveStarted!: () => void;
+  const firstSaveRelease = new Promise<void>((resolve) => {
+    releaseFirstSave = resolve;
+  });
+  const firstSaveStarted = new Promise<void>((resolve) => {
+    markFirstSaveStarted = resolve;
+  });
+  let delayedFirstSave = false;
+
+  try {
+    await authenticate(context);
+    const workspace = await createWorkspace(context);
+    workspaceId = workspace.id;
+    await page.route('**/api/workspaces/*/repository/file?*', async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).searchParams.get('path');
+      if (request.method() !== 'PUT' || path !== 'pending-save.txt' || delayedFirstSave) {
+        await route.continue();
+        return;
+      }
+      delayedFirstSave = true;
+      markFirstSaveStarted();
+      await firstSaveRelease;
+      await route.continue();
+    });
+
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+    await expectTerminalReady(page);
+    await page.getByRole('button', { name: 'Open repository' }).click();
+    await page.getByRole('tab', { name: 'Files' }).click();
+    await page.getByRole('button', { name: 'Open pending-save.txt' }).click();
+
+    const codeEditor = page.locator('[aria-label="Edit pending-save.txt"]');
+    const editor = codeEditor.locator('.cm-content');
+    const saveButton = codeEditor.getByRole('button', { name: 'Save', exact: true });
+    await expect(editor).toBeVisible({ timeout: 15_000 });
+    await editor.click();
+    await page.keyboard.press('End');
+    await page.keyboard.insertText(' first edit');
+    await saveButton.click();
+    await firstSaveStarted;
+
+    await editor.click();
+    await page.keyboard.press('End');
+    await page.keyboard.insertText(' second edit');
+    releaseFirstSave();
+
+    await expect(codeEditor.getByRole('status')).toHaveText('Unsaved changes');
+    await expect(saveButton).toBeEnabled();
+
+    await page.getByRole('button', { name: 'Open next-after-save.txt' }).click();
+    const discardDialog = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
+    await expect(discardDialog).toBeVisible();
+    await discardDialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(editor).toBeVisible();
+
+    await saveButton.click();
+    await expect(codeEditor.getByRole('status')).toHaveText('Saved');
+    await expect.poll(() => readFile(pendingFile, 'utf8')).toBe('initial content first edit second edit');
+  } finally {
+    releaseFirstSave();
+    await Promise.all([rm(pendingFile, { force: true }), rm(nextFile, { force: true })]);
+  }
 });
 
 test('adds and moves files through repository menus and drop points', async ({ context, page }) => {

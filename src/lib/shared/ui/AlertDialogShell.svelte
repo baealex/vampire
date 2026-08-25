@@ -48,7 +48,11 @@ function handleOpenAutoFocus(event: Event) {
         {/snippet}
         {#snippet closeContent()}
           <AlertDialog.Cancel class="vampire-dialog-close" disabled={closeDisabled} aria-label="Close">
-            <X size={18} strokeWidth={1.8} aria-hidden="true" />
+            {#snippet child({ props })}
+              <button {...props} type="button" disabled={closeDisabled}>
+                <X size={18} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            {/snippet}
           </AlertDialog.Cancel>
         {/snippet}
       </DialogChrome>

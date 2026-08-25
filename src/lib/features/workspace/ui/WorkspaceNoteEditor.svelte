@@ -5,6 +5,7 @@ import X from '@lucide/svelte/icons/x';
 import Button from '~/lib/shared/ui/Button.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
+import { WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH } from '~/lib/shared/contracts/workspace-automations.ts';
 
 const AUTOSAVE_DELAY_MS = 700;
 const AGENT_NOTE_REFRESH_MS = 2_000;
@@ -13,13 +14,13 @@ let {
   getNote,
   close,
   save,
-  summarize,
+  updateWithAgent,
   panel = false,
 }: {
   getNote: (refresh?: boolean) => Promise<string>;
   close: () => void;
   save: (note: string) => Promise<void>;
-  summarize: () => Promise<{ notePath: string }>;
+  updateWithAgent: (instructions: string) => Promise<{ notePath: string }>;
   panel?: boolean;
 } = $props();
 
@@ -34,11 +35,14 @@ let textarea = $state<HTMLTextAreaElement | undefined>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let savePromise: Promise<void> | undefined;
 let agentNoteSyncTimer: ReturnType<typeof setInterval> | undefined;
-let summarizing = $state(false);
-let summaryQueued = $state(false);
-let summaryMessage = $state('');
-let summaryError = $state('');
-let summaryTargetPath = $state('');
+let agentComposerOpen = $state(false);
+let agentInstructions = $state('');
+let agentInstructionsElement = $state<HTMLTextAreaElement | undefined>();
+let queueingAgentUpdate = $state(false);
+let agentUpdateQueued = $state(false);
+let agentUpdateMessage = $state('');
+let agentUpdateError = $state('');
+let agentTargetPath = $state('');
 let refreshingAgentNote = false;
 let destroyed = false;
 let saveStatus = $derived(
@@ -140,9 +144,9 @@ async function refreshAgentNote() {
     if (destroyed || note === savedNote || draft !== savedNote) return;
     draft = note;
     savedNote = note;
-    if (summaryQueued) {
-      summaryQueued = false;
-      summaryMessage = 'The note changed. Live sync is on.';
+    if (agentUpdateQueued) {
+      agentUpdateQueued = false;
+      agentUpdateMessage = 'The note changed. Live sync is on.';
     }
   } catch {
     // The regular save/load surfaces errors; live sync remains quiet and retries.
@@ -156,24 +160,39 @@ function startAgentNoteSync() {
   agentNoteSyncTimer = setInterval(() => void refreshAgentNote(), AGENT_NOTE_REFRESH_MS);
 }
 
-async function summarizeNote() {
-  if (!noteLoaded || summarizing || summaryQueued) return;
+async function openAgentComposer() {
+  agentComposerOpen = true;
+  agentUpdateError = '';
+  await tick();
+  agentInstructionsElement?.focus();
+}
+
+function closeAgentComposer() {
+  if (queueingAgentUpdate) return;
+  agentComposerOpen = false;
+  agentUpdateError = '';
+}
+
+async function queueAgentUpdate() {
+  const instructions = agentInstructions.trim();
+  if (!noteLoaded || !instructions || queueingAgentUpdate || agentUpdateQueued) return;
   clearSaveTimer();
-  await saveDraft();
-  if (draft !== savedNote) return;
-  summarizing = true;
-  summaryError = '';
-  summaryMessage = '';
+  queueingAgentUpdate = true;
+  agentUpdateError = '';
+  agentUpdateMessage = '';
   try {
-    const result = await summarize();
-    summaryTargetPath = result.notePath;
-    summaryQueued = true;
-    summaryMessage = 'Queued — waiting for the agent to update the note.';
+    await saveDraft();
+    if (draft !== savedNote) return;
+    const result = await updateWithAgent(instructions);
+    agentTargetPath = result.notePath;
+    agentUpdateQueued = true;
+    agentComposerOpen = false;
+    agentUpdateMessage = 'Queued — waiting for the agent to update the note.';
     startAgentNoteSync();
   } catch (error) {
-    summaryError = error instanceof Error ? error.message : 'The note update could not be queued.';
+    agentUpdateError = error instanceof Error ? error.message : 'The note update could not be queued.';
   } finally {
-    summarizing = false;
+    queueingAgentUpdate = false;
   }
 }
 
@@ -192,6 +211,7 @@ onDestroy(() => {
   destroyed = true;
   clearSaveTimer();
   stopAgentNoteSync();
+  if (noteLoaded && draft !== savedNote) void saveDraft();
 });
 </script>
 
@@ -252,25 +272,54 @@ onDestroy(() => {
         <p class="note-error" role="alert">{saveError}</p>
       {/if}
       <div class="agent-note-action">
-        <Button
-          variant="secondary"
-          block
-          onclick={() => void summarizeNote()}
-          disabled={summarizing || summaryQueued || Boolean(saveError)}
-        >
-          <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
-          {summarizing ? 'Queuing…' : summaryQueued ? 'Waiting for note update' : 'Summarize with agent'}
-        </Button>
-        <p>Ask the agent to update this note.</p>
+        {#if agentComposerOpen}
+          <label for="workspace-note-agent-instructions">Agent instructions</label>
+          <Textarea
+            id="workspace-note-agent-instructions"
+            bind:element={agentInstructionsElement}
+            bind:value={agentInstructions}
+            size="sm"
+            rows={4}
+            maxlength={WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH}
+            placeholder="For example: preserve everything else and update only the deployment blocker."
+            ariaLabel="Agent instructions"
+            disabled={queueingAgentUpdate}
+          />
+          <p>The agent receives only these instructions plus the exact note path.</p>
+          <div class="agent-note-controls">
+            <Button size="sm" variant="ghost" onclick={closeAgentComposer} disabled={queueingAgentUpdate}
+              >Cancel</Button
+            >
+            <Button
+              size="sm"
+              variant="primary"
+              onclick={() => void queueAgentUpdate()}
+              disabled={!agentInstructions.trim() || queueingAgentUpdate || Boolean(saveError)}
+            >
+              {queueingAgentUpdate ? 'Queuing…' : 'Queue update'}
+            </Button>
+          </div>
+        {:else}
+          <Button
+            variant="secondary"
+            block
+            onclick={() => void openAgentComposer()}
+            disabled={agentUpdateQueued || Boolean(saveError)}
+          >
+            <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+            {agentUpdateQueued ? 'Waiting for note update' : 'Ask agent…'}
+          </Button>
+          <p>Choose what changes. Vampire does not impose a note format.</p>
+        {/if}
       </div>
-      {#if summaryMessage}
-        <p class="note-agent-status" role="status">{summaryMessage}</p>
+      {#if agentUpdateMessage}
+        <p class="note-agent-status" role="status">{agentUpdateMessage}</p>
       {/if}
-      {#if summaryTargetPath}
-        <p class="note-agent-target">Note file: <code>{summaryTargetPath}</code></p>
+      {#if agentTargetPath}
+        <p class="note-agent-target">Note file: <code>{agentTargetPath}</code></p>
       {/if}
-      {#if summaryError}
-        <p class="note-error" role="alert">{summaryError}</p>
+      {#if agentUpdateError}
+        <p class="note-error" role="alert">{agentUpdateError}</p>
       {/if}
     {/if}
   </form>
@@ -381,6 +430,16 @@ form {
   gap: 0.38rem;
   padding-top: 0.2rem;
   border-top: 1px solid var(--color-border-subtle);
+}
+.agent-note-action label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.agent-note-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 .agent-note-action p,
 .note-agent-status {

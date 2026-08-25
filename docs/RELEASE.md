@@ -8,7 +8,8 @@ PRs or version inputs.
 
 - package.json is the only source of the release version.
 - Update the version in package.json as part of the normal work on main.
-- A release tag must point to a commit already on main.
+- An annotated release tag must point to a commit already on main and contain
+  the release notes.
 - Pushing a vX.Y.Z tag starts one publish workflow:
   CI -> E2E -> Release.
 - The tag is a release candidate until the final Release step succeeds.
@@ -19,7 +20,14 @@ PRs or version inputs.
 Write the GitHub Release body using the project convention in
 [docs/RELEASE_NOTES.md](RELEASE_NOTES.md). Keep the note focused on
 user-visible outcomes, use the exact versioned install commands, and include
-the comparison link for the previous tag.
+the comparison link for the previous tag. Draft the final body locally in the
+ignored `docs/RELEASE_DRAFT.md` file, then create the release tag with:
+
+    git tag --annotate --cleanup=verbatim --file docs/RELEASE_DRAFT.md vX.Y.Z
+
+The publish workflow validates the tag message and uses it verbatim instead of
+generating release notes from commits. Delete the local draft after the
+release succeeds.
 
 ## Release gate
 
@@ -45,7 +53,7 @@ new main commit. For example, to retry v0.13.0:
     git pull --ff-only origin main
     git tag -d "v$VERSION"
     git push origin ":refs/tags/v$VERSION"
-    git tag "v$VERSION"
+    git tag --annotate --cleanup=verbatim --file docs/RELEASE_DRAFT.md "v$VERSION"
     git push origin "v$VERSION"
 
 Only do this when vampire@0.13.0 has not been published and its GitHub

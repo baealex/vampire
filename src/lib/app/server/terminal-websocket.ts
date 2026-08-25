@@ -52,6 +52,7 @@ interface TerminalAttachment extends ManagedTerminalAttachment {
 }
 
 interface WorkspaceAttachmentState extends TerminalAttachmentState<TerminalAttachment> {
+  inputVersion: number;
   syntheticOutputUntil: number;
 }
 
@@ -73,6 +74,7 @@ function getAttachmentState(key: string): WorkspaceAttachmentState {
   if (!state) {
     state = {
       ...createTerminalAttachmentState<TerminalAttachment>(),
+      inputVersion: 0,
       syntheticOutputUntil: 0,
     };
     workspaceAttachmentStates.set(key, state);
@@ -276,15 +278,16 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
                 .filter((candidate) => !candidate.released && Boolean(candidate.synchronizeScreen))
                 .map((candidate) => candidate.synchronizeScreen?.(geometry))
             );
-            state.syntheticOutputUntil = 0;
           },
           onInput: () => {
+            state.inputVersion += 1;
             state.syntheticOutputUntil = 0;
           },
           onSyntheticOutput: (timestamp) => {
             state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
           },
           isOutputSuppressed: () => Date.now() < state.syntheticOutputUntil,
+          getInputVersion: () => state.inputVersion,
           onSyntheticActivity: (timestamp) => suppressWorkspaceActivity(context.workspaceId, timestamp),
           isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
           onOutputActivity: (timestamp) => recordWorkspaceOutput(context.workspaceId, context.terminalId, timestamp),

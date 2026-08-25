@@ -226,7 +226,7 @@ export async function createGitWorktree(
   const workspaceDirectory = join(managedRoot, id);
   await mkdir(workspaceDirectory, { recursive: true, mode: 0o700 });
 
-  const branch = `vampire/${slug}-${suffix}`;
+  const branch = `${slug}-${suffix}`;
   const target = join(workspaceDirectory, repositoryName);
   const created: CreatedGitWorktree = {
     cwd: target,

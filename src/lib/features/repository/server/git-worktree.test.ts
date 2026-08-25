@@ -3,9 +3,9 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { promisify } from 'node:util';
-import test from 'node:test';
 import type { TestContext } from 'node:test';
+import test from 'node:test';
+import { promisify } from 'node:util';
 import {
   createGitWorktree,
   GitWorktreeError,
@@ -53,7 +53,7 @@ test('creates an isolated branch and worktree from HEAD without copying uncommit
   t.after(() => git(source, 'worktree', 'remove', '--force', created.cwd).catch(() => ''));
 
   assert.equal(created.label, 'Fix Login UI');
-  assert.equal(created.branch, 'vampire/fix-login-ui-01234567');
+  assert.equal(created.branch, 'fix-login-ui-01234567');
   assert.equal(created.sourceRoot, await realpath(source));
   assert.equal(basename(dirname(created.cwd)), '01234567-89ab-cdef-0123-456789abcdef');
   assert.equal(basename(created.cwd), basename(source));
@@ -74,7 +74,7 @@ test('uses a safe fallback slug for non-Latin task names', async (t) => {
   t.after(() => git(source, 'worktree', 'remove', '--force', created.cwd).catch(() => ''));
 
   assert.equal(created.label, '로그인 수정');
-  assert.equal(created.branch, 'vampire/task-fedcba98');
+  assert.equal(created.branch, 'task-fedcba98');
   assert.equal(basename(dirname(created.cwd)), 'fedcba98-7654-3210-fedc-ba9876543210');
   assert.equal(basename(created.cwd), basename(source));
 });
@@ -98,7 +98,7 @@ test('never deletes a branch that already owns the generated worktree name', asy
   const source = await createRepository(t);
   const managedRoot = await mkdtemp(join(tmpdir(), 'vampire-managed-worktrees-'));
   t.after(() => rm(managedRoot, { recursive: true, force: true }));
-  const branch = 'vampire/fix-login-01234567';
+  const branch = 'fix-login-01234567';
   await git(source, 'branch', branch, 'HEAD');
   const expectedCommit = (await git(source, 'rev-parse', branch)).trim();
 

@@ -32,11 +32,21 @@ jobs:
         id: version
         run: |
           git fetch origin main:refs/remotes/origin/main --no-tags
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != v* ]]; then
             echo "Publish must run from a v* tag." >&2
             exit 1
           fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          if [[ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME" 2>/dev/null || true)" != "tag" ]]; then
+            echo "$GITHUB_REF_NAME must be an annotated tag containing the release notes." >&2
+            exit 1
+          fi
+          TAG_COMMIT="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
+          if [[ "$TAG_COMMIT" != "$(git rev-parse HEAD)" ]]; then
+            echo "$GITHUB_REF_NAME does not point to the checked-out commit." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
             echo "$GITHUB_REF_NAME does not point to a commit on main." >&2
             exit 1
           fi
@@ -58,6 +68,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Validate release notes
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          RELEASE_NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          git for-each-ref --format='%(contents)' "refs/tags/$GITHUB_REF_NAME" > "$RELEASE_NOTES_FILE"
+          if [[ ! -s "$RELEASE_NOTES_FILE" ]]; then
+            echo "Release notes not found in annotated tag $GITHUB_REF_NAME." >&2
+            exit 1
+          fi
+          PREVIOUS_TAG="$(git tag --list 'v*' --sort=-version:refname | grep -Fxv "$GITHUB_REF_NAME" | head -n 1 || true)"
+          node tools/check-release-notes.ts "$RELEASE_NOTES_FILE" "$PACKAGE_VERSION" "${PREVIOUS_TAG#v}"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -185,5 +208,8 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "GitHub release $GITHUB_REF_NAME already exists."
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "v$PACKAGE_VERSION" --generate-notes
+            git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            RELEASE_NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+            git for-each-ref --format='%(contents)' "refs/tags/$GITHUB_REF_NAME" > "$RELEASE_NOTES_FILE"
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "v$PACKAGE_VERSION" --notes-file "$RELEASE_NOTES_FILE"
           fi

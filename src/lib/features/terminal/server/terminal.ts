@@ -105,6 +105,7 @@ export interface AttachTerminalOptions {
   onSyntheticActivity?: (timestamp: number) => void;
   onSyntheticOutput?: (timestamp: number) => void;
   isOutputSuppressed?: () => boolean;
+  getInputVersion?: () => number;
   isOutputActivity?: (timestamp: number) => boolean;
   onOutputActivity?: (timestamp: number) => void;
 }
@@ -475,6 +476,10 @@ export async function attachTerminal(
   let alternateScreenExitResyncPending = false;
   let alternateScreenExitResyncRequested = false;
   let historyCapturePending = false;
+  let suppressedOutputResyncRequested = false;
+  let suppressedOutputResyncRunning = false;
+  let suppressedOutputResyncTimer: ReturnType<typeof setTimeout> | undefined;
+  let suppressedOutputResyncInputVersion: number | undefined;
 
   const rejectControlCommands = (error: unknown): void => {
     attachedReject(error);
@@ -631,6 +636,7 @@ export async function attachTerminal(
     const now = Date.now();
     if (snapshotAcknowledged && (syntheticOutputDepth > 0 || options.isOutputSuppressed?.() === true)) {
       if (alternateScreenExit.exited) scheduleAlternateScreenExitResync();
+      else scheduleSuppressedOutputResync();
       return;
     }
     const locallyEligible = snapshotAcknowledged && syntheticOutputDepth === 0 && now >= syntheticOutputUntil;
@@ -674,6 +680,7 @@ export async function attachTerminal(
     pendingSnapshotOutputBytes = 0;
     for (const output of pending) message(socket, { type: 'output', ...output });
     if (alternateScreenExitResyncRequested) scheduleAlternateScreenExitResync();
+    if (suppressedOutputResyncRequested) armSuppressedOutputResync();
   };
 
   const loadTerminalHistory = async (lines: number): Promise<void> => {
@@ -695,7 +702,7 @@ export async function attachTerminal(
     }
   };
 
-  async function resyncTerminalScreen(geometry?: TerminalSize): Promise<void> {
+  async function resyncTerminalScreen(geometry?: TerminalSize, expectedInputVersion?: number): Promise<void> {
     if (!snapshotSent || closed) return;
     if (geometry) {
       const expected = `${geometry.columns}x${geometry.rows}`;
@@ -722,14 +729,12 @@ export async function attachTerminal(
       runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
       runControlCommand(`capture-pane -p -e -N -t ${paneId}`),
     ]);
+    const state = terminalPaneState(rawState, synchronizedGeometry);
+    const snapshotData = state?.alternateScreen ? terminalPhysicalCaptureData(physicalSnapshot) : snapshot;
+    if (expectedInputVersion !== undefined && options.getInputVersion?.() !== expectedInputVersion) return;
     message(socket, {
       type: 'output',
-      data: terminalScreenData(
-        snapshot,
-        terminalPaneState(rawState, synchronizedGeometry),
-        savedMainSnapshot,
-        physicalSnapshot
-      ),
+      data: terminalScreenData(snapshotData, state, savedMainSnapshot, physicalSnapshot),
       activity: false,
       activityAt: null,
       screenSync: true,
@@ -756,6 +761,41 @@ export async function attachTerminal(
           if (alternateScreenExitResyncRequested) scheduleAlternateScreenExitResync();
         });
     }, 0);
+  }
+
+  function scheduleSuppressedOutputResync(): void {
+    if (!snapshotSent || closed) return;
+    suppressedOutputResyncRequested = true;
+    suppressedOutputResyncInputVersion = options.getInputVersion?.();
+    armSuppressedOutputResync();
+  }
+
+  function armSuppressedOutputResync(): void {
+    if (!snapshotAcknowledged || suppressedOutputResyncRunning) return;
+    if (suppressedOutputResyncTimer) clearTimeout(suppressedOutputResyncTimer);
+    suppressedOutputResyncTimer = setTimeout(() => {
+      suppressedOutputResyncTimer = undefined;
+      if (closed || !snapshotAcknowledged) return;
+      const inputVersion = suppressedOutputResyncInputVersion;
+      if (inputVersion !== undefined && options.getInputVersion?.() !== inputVersion) {
+        suppressedOutputResyncRequested = false;
+        return;
+      }
+      if (syntheticOutputDepth > 0 || options.isOutputSuppressed?.() === true) {
+        armSuppressedOutputResync();
+        return;
+      }
+      suppressedOutputResyncRequested = false;
+      suppressedOutputResyncRunning = true;
+      void resyncTerminalScreen(options.getGeometry?.() ?? currentGeometry, inputVersion)
+        .catch(() => {
+          if (!closed) socket.close(1013, 'terminal screen synchronization failed');
+        })
+        .finally(() => {
+          suppressedOutputResyncRunning = false;
+          if (suppressedOutputResyncRequested) armSuppressedOutputResync();
+        });
+    }, TERMINAL_REDRAW_QUIET_MS);
   }
 
   const handleControlLine = (lineBuffer: Buffer): void => {
@@ -810,6 +850,10 @@ export async function attachTerminal(
     rejectControlCommands(error);
     if (!closed) message(socket, { type: 'error', message: 'Could not attach to the tmux session.' });
   });
+  control.stdin.on('error', (error) => {
+    rejectControlCommands(error);
+    if (!closed) socket.close(1011, 'tmux control input unavailable');
+  });
   control.once('exit', () => {
     rejectControlCommands(new Error('tmux control client exited.'));
     if (!closed) {
@@ -819,6 +863,10 @@ export async function attachTerminal(
   });
   socket.once('close', () => {
     closed = true;
+    if (suppressedOutputResyncTimer) clearTimeout(suppressedOutputResyncTimer);
+    suppressedOutputResyncTimer = undefined;
+    suppressedOutputResyncRequested = false;
+    suppressedOutputResyncInputVersion = undefined;
     options.onSyntheticOutput?.(Date.now() + SYNTHETIC_OUTPUT_SETTLE_MS);
     pendingSnapshotOutput = [];
     pendingSnapshotOutputBytes = 0;

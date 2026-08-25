@@ -21,4 +21,8 @@ const cancelClass = $derived(
 );
 </script>
 
-<AlertDialog.Cancel class={cancelClass} {disabled} {onclick}> {@render children?.()} </AlertDialog.Cancel>
+<AlertDialog.Cancel class={cancelClass} {disabled} {onclick}>
+  {#snippet child({ props })}
+    <button {...props} type="button" {disabled}> {@render children?.()} </button>
+  {/snippet}
+</AlertDialog.Cancel>

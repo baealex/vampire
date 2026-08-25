@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { copyFile, lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasCode } from '~/lib/shared/server/path-policy.ts';
 import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
@@ -14,6 +15,10 @@ function managedWorkspaceNoteFileName(workspaceId: string): string {
 
 export function managedWorkspaceNotePath(workspaceId: string): string {
   return join(dirname(vampireStatePath()), managedWorkspaceNoteFileName(workspaceId));
+}
+
+export function managedWorkspaceNoteMigrationBackupPath(): string {
+  return `${vampireStatePath()}.before-note-files.bak`;
 }
 
 async function ensureStateDirectory(path: string): Promise<void> {
@@ -37,6 +42,22 @@ async function assertRegularNoteFile(path: string): Promise<'missing' | 'regular
     if (errorHasCode(error, 'ENOENT')) return 'missing';
     throw error;
   }
+}
+
+export async function ensureManagedWorkspaceNoteMigrationBackup(): Promise<string> {
+  const sourcePath = vampireStatePath();
+  const backupPath = managedWorkspaceNoteMigrationBackupPath();
+  await ensureStateDirectory(sourcePath);
+  try {
+    await copyFile(sourcePath, backupPath, constants.COPYFILE_EXCL);
+  } catch (error) {
+    if (!errorHasCode(error, 'EEXIST')) throw error;
+    const details = await lstat(backupPath);
+    if (!details.isFile() || details.isSymbolicLink()) {
+      throw new Error('The Vampire note migration backup path is not a regular file.');
+    }
+  }
+  return backupPath;
 }
 
 function assertNoteSize(note: string): void {
@@ -68,6 +89,18 @@ export async function readManagedWorkspaceNoteFile(workspaceId: string): Promise
   const path = managedWorkspaceNotePath(workspaceId);
   if ((await assertRegularNoteFile(path)) === 'missing') return undefined;
   return normalizeWorkspaceNote(await readFile(path, 'utf8'));
+}
+
+export async function prepareManagedWorkspaceNoteRemoval(workspaceId: string): Promise<() => Promise<void>> {
+  const path = managedWorkspaceNotePath(workspaceId);
+  if ((await assertRegularNoteFile(path)) === 'missing') return async () => undefined;
+  return async () => {
+    try {
+      await unlink(path);
+    } catch (error) {
+      if (!errorHasCode(error, 'ENOENT')) throw error;
+    }
+  };
 }
 
 export async function writeManagedWorkspaceNoteFile(workspaceId: string, note: string): Promise<void> {

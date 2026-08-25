@@ -1,20 +1,20 @@
 import { isUnauthorized, requestJson } from '~/lib/shared/api/request.ts';
+import type {
+  LaunchProfile,
+  ManagedWorkspace,
+  WorkspaceOrderMode,
+  WorkspacePreferences,
+  WorkspaceTerminal,
+} from '~/lib/shared/contracts/workspace.ts';
+import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
+import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
+import { WorkspaceActivityController } from './workspace-activity-controller.ts';
 import {
   maxTimestamp,
   reconcileWorkspaceOrder,
   sortWorkspaces,
   type WorkspaceActivityRecord,
 } from './workspace-view.ts';
-import { WorkspaceActivityController } from './workspace-activity-controller.ts';
-import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
-import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
-import type {
-  LaunchProfile,
-  ManagedWorkspace,
-  WorkspaceOrderMode,
-  WorkspaceTerminal,
-  WorkspacePreferences,
-} from '~/lib/shared/contracts/workspace.ts';
 
 type RefreshOptions = { quiet?: boolean };
 type WorkspaceChanges = Partial<Omit<ManagedWorkspace, 'id'>>;
@@ -324,12 +324,19 @@ export class WorkspaceState {
       this.invalidateWorkspaces();
       this.workspaces = [...this.workspaces.filter((workspace) => workspace.id !== data.workspace.id), data.workspace];
       this.#activity.rebuild(this.workspaces);
-      this.manualWorkspaceOrder = [
-        ...this.manualWorkspaceOrder.filter((id) => id !== data.workspace.id),
-        data.workspace.id,
-      ];
+      const manualOrder = reconcileWorkspaceOrder(this.workspaces, this.manualWorkspaceOrder).filter(
+        (id) => id !== data.workspace.id
+      );
+      const sourceIndex = manualOrder.indexOf(sourceWorkspaceId);
+      manualOrder.splice(sourceIndex < 0 ? manualOrder.length : sourceIndex + 1, 0, data.workspace.id);
+      this.manualWorkspaceOrder = manualOrder;
+      if (this.workspaceOrderMode === 'manual') {
+        this.#preferencesInitialized = true;
+        void this.persistWorkspacePreferences().then(() => this.refresh({ quiet: true }));
+      } else {
+        void this.refresh({ quiet: true });
+      }
       this.openWorkspace(data.workspace);
-      void this.refresh({ quiet: true });
       return { ok: true };
     } catch (error) {
       if (isUnauthorized(error)) this.#options.onUnauthorized();
@@ -397,11 +404,18 @@ export class WorkspaceState {
     return request;
   }
 
-  async queueWorkspaceNoteSummary(workspaceId: string): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
+  async queueWorkspaceNoteUpdate(
+    workspaceId: string,
+    instructions: string
+  ): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
     try {
       return await requestJson<{ automation: WorkspaceAutomation; notePath: string }>(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/note/summarize`,
-        { method: 'POST' },
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/note/agent`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ instructions }),
+        },
         'Unable to queue the workspace note update'
       );
     } catch (error) {
@@ -870,6 +884,7 @@ export class WorkspaceState {
         this.acceptWorkspacePreferences(savedPreferences);
       }
     });
+    return this.#preferenceWriteQueue;
   }
 
   private syncManualWorkspaceOrder() {

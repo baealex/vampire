@@ -81,23 +81,11 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
 }
 
 export async function installWorkspaceAutomationRunner(): Promise<() => void> {
-  let noteMigrationComplete = false;
-  const attemptNoteMigration = async () => {
-    if (noteMigrationComplete) return;
-    try {
-      await migrateManagedWorkspaceNotes();
-      noteMigrationComplete = true;
-    } catch {
-      // Retry the migration on the next automation tick without falling back
-      // to the compatibility JSON note.
-    }
-  };
-  await attemptNoteMigration();
+  await migrateManagedWorkspaceNotes();
   let activeTick: Promise<void> | undefined;
   const tick = () => {
     if (activeTick) return;
-    activeTick = attemptNoteMigration()
-      .then(() => runWorkspaceAutomationTick())
+    activeTick = runWorkspaceAutomationTick()
       .catch(() => undefined)
       .finally(() => {
         activeTick = undefined;

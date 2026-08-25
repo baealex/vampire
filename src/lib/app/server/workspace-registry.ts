@@ -15,6 +15,7 @@ import {
 import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.ts';
 import {
   ensureManagedWorkspaceNoteFile,
+  prepareManagedWorkspaceNoteRemoval,
   readManagedWorkspaceNoteFile,
   writeManagedWorkspaceNoteFile,
 } from '~/lib/features/workspace/server/workspace-note-file.ts';
@@ -777,8 +778,10 @@ export async function removeManagedWorkspace(id: string): Promise<void> {
       throw new WorkspaceMutationError('workspace-running', 'Close the workspace before removing this workspace.');
     }
 
+    const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
+    await removeNote();
   });
 }
 
@@ -788,8 +791,10 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     const stored = state.workspaces.find((workspace) => workspace.id === id);
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
+    const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     await killTmuxSession(stored.tmuxSession);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
+    await removeNote();
   });
 }

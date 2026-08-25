@@ -6,10 +6,17 @@ import {
   WORKSPACE_AUTOMATION_ERROR_MAX_LENGTH,
   WORKSPACE_AUTOMATION_NAME_MAX_LENGTH,
   WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH,
+  WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH,
   type CreateWorkspaceAutomationInput,
   type WorkspaceAutomation,
 } from '~/lib/shared/contracts/workspace-automations.ts';
-import { ensureManagedWorkspaceNoteFile, managedWorkspaceNotePath } from './workspace-note-file.ts';
+import {
+  ensureManagedWorkspaceNoteFile,
+  ensureManagedWorkspaceNoteMigrationBackup,
+  managedWorkspaceNotePath,
+  readManagedWorkspaceNoteFile,
+  writeManagedWorkspaceNoteFile,
+} from './workspace-note-file.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
@@ -289,25 +296,41 @@ export async function dispatchManagedWorkspaceAutomation(
   });
 }
 
-function workspaceNotePrompt(path: string): string {
+function normalizeWorkspaceNoteAgentInstructions(value: unknown): string {
+  const instructions = typeof value === 'string' ? value.trim() : '';
+  if (
+    !instructions ||
+    instructions.length > WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH ||
+    instructions.includes('\0')
+  ) {
+    throw new WorkspaceAutomationMutationError(
+      'invalid-input',
+      `Agent instructions must be between 1 and ${WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH.toLocaleString('en-US')} characters.`
+    );
+  }
+  return instructions;
+}
+
+function workspaceNotePrompt(path: string, instructions: string): string {
   return [
-    'Review the work and conversation in this main agent workspace, then update only the Vampire workspace note file at this exact path:',
+    'Update only the Vampire workspace note file at this exact path:',
     JSON.stringify(path),
     '',
-    'This note is the shared Markdown memory for the Vampire workspace, not a disposable summary. Read the existing note first and preserve useful context, user-written Markdown, and headings.',
-    'Do not delete, reorder, or rewrite existing content just to fit a template. Make the smallest useful update and leave unfamiliar sections verbatim. Do not truncate useful context.',
-    "Infer the document language from the user's language and the conversation context. Do not assume the document should be in English just because these instructions are in English.",
-    'The first non-empty line must be a plain Markdown paragraph with no heading and no "Summary:" label. It is shown as the workspace-list preview, so make it one concise sentence that combines the current state with the immediate next action.',
-    'After that line and a blank line, use Markdown level-two headings equivalent to Next and Done, translating them into the inferred document language when appropriate. Put the immediate next task in the Next section. Add Tasks, Decisions, Blockers, or Notes only when useful.',
-    'If the existing note already has a summary line or these sections, update them in place. If it does not, add the plain summary and missing sections without removing the existing body.',
-    'Do not edit any other file. After saving the note, briefly confirm what changed.',
+    'Read the existing note before editing it. Preserve content that the user instructions do not ask you to change.',
+    '',
+    'User instructions:',
+    instructions,
+    '',
+    'Do not edit any other file. If no change is needed, leave the note untouched and say so.',
   ].join('\n');
 }
 
-export async function queueManagedWorkspaceNoteSummary(
+export async function queueManagedWorkspaceNoteUpdate(
   workspaceId: string,
+  value: unknown,
   now = Date.now()
 ): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
+  const instructions = normalizeWorkspaceNoteAgentInstructions(value);
   return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
@@ -323,7 +346,7 @@ export async function queueManagedWorkspaceNoteSummary(
     const notePath = managedWorkspaceNotePath(stored.id);
     const input: CreateWorkspaceAutomationInput = {
       name: 'Update workspace note',
-      prompt: workspaceNotePrompt(notePath),
+      prompt: workspaceNotePrompt(notePath, instructions),
       schedule: { type: 'once', runAt: now },
     };
     let automation: WorkspaceAutomation;
@@ -359,7 +382,13 @@ export async function migrateManagedWorkspaceNotes(): Promise<number> {
     } catch {
       return 0;
     }
-    const rawWorkspaces = isRecord(rawState) && Array.isArray(rawState.workspaces) ? rawState.workspaces : [];
+    const rawWorkspaces = isRecord(rawState)
+      ? Array.isArray(rawState.workspaces)
+        ? rawState.workspaces
+        : Array.isArray(rawState.sessions)
+          ? rawState.sessions
+          : []
+      : [];
     const compatibilityById = new Map<string, ReturnType<typeof compatibilityNoteState>>();
     for (const rawWorkspace of rawWorkspaces) {
       if (!isRecord(rawWorkspace) || typeof rawWorkspace.id !== 'string') continue;
@@ -367,17 +396,26 @@ export async function migrateManagedWorkspaceNotes(): Promise<number> {
     }
     const compatibilityCount = [...compatibilityById.values()].filter((compatibility) => compatibility.present).length;
 
-    // Complete the file migration before removing the old JSON fields. If any
-    // file operation fails, the registry stays untouched and the next startup
-    // can retry without losing the source note.
+    if (compatibilityCount === 0) return 0;
+
+    await ensureManagedWorkspaceNoteMigrationBackup();
     await Promise.all(
       state.workspaces.map(async (stored) => {
         const compatibility = compatibilityById.get(stored.id);
-        await ensureManagedWorkspaceNoteFile(stored.id, compatibility?.note ?? '');
+        if (!compatibility?.present) return;
+        const compatibilityNote = compatibility.note ?? '';
+        const fileNote = await readManagedWorkspaceNoteFile(stored.id);
+        if (fileNote === undefined) {
+          if (compatibilityNote) await ensureManagedWorkspaceNoteFile(stored.id, compatibilityNote);
+          return;
+        }
+        if (!fileNote && compatibilityNote) {
+          await writeManagedWorkspaceNoteFile(stored.id, compatibilityNote);
+        }
       })
     );
 
-    if (compatibilityCount > 0) await writeWorkspaceStore(state);
+    await writeWorkspaceStore(state);
     return compatibilityCount;
   });
 }

@@ -19,7 +19,7 @@ let {
 }: {
   workspaceId: string;
   file: WorkspaceFile;
-  onSaved: (file: WorkspaceFile) => void;
+  onSaved: (file: WorkspaceFile, dirty: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 } = $props();
 
@@ -113,7 +113,7 @@ async function saveFile() {
     const currentContent = editorView?.state.doc.toString() ?? content;
     dirty = currentContent !== savedContent;
     onDirtyChange?.(dirty);
-    onSaved(saved);
+    onSaved(saved, dirty);
   } catch (error) {
     saveError = error instanceof Error ? error.message : 'The file could not be saved.';
   } finally {

@@ -378,6 +378,7 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   ]);
   expect(popoverBox).not.toBeNull();
   expect(statusBarBox).not.toBeNull();
+  expect(popoverBox!.width).toBeLessThanOrEqual(14 * 16);
   expect(popoverBox!.x).toBeGreaterThanOrEqual(7);
   expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(viewportWidth + 1);
   const statusBarBottom = statusBarBox!.y + statusBarBox!.height;
