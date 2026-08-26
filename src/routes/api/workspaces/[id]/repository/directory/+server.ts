@@ -7,6 +7,7 @@ import {
   RepositoryReadError,
 } from '~/lib/features/repository/server/repository.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
+import { workspaceAcceptsOwnerWrites } from '~/lib/shared/contracts/workspace.ts';
 
 function repositoryErrorStatus(reason: string): number {
   if (reason === 'conflict') return 409;
@@ -57,6 +58,7 @@ export const POST: RequestHandler = async (event) => {
 
   const workspace = await findWorkspaceDirectory(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
+  if (!workspaceAcceptsOwnerWrites(workspace)) throw error(409, 'Take control before changing this workspace.');
 
   try {
     return json(await createWorkspaceDirectory(workspace.cwd, body.path), { status: 201 });
@@ -75,6 +77,7 @@ export const DELETE: RequestHandler = async (event) => {
 
   const workspace = await findWorkspaceDirectory(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
+  if (!workspaceAcceptsOwnerWrites(workspace)) throw error(409, 'Take control before changing this workspace.');
 
   try {
     return json(await deleteWorkspaceEntry(workspace.cwd, path, 'directory'));

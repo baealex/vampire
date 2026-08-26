@@ -14,6 +14,8 @@ let {
   onCloseAutoFocus,
   contentEnabled = true,
   contentClass,
+  contentLabel,
+  contentRole,
   triggerClass,
   triggerLabel,
   triggerTitle,
@@ -32,6 +34,8 @@ let {
   onCloseAutoFocus?: (event: Event) => void;
   contentEnabled?: boolean;
   contentClass?: string;
+  contentLabel?: string;
+  contentRole?: 'dialog';
   triggerClass?: string;
   triggerLabel?: string;
   triggerTitle?: string;
@@ -60,6 +64,8 @@ function handleOpenChange(nextOpen: boolean) {
     <Popover.Portal>
       <Popover.Content
         class={contentClass}
+        aria-label={contentLabel}
+        role={contentRole}
         {side}
         {align}
         {sideOffset}

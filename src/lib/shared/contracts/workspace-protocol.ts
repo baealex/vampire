@@ -32,6 +32,9 @@ const WORKSPACE_CHANGE_FIELDS = new Set([
   'repositoryPath',
   'workspaceLabel',
   'worktreeBranch',
+  'managedWorktree',
+  'checkoutKey',
+  'kingControl',
   'createdAt',
   'lastActiveAt',
   'notePreview',
@@ -71,6 +74,52 @@ function isForegroundProcess(value: unknown): value is WorkspaceProcess | null {
   );
 }
 
+function isWorkspaceKingControl(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.state === 'manual' || value.state === 'requested' || value.state === 'king') &&
+    typeof value.reason === 'string' &&
+    (value.requestedAt === null || isFiniteNumber(value.requestedAt)) &&
+    isFiniteNumber(value.changedAt) &&
+    (value.lastAction === 'requested' ||
+      value.lastAction === 'granted' ||
+      value.lastAction === 'declined' ||
+      value.lastAction === 'released') &&
+    (value.notifiedAt === null || isFiniteNumber(value.notifiedAt)) &&
+    (value.handoffSnapshot === undefined ||
+      value.handoffSnapshot === null ||
+      isWorkspaceHandoffSnapshot(value.handoffSnapshot))
+  );
+}
+
+function isWorkspaceHandoffSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.capturedAt) &&
+    (value.checkoutKey === null || typeof value.checkoutKey === 'string') &&
+    typeof value.isGitRepository === 'boolean' &&
+    (value.headRevision === null || typeof value.headRevision === 'string') &&
+    Array.isArray(value.changes) &&
+    value.changes.every(isRepositoryChange) &&
+    (value.changeFingerprints === null ||
+      (Array.isArray(value.changeFingerprints) && value.changeFingerprints.every(isRepositoryChangeFingerprint))) &&
+    (value.repositoryStateHash === null || typeof value.repositoryStateHash === 'string')
+  );
+}
+
+function isRepositoryChange(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.path === 'string' &&
+    typeof value.status === 'string' &&
+    (value.previousPath === undefined || typeof value.previousPath === 'string')
+  );
+}
+
+function isRepositoryChangeFingerprint(value: unknown): boolean {
+  return isRepositoryChange(value) && isRecord(value) && typeof value.diffHash === 'string';
+}
+
 function isWorkspaceTerminal(value: unknown): value is WorkspaceTerminal {
   return (
     isRecord(value) &&
@@ -85,7 +134,12 @@ function isWorkspaceTerminal(value: unknown): value is WorkspaceTerminal {
     (value.command === null || typeof value.command === 'string') &&
     (value.startedAt === null || isFiniteNumber(value.startedAt)) &&
     (value.state === 'running' || value.state === 'exited') &&
-    (value.exitCode === null || Number.isInteger(value.exitCode))
+    (value.exitCode === null || Number.isInteger(value.exitCode)) &&
+    (value.terminalKind === undefined ||
+      value.terminalKind === 'main' ||
+      value.terminalKind === 'background' ||
+      value.terminalKind === 'king-task') &&
+    (value.kingAttemptId === undefined || value.kingAttemptId === null || typeof value.kingAttemptId === 'string')
   );
 }
 
@@ -112,7 +166,12 @@ function isWorkspaceTerminalUpdate(
     (value.command === undefined || value.command === null || typeof value.command === 'string') &&
     (value.startedAt === undefined || value.startedAt === null || isFiniteNumber(value.startedAt)) &&
     (value.state === undefined || value.state === 'running' || value.state === 'exited') &&
-    (value.exitCode === undefined || value.exitCode === null || Number.isInteger(value.exitCode))
+    (value.exitCode === undefined || value.exitCode === null || Number.isInteger(value.exitCode)) &&
+    (value.terminalKind === undefined ||
+      value.terminalKind === 'main' ||
+      value.terminalKind === 'background' ||
+      value.terminalKind === 'king-task') &&
+    (value.kingAttemptId === undefined || value.kingAttemptId === null || typeof value.kingAttemptId === 'string')
   );
 }
 
@@ -142,10 +201,16 @@ export function isManagedWorkspaceMessage(value: unknown): value is ManagedWorks
     typeof value.id === 'string' &&
     typeof value.tmuxSession === 'string' &&
     typeof value.cwd === 'string' &&
-    (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree') &&
+    (value.workspaceKind === undefined ||
+      value.workspaceKind === 'directory' ||
+      value.workspaceKind === 'worktree' ||
+      value.workspaceKind === 'king') &&
     (value.repositoryPath === undefined || typeof value.repositoryPath === 'string') &&
     (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string') &&
     (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string') &&
+    (value.managedWorktree === undefined || typeof value.managedWorktree === 'boolean') &&
+    (value.checkoutKey === undefined || typeof value.checkoutKey === 'string') &&
+    (value.kingControl === undefined || isWorkspaceKingControl(value.kingControl)) &&
     isFiniteNumber(value.createdAt) &&
     isFiniteNumber(value.lastActiveAt) &&
     typeof value.notePreview === 'string' &&
@@ -173,10 +238,16 @@ export function isWorkspaceChangesMessage(value: unknown): value is WorkspaceCha
   return (
     (value.tmuxSession === undefined || typeof value.tmuxSession === 'string') &&
     (value.cwd === undefined || typeof value.cwd === 'string') &&
-    (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree') &&
+    (value.workspaceKind === undefined ||
+      value.workspaceKind === 'directory' ||
+      value.workspaceKind === 'worktree' ||
+      value.workspaceKind === 'king') &&
     (value.repositoryPath === undefined || typeof value.repositoryPath === 'string') &&
     (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string') &&
     (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string') &&
+    (value.managedWorktree === undefined || typeof value.managedWorktree === 'boolean') &&
+    (value.checkoutKey === undefined || typeof value.checkoutKey === 'string') &&
+    (value.kingControl === undefined || isWorkspaceKingControl(value.kingControl)) &&
     (value.createdAt === undefined || isFiniteNumber(value.createdAt)) &&
     (value.lastActiveAt === undefined || isFiniteNumber(value.lastActiveAt)) &&
     (value.notePreview === undefined || typeof value.notePreview === 'string') &&

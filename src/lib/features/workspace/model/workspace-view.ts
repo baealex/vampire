@@ -3,6 +3,8 @@ import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 
 export const WORKSPACE_OUTPUT_SETTLE_MS = 8_000;
 export const WORKSPACE_AGENT_OUTPUT_SETTLE_MS = 30_000;
+export const KING_WORKSPACE_DISPLAY_NAME = 'The King of Vampire';
+export const KING_WORKSPACE_GROUP_NAME = 'KING WORKSPACE';
 
 export type WorkspaceActivityState = 'active' | 'review' | 'idle' | 'ended';
 export type WorkspaceActivityRecord = {
@@ -30,7 +32,12 @@ export function projectName(path: string): string {
   return path.replace(/\/+$/, '').split('/').pop() || path;
 }
 
-export function workspaceName(workspace: Pick<ManagedWorkspace, 'cwd' | 'workspaceLabel'>): string {
+export function isKingWorkspace(workspace: Pick<ManagedWorkspace, 'workspaceKind'>): boolean {
+  return workspace.workspaceKind === 'king';
+}
+
+export function workspaceName(workspace: Pick<ManagedWorkspace, 'cwd' | 'workspaceKind' | 'workspaceLabel'>): string {
+  if (isKingWorkspace(workspace)) return KING_WORKSPACE_DISPLAY_NAME;
   return workspace.workspaceLabel?.trim() || projectName(workspace.cwd);
 }
 
@@ -86,7 +93,9 @@ export function workspaceIsActive(
 ): boolean {
   return (
     workspace.state === 'running' &&
-    (workspace.agentState === 'working' || (activityRecords.get(workspace.id)?.activeUntil ?? 0) > now)
+    (workspace.agentState === 'working' ||
+      workspace.terminals.some((terminal) => terminal.terminalKind === 'king-task' && terminal.state === 'running') ||
+      (activityRecords.get(workspace.id)?.activeUntil ?? 0) > now)
   );
 }
 
@@ -157,6 +166,9 @@ export function workspaceActivityHint(
 ): string {
   if (workspace.state === 'missing') return 'Shell is offline';
   const state = workspaceActivityState(workspace, activityRecords, now);
+  if (workspace.terminals.some((terminal) => terminal.terminalKind === 'king-task' && terminal.state === 'running')) {
+    return 'King has an agent working in this workspace';
+  }
   if (state === 'active') return 'Terminal is working; check back later';
   if (state === 'review') return 'Terminal output is ready and needs review';
   return 'Shell is online and up to date';
@@ -178,13 +190,19 @@ export function sortWorkspaces(
   manualOrder: string[],
   activityOrder: string[] = []
 ): ManagedWorkspace[] {
+  const pinKingFirst = (sorted: ManagedWorkspace[]): ManagedWorkspace[] => [
+    ...sorted.filter(isKingWorkspace),
+    ...sorted.filter((workspace) => !isKingWorkspace(workspace)),
+  ];
   if (mode === 'activity') {
     const position = new Map(activityOrder.map((id, index) => [id, index]));
-    return [...workspaces].sort(
-      (left, right) =>
-        (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
-        left.createdAt - right.createdAt ||
-        left.id.localeCompare(right.id)
+    return pinKingFirst(
+      [...workspaces].sort(
+        (left, right) =>
+          (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+          left.createdAt - right.createdAt ||
+          left.id.localeCompare(right.id)
+      )
     );
   }
 

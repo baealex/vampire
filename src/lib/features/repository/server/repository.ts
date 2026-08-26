@@ -68,6 +68,14 @@ export interface RepositoryWatchPaths {
   worktreesDirectory?: string;
 }
 
+export interface GitCheckoutIdentity {
+  checkoutKey: string;
+  root: string;
+  repositoryPath: string;
+  branch: string | null;
+  linkedWorktree: boolean;
+}
+
 export interface WorkspaceImageMetadata {
   path: string;
   mimeType: string;
@@ -488,12 +496,42 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
   };
 }
 
+export async function readRepositoryHeadRevision(cwd: string): Promise<string | null> {
+  const root = await workspaceRoot(cwd);
+  if (!(await isGitRepository(root))) return null;
+  const { stdout } = await runGit(root, ['rev-parse', '--verify', 'HEAD'], { acceptedExitCodes: [0, 128] });
+  const revision = stdout.trim();
+  return /^[0-9a-f]{40,64}$/i.test(revision) ? revision : null;
+}
+
 export async function readRepositorySummary(cwd: string): Promise<RepositorySummary> {
   const root = await workspaceRoot(cwd);
   const gitRepository = await isGitRepository(root);
   if (!gitRepository) return { isGitRepository: false, changeCount: 0, worktreeCount: 0 };
   const [changes, worktreeCount] = await Promise.all([readGitChanges(root), readGitWorktreeCount(root)]);
   return { isGitRepository: true, changeCount: changes.length, worktreeCount };
+}
+
+export async function readGitCheckoutIdentity(cwd: string): Promise<GitCheckoutIdentity | null> {
+  const root = await workspaceRoot(cwd);
+  if (!(await isGitRepository(root))) return null;
+  const [rootResult, gitDirectoryResult, commonDirectoryResult, branchResult] = await Promise.all([
+    runGit(root, ['rev-parse', '--show-toplevel']),
+    runGit(root, ['rev-parse', '--absolute-git-dir']),
+    runGit(root, ['rev-parse', '--git-common-dir']),
+    runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { acceptedExitCodes: [0, 1, 128] }),
+  ]);
+  const checkoutRoot = await realpath(rootResult.stdout.trim());
+  const gitDirectory = await realpath(gitDirectoryResult.stdout.trim());
+  const commonDirectory = await realpath(resolve(checkoutRoot, commonDirectoryResult.stdout.trim()));
+  const repositoryPath = basename(commonDirectory) === '.git' ? dirname(commonDirectory) : checkoutRoot;
+  return {
+    checkoutKey: createHash('sha256').update(`${commonDirectory}\0${gitDirectory}`).digest('hex'),
+    root: checkoutRoot,
+    repositoryPath,
+    branch: branchResult.stdout.trim() || null,
+    linkedWorktree: gitDirectory !== commonDirectory,
+  };
 }
 
 export async function readRepositoryWatchPaths(cwd: string): Promise<RepositoryWatchPaths> {

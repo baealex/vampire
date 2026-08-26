@@ -2,9 +2,11 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { runtimeConfig } from '~/lib/shared/server/runtime-config.ts';
 import { resolveAdapterHandlerPath } from './adapter-handler-path.ts';
+import { installKingControlServer } from './king-control-server.ts';
+import { installKingOrchestrationRunner } from './king-orchestration-runner.ts';
 import { installTerminalWebSocket } from './terminal-websocket.ts';
-import { installWorkspaceWebSocket } from './workspace-websocket.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.ts';
+import { installWorkspaceWebSocket } from './workspace-websocket.ts';
 
 const DEFAULT_PROTOCOL_HEADER = 'x-forwarded-proto';
 
@@ -30,6 +32,8 @@ const server = createServer((request, response) => {
 const closeTerminalSockets = installTerminalWebSocket(server);
 const closeWorkspaceSockets = installWorkspaceWebSocket(server);
 const closeAutomationRunner = await installWorkspaceAutomationRunner();
+const closeKingControl = await installKingControlServer();
+const closeKingOrchestration = await installKingOrchestrationRunner();
 
 server.listen(config.port, config.host, () => {
   console.log(`Vampire listening on http://${config.host}:${config.port}`);
@@ -46,6 +50,8 @@ let closing = false;
 const shutdown = () => {
   if (closing) return;
   closing = true;
+  closeKingOrchestration();
+  closeKingControl();
   closeAutomationRunner();
   closeTerminalSockets();
   closeWorkspaceSockets();

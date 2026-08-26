@@ -2,15 +2,14 @@
 import { dev } from '$app/environment';
 import { pushState } from '$app/navigation';
 import { onMount } from 'svelte';
-import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import CircleHelp from '@lucide/svelte/icons/circle-help';
 import Keyboard from '@lucide/svelte/icons/keyboard';
 import SquarePlay from '@lucide/svelte/icons/square-play';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import LoginScreen from '~/lib/features/auth/ui/LoginScreen.svelte';
 import TmuxSetupScreen from '~/lib/features/system/ui/TmuxSetupScreen.svelte';
-import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import SplitButton from '~/lib/shared/ui/SplitButton.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
@@ -59,6 +58,7 @@ const workspaceState: WorkspaceState = new WorkspaceState({
   onUnauthorized: () => connection.markUnauthenticated(),
   isWorkspaceObserved: (workspaceId) => terminalIsObserved(workspaceId),
 });
+const kingAvailable = $derived(workspaceState.workspaces.some((workspace) => workspace.workspaceKind === 'king'));
 function terminalIsObserved(workspaceId: string): boolean {
   return (
     workspaceState.requestedWorkspaceId === workspaceId &&
@@ -193,6 +193,12 @@ async function createIsolatedWorkspace(name: string): Promise<{ ok: boolean; err
 
 async function createWorkspace() {
   if (await workspaceState.createWorkspace(tmuxStatus?.available)) restorePanelAfterWorkspaceChange();
+}
+
+async function createKingWorkspace(launchProfileId: string | null): Promise<boolean> {
+  const created = await workspaceState.createKingWorkspace(launchProfileId, tmuxStatus?.available);
+  if (created) restorePanelAfterWorkspaceChange();
+  return created;
 }
 
 function clearActiveWorkspace() {
@@ -378,6 +384,9 @@ onMount(() => {
           bind:cwd={workspaceState.cwd}
           starting={workspaceState.starting}
           startError={workspaceState.startError}
+          launchProfiles={workspaceState.launchProfiles}
+          creatingKing={workspaceState.creatingKing}
+          kingCreateError={workspaceState.kingCreateError}
           tmuxAvailable={tmuxStatus?.available}
           onClose={closeWorkspaceNavigator}
           onOrderModeChange={(mode) => workspaceState.setWorkspaceOrderMode(mode)}
@@ -391,6 +400,7 @@ onMount(() => {
           onCloseWorkspace={closeWorkspace}
           onRemoveWorkspace={removeWorkspace}
           onCreate={() => void createWorkspace()}
+          onCreateKing={createKingWorkspace}
         />
 
         {#if workspaceState.activeWorkspace?.state === 'missing'}
@@ -398,6 +408,7 @@ onMount(() => {
             <TerminalHeader
               projectName={workspaceName(workspaceState.activeWorkspace)}
               cwd={workspaceState.activeWorkspace.cwd}
+              isKing={workspaceState.activeWorkspace.workspaceKind === 'king'}
               isWorktree={isWorktreeWorkspace(workspaceState.activeWorkspace)}
               repositoryName={workspaceRepositoryName(workspaceState.activeWorkspace)}
               worktreeBranch={workspaceState.activeWorkspace.worktreeBranch}
@@ -435,55 +446,48 @@ onMount(() => {
               <code>{workspaceState.activeWorkspace.cwd}</code>
               <div class="unavailable-actions">
                 {#if workspaceState.activeWorkspace.workspaceAvailable !== false}
-                  <div class="unavailable-reopen-control">
-                    <Button
-                      class="unavailable-reopen-primary"
-                      variant="primary"
-                      onclick={() => void restartWorkspace(workspaceState.activeWorkspace!)}
-                      disabled={Boolean(workspaceState.workspaceAction)}
-                    >
+                  <SplitButton
+                    class="unavailable-reopen-control"
+                    variant="primary"
+                    menuOpen={reopenWithOpen}
+                    onMenuOpenChange={(open) => reopenWithOpen = open}
+                    menuLabel="Reopen with…"
+                    menuTitle="Reopen with a different startup profile"
+                    onclick={() => void restartWorkspace(workspaceState.activeWorkspace!)}
+                    disabled={Boolean(workspaceState.workspaceAction)}
+                  >
+                    {#snippet primary()}
                       {workspaceState.workspaceAction === 'restart' ? 'Reopening…' : 'Reopen shell'}
-                    </Button>
-                    <DropdownMenuShell
-                      open={reopenWithOpen}
-                      onOpenChange={(open) => reopenWithOpen = open}
-                      triggerLabel="Reopen with…"
-                      triggerTitle="Reopen with a different startup profile"
-                      triggerClass="unavailable-reopen-menu-trigger"
-                    >
-                      {#snippet trigger()}
-                        <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
-                      {/snippet}
+                    {/snippet}
 
-                      {#snippet children()}
-                        <div class="unavailable-reopen-menu" role="group" aria-label="Reopen with">
-                          <strong>Reopen with</strong>
-                          <p>Runs once; it does not change the saved startup profile.</p>
+                    {#snippet menu()}
+                      <div class="unavailable-reopen-menu" role="group" aria-label="Reopen with">
+                        <strong>Reopen with</strong>
+                        <p>Runs once; it does not change the saved startup profile.</p>
+                        <DropdownMenuItem
+                          class="unavailable-reopen-option"
+                          disabled={Boolean(workspaceState.workspaceAction)}
+                          onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, null)}
+                        >
+                          <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
+                          <span class="unavailable-reopen-copy"><strong>Blank terminal</strong></span>
+                        </DropdownMenuItem>
+                        {#each workspaceState.launchProfiles as profile (profile.id)}
                           <DropdownMenuItem
                             class="unavailable-reopen-option"
                             disabled={Boolean(workspaceState.workspaceAction)}
-                            onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, null)}
+                            onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, profile.id)}
                           >
-                            <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
-                            <span class="unavailable-reopen-copy"><strong>Blank terminal</strong></span>
+                            <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
+                            <span class="unavailable-reopen-copy">
+                              <strong>{profile.name}</strong>
+                              <span>{profile.command}</span>
+                            </span>
                           </DropdownMenuItem>
-                          {#each workspaceState.launchProfiles as profile (profile.id)}
-                            <DropdownMenuItem
-                              class="unavailable-reopen-option"
-                              disabled={Boolean(workspaceState.workspaceAction)}
-                              onSelect={() => void restartWorkspace(workspaceState.activeWorkspace!, profile.id)}
-                            >
-                              <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
-                              <span class="unavailable-reopen-copy">
-                                <strong>{profile.name}</strong>
-                                <span>{profile.command}</span>
-                              </span>
-                            </DropdownMenuItem>
-                          {/each}
-                        </div>
-                      {/snippet}
-                    </DropdownMenuShell>
-                  </div>
+                        {/each}
+                      </div>
+                    {/snippet}
+                  </SplitButton>
                 {/if}
                 <Button
                   class="unavailable-remove-button"
@@ -527,6 +531,9 @@ onMount(() => {
               {repositoryTab}
               onRepositoryTabChange={setRepositoryTab}
               statusPlugins={connection.statusPlugins}
+              {kingAvailable}
+              onKingControlChange={(control) =>
+                workspaceState.applyWorkspaceUpdated(workspaceState.activeWorkspace!.id, { kingControl: control })}
             />
           {/key}
         {:else if workspaceState.requestedWorkspaceId && workspaceState.workspacesLoaded}
@@ -686,39 +693,8 @@ main {
 :global(.unavailable-actions > .vampire-button) {
   flex: 1 1 10rem;
 }
-.unavailable-reopen-control {
-  display: flex;
+:global(.unavailable-reopen-control) {
   flex: 1 1 10rem;
-  min-width: 0;
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-}
-:global(.unavailable-reopen-primary) {
-  flex: 1 1 auto;
-  min-width: 0;
-  border-radius: 0;
-}
-:global(.unavailable-reopen-menu-trigger) {
-  display: grid;
-  flex: 0 0 var(--control-height-lg);
-  place-items: center;
-  width: var(--control-height-lg);
-  min-height: var(--control-height-lg);
-  padding: 0;
-  border: 0;
-  border-left: 1px solid color-mix(in srgb, var(--color-accent-ink) 24%, transparent);
-  background: transparent;
-  color: var(--color-accent-ink);
-  cursor: pointer;
-}
-:global(.unavailable-reopen-menu-trigger[data-state="open"]) {
-  background: color-mix(in srgb, var(--color-accent-ink) 12%, transparent);
-}
-@media (hover: hover) {
-  :global(.unavailable-reopen-menu-trigger:hover) {
-    background: color-mix(in srgb, var(--color-accent-ink) 12%, transparent);
-  }
 }
 .unavailable-reopen-menu {
   display: grid;

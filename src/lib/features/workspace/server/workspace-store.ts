@@ -8,7 +8,7 @@ import {
   type WorkspaceAutomation,
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import { MAX_LAUNCH_PROFILES, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
-import type { LaunchProfile, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type { LaunchProfile, WorkspaceKingControl, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
 
 export const WORKSPACE_STATE_VERSION = 1;
 export const BACKGROUND_COMMAND_MAX_LENGTH = 1_000;
@@ -18,10 +18,13 @@ export interface StoredWorkspace {
   id: string;
   tmuxSession: string;
   cwd: string;
-  workspaceKind?: 'directory' | 'worktree';
+  workspaceKind?: 'directory' | 'worktree' | 'king';
   repositoryPath?: string;
   workspaceLabel?: string;
   worktreeBranch?: string;
+  checkoutKey?: string;
+  managedWorktree?: boolean;
+  kingControl?: WorkspaceKingControl;
   createdAt: number;
   lastActiveAt: number;
   automations: WorkspaceAutomation[];
@@ -39,6 +42,27 @@ export interface WorkspaceStore {
 export interface WorkspaceConnection {
   tmuxSession: string;
   cwd: string;
+}
+
+export function storedWorkspaceCheckoutKey(workspace: StoredWorkspace): string {
+  return workspace.checkoutKey || workspace.cwd;
+}
+
+export function storedWorkspacesShareCheckout(left: StoredWorkspace, right: StoredWorkspace): boolean {
+  return storedWorkspaceCheckoutKey(left) === storedWorkspaceCheckoutKey(right);
+}
+
+export function effectiveWorkspaceKingControl(
+  workspaces: StoredWorkspace[],
+  target: StoredWorkspace
+): WorkspaceKingControl | undefined {
+  const checkoutController = workspaces.find(
+    (workspace) =>
+      workspace.workspaceKind !== 'king' &&
+      workspace.kingControl?.state === 'king' &&
+      storedWorkspacesShareCheckout(workspace, target)
+  );
+  return checkoutController?.kingControl ?? target.kingControl;
 }
 
 type WorkspaceStoreGlobal = typeof globalThis & {
@@ -80,10 +104,16 @@ function isStoredWorkspace(
     typeof value.id === 'string' &&
     typeof value.tmuxSession === 'string' &&
     typeof value.cwd === 'string' &&
-    (value.workspaceKind === undefined || value.workspaceKind === 'directory' || value.workspaceKind === 'worktree') &&
+    (value.workspaceKind === undefined ||
+      value.workspaceKind === 'directory' ||
+      value.workspaceKind === 'worktree' ||
+      value.workspaceKind === 'king') &&
     (value.repositoryPath === undefined || typeof value.repositoryPath === 'string') &&
     (value.workspaceLabel === undefined || typeof value.workspaceLabel === 'string') &&
     (value.worktreeBranch === undefined || typeof value.worktreeBranch === 'string') &&
+    (value.checkoutKey === undefined || typeof value.checkoutKey === 'string') &&
+    (value.managedWorktree === undefined || typeof value.managedWorktree === 'boolean') &&
+    (value.kingControl === undefined || isWorkspaceKingControl(value.kingControl)) &&
     typeof value.createdAt === 'number' &&
     (value.lastActiveAt === undefined || typeof value.lastActiveAt === 'number') &&
     (value.note === undefined || typeof value.note === 'string') &&
@@ -102,6 +132,61 @@ function isStoredWorkspace(
       typeof value.defaultLaunchProfileId === 'string') &&
     (value.autoStartDefaultProfile === undefined || typeof value.autoStartDefaultProfile === 'boolean')
   );
+}
+
+function isWorkspaceKingControl(value: unknown): value is WorkspaceKingControl {
+  return (
+    isRecord(value) &&
+    (value.state === 'manual' || value.state === 'requested' || value.state === 'king') &&
+    typeof value.reason === 'string' &&
+    (value.requestedAt === null || typeof value.requestedAt === 'number') &&
+    typeof value.changedAt === 'number' &&
+    (value.lastAction === 'requested' ||
+      value.lastAction === 'granted' ||
+      value.lastAction === 'declined' ||
+      value.lastAction === 'released') &&
+    (value.notifiedAt === null || typeof value.notifiedAt === 'number') &&
+    (value.handoffSnapshot === undefined ||
+      value.handoffSnapshot === null ||
+      isWorkspaceHandoffSnapshot(value.handoffSnapshot))
+  );
+}
+
+function isWorkspaceHandoffSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.capturedAt === 'number' &&
+    (value.checkoutKey === null || typeof value.checkoutKey === 'string') &&
+    typeof value.isGitRepository === 'boolean' &&
+    (value.headRevision === null || typeof value.headRevision === 'string') &&
+    Array.isArray(value.changes) &&
+    value.changes.every(isRepositoryChange) &&
+    (value.changeFingerprints === null ||
+      (Array.isArray(value.changeFingerprints) && value.changeFingerprints.every(isRepositoryChangeFingerprint))) &&
+    (value.repositoryStateHash === null || typeof value.repositoryStateHash === 'string')
+  );
+}
+
+function isRepositoryChange(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.path === 'string' &&
+    typeof value.status === 'string' &&
+    (value.previousPath === undefined || typeof value.previousPath === 'string')
+  );
+}
+
+function isRepositoryChangeFingerprint(value: unknown): boolean {
+  return isRepositoryChange(value) && isRecord(value) && typeof value.diffHash === 'string';
+}
+
+function normalizeWorkspaceKingControl(value: unknown): WorkspaceKingControl | undefined {
+  if (!isWorkspaceKingControl(value)) return undefined;
+  let handoffSnapshot: WorkspaceKingControl['handoffSnapshot'] = null;
+  if (isWorkspaceHandoffSnapshot(value.handoffSnapshot)) {
+    handoffSnapshot = structuredClone(value.handoffSnapshot) as WorkspaceKingControl['handoffSnapshot'];
+  }
+  return { ...structuredClone(value), handoffSnapshot };
 }
 
 function uniqueLaunchProfileId(id: string, usedIds: Set<string>): string {
@@ -180,6 +265,21 @@ function normalizeWorkspacePreferences(value: unknown): WorkspacePreferences | u
   };
 }
 
+function normalizeWorkspaceKind(workspace: Record<string, unknown>): StoredWorkspace['workspaceKind'] {
+  if (workspace.workspaceKind === 'king') return 'king';
+  if (workspace.workspaceKind === 'worktree' || typeof workspace.worktreeBranch === 'string') return 'worktree';
+  if (workspace.workspaceKind === 'directory') return 'directory';
+  return undefined;
+}
+
+function managedWorktreeOwnership(
+  workspaceKind: StoredWorkspace['workspaceKind'],
+  value: unknown
+): Pick<StoredWorkspace, 'managedWorktree'> | Record<string, never> {
+  if (workspaceKind !== 'worktree') return {};
+  return { managedWorktree: value !== false };
+}
+
 function parseWorkspaceStore(value: unknown): WorkspaceStore {
   if (!isRecord(value)) throw new Error('invalid state file');
   const rawWorkspaces = value.workspaces ?? value.sessions;
@@ -215,12 +315,11 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
           : compatibilityStartupProfileId && launchProfileIds.has(compatibilityStartupProfileId)
             ? compatibilityStartupProfileId
             : null;
-      const workspaceKind =
-        workspace.workspaceKind === 'worktree' || typeof workspace.worktreeBranch === 'string'
-          ? ('worktree' as const)
-          : workspace.workspaceKind === 'directory'
-            ? ('directory' as const)
-            : undefined;
+      const workspaceKind = normalizeWorkspaceKind(workspace);
+      const automations = normalizeWorkspaceAutomations(workspace.automations).filter(
+        (automation) => automation.kind !== 'king-bootstrap' || workspaceKind === 'king'
+      );
+      const kingControl = normalizeWorkspaceKingControl(workspace.kingControl);
       return {
         id: workspace.id,
         tmuxSession: workspace.tmuxSession,
@@ -229,9 +328,12 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
         ...(typeof workspace.repositoryPath === 'string' ? { repositoryPath: workspace.repositoryPath } : {}),
         ...(typeof workspace.workspaceLabel === 'string' ? { workspaceLabel: workspace.workspaceLabel } : {}),
         ...(typeof workspace.worktreeBranch === 'string' ? { worktreeBranch: workspace.worktreeBranch } : {}),
+        ...(typeof workspace.checkoutKey === 'string' ? { checkoutKey: workspace.checkoutKey } : {}),
+        ...managedWorktreeOwnership(workspaceKind, workspace.managedWorktree),
+        ...(kingControl ? { kingControl } : {}),
         createdAt: workspace.createdAt,
         lastActiveAt: typeof workspace.lastActiveAt === 'number' ? workspace.lastActiveAt : workspace.createdAt,
-        automations: normalizeWorkspaceAutomations(workspace.automations),
+        automations,
         favoriteCommands: normalizeFavoriteCommands(workspace.favoriteCommands),
         startupProfileId,
       };

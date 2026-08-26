@@ -9,6 +9,7 @@ import {
 
 let {
   connected,
+  inputEnabled = true,
   send,
   submit,
   onComposerFocus,
@@ -22,6 +23,7 @@ let {
   increaseFontSize,
 }: {
   connected: boolean;
+  inputEnabled?: boolean;
   send: (data: string) => void;
   submit: (data: string) => boolean;
   onComposerFocus: () => void;
@@ -39,17 +41,19 @@ let composerElement: HTMLTextAreaElement;
 let imageInputElement: HTMLInputElement;
 let composerMessage = $state('');
 let composerDropActive = $state(false);
+const canSend = $derived(connected && inputEnabled);
 
 function preventButtonFocus(event: PointerEvent) {
   event.preventDefault();
 }
 
 function sendControl(data: string) {
+  if (!canSend) return;
   send(data);
 }
 
 function sendComposerMessage() {
-  if (!connected || !composerMessage.trim()) return;
+  if (!canSend || !composerMessage.trim()) return;
   if (!submit(composerMessage)) return;
   composerMessage = '';
   requestAnimationFrame(() => {
@@ -69,7 +73,7 @@ function hasWorkspaceEntry(event: DragEvent): boolean {
 }
 
 function handleComposerDragOver(event: DragEvent) {
-  if (!connected || !event.dataTransfer || !hasWorkspaceEntry(event)) return;
+  if (!canSend || !event.dataTransfer || !hasWorkspaceEntry(event)) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'copy';
   composerDropActive = true;
@@ -81,7 +85,7 @@ function handleComposerDragLeave() {
 
 function handleComposerDrop(event: DragEvent) {
   composerDropActive = false;
-  if (!connected) return;
+  if (!canSend) return;
   const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
   const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
   if (!entry) return;
@@ -115,30 +119,25 @@ function handleImageSelection(event: Event) {
 
 <div class="input-dock">
   <div class="touch-toolbar" aria-label="Terminal controls">
-    <button
-      type="button"
-      disabled={!connected}
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b')}
-    >
+    <button type="button" disabled={!canSend} onpointerdown={preventButtonFocus} onclick={() => sendControl('\u001b')}>
       Esc
     </button>
     <button
       type="button"
       class="wide-key"
-      disabled={!connected}
+      disabled={!canSend}
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\u0003')}
     >
       Ctrl+C
     </button>
-    <button type="button" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\t')}>
+    <button type="button" disabled={!canSend} onpointerdown={preventButtonFocus} onclick={() => sendControl('\t')}>
       Tab
     </button>
     <button
       type="button"
       class="wide-key"
-      disabled={!connected}
+      disabled={!canSend}
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\r')}
     >
@@ -147,7 +146,7 @@ function handleImageSelection(event: Event) {
     <span class="toolbar-divider" aria-hidden="true"></span>
     <button
       type="button"
-      disabled={!connected}
+      disabled={!canSend}
       aria-label="Arrow up"
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\u001b[A')}
@@ -156,7 +155,7 @@ function handleImageSelection(event: Event) {
     </button>
     <button
       type="button"
-      disabled={!connected}
+      disabled={!canSend}
       aria-label="Arrow down"
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\u001b[B')}
@@ -165,7 +164,7 @@ function handleImageSelection(event: Event) {
     </button>
     <button
       type="button"
-      disabled={!connected}
+      disabled={!canSend}
       aria-label="Arrow left"
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\u001b[D')}
@@ -174,7 +173,7 @@ function handleImageSelection(event: Event) {
     </button>
     <button
       type="button"
-      disabled={!connected}
+      disabled={!canSend}
       aria-label="Arrow right"
       onpointerdown={preventButtonFocus}
       onclick={() => sendControl('\u001b[C')}
@@ -255,13 +254,13 @@ function handleImageSelection(event: Event) {
       autocapitalize="off"
       autocomplete="off"
       spellcheck="false"
-      disabled={!connected}
+      disabled={!canSend}
     ></textarea>
     <button
       class="image-button"
       type="button"
       onclick={() => imageInputElement?.click()}
-      disabled={!connected}
+      disabled={!canSend}
       aria-label="Send an image to the shell"
       title="Send an image"
     >
@@ -272,7 +271,7 @@ function handleImageSelection(event: Event) {
       type="button"
       onpointerdown={preventButtonFocus}
       onclick={sendComposerMessage}
-      disabled={!connected || !composerMessage.trim()}
+      disabled={!canSend || !composerMessage.trim()}
       aria-label="Send to shell"
       title="Send text and press Enter"
     >

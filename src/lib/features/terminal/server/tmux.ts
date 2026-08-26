@@ -7,7 +7,7 @@ import { listProcesses, terminateProcessTrees, type ProcessRecord } from './proc
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
 const TMUX_WINDOW_FORMAT =
-  '#{session_name}\t#{session_created}\t#{session_attached}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{window_activity}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{@vampire_background_command}\t#{@vampire_background_started_at}\t#{pane_dead}\t#{pane_dead_status}';
+  '#{session_name}\t#{session_created}\t#{session_attached}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{window_activity}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{@vampire_background_command}\t#{@vampire_background_started_at}\t#{pane_dead}\t#{pane_dead_status}\t#{@vampire_king_attempt_id}\t#{@vampire_king_task_started_at}';
 const VAMPIRE_SERVER_ENVIRONMENT_KEYS = [
   'VAMPIRE_ADAPTER_BODY_SIZE_LIMIT',
   'VAMPIRE_ADAPTER_ORIGIN',
@@ -137,6 +137,8 @@ export interface TmuxTerminal {
   startedAt: number | null;
   state: 'running' | 'exited';
   exitCode: number | null;
+  terminalKind?: 'main' | 'background' | 'king-task';
+  kingAttemptId?: string | null;
 }
 
 const SHELL_COMMANDS = new Set(['bash', 'dash', 'fish', 'ksh', 'nu', 'powershell', 'pwsh', 'sh', 'tcsh', 'zsh']);
@@ -188,6 +190,29 @@ function shellArgument(value: string): string {
 
 function backgroundWindowName(command: string): string {
   return command.length > 48 ? `${command.slice(0, 47)}…` : command;
+}
+
+function positiveTimestamp(value: string | undefined): number | null {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+function detectedTerminalKind(
+  kingAttemptId: string | null,
+  backgroundCommand: string | undefined
+): NonNullable<TmuxTerminal['terminalKind']> {
+  if (kingAttemptId) return 'king-task';
+  if (backgroundCommand) return 'background';
+  return 'main';
+}
+
+function terminalKindWithinSession(
+  terminal: TmuxTerminal,
+  mainTerminalId: string | undefined
+): NonNullable<TmuxTerminal['terminalKind']> {
+  if (terminal.id === mainTerminalId) return 'main';
+  if (terminal.terminalKind === 'king-task') return 'king-task';
+  return 'background';
 }
 
 async function assertTmuxTerminalOwner(name: string, terminalId: string): Promise<void> {
@@ -305,6 +330,90 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
   }
 }
 
+export async function createTmuxKingTaskTerminal(
+  name: string,
+  cwd: string,
+  attemptId: string,
+  launchCommand: string
+): Promise<TmuxTerminal> {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(attemptId)) throw new Error('King Attempt identifier is invalid.');
+  const command = launchCommand.trim();
+  if (!command || command.length > 1_000 || /[\0\r\n]/.test(command)) {
+    throw new Error('King task launch command is invalid.');
+  }
+  const startedAt = Date.now();
+  const { stdout } = await execFile('tmux', [
+    'new-window',
+    '-d',
+    '-P',
+    '-F',
+    '#{window_id}',
+    '-t',
+    `${name}:`,
+    '-c',
+    cwd,
+    '-n',
+    `King task ${attemptId.slice(0, 8)}`,
+  ]);
+  const terminalId = stdout.trim();
+  if (!/^@\d+$/.test(terminalId)) throw new Error('tmux did not describe the new King task terminal.');
+
+  try {
+    await execFile('tmux', [
+      'set-option',
+      '-w',
+      '-t',
+      terminalId,
+      'remain-on-exit',
+      'on',
+      ';',
+      'set-option',
+      '-w',
+      '-t',
+      terminalId,
+      'automatic-rename',
+      'off',
+      ';',
+      'set-option',
+      '-w',
+      '-t',
+      terminalId,
+      'allow-rename',
+      'off',
+      ';',
+      'set-option',
+      '-w',
+      '-t',
+      terminalId,
+      '@vampire_king_attempt_id',
+      attemptId,
+      ';',
+      'set-option',
+      '-w',
+      '-t',
+      terminalId,
+      '@vampire_king_task_started_at',
+      String(startedAt),
+    ]);
+    const shell = process.env.SHELL?.trim() || '/bin/sh';
+    await execFile('tmux', [
+      'respawn-pane',
+      '-k',
+      '-t',
+      terminalId,
+      `exec ${shellArgument(shell)} -lc ${shellArgument(command)}`,
+    ]);
+    const terminal = (await listTmuxSessions())
+      .find((workspace) => workspace.name === name)
+      ?.terminals.find((candidate) => candidate.id === terminalId);
+    if (!terminal) throw new Error('tmux did not describe the new King task terminal.');
+    return terminal;
+  } catch (error) {
+    await execFile('tmux', ['kill-window', '-t', terminalId]).catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function killTmuxBackgroundProcess(name: string, terminalId: string): Promise<void> {
   try {
     await assertTmuxTerminalOwner(name, terminalId);
@@ -314,6 +423,10 @@ export async function killTmuxBackgroundProcess(name: string, terminalId: string
     if (isMissingTmuxTarget(error)) return;
     throw error;
   }
+}
+
+export async function killTmuxTerminal(name: string, terminalId: string): Promise<void> {
+  return killTmuxBackgroundProcess(name, terminalId);
 }
 
 export function stripTmuxCapturePadding(output: string): string {
@@ -348,6 +461,21 @@ export function tmuxPromptSubmissionArguments(terminalId: string, data: string, 
 export function tmuxPromptEnterArguments(terminalId: string): string[] {
   if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
   return ['send-keys', '-t', terminalId, 'Enter'];
+}
+
+export function tmuxInterruptArguments(terminalId: string): string[] {
+  if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
+  return ['send-keys', '-t', terminalId, 'Escape'];
+}
+
+export async function interruptTmuxTerminal(name: string, terminalId: string): Promise<void> {
+  try {
+    await assertTmuxTerminalOwner(name, terminalId);
+    await execFile('tmux', tmuxInterruptArguments(terminalId), { timeout: 3_000 });
+  } catch (error) {
+    if (isMissingTmuxTarget(error)) return;
+    throw error;
+  }
 }
 
 export async function submitTmuxPrompt(name: string, terminalId: string, data: string): Promise<void> {
@@ -436,6 +564,8 @@ function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, P
         backgroundStartedAt,
         paneDead,
         paneDeadStatus,
+        kingAttemptId,
+        kingTaskStartedAt,
       ] = line.split('\t');
       const terminalId = windowId ?? '';
       if (!workspaceName || !/^@\d+$/.test(terminalId)) return [];
@@ -445,9 +575,14 @@ function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, P
       const attached = Number(attachedClients);
       const index = Number(windowIndex);
       const panePid = Number(panePidValue);
-      const startedAt = Number(backgroundStartedAt);
       const exitCode = Number(paneDeadStatus);
       const exited = paneDead === '1';
+      const taskAttemptId = kingAttemptId?.trim() || null;
+      const startedAt = positiveTimestamp(kingTaskStartedAt) ?? positiveTimestamp(backgroundStartedAt);
+      const validPanePid = Number.isFinite(panePid) ? panePid : 0;
+      const foregroundProcess = exited
+        ? null
+        : classifyProcess(currentCommand ?? '', title ?? '', validPanePid, processes);
       return [
         {
           workspaceName,
@@ -459,13 +594,13 @@ function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, P
             name: windowName || 'terminal',
             active: windowActive === '1',
             lastOutputAt: Number.isFinite(lastOutput) ? lastOutput * 1_000 : null,
-            foregroundProcess: exited
-              ? null
-              : classifyProcess(currentCommand ?? '', title ?? '', Number.isFinite(panePid) ? panePid : 0, processes),
+            foregroundProcess,
             command: backgroundCommand || null,
-            startedAt: Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null,
+            startedAt,
             state: exited ? 'exited' : 'running',
             exitCode: exited && Number.isInteger(exitCode) ? exitCode : null,
+            terminalKind: detectedTerminalKind(taskAttemptId, backgroundCommand),
+            kingAttemptId: taskAttemptId,
           },
         },
       ];
@@ -478,8 +613,12 @@ function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, P
   }
 
   return [...rowsByWorkspace].map(([name, workspaceRows]) => {
-    const terminals = workspaceRows.map((row) => row.terminal).sort((left, right) => left.index - right.index);
-    const mainTerminal = terminals[0];
+    const ordered = workspaceRows.map((row) => row.terminal).sort((left, right) => left.index - right.index);
+    const mainTerminal = ordered.find((terminal) => terminal.terminalKind === 'main');
+    const terminals = ordered.map((terminal) => ({
+      ...terminal,
+      terminalKind: terminalKindWithinSession(terminal, mainTerminal?.id),
+    }));
     return {
       name,
       createdAt: workspaceRows[0]?.createdAt ?? null,

@@ -20,7 +20,11 @@ import {
   type TerminalSizeController,
 } from '~/lib/features/terminal/server/terminal.ts';
 import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.ts';
-import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.ts';
+import {
+  effectiveWorkspaceKingControl,
+  findWorkspaceConnection,
+  readWorkspaceStore,
+} from '~/lib/features/workspace/server/workspace-store.ts';
 import {
   encodeTerminalServerMessage,
   TERMINAL_PROTOCOL_VERSION,
@@ -39,6 +43,7 @@ const MAX_PAYLOAD_BYTES = 72 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const FALLBACK_ACTIVATION_RETRY_MS = 250;
 const FALLBACK_ACTIVATION_ATTEMPTS = 3;
+const WORKSPACE_INPUT_POLICY_CACHE_MS = 100;
 const WORKSPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TERMINAL_ID_PATTERN = /^@\d+$/;
 
@@ -67,6 +72,31 @@ interface TerminalConnectionContext {
 }
 
 const workspaceAttachmentStates = new Map<string, WorkspaceAttachmentState>();
+
+function createWorkspaceInputPolicy(workspaceId: string): () => Promise<boolean> {
+  let checkedAt = 0;
+  let allowed = true;
+  let pending: Promise<boolean> | undefined;
+  return async () => {
+    const now = Date.now();
+    // Cache denials briefly, but recheck every allowed input. This closes the
+    // handoff boundary without making a stale positive decision writable.
+    if (!allowed && now - checkedAt < WORKSPACE_INPUT_POLICY_CACHE_MS) return false;
+    pending ??= readWorkspaceStore()
+      .then((store) => {
+        const workspace = store.workspaces.find((candidate) => candidate.id === workspaceId);
+        const control = workspace ? effectiveWorkspaceKingControl(store.workspaces, workspace) : undefined;
+        allowed = workspace !== undefined && control?.state !== 'king';
+        checkedAt = Date.now();
+        return allowed;
+      })
+      .catch(() => false)
+      .finally(() => {
+        pending = undefined;
+      });
+    return pending;
+  };
+}
 
 function getAttachmentState(key: string): WorkspaceAttachmentState {
   let state = workspaceAttachmentStates.get(key);
@@ -211,6 +241,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 
     const attachmentKey = terminalAttachmentKey(context.workspaceId, context.terminalId);
     const state = getAttachmentState(attachmentKey);
+    const canInput = createWorkspaceInputPolicy(context.workspaceId);
     let resolveReady!: () => void;
     const readyPromise = new Promise<void>((resolve) => {
       resolveReady = resolve;
@@ -248,6 +279,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           lazyHistory: context.lazyHistory,
           ignoreSize: true,
           canResize: () => state.activeAttachment === attachment && !attachment.released,
+          canInput,
           canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
           getGeometry: () => state.geometry,
           hasControl: () => state.activeAttachment === attachment && !attachment.released,

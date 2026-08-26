@@ -1,46 +1,65 @@
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import {
-  captureTmuxBackgroundOutput,
-  createTmuxSession,
-  createTmuxBackgroundProcess,
-  killTmuxBackgroundProcess,
-  killTmuxSession,
-  listTmuxSessions,
-  sendTmuxInput,
-  type TmuxProcessHint,
-  type TmuxSession,
-  type TmuxTerminal,
-} from '~/lib/features/terminal/server/tmux.ts';
-import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.ts';
+  createGitWorktree,
+  GitWorktreeError,
+  removeManagedGitWorktree,
+  rollbackGitWorktree,
+} from '~/lib/features/repository/server/git-worktree.ts';
 import {
-  ensureManagedWorkspaceNoteFile,
-  readManagedWorkspaceNoteFile,
-  writeManagedWorkspaceNoteFile,
-} from '~/lib/features/workspace/server/workspace-note-file.ts';
-import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.ts';
-import {
-  BACKGROUND_COMMAND_MAX_LENGTH,
-  MAX_FAVORITE_COMMANDS,
-  readWorkspaceStore as readState,
-  type StoredWorkspace,
-  withWorkspaceStoreMutation,
-  writeWorkspaceStore as writeState,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+  isGitRepository as readIsGitRepository,
+  readGitCheckoutIdentity,
+  type GitCheckoutIdentity,
+} from '~/lib/features/repository/server/repository.ts';
 import {
   resolveAllowedWorkspaceDirectory,
   resolveExistingWorkspaceDirectory,
   WorkspaceRootError,
 } from '~/lib/features/system/server/workspace-roots.ts';
 import {
-  createGitWorktree,
-  GitWorktreeError,
-  removeManagedGitWorktree,
-  rollbackGitWorktree,
-} from '~/lib/features/repository/server/git-worktree.ts';
-import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+  captureTmuxBackgroundOutput,
+  createTmuxBackgroundProcess,
+  createTmuxSession,
+  killTmuxBackgroundProcess,
+  killTmuxSession,
+  killTmuxTerminal,
+  listTmuxSessions,
+  sendTmuxInput,
+  type TmuxProcessHint,
+  type TmuxSession,
+  type TmuxTerminal,
+} from '~/lib/features/terminal/server/tmux.ts';
+import { cancelActiveKingWorkflow } from '~/lib/features/workspace/server/king-workflow-store.ts';
+import {
+  KING_WORKSPACE_NAME,
+  ensureManagedKingWorkspace,
+  scheduleKingBootstrapAutomation,
+} from '~/lib/features/workspace/server/king-workspace.ts';
+import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.ts';
+import {
+  ensureManagedWorkspaceNoteFile,
+  readManagedWorkspaceNoteFile,
+  writeManagedWorkspaceNoteFile,
+} from '~/lib/features/workspace/server/workspace-note-file.ts';
+import {
+  BACKGROUND_COMMAND_MAX_LENGTH,
+  effectiveWorkspaceKingControl,
+  MAX_FAVORITE_COMMANDS,
+  readWorkspaceStore as readState,
+  storedWorkspaceCheckoutKey as workspaceCheckoutLeaseKey,
+  type StoredWorkspace,
+  storedWorkspacesShareCheckout,
+  withWorkspaceStoreMutation,
+  writeWorkspaceStore as writeState,
+} from '~/lib/features/workspace/server/workspace-store.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
-import type { LaunchProfile, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type {
+  LaunchProfile,
+  WorkspaceHandoffSnapshot,
+  WorkspaceKingControl,
+  WorkspacePreferences,
+} from '~/lib/shared/contracts/workspace.ts';
+import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 
 export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
@@ -81,7 +100,12 @@ export type WorkspaceMutationErrorReason =
   | 'invalid-launch-profiles'
   | 'invalid-startup-profile'
   | 'invalid-workspace-alias'
-  | 'invalid-workspace-preferences';
+  | 'invalid-workspace-preferences'
+  | 'king-already-exists'
+  | 'king-not-found'
+  | 'king-control-conflict'
+  | 'invalid-king-control'
+  | 'king-controlled';
 
 export class WorkspaceMutationError extends Error {
   readonly reason: WorkspaceMutationErrorReason;
@@ -142,6 +166,14 @@ async function detectGitRepository(cwd: string): Promise<boolean> {
   }
 }
 
+async function detectGitCheckoutIdentity(cwd: string): Promise<GitCheckoutIdentity | null> {
+  try {
+    return await readGitCheckoutIdentity(cwd);
+  } catch {
+    return null;
+  }
+}
+
 async function detectWorkspaceAvailable(cwd: string): Promise<boolean> {
   try {
     return (await stat(cwd)).isDirectory();
@@ -191,6 +223,100 @@ function normalizeWorkspaceAlias(alias: string): string {
   return normalizedAlias;
 }
 
+function normalizeKingControlReason(reason: string): string {
+  const normalized = reason.trim();
+  if (!normalized || normalized.length > 2_000 || /[\0]/.test(normalized)) {
+    throw new WorkspaceMutationError(
+      'invalid-king-control',
+      'A King handoff reason between 1 and 2,000 characters is required.'
+    );
+  }
+  return normalized;
+}
+
+function applyControlToCheckout(
+  workspaces: StoredWorkspace[],
+  target: StoredWorkspace,
+  control: WorkspaceKingControl,
+  now: number
+): StoredWorkspace[] {
+  return workspaces.map((candidate) => {
+    if (candidate.workspaceKind === 'king' || !storedWorkspacesShareCheckout(candidate, target)) return candidate;
+    if (candidate.id === target.id) return { ...candidate, kingControl: control };
+    return { ...candidate, kingControl: { ...control, notifiedAt: now } };
+  });
+}
+
+function inheritCheckoutControl(
+  workspace: StoredWorkspace,
+  existingWorkspaces: StoredWorkspace[],
+  now: number
+): StoredWorkspace {
+  const control = effectiveWorkspaceKingControl(existingWorkspaces, workspace);
+  if (control?.state !== 'king') return workspace;
+  return { ...workspace, kingControl: { ...control, notifiedAt: now } };
+}
+
+function registrationMetadata(checkout: GitCheckoutIdentity | null): Partial<StoredWorkspace> {
+  if (!checkout) return { workspaceKind: 'directory' };
+  const repositoryMetadata = {
+    repositoryPath: checkout.repositoryPath,
+    checkoutKey: checkout.checkoutKey,
+  };
+  if (!checkout.linkedWorktree) return { workspaceKind: 'directory', ...repositoryMetadata };
+  return {
+    workspaceKind: 'worktree',
+    ...repositoryMetadata,
+    worktreeBranch: checkout.branch ?? undefined,
+    managedWorktree: false,
+  };
+}
+
+function grantedControlReason(workspace: StoredWorkspace, fallbackReason: string): string {
+  if (workspace.kingControl?.state === 'requested') return workspace.kingControl.reason;
+  return normalizeKingControlReason(fallbackReason);
+}
+
+function assertKingControlTarget(state: Awaited<ReturnType<typeof readState>>, index: number): StoredWorkspace {
+  const workspace = state.workspaces[index];
+  if (!workspace) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+  if (workspace.workspaceKind === 'king') {
+    throw new WorkspaceMutationError('invalid-king-control', 'The King workspace cannot be handed over to itself.');
+  }
+  if (!state.workspaces.some((candidate) => candidate.workspaceKind === 'king')) {
+    throw new WorkspaceMutationError('king-not-found', 'Create the King workspace before handing over a workspace.');
+  }
+  return workspace;
+}
+
+function assertCheckoutControlAvailable(
+  state: Awaited<ReturnType<typeof readState>>,
+  workspace: StoredWorkspace
+): void {
+  const leaseKey = workspaceCheckoutLeaseKey(workspace);
+  const conflict = state.workspaces.find(
+    (candidate) =>
+      candidate.id !== workspace.id &&
+      candidate.workspaceKind !== 'king' &&
+      workspaceCheckoutLeaseKey(candidate) === leaseKey &&
+      candidate.kingControl?.state === 'king'
+  );
+  if (conflict) {
+    throw new WorkspaceMutationError(
+      'king-control-conflict',
+      `King already controls this checkout through workspace ${conflict.workspaceLabel || conflict.id}.`
+    );
+  }
+}
+
+function assertOwnerControlsWorkspace(state: Awaited<ReturnType<typeof readState>>, workspace: StoredWorkspace): void {
+  if (effectiveWorkspaceKingControl(state.workspaces, workspace)?.state !== 'king') return;
+  throw new WorkspaceMutationError(
+    'king-controlled',
+    'King controls this workspace. Take control from the crown menu before changing it manually.'
+  );
+}
+
 const exclusively = withWorkspaceStoreMutation;
 
 export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
@@ -218,6 +344,7 @@ export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
     const { automations: _automations, ...stored } = workspace;
     return {
       ...stored,
+      kingControl: effectiveWorkspaceKingControl(state.workspaces, workspace),
       notePreview: notePreviews[index] ?? '',
       state: tmux ? 'running' : 'missing',
       lastOutputAt: tmux?.lastOutputAt ?? null,
@@ -255,32 +382,174 @@ export async function updateManagedWorkspacePreferences(input: WorkspacePreferen
   });
 }
 
-export async function findWorkspaceDirectory(id: string): Promise<Pick<StoredWorkspace, 'id' | 'cwd'> | undefined> {
-  const workspace = (await readState()).workspaces.find((candidate) => candidate.id === id);
-  return workspace ? { id: workspace.id, cwd: workspace.cwd } : undefined;
+export async function findWorkspaceDirectory(
+  id: string
+): Promise<Pick<StoredWorkspace, 'id' | 'cwd' | 'kingControl'> | undefined> {
+  const state = await readState();
+  const workspace = state.workspaces.find((candidate) => candidate.id === id);
+  if (!workspace) return undefined;
+  return {
+    id: workspace.id,
+    cwd: workspace.cwd,
+    kingControl: effectiveWorkspaceKingControl(state.workspaces, workspace),
+  };
+}
+
+export async function assertManagedWorkspaceOwnerControl(id: string): Promise<void> {
+  const state = await readState();
+  const workspace = state.workspaces.find((candidate) => candidate.id === id);
+  if (!workspace) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+  assertOwnerControlsWorkspace(state, workspace);
+}
+
+export async function requestManagedWorkspaceKingControl(
+  id: string,
+  reason: string,
+  now = Date.now()
+): Promise<WorkspaceKingControl> {
+  return exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspace = assertKingControlTarget(state, index);
+    const effectiveControl = effectiveWorkspaceKingControl(state.workspaces, workspace);
+    if (effectiveControl?.state === 'king') {
+      const workspaces = applyControlToCheckout(state.workspaces, workspace, effectiveControl, now);
+      await writeState({ ...state, workspaces });
+      return effectiveControl;
+    }
+    const kingControl: WorkspaceKingControl = {
+      state: 'requested',
+      reason: normalizeKingControlReason(reason),
+      requestedAt: now,
+      changedAt: now,
+      lastAction: 'requested',
+      // King creates this request, so feeding it back to King would be a self-echo.
+      notifiedAt: now,
+      handoffSnapshot: workspace.kingControl?.handoffSnapshot ?? null,
+    };
+    const workspaces = [...state.workspaces];
+    workspaces[index] = { ...workspace, kingControl };
+    await writeState({ ...state, workspaces });
+    return kingControl;
+  });
+}
+
+export async function handOverManagedWorkspaceToKing(
+  id: string,
+  reason = 'The owner handed this workspace over to King.',
+  handoffSnapshot: WorkspaceHandoffSnapshot | null = null,
+  now = Date.now()
+): Promise<WorkspaceKingControl> {
+  return exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspace = assertKingControlTarget(state, index);
+    const effectiveControl = effectiveWorkspaceKingControl(state.workspaces, workspace);
+    if (effectiveControl?.state === 'king') {
+      const workspaces = applyControlToCheckout(state.workspaces, workspace, effectiveControl, now);
+      await writeState({ ...state, workspaces });
+      return effectiveControl;
+    }
+    assertCheckoutControlAvailable(state, workspace);
+    const kingControl: WorkspaceKingControl = {
+      state: 'king',
+      reason: grantedControlReason(workspace, reason),
+      requestedAt: workspace.kingControl?.requestedAt ?? now,
+      changedAt: now,
+      lastAction: 'granted',
+      notifiedAt: null,
+      handoffSnapshot,
+    };
+    const workspaces = applyControlToCheckout(state.workspaces, workspace, kingControl, now);
+    await writeState({ ...state, workspaces });
+    return kingControl;
+  });
+}
+
+export async function declineManagedWorkspaceKingControl(id: string, now = Date.now()): Promise<WorkspaceKingControl> {
+  return exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspace = assertKingControlTarget(state, index);
+    const kingControl: WorkspaceKingControl = {
+      state: 'manual',
+      reason: workspace.kingControl?.reason || 'The owner kept manual control.',
+      requestedAt: null,
+      changedAt: now,
+      lastAction: 'declined',
+      notifiedAt: null,
+      handoffSnapshot: workspace.kingControl?.handoffSnapshot ?? null,
+    };
+    const workspaces = [...state.workspaces];
+    workspaces[index] = { ...workspace, kingControl };
+    await writeState({ ...state, workspaces });
+    return kingControl;
+  });
+}
+
+export async function releaseManagedWorkspaceKingControl(id: string, now = Date.now()): Promise<WorkspaceKingControl> {
+  return exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspace = assertKingControlTarget(state, index);
+    const kingControl: WorkspaceKingControl = {
+      state: 'manual',
+      reason: workspace.kingControl?.reason || 'The owner took control of this workspace.',
+      requestedAt: null,
+      changedAt: now,
+      lastAction: 'released',
+      notifiedAt: null,
+      handoffSnapshot: workspace.kingControl?.handoffSnapshot ?? null,
+    };
+    const workspaces = applyControlToCheckout(state.workspaces, workspace, kingControl, now);
+    await writeState({ ...state, workspaces });
+    return kingControl;
+  });
+}
+
+export async function markManagedWorkspaceKingControlNotified(
+  id: string,
+  changedAt: number,
+  now = Date.now()
+): Promise<void> {
+  await exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspace = state.workspaces[index];
+    if (!workspace?.kingControl || workspace.kingControl.changedAt !== changedAt) return;
+    const workspaces = [...state.workspaces];
+    workspaces[index] = {
+      ...workspace,
+      kingControl: { ...workspace.kingControl, notifiedAt: now },
+    };
+    await writeState({ ...state, workspaces });
+  });
 }
 
 export async function createManagedWorkspace(input: { cwd: string }): Promise<ManagedWorkspace> {
   return exclusively(async () => {
     const cwd = await validateCwd(input.cwd);
-    const gitRepository = await detectGitRepository(cwd);
+    const checkout = await detectGitCheckoutIdentity(cwd);
+    const gitRepository = checkout !== null;
     const id = randomUUID();
-    const stored: StoredWorkspace = {
+    const now = Date.now();
+    const baseWorkspace: StoredWorkspace = {
       id,
       tmuxSession: `vampire-${id.slice(0, 8)}`,
       cwd,
-      workspaceKind: 'directory',
-      createdAt: Date.now(),
-      lastActiveAt: Date.now(),
+      ...registrationMetadata(checkout),
+      createdAt: now,
+      lastActiveAt: now,
       automations: [],
       favoriteCommands: [],
       startupProfileId: null,
     };
-    await initializeManagedWorkspaceNote(stored);
     const current = await readState();
+    const stored = inheritCheckoutControl(baseWorkspace, current.workspaces, now);
+    await initializeManagedWorkspaceNote(stored);
     await writeState({ ...current, workspaces: [...current.workspaces, stored] });
 
-    let tmux;
+    let tmux: TmuxSession;
     try {
       tmux = await createTmuxSession(stored.tmuxSession, cwd);
     } catch {
@@ -300,6 +569,9 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       repositoryPath: stored.repositoryPath,
       workspaceLabel: stored.workspaceLabel,
       worktreeBranch: stored.worktreeBranch,
+      managedWorktree: stored.managedWorktree,
+      checkoutKey: stored.checkoutKey,
+      kingControl: stored.kingControl,
       createdAt: stored.createdAt,
       lastActiveAt: stored.lastActiveAt,
       favoriteCommands: stored.favoriteCommands,
@@ -317,6 +589,79 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
   });
 }
 
+export async function createManagedKingWorkspace(input: { launchProfileId: string | null }): Promise<ManagedWorkspace> {
+  return exclusively(async () => {
+    const current = await readState();
+    if (current.workspaces.some((workspace) => workspace.workspaceKind === 'king')) {
+      throw new WorkspaceMutationError('king-already-exists', 'This Vampire instance already has a King workspace.');
+    }
+
+    const launchProfileId = input.launchProfileId?.trim() ?? null;
+    if (launchProfileId !== null && !current.launchProfiles.some((profile) => profile.id === launchProfileId)) {
+      throw new WorkspaceMutationError('invalid-startup-profile', 'The launch profile was not found.');
+    }
+
+    const prepared = await ensureManagedKingWorkspace();
+    const id = randomUUID();
+    const now = Date.now();
+    const stored: StoredWorkspace = {
+      id,
+      tmuxSession: `vampire-${id.slice(0, 8)}`,
+      cwd: prepared.cwd,
+      workspaceKind: 'king',
+      workspaceLabel: KING_WORKSPACE_NAME,
+      createdAt: now,
+      lastActiveAt: now,
+      automations: scheduleKingBootstrapAutomation([], prepared.bootstrapPrompt, now),
+      favoriteCommands: [],
+      startupProfileId: launchProfileId,
+    };
+    await initializeManagedWorkspaceNote(stored);
+    await writeState({ ...current, workspaces: [...current.workspaces, stored] });
+
+    let tmux: TmuxSession;
+    try {
+      tmux = await createTmuxSession(stored.tmuxSession, stored.cwd);
+    } catch {
+      const afterFailure = await readState();
+      await writeState({
+        ...afterFailure,
+        workspaces: afterFailure.workspaces.filter((workspace) => workspace.id !== stored.id),
+      });
+      throw new WorkspaceLaunchError('tmux-launch-failed', 'tmux could not start the King workspace.');
+    }
+
+    if (launchProfileId) {
+      try {
+        await sendLaunchProfile(stored.tmuxSession, tmux, current.launchProfiles, launchProfileId);
+      } catch {
+        // Keep King's shell and pending bootstrap available when the optional agent command cannot start.
+      }
+    }
+
+    return {
+      id: stored.id,
+      tmuxSession: stored.tmuxSession,
+      cwd: stored.cwd,
+      workspaceKind: stored.workspaceKind,
+      workspaceLabel: stored.workspaceLabel,
+      createdAt: stored.createdAt,
+      lastActiveAt: stored.lastActiveAt,
+      favoriteCommands: stored.favoriteCommands,
+      startupProfileId: stored.startupProfileId,
+      notePreview: '',
+      state: 'running',
+      lastOutputAt: tmux.lastOutputAt,
+      attachedClients: tmux.attachedClients,
+      foregroundProcess: tmux.foregroundProcess,
+      terminals: tmux.terminals,
+      agentState: null,
+      isGitRepository: false,
+      workspaceAvailable: true,
+    };
+  });
+}
+
 export async function createManagedWorktreeWorkspace(input: {
   sourceWorkspaceId: string;
   name: string;
@@ -328,6 +673,7 @@ export async function createManagedWorktreeWorkspace(input: {
 
     const id = randomUUID();
     const worktree = await createGitWorktree(source.cwd, input.name, { id });
+    const checkout = await detectGitCheckoutIdentity(worktree.cwd);
     const now = Date.now();
     const stored: StoredWorkspace = {
       id,
@@ -337,6 +683,8 @@ export async function createManagedWorktreeWorkspace(input: {
       repositoryPath: source.repositoryPath ?? worktree.sourceRoot,
       workspaceLabel: worktree.label,
       worktreeBranch: worktree.branch,
+      checkoutKey: checkout?.checkoutKey,
+      managedWorktree: true,
       createdAt: now,
       lastActiveAt: now,
       automations: [],
@@ -351,7 +699,7 @@ export async function createManagedWorktreeWorkspace(input: {
       throw error;
     }
 
-    let tmux;
+    let tmux: TmuxSession;
     try {
       tmux = await createTmuxSession(stored.tmuxSession, stored.cwd);
     } catch {
@@ -379,6 +727,9 @@ export async function createManagedWorktreeWorkspace(input: {
       repositoryPath: stored.repositoryPath,
       workspaceLabel: stored.workspaceLabel,
       worktreeBranch: stored.worktreeBranch,
+      managedWorktree: stored.managedWorktree,
+      checkoutKey: stored.checkoutKey,
+      kingControl: stored.kingControl,
       createdAt: stored.createdAt,
       lastActiveAt: stored.lastActiveAt,
       favoriteCommands: stored.favoriteCommands,
@@ -398,7 +749,7 @@ export async function createManagedWorktreeWorkspace(input: {
 
 export async function restartManagedWorkspace(
   id: string,
-  input: { launchProfileId?: string | null } = {}
+  input: { launchProfileId?: string | null; actor?: 'owner' | 'king' } = {}
 ): Promise<ManagedWorkspace> {
   return exclusively(async () => {
     const state = await readState();
@@ -406,6 +757,7 @@ export async function restartManagedWorkspace(
     if (index < 0) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
     const stored = state.workspaces[index];
+    if (input.actor !== 'king') assertOwnerControlsWorkspace(state, stored);
     const launchProfileId = resolveRestartProfileId(stored, state.launchProfiles, input.launchProfileId);
     const existingTmux = (await listTmuxSessions()).find((workspace) => workspace.name === stored.tmuxSession);
     if (existingTmux) {
@@ -421,6 +773,9 @@ export async function restartManagedWorkspace(
         repositoryPath: stored.repositoryPath,
         workspaceLabel: stored.workspaceLabel,
         worktreeBranch: stored.worktreeBranch,
+        managedWorktree: stored.managedWorktree,
+        checkoutKey: stored.checkoutKey,
+        kingControl: stored.kingControl,
         createdAt: stored.createdAt,
         lastActiveAt: stored.lastActiveAt,
         favoriteCommands: stored.favoriteCommands,
@@ -437,16 +792,26 @@ export async function restartManagedWorkspace(
       };
     }
 
-    const cwd = await validateExistingCwd(stored.cwd);
-    const gitRepository = await detectGitRepository(cwd);
-    let restartedTmux;
+    const preparedKing = stored.workspaceKind === 'king' ? await ensureManagedKingWorkspace() : undefined;
+    const cwd = preparedKing?.cwd ?? (await validateExistingCwd(stored.cwd));
+    const gitRepository = preparedKing ? false : await detectGitRepository(cwd);
+    let restartedTmux: TmuxSession;
     try {
       restartedTmux = await createTmuxSession(stored.tmuxSession, cwd);
     } catch {
       throw new WorkspaceLaunchError('tmux-launch-failed', 'tmux could not restart the shell workspace.');
     }
 
-    const restarted = { ...stored, cwd, createdAt: Date.now(), lastActiveAt: Date.now() };
+    const restartedAt = Date.now();
+    const restarted = {
+      ...stored,
+      cwd,
+      createdAt: restartedAt,
+      lastActiveAt: restartedAt,
+      automations: preparedKing
+        ? scheduleKingBootstrapAutomation(stored.automations, preparedKing.bootstrapPrompt, restartedAt)
+        : stored.automations,
+    };
     const workspaces = [...state.workspaces];
     workspaces[index] = restarted;
     await writeState({ ...state, workspaces });
@@ -465,6 +830,9 @@ export async function restartManagedWorkspace(
       repositoryPath: restarted.repositoryPath,
       workspaceLabel: restarted.workspaceLabel,
       worktreeBranch: restarted.worktreeBranch,
+      managedWorktree: restarted.managedWorktree,
+      checkoutKey: restarted.checkoutKey,
+      kingControl: restarted.kingControl,
       createdAt: restarted.createdAt,
       lastActiveAt: restarted.lastActiveAt,
       favoriteCommands: restarted.favoriteCommands,
@@ -592,11 +960,37 @@ async function sendLaunchProfile(
   await sendTmuxInput(tmuxSession, `${profile.command}\n`);
 }
 
+export async function launchManagedWorkspaceProfile(id: string, launchProfileId: string): Promise<void> {
+  return exclusively(async () => {
+    const state = await readState();
+    const stored = state.workspaces.find((workspace) => workspace.id === id);
+    if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+    assertOwnerControlsWorkspace(state, stored);
+    const selectedProfileId = launchProfileId.trim();
+    if (!selectedProfileId || !state.launchProfiles.some((profile) => profile.id === selectedProfileId)) {
+      throw new WorkspaceMutationError('invalid-startup-profile', 'The launch profile was not found.');
+    }
+    const running = (await listTmuxSessions()).find((workspace) => workspace.name === stored.tmuxSession);
+    if (!running) {
+      throw new WorkspaceMutationError('workspace-not-running', 'Reopen the workspace before launching a profile.');
+    }
+    const mainTerminal = running.terminals[0];
+    if (mainTerminal?.state !== 'running' || mainTerminal.foregroundProcess?.kind !== 'shell') {
+      throw new WorkspaceMutationError(
+        'workspace-running',
+        'The main terminal must be an idle shell before Vampire can launch a profile.'
+      );
+    }
+    await sendLaunchProfile(stored.tmuxSession, running, state.launchProfiles, selectedProfileId);
+  });
+}
+
 export async function createManagedBackgroundProcess(id: string, command: string): Promise<TmuxTerminal> {
   return exclusively(async () => {
     const state = await readState();
     const stored = state.workspaces.find((workspace) => workspace.id === id);
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+    assertOwnerControlsWorkspace(state, stored);
 
     const normalizedCommand = normalizeBackgroundCommand(command);
     const running = (await listTmuxSessions()).find((workspace) => workspace.name === stored.tmuxSession);
@@ -742,6 +1136,7 @@ export async function closeManagedWorkspace(id: string): Promise<void> {
     const state = await readState();
     const stored = state.workspaces.find((workspace) => workspace.id === id);
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+    if (stored.workspaceKind !== 'king') assertOwnerControlsWorkspace(state, stored);
 
     await killTmuxSession(stored.tmuxSession);
   });
@@ -749,6 +1144,7 @@ export async function closeManagedWorkspace(id: string): Promise<void> {
 
 async function cleanupManagedWorktree(stored: StoredWorkspace): Promise<void> {
   if (stored.workspaceKind !== 'worktree' && !stored.worktreeBranch) return;
+  if (stored.managedWorktree === false) return;
   try {
     await removeManagedGitWorktree({
       id: stored.id,
@@ -766,19 +1162,62 @@ async function cleanupManagedWorktree(stored: StoredWorkspace): Promise<void> {
   }
 }
 
+function restoreOwnerControlAfterKingRemoval(workspace: StoredWorkspace, now: number): StoredWorkspace {
+  const previous = workspace.kingControl;
+  if (!previous || previous.state === 'manual') return workspace;
+  return {
+    ...workspace,
+    kingControl: {
+      state: 'manual',
+      reason: 'The King workspace was removed, so Vampire returned control to the owner.',
+      requestedAt: null,
+      changedAt: now,
+      lastAction: previous.state === 'king' ? 'released' : 'declined',
+      notifiedAt: now,
+      handoffSnapshot: previous.handoffSnapshot,
+    },
+  };
+}
+
+async function stopKingTaskTerminalsForRemoval(king: StoredWorkspace, sessions: TmuxSession[]): Promise<void> {
+  const terminals = sessions.flatMap((session) => {
+    if (session.name === king.tmuxSession) return [];
+    return session.terminals
+      .filter((terminal) => terminal.terminalKind === 'king-task')
+      .map((terminal) => ({ session: session.name, terminalId: terminal.id }));
+  });
+  await Promise.all(terminals.map((terminal) => killTmuxTerminal(terminal.session, terminal.terminalId)));
+}
+
+async function workspacesAfterRemoval(
+  state: Awaited<ReturnType<typeof readState>>,
+  stored: StoredWorkspace,
+  sessions: TmuxSession[],
+  now: number
+): Promise<StoredWorkspace[]> {
+  await cleanupManagedWorktree(stored);
+  const remaining = state.workspaces.filter((workspace) => workspace.id !== stored.id);
+  if (stored.workspaceKind !== 'king') return remaining;
+  await stopKingTaskTerminalsForRemoval(stored, sessions);
+  await cancelActiveKingWorkflow('The owner removed the King workspace.', now);
+  return remaining.map((workspace) => restoreOwnerControlAfterKingRemoval(workspace, now));
+}
+
 export async function removeManagedWorkspace(id: string): Promise<void> {
   await exclusively(async () => {
     const state = await readState();
     const stored = state.workspaces.find((workspace) => workspace.id === id);
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
-    const running = (await listTmuxSessions()).some((workspace) => workspace.name === stored.tmuxSession);
+    if (stored.workspaceKind !== 'king') assertOwnerControlsWorkspace(state, stored);
+    const sessions = await listTmuxSessions();
+    const running = sessions.some((workspace) => workspace.name === stored.tmuxSession);
     if (running) {
       throw new WorkspaceMutationError('workspace-running', 'Close the workspace before removing this workspace.');
     }
 
-    await cleanupManagedWorktree(stored);
-    await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
+    const workspaces = await workspacesAfterRemoval(state, stored, sessions, Date.now());
+    await writeState({ ...state, workspaces });
   });
 }
 
@@ -787,9 +1226,11 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     const state = await readState();
     const stored = state.workspaces.find((workspace) => workspace.id === id);
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+    if (stored.workspaceKind !== 'king') assertOwnerControlsWorkspace(state, stored);
 
+    const sessions = await listTmuxSessions();
     await killTmuxSession(stored.tmuxSession);
-    await cleanupManagedWorktree(stored);
-    await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
+    const workspaces = await workspacesAfterRemoval(state, stored, sessions, Date.now());
+    await writeState({ ...state, workspaces });
   });
 }

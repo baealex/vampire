@@ -7,6 +7,7 @@ import {
   SUPPORTED_IMAGE_TYPES,
 } from '~/lib/features/terminal/server/image-paste';
 import { findManagedWorkspace } from '~/lib/app/server/workspace-registry';
+import { workspaceAcceptsOwnerWrites } from '~/lib/shared/contracts/workspace.ts';
 
 const MAX_UPLOAD_BODY_BYTES = MAX_IMAGE_PASTE_BYTES + 64 * 1024;
 
@@ -22,11 +23,14 @@ export const POST: RequestHandler = async (event) => {
 
   const workspace = await findManagedWorkspace(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
+  if (!workspaceAcceptsOwnerWrites(workspace)) throw error(409, 'Take control before changing this workspace.');
   if (workspace.state !== 'running') throw error(409, 'This tmux session is no longer running.');
   const requestedTerminalId = event.url.searchParams.get('terminal') ?? undefined;
-  if (requestedTerminalId && !workspace.terminals.some((terminal) => terminal.id === requestedTerminalId)) {
+  const requestedTerminal = workspace.terminals.find((terminal) => terminal.id === requestedTerminalId);
+  if (requestedTerminalId && !requestedTerminal) {
     throw error(400, 'Terminal does not belong to this workspace.');
   }
+  if (requestedTerminal?.terminalKind === 'king-task') throw error(409, 'King task terminals are isolated.');
 
   let form: FormData;
   try {

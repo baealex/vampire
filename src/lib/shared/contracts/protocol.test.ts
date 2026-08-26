@@ -184,6 +184,11 @@ test('validates complete workspace messages before applying them to client state
     ],
   };
   assert.deepEqual(decodeWorkspaceServerMessage(encodeWorkspaceServerMessage(snapshot)), snapshot);
+  const kingSnapshot: WorkspaceServerMessage = {
+    type: 'workspaces-snapshot',
+    workspaces: [managedWorkspace({ workspaceKind: 'king', workspaceLabel: 'King' })],
+  };
+  assert.deepEqual(decodeWorkspaceServerMessage(encodeWorkspaceServerMessage(kingSnapshot)), kingSnapshot);
   assert.deepEqual(
     decodeWorkspaceServerMessage(
       encodeWorkspaceServerMessage({

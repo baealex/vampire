@@ -4,10 +4,39 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  effectiveWorkspaceKingControl,
   findWorkspaceConnection,
   readWorkspaceStore,
+  type StoredWorkspace,
   WORKSPACE_STATE_VERSION,
 } from '~/lib/features/workspace/server/workspace-store.ts';
+
+test('resolves King control by checkout even for a legacy duplicate registration', () => {
+  const workspace = (id: string): StoredWorkspace => ({
+    id,
+    tmuxSession: `session-${id}`,
+    cwd: `/project/${id}`,
+    checkoutKey: 'shared-checkout',
+    createdAt: 1,
+    lastActiveAt: 1,
+    automations: [],
+    favoriteCommands: [],
+    startupProfileId: null,
+  });
+  const controller = workspace('controller');
+  controller.kingControl = {
+    state: 'king',
+    reason: 'Owner handoff',
+    requestedAt: 1,
+    changedAt: 2,
+    lastAction: 'granted',
+    notifiedAt: 2,
+    handoffSnapshot: null,
+  };
+  const duplicate = workspace('duplicate');
+
+  assert.equal(effectiveWorkspaceKingControl([controller, duplicate], duplicate)?.state, 'king');
+});
 
 test('finds the terminal and workspace registered for a workspace ID', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-state-'));
@@ -161,6 +190,94 @@ test('preserves managed worktree identity without changing compatibility workspa
   assert.equal(compatibility.workspaceKind, undefined);
   assert.equal(compatibility.workspaceLabel, undefined);
   assert.equal(compatibility.worktreeBranch, undefined);
+});
+
+test('preserves the managed King workspace identity', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-store-king-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, 'sessions.json');
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: WORKSPACE_STATE_VERSION,
+      launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
+      workspaces: [
+        {
+          id: 'king',
+          tmuxSession: 'vampire-king',
+          cwd: '/tmp/state/king',
+          workspaceKind: 'king',
+          workspaceLabel: 'King',
+          createdAt: 1,
+          startupProfileId: 'codex',
+          automations: [
+            {
+              id: 'king-bootstrap',
+              kind: 'king-bootstrap',
+              name: 'Initialize King',
+              prompt: 'Read KING.md',
+              schedule: { type: 'once', runAt: 1 },
+              enabled: true,
+              nextRunAt: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              lastAttemptAt: null,
+              lastRunAt: null,
+              lastOutcome: null,
+              lastError: null,
+            },
+          ],
+        },
+      ],
+    })
+  );
+
+  const king = (await readWorkspaceStore(file)).workspaces[0];
+  assert.equal(king?.workspaceKind, 'king');
+  assert.equal(king?.workspaceLabel, 'King');
+  assert.equal(king?.startupProfileId, 'codex');
+  assert.equal(king?.automations[0]?.kind, 'king-bootstrap');
+});
+
+test('drops a hidden King bootstrap from a non-King workspace', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-store-regular-bootstrap-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, 'sessions.json');
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: WORKSPACE_STATE_VERSION,
+      launchProfiles: [],
+      workspaces: [
+        {
+          id: 'regular',
+          tmuxSession: 'vampire-regular',
+          cwd: '/tmp/regular',
+          workspaceKind: 'directory',
+          createdAt: 1,
+          automations: [
+            {
+              id: 'king-bootstrap',
+              kind: 'king-bootstrap',
+              name: 'Hidden bootstrap',
+              prompt: 'Do something hidden',
+              schedule: { type: 'once', runAt: 1 },
+              enabled: true,
+              nextRunAt: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              lastAttemptAt: null,
+              lastRunAt: null,
+              lastOutcome: null,
+              lastError: null,
+            },
+          ],
+        },
+      ],
+    })
+  );
+
+  assert.deepEqual((await readWorkspaceStore(file)).workspaces[0]?.automations, []);
 });
 
 test('normalizes shared workspace order preferences without changing the state version', async (t) => {

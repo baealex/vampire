@@ -42,6 +42,20 @@ The change is complete.
   );
 });
 
+test('recognizes a fresh Codex prompt above unused pane rows', () => {
+  const unusedRows = Array.from({ length: 40 }, () => '');
+  const freshCodexScreen = [
+    '>_ OpenAI Codex',
+    '',
+    '› Ask Codex to do anything',
+    '',
+    'gpt-5.6-sol · max · Context 100% left',
+    ...unusedRows,
+  ].join('\n');
+
+  assert.equal(inferAgentState(codex, freshCodexScreen), 'waiting');
+});
+
 test('does not inspect arbitrary foreground commands as agents', () => {
   assert.equal(inferAgentState({ kind: 'command', label: 'node' }, 'esc to interrupt\n> '), null);
 });

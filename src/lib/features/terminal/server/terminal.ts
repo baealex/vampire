@@ -90,6 +90,7 @@ export interface AttachTerminalOptions {
   lazyHistory?: boolean;
   ignoreSize?: boolean;
   canResize?: () => boolean;
+  canInput?: () => boolean | Promise<boolean>;
   canReportTerminalColor?: () => boolean;
   getGeometry?: () => TerminalSize | undefined;
   hasControl?: () => boolean;
@@ -557,6 +558,12 @@ export async function attachTerminal(
     if (!closed) await runControlCommand(`send-keys -t ${paneId} Enter`);
   };
 
+  const assertInputAllowed = async (): Promise<void> => {
+    if ((await options.canInput?.()) === false) {
+      throw new Error('King controls this workspace. Take control before sending terminal input.');
+    }
+  };
+
   const queueTerminalInput = (data: string, operation: () => Promise<void>): void => {
     const bytes = Buffer.byteLength(data);
     if (bytes > MAX_INPUT_BYTES) throw new Error('Input is too large.');
@@ -940,6 +947,7 @@ export async function attachTerminal(
         }
       } else if (input.type === 'input') {
         queueTerminalInput(input.data, async () => {
+          await assertInputAllowed();
           options.onInput?.();
           await sendControlInput(input.data);
         });
@@ -953,6 +961,7 @@ export async function attachTerminal(
         });
       } else if (input.type === 'submit') {
         queueTerminalInput(input.data, async () => {
+          await assertInputAllowed();
           options.onInput?.();
           await sendTerminalSubmission(input.data, input.bracketedPaste);
         });

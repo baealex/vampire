@@ -74,6 +74,25 @@ test('uses an explicit agent working signal across silent output gaps', () => {
   );
 });
 
+test('treats a visible King task terminal as active workspace work', () => {
+  const main = {
+    ...terminal('@1', 0, 'main', 1_000, { kind: 'command', label: 'codex' }),
+    terminalKind: 'main' as const,
+  };
+  const kingTask = {
+    ...terminal('@2', 1, 'King task 11111111', 2_000, { kind: 'command', label: 'codex' }),
+    terminalKind: 'king-task' as const,
+    kingAttemptId: '11111111-1111-4111-8111-111111111111',
+  };
+  const current = { ...workspace(1_000), terminals: [main, kingTask] };
+
+  assert.equal(view.workspaceActivityState(current, activity(current.id, 0, 1_000), 60_000), 'active');
+  assert.equal(
+    view.workspaceActivityHint(current, activity(current.id, 0, 1_000), 60_000),
+    'King has an agent working in this workspace'
+  );
+});
+
 test('places active workspaces above review workspaces', () => {
   const states: WorkspaceActivityState[] = ['active', 'review', 'idle', 'ended'];
   assert.deepEqual(
@@ -128,6 +147,27 @@ test('keeps manual workspace order stable while activity changes', () => {
       .sortWorkspaces(workspaces, 'manual', ['workspace-c', 'workspace-a', 'workspace-b'])
       .map((current) => current.id),
     ['workspace-c', 'workspace-a', 'workspace-b']
+  );
+});
+
+test('pins King only in smart activity order and respects user-defined manual order', () => {
+  const regular = workspace(1_000, 'regular');
+  const king: ManagedWorkspace = {
+    ...workspace(2_000, 'king'),
+    cwd: '/tmp/state/king',
+    workspaceKind: 'king',
+  };
+
+  assert.equal(view.workspaceName(king), 'The King of Vampire');
+  assert.deepEqual(
+    view.sortWorkspaces([regular, king], 'manual', [regular.id, king.id]).map((current) => current.id),
+    [regular.id, king.id]
+  );
+  assert.deepEqual(
+    view
+      .sortWorkspaces([regular, king], 'activity', [regular.id, king.id], [regular.id, king.id])
+      .map((current) => current.id),
+    [king.id, regular.id]
   );
 });
 

@@ -11,6 +11,7 @@ import {
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import { ensureManagedWorkspaceNoteFile, managedWorkspaceNotePath } from './workspace-note-file.ts';
 import {
+  effectiveWorkspaceKingControl,
   readWorkspaceStateFile,
   readWorkspaceStore,
   type StoredWorkspace,
@@ -42,6 +43,10 @@ type PrepareAutomationSubmission = (
   workspace: StoredWorkspace,
   automation: WorkspaceAutomation
 ) => Promise<PreparedAutomationSubmission | undefined>;
+
+function isUserManagedAutomation(automation: WorkspaceAutomation): boolean {
+  return automation.kind !== 'king-bootstrap';
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -120,6 +125,7 @@ export async function listManagedWorkspaceAutomations(id: string): Promise<Works
   const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === id);
   if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
   return stored.automations
+    .filter(isUserManagedAutomation)
     .map((automation) => ({ ...automation, schedule: { ...automation.schedule } }))
     .sort((left, right) => right.createdAt - left.createdAt);
 }
@@ -135,7 +141,7 @@ export async function createManagedWorkspaceAutomation(
     const index = state.workspaces.findIndex((workspace) => workspace.id === id);
     if (index < 0) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const stored = state.workspaces[index];
-    if (stored.automations.length >= MAX_WORKSPACE_AUTOMATIONS) {
+    if (stored.automations.filter(isUserManagedAutomation).length >= MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
         `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`
@@ -159,7 +165,9 @@ export async function setManagedWorkspaceAutomationEnabled(
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
-    const current = stored.automations.find((automation) => automation.id === automationId);
+    const current = stored.automations.find(
+      (automation) => automation.id === automationId && isUserManagedAutomation(automation)
+    );
     if (!current) {
       throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
     }
@@ -185,10 +193,13 @@ export async function deleteManagedWorkspaceAutomation(workspaceId: string, auto
     const state = await readWorkspaceStore();
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
-    const automations = stored.automations.filter((automation) => automation.id !== automationId);
-    if (automations.length === stored.automations.length) {
+    const current = stored.automations.find(
+      (automation) => automation.id === automationId && isUserManagedAutomation(automation)
+    );
+    if (!current) {
       throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
     }
+    const automations = stored.automations.filter((automation) => automation.id !== automationId);
     await writeWorkspaceStore({
       ...state,
       workspaces: replaceStoredWorkspace(state.workspaces, { ...stored, automations }),
@@ -200,6 +211,8 @@ export async function listDueManagedWorkspaceAutomations(now = Date.now()): Prom
   const state = await readWorkspaceStore();
   const candidates: DueManagedWorkspaceAutomation[] = [];
   for (const workspace of state.workspaces) {
+    const kingControlsWorkspace = effectiveWorkspaceKingControl(state.workspaces, workspace)?.state === 'king';
+    if (workspace.workspaceKind !== 'king' && kingControlsWorkspace) continue;
     const latestAttemptAt = Math.max(0, ...workspace.automations.map((automation) => automation.lastAttemptAt ?? 0));
     if (latestAttemptAt > now - WORKSPACE_AUTOMATION_DISPATCH_COOLDOWN_MS) continue;
     const due = workspace.automations
@@ -247,6 +260,8 @@ export async function dispatchManagedWorkspaceAutomation(
     if (!stored || !current || !current.enabled || current.nextRunAt === null || current.nextRunAt > now) {
       return 'not-due';
     }
+    const kingControlsWorkspace = effectiveWorkspaceKingControl(state.workspaces, stored)?.state === 'king';
+    if (stored.workspaceKind !== 'king' && kingControlsWorkspace) return 'not-ready';
     const submit = await prepare(stored, current);
     if (!submit) return 'not-ready';
 
@@ -313,7 +328,7 @@ export async function queueManagedWorkspaceNoteSummary(
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const existing = stored.automations.find((automation) => automation.kind === 'note');
-    if (!existing && stored.automations.length >= MAX_WORKSPACE_AUTOMATIONS) {
+    if (!existing && stored.automations.filter(isUserManagedAutomation).length >= MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
         `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`

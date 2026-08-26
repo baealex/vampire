@@ -30,6 +30,14 @@ const WORKSPACE_ORDER_MODE_KEY = 'vampire:workspace-order-mode';
 const COMPATIBILITY_SESSION_ORDER_KEY = 'vampire:session-order';
 const COMPATIBILITY_SESSION_ORDER_MODE_KEY = 'vampire:session-order-mode';
 
+function findMainTerminal(terminals: WorkspaceTerminal[]): WorkspaceTerminal | undefined {
+  return terminals.find((terminal) => terminal.terminalKind === 'main') ?? terminals[0];
+}
+
+function isMainTerminal(terminal: WorkspaceTerminal, terminals: WorkspaceTerminal[]): boolean {
+  return terminal.id === findMainTerminal(terminals)?.id;
+}
+
 export class WorkspaceState {
   workspaces = $state<ManagedWorkspace[]>([]);
   launchProfiles = $state<LaunchProfile[]>([]);
@@ -37,6 +45,8 @@ export class WorkspaceState {
   loading = $state(false);
   starting = $state(false);
   startError = $state('');
+  creatingKing = $state(false);
+  kingCreateError = $state('');
   newWorkspaceOpen = $state(false);
   workspacesLoaded = $state(false);
   requestedWorkspaceId = $state<string | undefined>(undefined);
@@ -93,7 +103,7 @@ export class WorkspaceState {
         const workspace = this.workspaces.find((item) => item.id === workspaceId);
         if (!workspace) return;
         const lastOutputAt = maxTimestamp(workspace.lastOutputAt, timestamp);
-        const mainTerminal = workspace.terminals[0];
+        const mainTerminal = findMainTerminal(workspace.terminals);
         const mainLastOutputAt = maxTimestamp(mainTerminal?.lastOutputAt ?? null, timestamp);
         if (lastOutputAt === workspace.lastOutputAt && mainLastOutputAt === mainTerminal?.lastOutputAt) return;
         this.workspaces = this.workspaces.map((item) =>
@@ -102,8 +112,8 @@ export class WorkspaceState {
                 ...item,
                 lastOutputAt,
                 terminals: mainTerminal
-                  ? item.terminals.map((terminal, index) =>
-                      index === 0 ? { ...terminal, lastOutputAt: mainLastOutputAt } : terminal
+                  ? item.terminals.map((terminal) =>
+                      terminal.id === mainTerminal.id ? { ...terminal, lastOutputAt: mainLastOutputAt } : terminal
                     )
                   : item.terminals,
               }
@@ -180,8 +190,8 @@ export class WorkspaceState {
         ? this.#backgroundTerminals.reconcile(workspaceId, changes.terminals)
         : (changes.terminals ??
           (typeof changes.lastOutputAt === 'number' && previous.terminals.length > 0
-            ? previous.terminals.map((terminal, index) =>
-                index === 0
+            ? previous.terminals.map((terminal) =>
+                isMainTerminal(terminal, previous.terminals)
                   ? { ...terminal, lastOutputAt: maxTimestamp(terminal.lastOutputAt, changes.lastOutputAt ?? null) }
                   : terminal
               )
@@ -299,6 +309,38 @@ export class WorkspaceState {
       return false;
     } finally {
       this.starting = false;
+    }
+  }
+
+  async createKingWorkspace(launchProfileId: string | null, tmuxAvailable?: boolean): Promise<boolean> {
+    if (tmuxAvailable === false) {
+      this.kingCreateError = 'Install tmux on the server computer before creating King.';
+      return false;
+    }
+    this.creatingKing = true;
+    this.kingCreateError = '';
+    try {
+      const data = await requestJson<{ workspace: ManagedWorkspace }>('/api/workspaces/king', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ launchProfileId }),
+      });
+      this.invalidateWorkspaces();
+      this.workspaces = [...this.workspaces.filter((workspace) => workspace.id !== data.workspace.id), data.workspace];
+      this.#activity.rebuild(this.workspaces);
+      this.manualWorkspaceOrder = [
+        data.workspace.id,
+        ...this.manualWorkspaceOrder.filter((id) => id !== data.workspace.id),
+      ];
+      this.openWorkspace(data.workspace);
+      void this.refresh({ quiet: true });
+      return true;
+    } catch (error) {
+      if (isUnauthorized(error)) this.#options.onUnauthorized();
+      this.kingCreateError = error instanceof Error ? error.message : 'Unable to create the King workspace';
+      return false;
+    } finally {
+      this.creatingKing = false;
     }
   }
 
@@ -793,6 +835,8 @@ export class WorkspaceState {
     this.#workspaceNoteRequests.clear();
     this.workspacesLoaded = false;
     this.newWorkspaceOpen = false;
+    this.creatingKing = false;
+    this.kingCreateError = '';
     this.errorMessage = '';
     this.workspaceActionError = '';
     this.startingBackgroundWorkspaceId = undefined;

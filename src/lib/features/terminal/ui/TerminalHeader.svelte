@@ -1,5 +1,7 @@
 <script lang="ts">
+import type { Snippet } from 'svelte';
 import Activity from '@lucide/svelte/icons/activity';
+import Crown from '@lucide/svelte/icons/crown';
 import GitBranch from '@lucide/svelte/icons/git-branch';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import PanelLeft from '@lucide/svelte/icons/panel-left';
@@ -9,6 +11,7 @@ import Button from '~/lib/shared/ui/Button.svelte';
 let {
   projectName,
   cwd,
+  isKing = false,
   isWorktree,
   repositoryName,
   worktreeBranch,
@@ -29,9 +32,11 @@ let {
   toggleRepository,
   toggleNote,
   toggleBackground,
+  orchestrationTools,
 }: {
   projectName: string;
   cwd: string;
+  isKing?: boolean;
   isWorktree: boolean;
   repositoryName: string;
   worktreeBranch?: string;
@@ -52,6 +57,7 @@ let {
   toggleRepository: () => void;
   toggleNote: () => void;
   toggleBackground: () => void;
+  orchestrationTools?: Snippet;
 } = $props();
 </script>
 
@@ -62,6 +68,12 @@ let {
   <div class="terminal-identity">
     <div class="terminal-identity-title">
       <strong>{projectName}</strong>
+      {#if isKing}
+        <span class="king-badge" title="Vampire King workspace">
+          <Crown size={11} strokeWidth={1.9} aria-hidden="true" />
+          King
+        </span>
+      {/if}
       {#if isWorktree}
         <span class="worktree-badge" title={`${repositoryName}${worktreeBranch ? ` · ${worktreeBranch}` : ''}`}>
           <GitBranch size={11} strokeWidth={1.9} aria-hidden="true" />
@@ -103,6 +115,7 @@ let {
             <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>
           {/if}
         </Button>
+        {@render orchestrationTools?.()}
         {#if !noteOpen}
           <Button
             variant="icon"
@@ -225,6 +238,20 @@ let {
   font-size: var(--text-nano);
   line-height: 1.25;
 }
+.king-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.08rem 0.32rem;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-surface);
+  color: var(--color-warning-accent);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-strong);
+  line-height: 1.25;
+}
 .working-copy-missing {
   flex: 0 0 auto;
   padding: 0.08rem 0.3rem;
@@ -248,6 +275,7 @@ let {
 }
 :global(.note-button),
 :global(.background-button),
+:global(.king-workflow-button),
 :global(.repository-button) {
   position: relative;
   display: grid;
@@ -266,6 +294,8 @@ let {
 :global(.note-button:focus-visible),
 :global(.background-button:focus-visible),
 :global(.background-button.active),
+:global(.king-workflow-button:focus-visible),
+:global(.king-workflow-button.active),
 :global(.repository-button:focus-visible) {
   border-color: var(--color-border-strong);
   background: transparent;
@@ -279,6 +309,7 @@ let {
   }
   :global(.note-button:hover),
   :global(.background-button:hover),
+  :global(.king-workflow-button:hover),
   :global(.repository-button:hover) {
     border-color: var(--color-border-strong);
     background: transparent;
@@ -287,6 +318,7 @@ let {
   }
 }
 :global(.background-button span),
+:global(.king-workflow-button__count),
 :global(.repository-button span) {
   position: absolute;
   z-index: 1;
@@ -388,6 +420,7 @@ let {
   }
   :global(.note-button),
   :global(.background-button),
+  :global(.king-workflow-button),
   :global(.repository-button) {
     width: 2.75rem;
     min-width: 2.75rem;

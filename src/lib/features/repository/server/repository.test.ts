@@ -9,6 +9,8 @@ import type { TestContext } from 'node:test';
 import {
   readRepositoryDiff,
   readRepositoryDirectory,
+  readRepositoryHeadRevision,
+  readGitCheckoutIdentity,
   readRepositorySummary,
   readRepositorySnapshot,
   readWorkspaceDirectory,
@@ -102,9 +104,29 @@ test('counts the main and linked Git worktrees without scanning their files', as
   await git(directory, 'worktree', 'add', '--quiet', '-b', 'worktree-count-test', linkedWorktree);
   assert.equal((await readRepositorySummary(directory)).worktreeCount, 2);
   assert.equal((await readRepositorySummary(linkedWorktree)).worktreeCount, 2);
+  const mainIdentity = await readGitCheckoutIdentity(directory);
+  const linkedIdentity = await readGitCheckoutIdentity(linkedWorktree);
+  assert.equal(mainIdentity?.linkedWorktree, false);
+  assert.equal(linkedIdentity?.linkedWorktree, true);
+  assert.equal(linkedIdentity?.branch, 'worktree-count-test');
+  assert.equal(mainIdentity?.repositoryPath, linkedIdentity?.repositoryPath);
+  assert.notEqual(mainIdentity?.checkoutKey, linkedIdentity?.checkoutKey);
 
   await git(directory, 'worktree', 'remove', '--force', linkedWorktree);
   assert.equal((await readRepositorySummary(directory)).worktreeCount, 1);
+});
+
+test('reads the current Git HEAD revision and observes new commits', async (t) => {
+  const directory = await createRepository(t);
+  const initialRevision = await readRepositoryHeadRevision(directory);
+  assert.match(initialRevision ?? '', /^[0-9a-f]{40,64}$/);
+
+  await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\n');
+  await git(directory, 'add', 'src/app.js');
+  await git(directory, 'commit', '--quiet', '-m', 'second');
+  const nextRevision = await readRepositoryHeadRevision(directory);
+  assert.match(nextRevision ?? '', /^[0-9a-f]{40,64}$/);
+  assert.notEqual(nextRevision, initialRevision);
 });
 
 test('reports added and deleted lines for tracked and untracked changes', async (t) => {

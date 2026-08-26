@@ -233,6 +233,125 @@ test('rejects a wrong token and unlocks without waiting for the workspace stream
   await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
 });
 
+test('creates the singleton King workspace from the browser', async ({ context, page }) => {
+  await authenticate(context);
+  await page.goto('/');
+
+  const workspaceCreator = page.getByRole('region', { name: 'New workspace' });
+  await workspaceCreator.getByRole('button', { name: 'More workspace options' }).click();
+  await page.getByRole('menuitem', { name: 'Create King workspace' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create King' });
+  await expect(dialog.getByLabel('Launch profile')).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Create King workspace' }).click();
+
+  await expect(page.getByRole('button', { name: /Open running King workspace/ })).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.workspace-king-badge')).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Create King workspace' })).toHaveCount(0);
+  await expect(workspaceCreator.getByRole('button', { name: 'More workspace options' })).toHaveCount(0);
+  const directWorkspaceCreator = workspaceCreator.getByRole('button', { name: 'New workspace' });
+  await expectTerminalReady(page);
+  const workspaceDialog = page.getByRole('dialog', { name: 'Open a project' });
+  if (await workspaceDialog.isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(workspaceDialog).toBeHidden();
+  }
+  await directWorkspaceCreator.click();
+  await expect(workspaceDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(workspaceDialog).toBeHidden();
+  await expect(page.locator('.terminal-identity-title .king-badge')).toContainText('King');
+
+  const backgroundButton = page.getByRole('button', { name: 'Open background processes' });
+  const kingButton = page.getByRole('button', { name: /Open King orchestration/ });
+  await expect(backgroundButton).toBeVisible();
+  await expect(kingButton).toBeVisible();
+  const backgroundBox = await backgroundButton.boundingBox();
+  const kingBox = await kingButton.boundingBox();
+  expect(backgroundBox).not.toBeNull();
+  expect(kingBox).not.toBeNull();
+  if (backgroundBox && kingBox) expect(kingBox.x).toBeGreaterThan(backgroundBox.x);
+
+  await kingButton.click();
+  const orchestration = page.getByRole('dialog', { name: 'King orchestration' });
+  await expect(orchestration).toBeVisible();
+  const headerBox = await page.locator('.terminal-header').boundingBox();
+  const orchestrationBox = await orchestration.boundingBox();
+  expect(headerBox).not.toBeNull();
+  expect(orchestrationBox).not.toBeNull();
+  if (headerBox && orchestrationBox) {
+    expect(orchestrationBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+  }
+  await page.keyboard.press('Escape');
+  await expect(orchestration).toBeHidden();
+  await expect(kingButton).toBeFocused();
+
+  const response = await context.request.get('/api/workspaces');
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { workspaces: ManagedWorkspace[] };
+  const king = body.workspaces.find((workspace) => workspace.workspaceKind === 'king');
+  expect(king).toMatchObject({ workspaceLabel: 'King', startupProfileId: null });
+  workspaceId = king?.id;
+  await expect(readFile(join(E2E_STATE_DIRECTORY, 'king', 'KING.md'), 'utf8')).resolves.toContain('# Vampire King');
+  await expect(readFile(join(E2E_STATE_DIRECTORY, 'king', 'package.json'), 'utf8')).resolves.toContain(
+    '@vampire/king-workspace'
+  );
+  const { stdout } = await run('npm', ['run', '-s', 'king', '--', 'status'], {
+    cwd: join(E2E_STATE_DIRECTORY, 'king'),
+  });
+  expect(JSON.parse(stdout)).toMatchObject({
+    ok: true,
+    data: { contractRevision: expect.any(String), activeRuns: expect.any(Number) },
+  });
+  const filesOutput = await run('npm', ['run', '-s', 'king', '--', 'workspace', 'files', king!.id], {
+    cwd: join(E2E_STATE_DIRECTORY, 'king'),
+  });
+  expect(JSON.parse(filesOutput.stdout)).toMatchObject({
+    ok: true,
+    data: { files: expect.arrayContaining(['KING.md']) },
+  });
+  const readOutput = await run('npm', ['run', '-s', 'king', '--', 'workspace', 'read', king!.id, 'KING.md'], {
+    cwd: join(E2E_STATE_DIRECTORY, 'king'),
+  });
+  expect(JSON.parse(readOutput.stdout)).toMatchObject({
+    ok: true,
+    data: { path: 'KING.md', content: expect.stringContaining('# Vampire King') },
+  });
+});
+
+test('hands an existing workspace to King and returns it to manual control', async ({ context, page }) => {
+  await authenticate(context);
+  const kingResponse = await context.request.post('/api/workspaces/king', {
+    data: { launchProfileId: null },
+  });
+  expect(kingResponse.ok()).toBe(true);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await page.getByRole('button', { name: 'Hand this workspace to King' }).click();
+  const control = page.getByRole('dialog', { name: 'Workspace King control' });
+  await control.getByLabel('Context for King (optional)').fill('Continue in this existing checkout.');
+  await control.getByRole('button', { name: 'Hand over to King' }).click();
+
+  await expect(
+    page.getByText('King controls this checkout. Take control from the crown menu to use the main terminal.')
+  ).toBeVisible();
+  const blockedWrite = await context.request.post(
+    `/api/workspaces/${encodeURIComponent(workspace.id)}/repository/file`,
+    { data: { path: 'king-should-not-write.txt', content: 'blocked\n' } }
+  );
+  expect(blockedWrite.status()).toBe(409);
+
+  await page.getByRole('button', { name: 'King controls this workspace' }).click();
+  await control.getByRole('button', { name: 'Take control' }).click();
+  await expect(
+    page.getByText('King controls this checkout. Take control from the crown menu to use the main terminal.')
+  ).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Hand this workspace to King' })).toBeVisible();
+});
+
 test('inspects listening ports as an on-demand system utility', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);

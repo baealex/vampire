@@ -1,5 +1,7 @@
 import { createServer } from 'vite';
 import { runtimeConfig } from '~/lib/shared/server/runtime-config.ts';
+import { installKingControlServer } from './king-control-server.ts';
+import { installKingOrchestrationRunner } from './king-orchestration-runner.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.ts';
 
 const config = runtimeConfig();
@@ -12,6 +14,8 @@ const vite = await createServer({
 });
 
 const closeAutomationRunner = await installWorkspaceAutomationRunner();
+const closeKingControl = await installKingControlServer();
+const closeKingOrchestration = await installKingOrchestrationRunner();
 
 await vite.listen();
 vite.printUrls();
@@ -27,6 +31,8 @@ let closing = false;
 const shutdown = () => {
   if (closing) return;
   closing = true;
+  closeKingOrchestration();
+  closeKingControl();
   closeAutomationRunner();
   void vite.close().finally(() => process.exit());
 };

@@ -2,6 +2,7 @@
 import { onMount, tick } from 'svelte';
 import ChevronRight from '@lucide/svelte/icons/chevron-right';
 import CirclePlay from '@lucide/svelte/icons/circle-play';
+import Crown from '@lucide/svelte/icons/crown';
 import FolderX from '@lucide/svelte/icons/folder-x';
 import GitBranch from '@lucide/svelte/icons/git-branch';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
@@ -12,7 +13,10 @@ import type { ManagedWorkspace, WorkspaceOrderMode } from '~/lib/shared/contract
 import type { WorkspaceActivityRecords, WorkspaceActivityState } from '../model/workspace-view';
 import {
   formatWorkspaceTimestamp,
+  isKingWorkspace,
   isWorktreeWorkspace,
+  KING_WORKSPACE_DISPLAY_NAME,
+  KING_WORKSPACE_GROUP_NAME,
   latestWorkspaceOutputAt,
   workspaceActivityHint,
   workspaceActivityLabel,
@@ -77,10 +81,12 @@ const smartActivityGroups = $derived(
   SMART_ACTIVITY_GROUPS.map((group) => ({
     ...group,
     workspaces: displayedWorkspaces.filter(
-      (workspace) => workspaceActivityState(workspace, activityRecords, now) === group.state
+      (workspace) =>
+        !isKingWorkspace(workspace) && workspaceActivityState(workspace, activityRecords, now) === group.state
     ),
   }))
 );
+const kingWorkspaces = $derived(displayedWorkspaces.filter(isKingWorkspace));
 const selectedEndedWorkspace = $derived(
   displayedWorkspaces.some(
     (workspace) =>
@@ -161,8 +167,14 @@ async function runWorkspaceAction(
 {#snippet workspaceRows(groupWorkspaces: ManagedWorkspace[])}
   {#each groupWorkspaces as workspace (workspace.id)}
     {@const activityState = workspaceActivityState(workspace, activityRecords, now)}
+    {@const king = isKingWorkspace(workspace)}
     {@const process = workspaceProcess(workspace)}
-    {@const backgroundCount = Math.max(0, workspace.terminals.length - 1)}
+    {@const mainTerminal = workspace.terminals.find((terminal) => terminal.terminalKind === 'main') ??
+      workspace.terminals.find((terminal) => terminal.terminalKind === undefined)}
+    {@const kingAgentCount = workspace.terminals.filter((terminal) => terminal.terminalKind === 'king-task').length}
+    {@const backgroundCount = workspace.terminals.filter(
+      (terminal) => terminal.id !== mainTerminal?.id && terminal.terminalKind !== 'king-task'
+    ).length}
     {@const displayName = workspaceName(workspace)}
     {@const repositoryName = workspaceRepositoryName(workspace)}
     <div
@@ -171,6 +183,7 @@ async function runWorkspaceAction(
       class:dragging={draggedWorkspaceId === workspace.id}
       class:dropBefore={dragOverWorkspaceId === workspace.id && dropPosition === 'before'}
       class:dropAfter={dragOverWorkspaceId === workspace.id && dropPosition === 'after'}
+      class:king
       role="group"
       draggable={workspaceOrderMode === 'manual'}
       ondragstart={(event) => beginWorkspaceDrag(event, workspace.id)}
@@ -186,10 +199,13 @@ async function runWorkspaceAction(
         oncontextmenu={(event) => handleWorkspaceContextMenu(event, workspace)}
         onkeydown={(event) => handleWorkspaceOrderKeydown(event, workspace.id)}
         aria-current={selectedWorkspaceId === workspace.id ? 'true' : undefined}
-        aria-label={`Open ${workspace.state === 'missing' ? 'ended' : 'running'} ${displayName} workspace (${process?.label ? `${process.label}; ` : ''}${workspaceActivityHint(workspace, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${workspace.workspaceAvailable === false ? '; working copy missing' : ''}${workspace.notePreview ? '; has a note' : ''})`}
+        aria-label={`Open ${workspace.state === 'missing' ? 'ended' : 'running'} ${displayName} workspace (${process?.label ? `${process.label}; ` : ''}${workspaceActivityHint(workspace, activityRecords, now)}; ${kingAgentCount} King ${kingAgentCount === 1 ? 'agent' : 'agents'}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${workspace.workspaceAvailable === false ? '; working copy missing' : ''}${workspace.notePreview ? '; has a note' : ''})`}
       >
         <span class="workspace-summary">
           <span class="workspace-title" title={displayName}>
+            {#if king}
+              <Crown class="workspace-king-icon" size={15} strokeWidth={1.9} aria-hidden="true" />
+            {/if}
             <strong>{displayName}</strong>
           </span>
           {#if isWorktreeWorkspace(workspace)}
@@ -247,6 +263,15 @@ async function runWorkspaceAction(
               <span>{backgroundCount} background</span>
             </span>
           {/if}
+          {#if kingAgentCount > 0}
+            <span
+              class="runtime-summary king-agent-summary"
+              title={`${kingAgentCount} King ${kingAgentCount === 1 ? 'agent is' : 'agents are'} working in this workspace`}
+            >
+              <Crown size={13} strokeWidth={1.9} aria-hidden="true" />
+              <span>{kingAgentCount} King {kingAgentCount === 1 ? 'agent' : 'agents'}</span>
+            </span>
+          {/if}
           {#if workspace.notePreview}
             <span class="workspace-note-preview" title={workspace.notePreview}>
               <StickyNote size={12} strokeWidth={1.8} aria-hidden="true" />
@@ -285,6 +310,12 @@ async function runWorkspaceAction(
 {:else}
   <div class="workspaces">
     {#if workspaceOrderMode === 'activity'}
+      {#if kingWorkspaces.length > 0}
+        <section class="workspace-group king" aria-labelledby="workspace-group-king">
+          <h2 class="workspace-group-header" id="workspace-group-king">{KING_WORKSPACE_GROUP_NAME}</h2>
+          {@render workspaceRows(kingWorkspaces)}
+        </section>
+      {/if}
       {#each smartActivityGroups as group (group.state)}
         {#if group.workspaces.length > 0}
           <section
@@ -354,6 +385,9 @@ async function runWorkspaceAction(
 }
 .workspace-group.working .workspace-group-header {
   color: var(--color-warning-accent);
+}
+.workspace-group.king .workspace-group-header {
+  color: var(--color-accent);
 }
 .workspace-group.review .workspace-group-header {
   color: var(--color-info-text);
@@ -455,7 +489,12 @@ async function runWorkspaceAction(
   align-items: center;
   min-width: 0;
   min-height: 1.4rem;
+  gap: 0.38rem;
   padding-right: 0.25rem;
+}
+.workspace-king-icon {
+  flex: 0 0 auto;
+  color: var(--color-warning-accent);
 }
 .workspace-title strong {
   min-width: 0;
@@ -566,6 +605,10 @@ async function runWorkspaceAction(
 .runtime-summary :global(svg) {
   flex: 0 0 auto;
   color: var(--color-text-disabled);
+}
+.king-agent-summary,
+.king-agent-summary :global(svg) {
+  color: var(--color-warning-accent);
 }
 .workspace-note-preview {
   gap: 0.32rem;

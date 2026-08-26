@@ -9,6 +9,7 @@ let {
   triggerTitle,
   triggerClass,
   triggerVariant = 'default',
+  side = 'bottom',
   align = 'start',
   trigger,
   children,
@@ -19,6 +20,7 @@ let {
   triggerTitle?: string;
   triggerClass?: string;
   triggerVariant?: 'default' | 'primary';
+  side?: 'top' | 'right' | 'bottom' | 'left';
   align?: 'start' | 'center' | 'end';
   trigger?: Snippet;
   children?: Snippet;
@@ -41,7 +43,7 @@ function handleOpenChange(nextOpen: boolean) {
     {@render trigger?.()}
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
-    <DropdownMenu.Content data-vampire-overlay class="vampire-menu-content" sideOffset={6} {align}>
+    <DropdownMenu.Content data-vampire-overlay class="vampire-menu-content" sideOffset={6} {side} {align}>
       {@render children?.()}
     </DropdownMenu.Content>
   </DropdownMenu.Portal>

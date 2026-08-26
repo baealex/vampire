@@ -43,6 +43,8 @@ let {
   onRepositoryPanelOpenChange = () => undefined,
   repositoryTab = 'changes',
   onRepositoryTabChange = () => undefined,
+  kingAvailable = false,
+  onKingControlChange = () => undefined,
 }: {
   workspace: ManagedWorkspace;
   onStartBackground: (command: string) => Promise<WorkspaceTerminal | undefined>;
@@ -69,6 +71,8 @@ let {
   onRepositoryPanelOpenChange?: (open: boolean) => void;
   repositoryTab?: RepositoryTab;
   onRepositoryTabChange?: (tab: RepositoryTab) => void;
+  kingAvailable?: boolean;
+  onKingControlChange?: (control: NonNullable<ManagedWorkspace['kingControl']>) => void;
 } = $props();
 
 let desktop = $state(false);
@@ -248,6 +252,8 @@ onMount(() => {
       onExternalFileDrop={addDroppedFilesToTerminal}
       dismissStatusPopovers={!desktop && mobilePanel !== undefined}
       {statusPlugins}
+      {kingAvailable}
+      {onKingControlChange}
     >
       {#if repository.selection}
         <RepositoryViewer

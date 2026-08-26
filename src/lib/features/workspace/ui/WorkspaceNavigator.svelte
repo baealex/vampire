@@ -1,9 +1,14 @@
 <script lang="ts">
 import Plus from '@lucide/svelte/icons/plus';
+import Crown from '@lucide/svelte/icons/crown';
 import WorkspaceList from './WorkspaceList.svelte';
 import WorkspaceNavigatorHeader from './WorkspaceNavigatorHeader.svelte';
 import WorkspaceDirectoryPicker from './WorkspaceDirectoryPicker.svelte';
-import type { ManagedWorkspace, WorkspaceOrderMode } from '~/lib/shared/contracts/workspace';
+import KingWorkspaceDialog from './KingWorkspaceDialog.svelte';
+import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
+import SplitButton from '~/lib/shared/ui/SplitButton.svelte';
+import type { LaunchProfile, ManagedWorkspace, WorkspaceOrderMode } from '~/lib/shared/contracts/workspace';
+import { isKingWorkspace } from '../model/workspace-view';
 import type { WorkspaceActivityRecords } from '../model/workspace-view';
 
 let {
@@ -20,6 +25,9 @@ let {
   cwd = $bindable(),
   starting,
   startError,
+  launchProfiles,
+  creatingKing,
+  kingCreateError,
   tmuxAvailable,
   onClose,
   onOrderModeChange,
@@ -33,6 +41,7 @@ let {
   onNewWorktree,
   onAutomations,
   onCreate,
+  onCreateKing,
 }: {
   workspaces: ManagedWorkspace[];
   displayedWorkspaces: ManagedWorkspace[];
@@ -47,6 +56,9 @@ let {
   cwd: string;
   starting: boolean;
   startError: string;
+  launchProfiles: LaunchProfile[];
+  creatingKing: boolean;
+  kingCreateError: string;
   tmuxAvailable?: boolean;
   onClose: () => void;
   onOrderModeChange: (mode: WorkspaceOrderMode) => void;
@@ -60,7 +72,11 @@ let {
   onNewWorktree: (workspace: ManagedWorkspace) => void;
   onAutomations: (workspace: ManagedWorkspace) => void;
   onCreate: () => void;
+  onCreateKing: (launchProfileId: string | null) => Promise<boolean>;
 } = $props();
+
+let kingWorkspaceOpen = $state(false);
+const hasKingWorkspace = $derived(workspaces.some(isKingWorkspace));
 
 function openNewWorkspace() {
   newWorkspaceOpen = true;
@@ -69,6 +85,10 @@ function openNewWorkspace() {
 function createWorkspace(path: string) {
   cwd = path;
   onCreate();
+}
+
+function openKingWorkspace() {
+  kingWorkspaceOpen = true;
 }
 </script>
 
@@ -106,10 +126,27 @@ function createWorkspace(path: string) {
   </section>
 
   <section class="new-workspace-panel" aria-labelledby="new-workspace-title">
-    <button class="new-workspace-toggle" type="button" onclick={openNewWorkspace}>
-      <span class="new-workspace-toggle__icon" aria-hidden="true"><Plus size={14} strokeWidth={2.1} /></span>
-      <strong id="new-workspace-title">New workspace</strong>
-    </button>
+    <SplitButton
+      variant="navigation"
+      menuSide="top"
+      menuAlign="end"
+      menuLabel="More workspace options"
+      menuTitle="More workspace options"
+      showMenu={!hasKingWorkspace}
+      onclick={openNewWorkspace}
+    >
+      {#snippet primary()}
+        <span class="new-workspace-toggle__icon" aria-hidden="true"><Plus size={14} strokeWidth={2.1} /></span>
+        <strong class="new-workspace-toggle__label" id="new-workspace-title">New workspace</strong>
+      {/snippet}
+
+      {#snippet menu()}
+        <DropdownMenuItem onSelect={openKingWorkspace}>
+          <Crown size={16} strokeWidth={1.8} aria-hidden="true" />
+          Create King workspace
+        </DropdownMenuItem>
+      {/snippet}
+    </SplitButton>
   </section>
 
   {#if newWorkspaceOpen}
@@ -120,6 +157,16 @@ function createWorkspace(path: string) {
       {tmuxAvailable}
       close={() => newWorkspaceOpen = false}
       onCreate={createWorkspace}
+    />
+  {/if}
+
+  {#if kingWorkspaceOpen && !hasKingWorkspace}
+    <KingWorkspaceDialog
+      {launchProfiles}
+      creating={creatingKing}
+      errorMessage={kingCreateError}
+      close={() => kingWorkspaceOpen = false}
+      onCreate={onCreateKing}
     />
   {/if}
 </div>
@@ -148,25 +195,6 @@ function createWorkspace(path: string) {
 .new-workspace-panel {
   overflow: hidden;
 }
-.new-workspace-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  min-height: 3.5rem;
-  padding: 0.5rem 1rem;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .new-workspace-toggle:hover {
-    background: var(--color-surface-raised);
-  }
-}
 .new-workspace-toggle__icon {
   display: grid;
   place-items: center;
@@ -176,7 +204,7 @@ function createWorkspace(path: string) {
   background: var(--color-accent);
   color: var(--color-accent-ink);
 }
-.new-workspace-toggle strong {
+.new-workspace-toggle__label {
   font-size: var(--text-label);
   font-weight: var(--weight-medium);
 }
@@ -211,10 +239,6 @@ function createWorkspace(path: string) {
     flex: 0 0 auto;
     border-top: 1px solid var(--color-border);
     background: var(--color-panel);
-  }
-  .new-workspace-toggle {
-    min-height: 3.25rem;
-    padding-block: 0.4rem;
   }
 }
 

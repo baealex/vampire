@@ -13,22 +13,27 @@ import {
 } from '~/lib/features/terminal/server/tmux.ts';
 import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
+import { reconcileManagedKingWorkspaceContract } from '~/lib/features/workspace/server/king-workspace.ts';
+import { withWorkspacePromptLock } from './workspace-prompt-lock.ts';
 
-const AUTOMATION_POLL_INTERVAL_MS = 2_000;
+// Prompt submission still waits for an observed agent input prompt. A short
+// cadence removes avoidable bootstrap lag without sending text into a shell or
+// a TUI that is still starting; pane capture only happens while work is due.
+const AUTOMATION_POLL_INTERVAL_MS = 500;
 
 export function automationSubmissionTerminal(
   tmuxSession: TmuxSession | undefined,
   agentState: AgentState
 ): TmuxTerminal | undefined {
-  const mainTerminal = tmuxSession?.terminals[0];
+  const terminals = tmuxSession?.terminals;
+  const mainTerminal =
+    terminals?.find((terminal) => terminal.terminalKind === 'main') ??
+    terminals?.find((terminal) => terminal.terminalKind === undefined);
   const process = mainTerminal?.foregroundProcess;
-  return agentState === 'waiting' &&
-    mainTerminal?.index === 0 &&
-    mainTerminal.state === 'running' &&
-    process?.kind === 'command' &&
-    isAgentProcessLabel(process.label)
-    ? mainTerminal
-    : undefined;
+  if (agentState !== 'waiting') return undefined;
+  if (!mainTerminal || mainTerminal.state !== 'running') return undefined;
+  if (process?.kind !== 'command' || !isAgentProcessLabel(process.label)) return undefined;
+  return mainTerminal;
 }
 
 type AutomationSubmissionDependencies = {
@@ -68,11 +73,10 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
   const due = await listDueManagedWorkspaceAutomations(now);
   for (const candidate of due) {
     try {
-      await dispatchManagedWorkspaceAutomation(
-        candidate.workspaceId,
-        candidate.automationId,
-        now,
-        (stored, automation) => prepareAutomationSubmission(stored, automation)
+      await withWorkspacePromptLock(candidate.workspaceId, () =>
+        dispatchManagedWorkspaceAutomation(candidate.workspaceId, candidate.automationId, now, (stored, automation) =>
+          prepareAutomationSubmission(stored, automation)
+        )
       );
     } catch {
       // One unreadable workspace must not stop other users' queued automations.
@@ -82,6 +86,7 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
 
 export async function installWorkspaceAutomationRunner(): Promise<() => void> {
   let noteMigrationComplete = false;
+  let kingContractReconciliationComplete = false;
   const attemptNoteMigration = async () => {
     if (noteMigrationComplete) return;
     try {
@@ -92,11 +97,21 @@ export async function installWorkspaceAutomationRunner(): Promise<() => void> {
       // to the compatibility JSON note.
     }
   };
-  await attemptNoteMigration();
+  const attemptKingContractReconciliation = async () => {
+    if (kingContractReconciliationComplete) return;
+    try {
+      await reconcileManagedKingWorkspaceContract();
+      kingContractReconciliationComplete = true;
+    } catch {
+      // Retry after transient file or registry failures. The existing King
+      // session remains usable with its last successfully installed contract.
+    }
+  };
+  await Promise.all([attemptNoteMigration(), attemptKingContractReconciliation()]);
   let activeTick: Promise<void> | undefined;
   const tick = () => {
     if (activeTick) return;
-    activeTick = attemptNoteMigration()
+    activeTick = Promise.all([attemptNoteMigration(), attemptKingContractReconciliation()])
       .then(() => runWorkspaceAutomationTick())
       .catch(() => undefined)
       .finally(() => {

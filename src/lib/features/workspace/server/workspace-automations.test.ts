@@ -11,7 +11,11 @@ import {
   listManagedWorkspaceAutomations,
   setManagedWorkspaceAutomationEnabled,
 } from '~/lib/features/workspace/server/workspace-automations.ts';
-import { readWorkspaceStore, WORKSPACE_STATE_VERSION } from '~/lib/features/workspace/server/workspace-store.ts';
+import {
+  readWorkspaceStore,
+  WORKSPACE_STATE_VERSION,
+  writeWorkspaceStore,
+} from '~/lib/features/workspace/server/workspace-store.ts';
 
 async function createStoredWorkspace(t: test.TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-automations-'));
@@ -81,6 +85,43 @@ test('a one-time automation stays queued until the agent is ready, then submits 
   assert.deepEqual(await listDueManagedWorkspaceAutomations(now + 1), []);
 });
 
+test('keeps owner automations paused while King holds the workspace writer lease', async (t) => {
+  await createStoredWorkspace(t);
+  const now = Date.UTC(2026, 7, 20, 9, 0, 0);
+  const automation = await createManagedWorkspaceAutomation(
+    'workspace-1',
+    {
+      name: 'Owner automation',
+      prompt: 'Continue the owner workflow.',
+      schedule: { type: 'once', runAt: now },
+    },
+    now
+  );
+  const state = await readWorkspaceStore();
+  state.workspaces[0]!.kingControl = {
+    state: 'king',
+    reason: 'Owner handoff',
+    requestedAt: now,
+    changedAt: now,
+    lastAction: 'granted',
+    notifiedAt: now,
+    handoffSnapshot: null,
+  };
+  await writeWorkspaceStore(state);
+
+  assert.deepEqual(await listDueManagedWorkspaceAutomations(now), []);
+  let prepared = false;
+  assert.equal(
+    await dispatchManagedWorkspaceAutomation('workspace-1', automation.id, now, async () => {
+      prepared = true;
+      return async () => undefined;
+    }),
+    'not-ready'
+  );
+  assert.equal(prepared, false);
+  assert.equal((await listManagedWorkspaceAutomations('workspace-1'))[0]?.enabled, true);
+});
+
 test('a recurring automation coalesces missed intervals and never catches up repeatedly', async (t) => {
   await createStoredWorkspace(t);
   const startAt = Date.UTC(2026, 7, 20, 9, 0, 0);
@@ -146,4 +187,42 @@ test('pause, resume, delete, and failed delivery remain durable', async (t) => {
   await deleteManagedWorkspaceAutomation('workspace-1', automation.id);
   assert.deepEqual(await listManagedWorkspaceAutomations('workspace-1'), []);
   assert.deepEqual((await readWorkspaceStore()).workspaces[0]?.automations, []);
+});
+
+test('delivers the King bootstrap internally without exposing user mutation controls', async (t) => {
+  await createStoredWorkspace(t);
+  const now = Date.UTC(2026, 7, 20, 9, 0, 0);
+  const state = await readWorkspaceStore();
+  state.workspaces[0]!.workspaceKind = 'king';
+  state.workspaces[0]!.automations = [
+    {
+      id: 'king-bootstrap',
+      kind: 'king-bootstrap',
+      name: 'Initialize King',
+      prompt: 'Read KING.md',
+      schedule: { type: 'once', runAt: now },
+      enabled: true,
+      nextRunAt: now,
+      createdAt: now,
+      updatedAt: now,
+      lastAttemptAt: null,
+      lastRunAt: null,
+      lastOutcome: null,
+      lastError: null,
+    },
+  ];
+  await writeWorkspaceStore(state);
+
+  assert.deepEqual(await listManagedWorkspaceAutomations('workspace-1'), []);
+  assert.deepEqual(await listDueManagedWorkspaceAutomations(now), [
+    { workspaceId: 'workspace-1', automationId: 'king-bootstrap', dueAt: now },
+  ]);
+  await assert.rejects(
+    () => setManagedWorkspaceAutomationEnabled('workspace-1', 'king-bootstrap', false, now),
+    /Automation was not found/
+  );
+  await assert.rejects(
+    () => deleteManagedWorkspaceAutomation('workspace-1', 'king-bootstrap'),
+    /Automation was not found/
+  );
 });

@@ -94,6 +94,12 @@ async function confirmSelectedAction() {
         <p>
           {#if confirming === 'close'}
             The shell and its processes will stop. The workspace stays available.
+          {:else if workspace.workspaceKind === 'king'}
+            King orchestration will stop, unfinished Tasks will be interrupted, and every checkout will return to manual
+            control. Structured history stays available for audit.
+          {:else if isWorktreeWorkspace(workspace) && workspace.managedWorktree === false}
+            {workspace.state === 'running' ? 'The running shell will stop. ' : ''}Vampire will forget this workspace,
+            but the existing worktree, its files, branch, and Git registration stay untouched.
           {:else if isWorktreeWorkspace(workspace) && workspace.workspaceAvailable === false}
             Vampire will clear the missing working copy's Git registration. Its branch stays available.
           {:else if isWorktreeWorkspace(workspace)}

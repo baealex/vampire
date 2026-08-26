@@ -3,6 +3,7 @@ import { requireAuthentication } from '~/lib/features/auth/server/auth';
 import { RepositoryReadError, uploadWorkspaceFile } from '~/lib/features/repository/server/repository.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
 import type { WorkspaceUploadConflict } from '~/lib/shared/contracts/repository';
+import { workspaceAcceptsOwnerWrites } from '~/lib/shared/contracts/workspace.ts';
 
 const UPLOAD_CONFLICT_POLICIES = new Set<WorkspaceUploadConflict>(['reject', 'overwrite', 'rename']);
 
@@ -22,6 +23,7 @@ export const POST: RequestHandler = async (event) => {
 
   const workspace = await findWorkspaceDirectory(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
+  if (!workspaceAcceptsOwnerWrites(workspace)) throw error(409, 'Take control before changing this workspace.');
 
   const path = event.url.searchParams.get('path');
   if (!path) throw error(400, 'File path is required.');

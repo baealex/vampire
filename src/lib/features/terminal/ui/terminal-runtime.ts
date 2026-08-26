@@ -59,6 +59,7 @@ export interface TerminalRuntimeOptions {
   fontSize: number;
   minimumFontSize: number;
   maximumFontSize: number;
+  inputEnabled?: boolean;
   themeChangeEvent: string;
   getFontFamily: () => string;
   getTheme: () => ITheme;
@@ -103,6 +104,7 @@ export class TerminalRuntime {
   #historyChunkLines: number = TERMINAL_HISTORY_CHUNK_LINES.standard;
   #historyEnabled = false;
   #historyLoadPending = false;
+  #inputEnabled: boolean;
   #historyLoaded = 0;
   #historyMaximum: number = TERMINAL_SCROLLBACK_LINES.standard;
   #inputDisposable: { dispose(): void } | undefined;
@@ -144,6 +146,7 @@ export class TerminalRuntime {
   constructor(options: TerminalRuntimeOptions) {
     this.#options = options;
     this.#fontSize = options.fontSize;
+    this.#inputEnabled = options.inputEnabled !== false;
   }
 
   get connected(): boolean {
@@ -197,11 +200,13 @@ export class TerminalRuntime {
   }
 
   send(data: string): void {
+    if (!this.#inputEnabled) return;
     if (!this.#connection?.send({ type: 'input', data })) return;
     this.#markInputActivity();
   }
 
   submit(data: string): boolean {
+    if (!this.#inputEnabled) return false;
     const terminal = this.#terminal;
     if (
       !terminal ||
@@ -224,6 +229,16 @@ export class TerminalRuntime {
     if (!this.#terminal || this.#terminal.options.fontSize === next) return;
     this.#terminal.options.fontSize = next;
     this.#scheduleResize();
+  }
+
+  setInputEnabled(enabled: boolean): void {
+    if (this.#inputEnabled === enabled) return;
+    this.#inputEnabled = enabled;
+    if (this.#terminal) this.#terminal.options.disableStdin = !enabled;
+    if (!enabled) {
+      this.#terminal?.blur();
+      this.#updateState({ directInputFocused: false });
+    }
   }
 
   reconnect(): void {
@@ -285,7 +300,7 @@ export class TerminalRuntime {
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
-      disableStdin: false,
+      disableStdin: !this.#inputEnabled,
       fontSize: this.#fontSize,
       lineHeight: 1.2,
       fontFamily: this.#options.getFontFamily(),
@@ -805,6 +820,7 @@ export class TerminalRuntime {
   #handleTerminalData(data: string): void {
     const reports = parseTerminalColorReports(data);
     if (!reports) {
+      if (!this.#inputEnabled) return;
       this.send(data);
       return;
     }

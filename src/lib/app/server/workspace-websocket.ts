@@ -12,7 +12,6 @@ import {
   listTmuxSessionActivity,
   type TmuxProcessHint,
   type TmuxSessionActivity,
-  type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.ts';
 import {
   encodeWorkspaceServerMessage,
@@ -20,7 +19,14 @@ import {
   type WorkspaceServerMessage,
 } from '~/lib/shared/contracts/workspace-protocol.ts';
 import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
-import type { LaunchProfile, ManagedWorkspace, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type {
+  LaunchProfile,
+  ManagedWorkspace,
+  WorkspaceHandoffSnapshot,
+  WorkspaceKingControl,
+  WorkspacePreferences,
+  WorkspaceTerminal,
+} from '~/lib/shared/contracts/workspace.ts';
 import {
   authorizeWebSocketUpgrade,
   installWebSocketHeartbeat,
@@ -41,6 +47,9 @@ const WORKSPACE_FIELDS = [
   'repositoryPath',
   'workspaceLabel',
   'worktreeBranch',
+  'managedWorktree',
+  'checkoutKey',
+  'kingControl',
   'createdAt',
   'lastActiveAt',
   'notePreview',
@@ -86,7 +95,7 @@ function equalForegroundProcess(
   return left?.kind === right?.kind && left?.label === right?.label;
 }
 
-function equalTerminals(left: TmuxTerminal[] | undefined, right: TmuxTerminal[] | undefined): boolean {
+function equalTerminals(left: WorkspaceTerminal[] | undefined, right: WorkspaceTerminal[] | undefined): boolean {
   return (
     Array.isArray(left) &&
     Array.isArray(right) &&
@@ -103,10 +112,75 @@ function equalTerminals(left: TmuxTerminal[] | undefined, right: TmuxTerminal[] 
         terminal.startedAt === candidate.startedAt &&
         terminal.state === candidate.state &&
         terminal.exitCode === candidate.exitCode &&
+        terminal.terminalKind === candidate.terminalKind &&
+        terminal.kingAttemptId === candidate.kingAttemptId &&
         equalForegroundProcess(terminal.foregroundProcess, candidate.foregroundProcess)
       );
     })
   );
+}
+
+function equalKingControl(left: WorkspaceKingControl | undefined, right: WorkspaceKingControl | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.state === right.state &&
+    left.reason === right.reason &&
+    left.requestedAt === right.requestedAt &&
+    left.changedAt === right.changedAt &&
+    left.lastAction === right.lastAction &&
+    left.notifiedAt === right.notifiedAt &&
+    equalHandoffSnapshot(left.handoffSnapshot, right.handoffSnapshot)
+  );
+}
+
+function equalHandoffSnapshot(
+  left: WorkspaceHandoffSnapshot | null | undefined,
+  right: WorkspaceHandoffSnapshot | null | undefined
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.changes.length !== right.changes.length) return false;
+  return (
+    left.capturedAt === right.capturedAt &&
+    left.checkoutKey === right.checkoutKey &&
+    left.isGitRepository === right.isGitRepository &&
+    left.headRevision === right.headRevision &&
+    left.repositoryStateHash === right.repositoryStateHash &&
+    left.changes.every((change, index) => equalRepositoryChange(change, right.changes[index])) &&
+    equalChangeFingerprints(left.changeFingerprints, right.changeFingerprints)
+  );
+}
+
+function equalRepositoryChange(
+  left: WorkspaceHandoffSnapshot['changes'][number],
+  right: WorkspaceHandoffSnapshot['changes'][number] | undefined
+): boolean {
+  if (!right) return false;
+  return left.path === right.path && left.status === right.status && left.previousPath === right.previousPath;
+}
+
+function equalChangeFingerprints(
+  left: WorkspaceHandoffSnapshot['changeFingerprints'],
+  right: WorkspaceHandoffSnapshot['changeFingerprints']
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((change, index) => {
+    const candidate = right[index];
+    return equalRepositoryChange(change, candidate) && change.diffHash === candidate?.diffHash;
+  });
+}
+
+function workspaceFieldEqual(
+  field: (typeof WORKSPACE_FIELDS)[number],
+  previous: ManagedWorkspace,
+  next: ManagedWorkspace
+): boolean {
+  if (field === 'foregroundProcess') return equalForegroundProcess(previous[field], next[field]);
+  if (field === 'terminals') return equalTerminals(previous[field], next[field]);
+  if (field === 'favoriteCommands') return equalStrings(previous[field], next[field]);
+  if (field === 'kingControl') return equalKingControl(previous[field], next[field]);
+  return previous[field] === next[field];
 }
 
 function equalStrings(left: string[] | undefined, right: string[] | undefined): boolean {
@@ -146,15 +220,9 @@ function equalLaunchProfiles(left: LaunchProfile[] | undefined, right: LaunchPro
 function workspaceChanges(previous: ManagedWorkspace, next: ManagedWorkspace): WorkspaceChanges {
   const changes: WorkspaceChanges = {};
   for (const field of WORKSPACE_FIELDS) {
-    const equal =
-      field === 'foregroundProcess'
-        ? equalForegroundProcess(previous[field], next[field])
-        : field === 'terminals'
-          ? equalTerminals(previous[field], next[field])
-          : field === 'favoriteCommands'
-            ? equalStrings(previous[field], next[field])
-            : previous[field] === next[field];
-    if (!equal) (changes as Record<string, unknown>)[field] = next[field];
+    if (!workspaceFieldEqual(field, previous, next)) {
+      (changes as Record<string, unknown>)[field] = next[field];
+    }
   }
   return changes;
 }

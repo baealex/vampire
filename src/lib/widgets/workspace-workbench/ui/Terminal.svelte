@@ -7,6 +7,9 @@ import {
   workspaceRepositoryName,
 } from '~/lib/features/workspace/model/workspace-view';
 import BackgroundProcesses from '~/lib/features/terminal/ui/BackgroundProcesses.svelte';
+import WorkspaceAgentTabs from '~/lib/features/terminal/ui/WorkspaceAgentTabs.svelte';
+import KingWorkflowPanel from '~/lib/features/workspace/ui/KingWorkflowPanel.svelte';
+import WorkspaceKingControlPanel from '~/lib/features/workspace/ui/WorkspaceKingControlPanel.svelte';
 import GlobalStatusBar from './GlobalStatusBar.svelte';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 import TerminalViewport from '~/lib/features/terminal/ui/TerminalViewport.svelte';
@@ -41,6 +44,8 @@ let {
   onExternalFileDrop = async () => [],
   statusPlugins = [],
   dismissStatusPopovers = false,
+  kingAvailable = false,
+  onKingControlChange = () => undefined,
   children,
 }: {
   workspace: ManagedWorkspace;
@@ -69,22 +74,57 @@ let {
   onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
   statusPlugins?: StatusPluginSnapshot[];
   dismissStatusPopovers?: boolean;
+  kingAvailable?: boolean;
+  onKingControlChange?: (control: NonNullable<ManagedWorkspace['kingControl']>) => void;
   children?: Snippet;
 } = $props();
 
 let viewportStyle = $state('');
 let terminalFontSize = $state(14);
 let backgroundOpen = $state(false);
+let selectedTerminalId = $state<string>();
 const minimumFontSize = 10;
 const maximumFontSize = 22;
+
+function selectMainTerminal(terminals: WorkspaceTerminal[]): WorkspaceTerminal | undefined {
+  return (
+    terminals.find((terminal) => terminal.terminalKind === 'main') ??
+    terminals.find((terminal) => terminal.terminalKind === undefined)
+  );
+}
+
+function isBackgroundTerminal(terminal: WorkspaceTerminal, main: WorkspaceTerminal | undefined): boolean {
+  return terminal.id !== main?.id && terminal.terminalKind !== 'king-task';
+}
+
 const projectName = $derived(workspaceName(workspace));
+const kingWorkspace = $derived(workspace.workspaceKind === 'king');
 const worktreeWorkspace = $derived(isWorktreeWorkspace(workspace));
 const repositoryName = $derived(workspaceRepositoryName(workspace));
 const orderedTerminals = $derived([...workspace.terminals].sort((left, right) => left.index - right.index));
-const mainTerminal = $derived(orderedTerminals[0]);
-const backgroundProcesses = $derived(orderedTerminals.slice(1));
+const mainTerminal = $derived(selectMainTerminal(orderedTerminals));
+const kingTaskTerminals = $derived(orderedTerminals.filter((terminal) => terminal.terminalKind === 'king-task'));
+const selectedTerminal = $derived(
+  orderedTerminals.find((terminal) => terminal.id === selectedTerminalId) ?? mainTerminal ?? kingTaskTerminals[0]
+);
+const backgroundProcesses = $derived(
+  orderedTerminals.filter((terminal) => isBackgroundTerminal(terminal, mainTerminal))
+);
+const inputEnabled = $derived(
+  selectedTerminal?.terminalKind !== 'king-task' && workspace.kingControl?.state !== 'king'
+);
+const inputDisabledReason = $derived(
+  selectedTerminal?.terminalKind === 'king-task'
+    ? 'King agent terminals are read-only here. Use Stop in the workspace agent bar to end the Attempt.'
+    : 'King controls this checkout. Take control from the crown menu to use the main terminal.'
+);
 const backgroundPanelId = $derived(`background-manager-${workspace.id}`);
 const backgroundTriggerId = $derived(`background-trigger-${workspace.id}`);
+
+$effect(() => {
+  if (selectedTerminalId && orderedTerminals.some((terminal) => terminal.id === selectedTerminalId)) return;
+  selectedTerminalId = mainTerminal?.id ?? kingTaskTerminals[0]?.id;
+});
 
 onMount(() => {
   const updateViewport = () => {
@@ -117,6 +157,7 @@ onMount(() => {
     <TerminalHeader
       {projectName}
       cwd={workspace.cwd}
+      isKing={kingWorkspace}
       isWorktree={worktreeWorkspace}
       {repositoryName}
       worktreeBranch={workspace.worktreeBranch}
@@ -135,7 +176,22 @@ onMount(() => {
       toggleRepository={onToggleRepository}
       toggleNote={onToggleNote}
       toggleBackground={() => (backgroundOpen = !backgroundOpen)}
-    ></TerminalHeader>
+    >
+      {#snippet orchestrationTools()}
+        {#if kingWorkspace}
+          <KingWorkflowPanel />
+        {:else if kingAvailable}
+          <WorkspaceKingControlPanel {workspace} onControlChange={onKingControlChange} />
+        {/if}
+      {/snippet}
+    </TerminalHeader>
+    <WorkspaceAgentTabs
+      workspaceId={workspace.id}
+      {mainTerminal}
+      taskTerminals={kingTaskTerminals}
+      {selectedTerminalId}
+      onSelect={(terminalId) => (selectedTerminalId = terminalId)}
+    />
     <BackgroundProcesses
       open={backgroundOpen}
       onOpenChange={(open) => (backgroundOpen = open)}
@@ -155,17 +211,19 @@ onMount(() => {
     />
   </div>
 
-  {#key mainTerminal?.id}
+  {#key selectedTerminal?.id}
     <div class="main-workspace-terminal">
       <TerminalViewport
         workspaceId={workspace.id}
-        terminalId={mainTerminal?.id}
+        terminalId={selectedTerminal?.id}
         {onInputActivity}
         {onOutputActivity}
         {onRepositoryStatus}
         {pathInsertionRequest}
         {onExternalFileDrop}
         bind:fontSize={terminalFontSize}
+        {inputEnabled}
+        {inputDisabledReason}
         {minimumFontSize}
         {maximumFontSize}
       >

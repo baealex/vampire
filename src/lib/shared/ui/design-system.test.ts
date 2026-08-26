@@ -29,6 +29,7 @@ test('keeps reusable controls style-owned', async () => {
     'DropdownMenuItem',
     'DropdownMenuSeparator',
     'DropdownMenuShell',
+    'SplitButton',
   ];
   const missingStyles: string[] = [];
 

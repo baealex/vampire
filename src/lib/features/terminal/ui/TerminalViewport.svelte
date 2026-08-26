@@ -1,5 +1,6 @@
 <script lang="ts">
 import CircleAlert from '@lucide/svelte/icons/circle-alert';
+import Crown from '@lucide/svelte/icons/crown';
 import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import { onMount, untrack, type Snippet } from 'svelte';
@@ -30,6 +31,8 @@ let {
   fontSize = $bindable(14),
   minimumFontSize = 10,
   maximumFontSize = 22,
+  inputEnabled = true,
+  inputDisabledReason = 'Terminal input is disabled.',
   children,
 }: {
   workspaceId: string;
@@ -42,6 +45,8 @@ let {
   fontSize?: number;
   minimumFontSize?: number;
   maximumFontSize?: number;
+  inputEnabled?: boolean;
+  inputDisabledReason?: string;
   children?: Snippet;
 } = $props();
 
@@ -85,6 +90,7 @@ function changeTerminalFontSize(delta: number) {
 }
 
 function handleTerminalPointerDown(event: PointerEvent) {
+  if (!inputEnabled) return;
   if (event.pointerType === 'touch') return;
   runtime?.focus();
   if (isDesktopViewport()) directInputFocused = true;
@@ -94,10 +100,15 @@ function dataTransferTypes(event: DragEvent): string[] {
   return Array.from(event.dataTransfer?.types ?? []);
 }
 
+function terminalDropKindForTypes(types: string[]): typeof terminalDropKind {
+  if (types.includes(WORKSPACE_ENTRY_DRAG_TYPE)) return 'path';
+  if (types.includes('Files')) return 'files';
+  return '';
+}
+
 function handleTerminalDragOver(event: DragEvent) {
-  if (!connected || addingDroppedFiles || !event.dataTransfer) return;
-  const types = dataTransferTypes(event);
-  const kind = types.includes(WORKSPACE_ENTRY_DRAG_TYPE) ? 'path' : types.includes('Files') ? 'files' : '';
+  if (!inputEnabled || !connected || addingDroppedFiles || !event.dataTransfer) return;
+  const kind = terminalDropKindForTypes(dataTransferTypes(event));
   if (!kind) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'copy';
@@ -108,9 +119,17 @@ function handleTerminalDragLeave() {
   terminalDropKind = '';
 }
 
+function recoverTerminalOutput() {
+  if (terminalOutputPaused) {
+    runtime?.reconnect();
+    return;
+  }
+  location.reload();
+}
+
 async function handleTerminalDrop(event: DragEvent) {
   terminalDropKind = '';
-  if (!connected || addingDroppedFiles || !event.dataTransfer) return;
+  if (!inputEnabled || !connected || addingDroppedFiles || !event.dataTransfer) return;
   const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
   const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
   if (entry) {
@@ -141,8 +160,13 @@ $effect(() => {
 });
 
 $effect(() => {
+  const enabled = inputEnabled;
+  untrack(() => runtime?.setInputEnabled(enabled));
+});
+
+$effect(() => {
   const request = pathInsertionRequest;
-  if (!request || request.token === handledPathInsertionToken || !connected || !runtime) return;
+  if (!inputEnabled || !request || request.token === handledPathInsertionToken || !connected || !runtime) return;
   handledPathInsertionToken = request.token;
   runtime.focus();
   runtime.send(request.entries.map(workspaceEntryDragText).join(' '));
@@ -150,6 +174,7 @@ $effect(() => {
 
 onMount(() => {
   const handleClipboardPaste = (event: ClipboardEvent) => {
+    if (!inputEnabled) return;
     void imagePaste.handleClipboardPaste(event);
   };
   window.addEventListener('paste', handleClipboardPaste, true);
@@ -160,6 +185,7 @@ onMount(() => {
     fontSize,
     minimumFontSize,
     maximumFontSize,
+    inputEnabled,
     themeChangeEvent: THEME_CHANGE_EVENT,
     getFontFamily: terminalFontFamily,
     getTheme: terminalTheme,
@@ -228,12 +254,7 @@ onMount(() => {
           <CircleAlert size={17} strokeWidth={1.9} />
         </span>
         <span class="terminal-status-message">{terminalError}</span>
-        <Button
-          class="terminal-status-action"
-          size="sm"
-          variant="danger-outline"
-          onclick={terminalOutputPaused ? () => runtime?.reconnect() : () => location.reload()}
-        >
+        <Button class="terminal-status-action" size="sm" variant="danger-outline" onclick={recoverTerminalOutput}>
           {terminalOutputPaused ? 'Resume output' : 'Reconnect'}
         </Button>
       </div>
@@ -269,8 +290,16 @@ onMount(() => {
     </div>
   {/if}
 
+  {#if !inputEnabled}
+    <div class="terminal-input-disabled" role="status">
+      <Crown size={15} strokeWidth={1.9} aria-hidden="true" />
+      <span>{inputDisabledReason}</span>
+    </div>
+  {/if}
+
   <TerminalInputDock
     {connected}
+    {inputEnabled}
     send={(data) => runtime?.send(data)}
     submit={(data) => runtime?.submit(data) ?? false}
     scrollToTop={() => runtime?.scrollToTop()}
@@ -302,6 +331,20 @@ onMount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+.terminal-input-disabled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.48rem 0.75rem;
+  border-top: 1px solid var(--color-warning-border);
+  background: var(--color-warning-surface);
+  color: var(--color-warning-accent);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+  text-align: center;
 }
 .terminal {
   width: 100%;

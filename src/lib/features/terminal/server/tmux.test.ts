@@ -39,7 +39,7 @@ test('keeps Vampire server configuration out of new tmux sessions', () => {
     '/tmp/project',
     '-P',
     '-F',
-    '#{session_name}\t#{session_created}\t#{session_attached}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{window_activity}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{@vampire_background_command}\t#{@vampire_background_started_at}\t#{pane_dead}\t#{pane_dead_status}',
+    '#{session_name}\t#{session_created}\t#{session_attached}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{window_activity}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{pane_title}\t#{@vampire_background_command}\t#{@vampire_background_started_at}\t#{pane_dead}\t#{pane_dead_status}\t#{@vampire_king_attempt_id}\t#{@vampire_king_task_started_at}',
   ]);
   assert.deepEqual(tmux.tmuxPromptSubmissionArguments('@12', 'First line\nsecond line', false), [
     'send-keys',
@@ -71,6 +71,8 @@ test('submits an automation prompt literally to one terminal before pressing Ent
   ]);
   assert.deepEqual(tmux.tmuxPromptEnterArguments('@12'), ['send-keys', '-t', '@12', 'Enter']);
   assert.throws(() => tmux.tmuxPromptSubmissionArguments('workspace', 'unsafe target', false), /terminal identifier/i);
+  assert.deepEqual(tmux.tmuxInterruptArguments('@12'), ['send-keys', '-t', '@12', 'Escape']);
+  assert.throws(() => tmux.tmuxInterruptArguments('workspace'), /terminal identifier/i);
 });
 
 test('labels workspaces with the lower-case executable at the front of the command', () => {
@@ -128,6 +130,8 @@ test('groups tmux windows while keeping background activity out of the main work
       startedAt: null,
       state: 'running',
       exitCode: null,
+      terminalKind: 'main',
+      kingAttemptId: null,
     },
     {
       id: '@1',
@@ -140,6 +144,8 @@ test('groups tmux windows while keeping background activity out of the main work
       startedAt: null,
       state: 'running',
       exitCode: null,
+      terminalKind: 'background',
+      kingAttemptId: null,
     },
   ]);
 });
@@ -197,6 +203,8 @@ test('describes managed background commands and their exit status', () => {
     startedAt: 1_712_345_678_000,
     state: 'running',
     exitCode: null,
+    terminalKind: 'background',
+    kingAttemptId: null,
   });
   assert.deepEqual(workspaces[1].terminals[0], {
     id: '@2',
@@ -209,6 +217,53 @@ test('describes managed background commands and their exit status', () => {
     startedAt: 1_712_345_680_000,
     state: 'exited',
     exitCode: 7,
+    terminalKind: 'background',
+    kingAttemptId: null,
+  });
+});
+
+test('identifies a dedicated King task terminal without treating it as the workspace main terminal', () => {
+  const attemptId = '11111111-1111-4111-8111-111111111111';
+  const [workspace] = tmux.parseTmuxSessions(
+    [
+      'workspace\t1\t0\t0\t@0\tmain\t1\t3\t%0\tzsh\t0\t',
+      [
+        'workspace',
+        '1',
+        '0',
+        '1',
+        '@1',
+        'king-task',
+        '0',
+        '5',
+        '%1',
+        'codex',
+        '0',
+        '',
+        '',
+        '',
+        '0',
+        '',
+        attemptId,
+        '1712345680000',
+      ].join('\t'),
+    ].join('\n')
+  );
+
+  assert.equal(workspace.foregroundProcess?.label, 'zsh');
+  assert.deepEqual(workspace.terminals[1], {
+    id: '@1',
+    index: 1,
+    name: 'king-task',
+    active: false,
+    lastOutputAt: 5_000,
+    foregroundProcess: { kind: 'command', label: 'codex' },
+    command: null,
+    startedAt: 1_712_345_680_000,
+    state: 'running',
+    exitCode: null,
+    terminalKind: 'king-task',
+    kingAttemptId: attemptId,
   });
 });
 

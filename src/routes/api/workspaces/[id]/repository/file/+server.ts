@@ -7,6 +7,7 @@ import {
   writeWorkspaceFile,
 } from '~/lib/features/repository/server/repository.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
+import { workspaceAcceptsOwnerWrites } from '~/lib/shared/contracts/workspace.ts';
 
 function repositoryErrorStatus(reason: string): number {
   if (reason === 'conflict') return 409;
@@ -27,9 +28,12 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   }
 }
 
-async function findWorkspace(id: string) {
+async function findWorkspace(id: string, ownerWrite = false) {
   const workspace = await findWorkspaceDirectory(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
+  if (ownerWrite && !workspaceAcceptsOwnerWrites(workspace)) {
+    throw error(409, 'Take control before changing this workspace.');
+  }
   return workspace;
 }
 
@@ -60,7 +64,7 @@ export const PUT: RequestHandler = async (event) => {
   if (typeof body.content !== 'string') throw error(400, 'File content is required.');
   if (body.version !== undefined && typeof body.version !== 'string') throw error(400, 'File version is invalid.');
 
-  const workspace = await findWorkspace(id);
+  const workspace = await findWorkspace(id, true);
   try {
     return json(
       await writeWorkspaceFile(workspace.cwd, path, body.content, {
@@ -81,7 +85,7 @@ export const POST: RequestHandler = async (event) => {
   if (typeof body.path !== 'string' || !body.path) throw error(400, 'File path is required.');
   if (typeof body.content !== 'string') throw error(400, 'File content is required.');
 
-  const workspace = await findWorkspace(id);
+  const workspace = await findWorkspace(id, true);
   try {
     return json(await writeWorkspaceFile(workspace.cwd, body.path, body.content, { createOnly: true }), {
       status: 201,
@@ -99,7 +103,7 @@ export const DELETE: RequestHandler = async (event) => {
   const path = event.url.searchParams.get('path');
   if (!path) throw error(400, 'File path is required.');
 
-  const workspace = await findWorkspace(id);
+  const workspace = await findWorkspace(id, true);
   try {
     return json(await deleteWorkspaceEntry(workspace.cwd, path, 'file'));
   } catch (cause) {

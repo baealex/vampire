@@ -14,7 +14,7 @@ export type WorkspaceAutomationOutcome = 'submitted' | 'failed' | 'uncertain' | 
 
 export type WorkspaceAutomation = {
   id: string;
-  kind: 'custom' | 'note';
+  kind: 'custom' | 'note' | 'king-bootstrap';
   name: string;
   prompt: string;
   schedule: WorkspaceAutomationSchedule;
@@ -62,7 +62,7 @@ export function isWorkspaceAutomation(value: unknown): value is WorkspaceAutomat
     typeof value.id === 'string' &&
     value.id.length > 0 &&
     value.id.length <= 128 &&
-    (value.kind === 'custom' || value.kind === 'note') &&
+    (value.kind === 'custom' || value.kind === 'note' || value.kind === 'king-bootstrap') &&
     typeof value.name === 'string' &&
     value.name.length > 0 &&
     value.name.length <= WORKSPACE_AUTOMATION_NAME_MAX_LENGTH &&
@@ -89,14 +89,22 @@ export function normalizeWorkspaceAutomations(value: unknown): WorkspaceAutomati
   if (!Array.isArray(value)) return [];
   const ids = new Set<string>();
   const automations: WorkspaceAutomation[] = [];
+  let userAutomationCount = 0;
+  let hasKingBootstrap = false;
   for (const candidate of value) {
     if (!isWorkspaceAutomation(candidate) || ids.has(candidate.id)) continue;
+    if (candidate.kind === 'king-bootstrap') {
+      if (hasKingBootstrap) continue;
+      hasKingBootstrap = true;
+    } else {
+      if (userAutomationCount >= MAX_WORKSPACE_AUTOMATIONS) continue;
+      userAutomationCount += 1;
+    }
     ids.add(candidate.id);
     automations.push({
       ...candidate,
       schedule: { ...candidate.schedule },
     });
-    if (automations.length >= MAX_WORKSPACE_AUTOMATIONS) break;
   }
   return automations;
 }
