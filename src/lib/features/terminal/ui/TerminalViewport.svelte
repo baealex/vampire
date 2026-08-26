@@ -275,7 +275,7 @@ onMount(() => {
     submit={(data) => runtime?.submit(data) ?? false}
     scrollToTop={() => runtime?.scrollToTop()}
     scrollToBottom={() => runtime?.scrollToBottom()}
-    onComposerFocus={() => runtime?.markComposerFocused()}
+    onComposerFocusChange={(focused) => runtime?.setComposerFocused(focused)}
     onImageSelected={(image) => void imagePaste.paste(image)}
     {fontSize}
     {minimumFontSize}
