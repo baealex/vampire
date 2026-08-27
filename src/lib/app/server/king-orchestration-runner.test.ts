@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { TmuxSession, TmuxTerminal } from '~/lib/features/terminal/server/tmux.ts';
+import type { TmuxSession, TmuxTerminal } from '~/lib/features/terminal/server/tmux.server.ts';
 import type { KingAttempt, KingInboxEvent, KingTask, KingWorkflowStore } from '~/lib/shared/contracts/king-workflow.ts';
-import { type KingOrchestrationDependencies, runKingOrchestrationTick } from './king-orchestration-runner.ts';
+import { type KingOrchestrationDependencies, runKingOrchestrationTick } from './king-orchestration-runner.server.ts';
 
 function attempt(status: KingAttempt['status']): KingAttempt {
   return {

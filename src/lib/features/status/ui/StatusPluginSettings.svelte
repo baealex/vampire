@@ -579,6 +579,7 @@ onDestroy(() => unsubscribe?.());
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-width: 0;
+  min-height: var(--control-height-md);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-control-background);

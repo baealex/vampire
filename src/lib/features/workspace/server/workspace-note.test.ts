@@ -5,7 +5,7 @@ import {
   normalizeWorkspaceNote,
   workspaceNoteByteLength,
   WORKSPACE_NOTE_PREVIEW_MAX_LENGTH,
-} from '~/lib/features/workspace/server/workspace-note.ts';
+} from '~/lib/features/workspace/server/workspace-note.server.ts';
 
 test('uses the first non-empty line as the workspace note preview', () => {
   assert.equal(createWorkspaceNotePreview('\n  Fix the adapter origin  \nSecond line'), 'Fix the adapter origin');

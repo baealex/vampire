@@ -40,7 +40,11 @@ Use this order for every release:
    use `Initial release.` for `v0.1.0`.
 
 The release title is exactly `vX.Y.Z`. Do not repeat the version in the body
-headline.
+headline. Draft the body locally at the ignored `docs/RELEASE_DRAFT.md` path,
+then create an annotated tag from that file with `--cleanup=verbatim`. Tagged
+releases are blocked when the tag message does not follow the required
+structure. Delete the local draft after a successful release. GitHub Releases
+are the historical source for published notes.
 
 ### Approved topical sections
 

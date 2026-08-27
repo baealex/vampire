@@ -3,7 +3,7 @@ import { onMount } from 'svelte';
 import Check from '@lucide/svelte/icons/check';
 import ExternalLink from '@lucide/svelte/icons/external-link';
 import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
-import Plus from '@lucide/svelte/icons/plus';
+import Settings2 from '@lucide/svelte/icons/settings-2';
 import type { StatusPluginMenuEntry, StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin.ts';
 import PopoverShell from '~/lib/shared/ui/PopoverShell.svelte';
 import StatusPluginSettings from './StatusPluginSettings.svelte';
@@ -193,13 +193,13 @@ $effect(() => {
       {/each}
       <button
         type="button"
-        class="status-plugin-add"
+        class="status-plugin-manage"
         onclick={() => (settingsOpen = true)}
         aria-label="Manage status widgets"
         aria-expanded={settingsOpen}
         title="Manage status widgets"
       >
-        <Plus size={14} strokeWidth={1.9} aria-hidden="true" />
+        <Settings2 size={14} strokeWidth={1.9} aria-hidden="true" />
       </button>
     </div>
   </div>
@@ -280,7 +280,7 @@ $effect(() => {
 :global(.status-plugin--problem > svg) {
   color: var(--color-danger-text);
 }
-.status-plugin-add {
+.status-plugin-manage {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -293,13 +293,13 @@ $effect(() => {
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
-.status-plugin-add:focus-visible {
+.status-plugin-manage:focus-visible {
   background: var(--color-surface-hover);
   color: var(--color-text);
   outline: none;
 }
 @media (hover: hover) {
-  .status-plugin-add:hover {
+  .status-plugin-manage:hover {
     background: var(--color-surface-hover);
     color: var(--color-text);
     outline: none;
@@ -496,11 +496,10 @@ $effect(() => {
     padding-inline: 0.48rem;
   }
   :global(.status-plugin-popover) {
-    width: min(22rem, calc(100vw - 1rem));
-    min-width: 0;
+    min-width: min(13rem, calc(100vw - 1rem));
     max-width: calc(100vw - 1rem);
   }
-  .status-plugin-add {
+  .status-plugin-manage {
     width: 2.65rem;
   }
 }

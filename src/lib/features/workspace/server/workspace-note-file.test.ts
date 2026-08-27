@@ -5,15 +5,24 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   migrateManagedWorkspaceNotes,
-  queueManagedWorkspaceNoteSummary,
-} from '~/lib/features/workspace/server/workspace-automations.ts';
-import { managedWorkspaceNotePath } from '~/lib/features/workspace/server/workspace-note-file.ts';
-import { findManagedWorkspaceNote, updateManagedWorkspaceNote } from '~/lib/app/server/workspace-registry.ts';
+  queueManagedWorkspaceNoteUpdate,
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
+import {
+  managedWorkspaceNoteMigrationBackupPath,
+  managedWorkspaceNotePath,
+} from '~/lib/features/workspace/server/workspace-note-file.server.ts';
+import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.server.ts';
+import {
+  findManagedWorkspaceNote,
+  removeManagedWorkspace,
+  updateManagedWorkspaceNote,
+} from '~/lib/app/server/workspace-registry.server.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+  writeWorkspaceStore,
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 async function useTemporaryStateDirectory(
   t: test.TestContext,
@@ -35,7 +44,7 @@ async function useTemporaryStateDirectory(
   return { directory, stateDirectory };
 }
 
-test('the note summary action exposes the live state-directory note without a JSON mirror', async (t) => {
+test('the note agent action uses only the custom instructions and exposes the live note path', async (t) => {
   const { directory, stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-automation-');
   const workspace = join(directory, 'workspace');
   await mkdir(workspace);
@@ -58,16 +67,14 @@ test('the note summary action exposes the live state-directory note without a JS
   const notePath = managedWorkspaceNotePath('workspace-1');
   assert.equal(notePath, join(stateDirectory, 'workspace-1.note.md'));
   await writeFile(notePath, 'Existing context\n');
-  const queued = await queueManagedWorkspaceNoteSummary('workspace-1', 1_000);
+  const instructions = 'Keep the existing wording and add only the current deployment blocker.';
+  const queued = await queueManagedWorkspaceNoteUpdate('workspace-1', instructions, 1_000);
   assert.equal(queued.notePath, notePath);
   assert.equal(await readFile(notePath, 'utf8'), 'Existing context\n');
-  assert.match(queued.automation.prompt, /Done/);
-  assert.match(queued.automation.prompt, /Next/);
-  assert.match(
-    queued.automation.prompt,
-    /Infer the document language from the user's language and the conversation context/
-  );
+  assert.match(queued.automation.prompt, new RegExp(instructions.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(queued.automation.prompt, /first non-empty line|level-two headings|## Next|## Done/);
   assert.match(queued.automation.prompt, new RegExp(notePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  await assert.rejects(queueManagedWorkspaceNoteUpdate('workspace-1', '   ', 1_001), /Agent instructions/);
   await writeFile(notePath, '## Done\n\nBuilt the automation queue.\n\n## Next\n\nVerify the UI.\n');
   assert.equal(
     await findManagedWorkspaceNote('workspace-1'),
@@ -77,14 +84,15 @@ test('the note summary action exposes the live state-directory note without a JS
   assert.equal(await findManagedWorkspaceNote('workspace-1'), '');
 });
 
-test('startup migration copies every compatibility JSON note once and removes the compatibility mirror', async (t) => {
+test('startup migration preserves notes from the legacy sessions collection before removing the JSON mirror', async (t) => {
   const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-migration-');
   await writeFile(managedWorkspaceNotePath('workspace-one'), 'Stale file from before rollback\n');
+  await writeFile(managedWorkspaceNotePath('workspace-two'), '');
   await writeFile(
     join(stateDirectory, 'sessions.json'),
     JSON.stringify({
       version: WORKSPACE_STATE_VERSION,
-      workspaces: [
+      sessions: [
         {
           id: 'workspace-one',
           tmuxSession: 'vampire-one',
@@ -99,18 +107,66 @@ test('startup migration copies every compatibility JSON note once and removes th
           createdAt: 2,
           note: 'Compatibility two',
         },
+        {
+          id: 'workspace-three',
+          tmuxSession: 'vampire-three',
+          cwd: '/tmp/three',
+          createdAt: 3,
+          note: 'Compatibility three',
+        },
       ],
     })
   );
 
-  assert.equal(await migrateManagedWorkspaceNotes(), 2);
+  assert.equal(await migrateManagedWorkspaceNotes(), 3);
   assert.equal(await readFile(managedWorkspaceNotePath('workspace-one'), 'utf8'), 'Stale file from before rollback\n');
   assert.equal(await readFile(managedWorkspaceNotePath('workspace-two'), 'utf8'), 'Compatibility two\n');
-  assert.equal((await readWorkspaceStore()).workspaces.length, 2);
+  assert.equal(await readFile(managedWorkspaceNotePath('workspace-three'), 'utf8'), 'Compatibility three\n');
+  const backup = (await readWorkspaceStateFile(managedWorkspaceNoteMigrationBackupPath())) as {
+    sessions: Array<{ note?: string }>;
+  };
+  assert.deepEqual(
+    backup.sessions.map((workspace) => workspace.note),
+    ['Compatibility one', 'Compatibility two', 'Compatibility three']
+  );
+  const migrated = (await readWorkspaceStateFile()) as {
+    sessions?: unknown;
+    workspaces: Array<{ note?: string }>;
+  };
+  assert.equal(migrated.sessions, undefined);
+  assert.equal(migrated.workspaces.length, 3);
+  assert.equal(
+    migrated.workspaces.some((workspace) => 'note' in workspace),
+    false
+  );
   assert.equal(await migrateManagedWorkspaceNotes(), 0);
 
   await writeFile(managedWorkspaceNotePath('workspace-two'), 'Latest from the file\n');
   assert.deepEqual((await readWorkspaceStore()).workspaces[1]?.automations, []);
+});
+
+test('startup migration also preserves notes from the compatibility workspaces collection', async (t) => {
+  const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-workspace-note-migration-');
+  await writeFile(
+    join(stateDirectory, 'sessions.json'),
+    JSON.stringify({
+      version: WORKSPACE_STATE_VERSION,
+      workspaces: [
+        {
+          id: 'workspace-one',
+          tmuxSession: 'vampire-one',
+          cwd: '/tmp/one',
+          createdAt: 1,
+          note: 'Compatibility workspace note',
+        },
+      ],
+    })
+  );
+
+  assert.equal(await migrateManagedWorkspaceNotes(), 1);
+  assert.equal(await readFile(managedWorkspaceNotePath('workspace-one'), 'utf8'), 'Compatibility workspace note\n');
+  const migrated = (await readWorkspaceStateFile()) as { workspaces: Array<{ note?: string }> };
+  assert.equal('note' in migrated.workspaces[0]!, false);
 });
 
 test('a compatibility JSON note blocks migration when its note file cannot be created', async (t) => {
@@ -119,7 +175,7 @@ test('a compatibility JSON note blocks migration when its note file cannot be cr
     join(stateDirectory, 'sessions.json'),
     JSON.stringify({
       version: WORKSPACE_STATE_VERSION,
-      workspaces: [
+      sessions: [
         {
           id: 'blocked-note',
           tmuxSession: 'vampire-blocked-note',
@@ -132,10 +188,47 @@ test('a compatibility JSON note blocks migration when its note file cannot be cr
   );
   await mkdir(managedWorkspaceNotePath('blocked-note'));
 
-  await assert.rejects(migrateManagedWorkspaceNotes(), /not a regular file/);
+  await assert.rejects(installWorkspaceAutomationRunner(), /not a regular file/);
   await assert.rejects(updateManagedWorkspaceNote('blocked-note', 'Still editable'), /not a regular file/);
-  const raw = (await readWorkspaceStateFile()) as { workspaces: Array<{ note?: string }> };
-  assert.equal(raw.workspaces[0]?.note, 'Compatibility value');
+  const raw = (await readWorkspaceStateFile()) as { sessions: Array<{ note?: string }> };
+  assert.equal(raw.sessions[0]?.note, 'Compatibility value');
+});
+
+test('removing a workspace deletes its note only after the registry update can proceed', async (t) => {
+  const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-removal-');
+  const storedWorkspace = {
+    id: 'workspace-remove-note',
+    tmuxSession: 'vampire-remove-note',
+    cwd: tmpdir(),
+    createdAt: 1,
+    lastActiveAt: 1,
+    automations: [],
+    favoriteCommands: [],
+    startupProfileId: null,
+  };
+  await writeWorkspaceStore({
+    version: WORKSPACE_STATE_VERSION,
+    launchProfiles: [],
+    workspaces: [storedWorkspace],
+  });
+  await updateManagedWorkspaceNote(storedWorkspace.id, 'Delete this note with the workspace.');
+  const notePath = managedWorkspaceNotePath(storedWorkspace.id);
+
+  await removeManagedWorkspace(storedWorkspace.id);
+
+  assert.equal((await readWorkspaceStore()).workspaces.length, 0);
+  await assert.rejects(readFile(notePath, 'utf8'), { code: 'ENOENT' });
+
+  await writeWorkspaceStore({
+    version: WORKSPACE_STATE_VERSION,
+    launchProfiles: [],
+    workspaces: [storedWorkspace],
+  });
+  await mkdir(notePath);
+
+  await assert.rejects(removeManagedWorkspace(storedWorkspace.id), /not a regular file/);
+  assert.equal((await readWorkspaceStore()).workspaces.length, 1);
+  assert.equal((await readFile(join(stateDirectory, 'sessions.json'), 'utf8')).includes(storedWorkspace.id), true);
 });
 
 test('compatibility workspace identifiers cannot escape the Vampire state directory', async (t) => {

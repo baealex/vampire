@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import { readWorkspaceDirectory, WorkspaceRootError } from '~/lib/features/system/server/workspace-roots.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { readWorkspaceDirectory, WorkspaceRootError } from '~/lib/features/system/server/workspace-roots.server.ts';
 
 function errorStatus(reason: WorkspaceRootError['reason']): number {
   if (reason === 'outside-root') return 403;

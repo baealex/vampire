@@ -5,24 +5,28 @@ import Button from './Button.svelte';
 
 const emptyChildren = () => undefined;
 
-test('keeps button variants and activation in the shared component', async () => {
+test('defaults to a non-submitting button and forwards activation', async () => {
   const user = userEvent.setup();
   const onclick = vi.fn();
+  const onsubmit = vi.fn((event: SubmitEvent) => event.preventDefault());
+  const form = document.createElement('form');
+  form.id = 'settings-form';
+  form.addEventListener('submit', onsubmit);
+  document.body.append(form);
 
   render(Button, {
-    variant: 'primary',
-    size: 'lg',
+    form: form.id,
     ariaLabel: 'Save changes',
     onclick,
     children: emptyChildren,
   });
 
   const button = screen.getByRole('button', { name: 'Save changes' });
-  expect(button).toHaveClass('vampire-button', 'vampire-button--primary', 'vampire-button--lg');
-
   await user.click(button);
 
   expect(onclick).toHaveBeenCalledTimes(1);
+  expect(onsubmit).not.toHaveBeenCalled();
+  form.remove();
 });
 
 test('exposes disabled state through the shared button component', () => {

@@ -32,7 +32,7 @@ let {
   onLogout,
   onUpdateNote,
   onLoadNote,
-  onSummarizeNote,
+  onUpdateNoteWithAgent,
   onInputActivity,
   onOutputActivity,
   onTerminalPresentationChange = () => undefined,
@@ -60,7 +60,7 @@ let {
   onLogout?: () => void;
   onUpdateNote: (workspaceId: string, note: string) => Promise<void>;
   onLoadNote: (workspaceId: string, refresh?: boolean) => Promise<string>;
-  onSummarizeNote: (workspaceId: string) => Promise<{ notePath: string }>;
+  onUpdateNoteWithAgent: (workspaceId: string, instructions: string) => Promise<{ notePath: string }>;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onTerminalPresentationChange?: (workspaceId: string, presented: boolean) => void;
@@ -264,7 +264,7 @@ onMount(() => {
           onClose={() => repository.closeViewer()}
           onEditFile={editRepositoryFile}
           onRequestDiscardChange={(path) => repository.requestDiscardChange(path)}
-          onFileSaved={(file) => repository.handleFileSaved(file)}
+          onFileSaved={(file, dirty) => repository.handleFileSaved(file, dirty)}
           onFileDirtyChange={(dirty) => (repository.fileDirty = dirty)}
         />
       {/if}
@@ -318,7 +318,7 @@ onMount(() => {
       panel
       getNote={(refresh) => onLoadNote(workspace.id, refresh)}
       save={(note) => onUpdateNote(workspace.id, note)}
-      summarize={() => onSummarizeNote(workspace.id)}
+      updateWithAgent={(instructions) => onUpdateNoteWithAgent(workspace.id, instructions)}
       close={closeNotePanel}
     />
   </aside>

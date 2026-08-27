@@ -36,10 +36,52 @@ try {
     throw new Error(`Installed vampire@${manifest.version}; expected vampire@${expectedVersion}.`);
   }
 
+  await verifyInstalledServer(
+    installedPackageDirectory,
+    workspaceDirectory,
+    stateDirectory,
+    smokeToken,
+    undefined,
+    verifyAuthentication
+  );
+  await verifyInstalledServer(
+    installedPackageDirectory,
+    workspaceDirectory,
+    stateDirectory,
+    smokeToken,
+    'https://vampire.example.com',
+    verifyPublicOrigin
+  );
+
+  console.log(`Verified installed vampire@${expectedVersion} from ${packageSource}.`);
+} finally {
+  await rm(temporaryDirectory, { recursive: true, force: true });
+}
+
+async function verifyInstalledServer(
+  installedPackageDirectory: string,
+  workspaceDirectory: string,
+  stateDirectory: string,
+  token: string,
+  publicOrigin: string | undefined,
+  verify: (baseUrl: string, token: string, publicOrigin?: string) => Promise<void>
+): Promise<void> {
   const port = await availablePort();
-  const child = spawn(process.execPath, [join(installedPackageDirectory, 'bin', 'vampire.js')], {
+  const options = [
+    join(installedPackageDirectory, 'bin', 'vampire.js'),
+    '--host',
+    '127.0.0.1',
+    '--port',
+    String(port),
+    '--state-dir',
+    stateDirectory,
+    '--workspace-root',
+    workspaceDirectory,
+  ];
+  if (publicOrigin) options.push('--origin', publicOrigin);
+  const child = spawn(process.execPath, options, {
     cwd: workspaceDirectory,
-    env: runtimeEnvironment(port, stateDirectory, workspaceDirectory, smokeToken),
+    env: runtimeEnvironment(token),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
@@ -53,14 +95,10 @@ try {
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
     await waitForHttpServer(child, `${baseUrl}/`, () => output);
-    await verifyAuthentication(baseUrl, smokeToken);
+    await verify(baseUrl, token, publicOrigin);
   } finally {
     await stopProcess(child);
   }
-
-  console.log(`Verified installed vampire@${expectedVersion} from ${packageSource}.`);
-} finally {
-  await rm(temporaryDirectory, { recursive: true, force: true });
 }
 
 async function installPackage(source: string, directory: string): Promise<void> {
@@ -126,24 +164,27 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-function runtimeEnvironment(port: number, statePath: string, workspacePath: string, token: string): NodeJS.ProcessEnv {
+function runtimeEnvironment(token: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
-    VAMPIRE_HOST: '127.0.0.1',
-    VAMPIRE_PORT: String(port),
-    VAMPIRE_STATE_DIR: statePath,
     VAMPIRE_TOKEN: token,
-    VAMPIRE_WORKSPACE_ROOTS: workspacePath,
   };
+  delete environment.VAMPIRE_PUBLIC_ORIGIN;
   delete environment.VAMPIRE_ADAPTER_ORIGIN;
   delete environment.VAMPIRE_ADAPTER_PROTOCOL_HEADER;
+  delete environment.VAMPIRE_ADAPTER_HOST_HEADER;
+  delete environment.VAMPIRE_ADAPTER_PORT_HEADER;
   return environment;
 }
 
 async function verifyAuthentication(baseUrl: string, token: string): Promise<void> {
   const login = await fetch(`${baseUrl}/api/login`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      // Direct clients must not be able to opt themselves into HTTPS semantics.
+      'x-forwarded-proto': 'https',
+    },
     body: JSON.stringify({ token }),
   });
   if (!login.ok) throw new Error(`Packaged CLI rejected its configured access token with status ${login.status}.`);
@@ -158,6 +199,30 @@ async function verifyAuthentication(baseUrl: string, token: string): Promise<voi
   const workspaces = await fetch(`${baseUrl}/api/workspaces`, { headers: { cookie } });
   if (!workspaces.ok) {
     throw new Error(`Packaged CLI did not accept its authentication cookie; status ${workspaces.status}.`);
+  }
+}
+
+async function verifyPublicOrigin(baseUrl: string, token: string, publicOrigin?: string): Promise<void> {
+  if (!publicOrigin) throw new Error('A public origin is required for the reverse-proxy smoke test.');
+
+  const rejected = await fetch(`${baseUrl}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseUrl },
+    body: JSON.stringify({ token }),
+  });
+  if (rejected.status !== 403) {
+    throw new Error(`Packaged CLI accepted a login from the wrong origin with status ${rejected.status}.`);
+  }
+
+  const login = await fetch(`${baseUrl}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: publicOrigin },
+    body: JSON.stringify({ token }),
+  });
+  if (!login.ok) throw new Error(`Packaged CLI rejected its public origin with status ${login.status}.`);
+  const setCookie = login.headers.get('set-cookie');
+  if (!setCookie || !/(?:^|;\s*)Secure(?:;|$)/i.test(setCookie)) {
+    throw new Error('Packaged CLI did not mark its public HTTPS authentication cookie as Secure.');
   }
 }
 

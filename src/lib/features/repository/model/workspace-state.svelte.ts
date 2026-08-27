@@ -1,6 +1,6 @@
-import { RequestError } from '~/lib/shared/api/request';
+import { RequestError } from '~/lib/shared/api/request.ts';
 import type { WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
-import { RepositoryClient } from '../api/client';
+import { RepositoryClient } from '../api/client.ts';
 import type {
   RepositoryChange,
   RepositoryDirectoryListing,
@@ -10,9 +10,9 @@ import type {
   WorkspaceFile,
   WorkspaceMoveResult,
   WorkspaceUploadConflict,
-} from '~/lib/shared/contracts/repository';
-import type { WorkspaceUploadCandidate, WorkspaceUploadSelection } from '../api/upload';
-import { workspaceUploadPath } from '../api/upload';
+} from '~/lib/shared/contracts/repository.ts';
+import type { WorkspaceUploadCandidate, WorkspaceUploadSelection } from '../api/upload.ts';
+import { workspaceUploadPath } from '../api/upload.ts';
 
 export type RepositoryDeleteTarget = {
   path: string;
@@ -162,6 +162,7 @@ export class RepositoryWorkspaceState {
 
   confirmDiscardChanges(): Promise<boolean> {
     if (!this.fileDirty) return Promise.resolve(true);
+    if (this.#discardChangesResolver) return Promise.resolve(false);
     this.discardChangesPrompt = true;
     return new Promise((resolve) => {
       this.#discardChangesResolver = resolve;
@@ -567,9 +568,9 @@ export class RepositoryWorkspaceState {
     this.deleteTarget = undefined;
   }
 
-  handleFileSaved(saved: WorkspaceFile) {
+  handleFileSaved(saved: WorkspaceFile, dirty = false) {
     this.openedFile = saved;
-    this.fileDirty = false;
+    this.fileDirty = dirty;
     void this.refresh();
   }
 

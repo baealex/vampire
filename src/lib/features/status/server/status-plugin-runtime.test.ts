@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.ts';
-import type { StatusPluginCommandOptions } from '~/lib/features/status/server/status-plugin-command.ts';
+import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
+import type { StatusPluginCommandOptions } from '~/lib/features/status/server/status-plugin-command.server.ts';
 import {
   STATUS_PLUGIN_STATE_VERSION,
   type StatusPluginStore,
-} from '~/lib/features/status/server/status-plugin-store.ts';
+} from '~/lib/features/status/server/status-plugin-store.server.ts';
 import {
   STATUS_PLUGIN_CPU_COMMAND,
   STATUS_PLUGIN_MEMORY_COMMAND,

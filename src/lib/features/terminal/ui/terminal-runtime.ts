@@ -88,6 +88,7 @@ interface TerminalHistoryAnchor {
 export class TerminalRuntime {
   #entryClaimPending = true;
   #composing = false;
+  #composerFocused = false;
   #compositionSettleTimer: ReturnType<typeof setTimeout> | undefined;
   #connection: TerminalConnection | undefined;
   #deferredSnapshot: DeferredTerminalSnapshot | undefined;
@@ -112,6 +113,7 @@ export class TerminalRuntime {
   #lastOutputActivityNotice = 0;
   #lastSentSize = '';
   #compatibilityGeometryConnectionId = 0;
+  #mobileInputSize: TerminalSize | undefined;
   #openingDelay: ReturnType<typeof setTimeout> | undefined;
   #options: TerminalRuntimeOptions;
   #outputActive = false;
@@ -187,8 +189,11 @@ export class TerminalRuntime {
     this.#terminal?.focus();
   }
 
-  markComposerFocused(): void {
+  setComposerFocused(focused: boolean): void {
+    this.#composerFocused = focused;
     this.#updateState({ directInputFocused: false });
+    if (focused) this.#lockMobileInputSize();
+    else this.#releaseMobileInputSize();
   }
 
   scrollToTop(): void {
@@ -471,10 +476,12 @@ export class TerminalRuntime {
     if (!textarea) return;
     const handleFocus = () => {
       this.#terminalInputFocused = true;
+      this.#lockMobileInputSize();
       if (desktopInput) this.#updateState({ directInputFocused: true });
     };
     const handleBlur = () => {
       this.#terminalInputFocused = false;
+      this.#releaseMobileInputSize();
       this.#updateState({ directInputFocused: false });
       this.#finishComposition();
     };
@@ -694,14 +701,20 @@ export class TerminalRuntime {
     const fitAddon = this.#fit;
     if (!fitAddon) return;
     const connection = this.#connection;
-    const dimensions =
-      connection && this.#compatibilityGeometryConnectionId === connection.connectionId
+    const proposed = terminalSizeForVisibleArea(fitAddon);
+    if (!proposed) return;
+    const mobileInputSize = this.#mobileInputSize;
+    const preserveMobileRows = mobileInputSize !== undefined && proposed.columns === mobileInputSize.columns;
+    const dimensions = preserveMobileRows
+      ? mobileInputSize
+      : connection && this.#compatibilityGeometryConnectionId === connection.connectionId
         ? fitTerminalToVisibleArea(fitAddon, (columns, rows) => {
             const terminal = this.#terminal;
             if (terminal) resizeTerminalWithoutReflow(terminal, columns, rows);
           })
-        : terminalSizeForVisibleArea(fitAddon);
+        : proposed;
     if (!dimensions) return;
+    if (this.#mobileInputSize && !preserveMobileRows) this.#mobileInputSize = { ...dimensions };
     this.#requestedSize = dimensions;
     this.#updateControlSizeMismatch();
     const key = `${dimensions.columns}x${dimensions.rows}`;
@@ -733,6 +746,24 @@ export class TerminalRuntime {
 
   #resizeSettleDelay(): number {
     return this.#touchLayout || this.#terminalInputFocused ? COMPACT_RESIZE_SETTLE_MS : DESKTOP_RESIZE_SETTLE_MS;
+  }
+
+  #lockMobileInputSize(): void {
+    if (!this.#touchLayout || this.#mobileInputSize) return;
+    const terminal = this.#terminal;
+    const size =
+      this.#requestedSize ??
+      (terminal && terminal.cols > 0 && terminal.rows > 0
+        ? { columns: terminal.cols, rows: terminal.rows }
+        : undefined);
+    if (size) this.#mobileInputSize = { ...size };
+    this.#cancelScheduledResize();
+  }
+
+  #releaseMobileInputSize(): void {
+    if (!this.#touchLayout || this.#terminalInputFocused || this.#composerFocused) return;
+    this.#mobileInputSize = undefined;
+    this.#scheduleResize();
   }
 
   #refreshTerminalDisplay(clearTextureAtlas = false): void {

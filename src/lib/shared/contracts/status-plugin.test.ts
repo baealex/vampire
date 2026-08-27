@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
 import {
   createStatusPluginPreset,
   defaultStatusPlugins,
@@ -12,6 +17,56 @@ import {
   STATUS_PLUGIN_MEMORY_COMMAND,
   STATUS_PLUGIN_PRESETS,
 } from '~/lib/shared/contracts/status-plugin.ts';
+
+const run = promisify(execFile);
+
+function commandProgram(command: string): string {
+  const opening = "node --input-type=module <<'VAMPIRE_STATUS'\n";
+  const closing = '\nVAMPIRE_STATUS';
+  assert.ok(command.startsWith(opening) && command.endsWith(closing));
+  return command.slice(opening.length, -closing.length);
+}
+
+async function runClaudeLimitPreset(kind: 'session' | 'workspace'): Promise<Record<string, unknown>> {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-claude-limit-'));
+  const mockFetch = join(directory, 'mock-fetch.mjs');
+  try {
+    await writeFile(
+      mockFetch,
+      `globalThis.fetch = async () => ({
+  ok: true,
+  json: async () => JSON.parse(process.env.VAMPIRE_CLAUDE_USAGE_PAYLOAD)
+});\n`
+    );
+    const payload = {
+      limits: [
+        { kind, percent: 21, resets_at: '2026-08-26T10:00:00Z' },
+        { kind: 'weekly_all', percent: 34, resets_at: '2026-09-01T10:00:00Z' },
+        {
+          kind: 'weekly_scoped',
+          percent: 13,
+          resets_at: '2026-09-01T10:00:00Z',
+          scope: { model: { display_name: 'Fable' } },
+        },
+      ],
+    };
+    const { stdout } = await run(
+      process.execPath,
+      ['--input-type=module', '--eval', commandProgram(STATUS_PLUGIN_CLAUDE_LIMIT_COMMAND)],
+      {
+        env: {
+          ...process.env,
+          CLAUDE_CODE_OAUTH_TOKEN: 'test-token',
+          NODE_OPTIONS: `--import=${mockFetch}`,
+          VAMPIRE_CLAUDE_USAGE_PAYLOAD: JSON.stringify(payload),
+        },
+      }
+    );
+    return JSON.parse(stdout) as Record<string, unknown>;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 test('treats CPU and RAM as ordinary default preset instances', () => {
   const plugins = defaultStatusPlugins();
@@ -61,6 +116,19 @@ test('offers editable Codex and Claude limit API scripts', () => {
   assert.match(STATUS_PLUGIN_CODEX_LIMIT_COMMAND, /badge: bucket\.limitId === 'codex' \? 'Overall' : 'Model'/);
   assert.match(STATUS_PLUGIN_CLAUDE_LIMIT_COMMAND, /\{ text: 'Models', badge: 'Model'/);
   assert.ok(STATUS_PLUGIN_PRESETS.every((preset) => preset.command.includes('\n')));
+});
+
+test('labels current and compatibility Claude session limits as the 5-hour window', async () => {
+  for (const kind of ['session', 'workspace'] as const) {
+    const output = await runClaudeLimitPreset(kind);
+    assert.equal(output.text, '5h 21% · 7d 34%');
+    assert.deepEqual(
+      (output.menu as Array<{ text?: string; type: string }>)
+        .filter((item) => item.type === 'item')
+        .map((item) => item.text),
+      ['5h', '7d', 'Fable']
+    );
+  }
 });
 
 test('accepts bounded multiline scripts and rejects unsafe configuration', () => {

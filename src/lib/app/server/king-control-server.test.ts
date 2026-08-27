@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
-import { ensureManagedKingWorkspace } from '~/lib/features/workspace/server/king-workspace.ts';
+import { ensureManagedKingWorkspace } from '~/lib/features/workspace/server/king-workspace.server.ts';
 import type { KingControlRequest } from '~/lib/shared/contracts/king-workflow.ts';
-import { installKingControlServer } from './king-control-server.ts';
+import { installKingControlServer } from './king-control-server.server.ts';
 
 const execFile = promisify(execFileCallback);
 

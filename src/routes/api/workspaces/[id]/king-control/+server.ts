@@ -3,9 +3,9 @@ import {
   declineWorkspaceKingControl,
   handOverWorkspaceToKing,
   takeControlFromKing,
-} from '~/lib/app/server/workspace-king-control.ts';
-import { WorkspaceMutationError } from '~/lib/app/server/workspace-registry.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.ts';
+} from '~/lib/app/server/workspace-king-control.server.ts';
+import { WorkspaceMutationError } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 
 type ControlAction = 'handoff' | 'decline' | 'take-control';
 

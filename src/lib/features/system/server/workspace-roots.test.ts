@@ -8,7 +8,7 @@ import {
   readWorkspaceDirectory,
   resolveWorkspaceDirectory,
   WorkspaceRootError,
-} from '~/lib/features/system/server/workspace-roots.ts';
+} from '~/lib/features/system/server/workspace-roots.server.ts';
 
 function workspaceRoot(path: string) {
   return { id: 'root-1', label: 'Test root', path };

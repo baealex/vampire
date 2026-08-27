@@ -11,8 +11,8 @@ import {
   managedKingWorkspacePath,
   reconcileManagedKingWorkspaceContract,
   scheduleKingBootstrapAutomation,
-} from './king-workspace.ts';
-import { readWorkspaceStore, writeWorkspaceStore } from './workspace-store.ts';
+} from './king-workspace.server.ts';
+import { readWorkspaceStore, writeWorkspaceStore } from './workspace-store.server.ts';
 
 async function useTemporaryStateDirectory(t: test.TestContext): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-king-workspace-'));

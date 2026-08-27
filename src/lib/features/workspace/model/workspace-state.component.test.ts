@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
-import { WorkspaceState } from './workspace-state.svelte.ts';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import { WorkspaceState } from './workspace-state.svelte.ts';
 
 function workspace(id: string, overrides: Partial<ManagedWorkspace> = {}): ManagedWorkspace {
   return {
@@ -103,5 +103,44 @@ test('creates King with the selected launch profile and opens the King workspace
   expect(navigate).toHaveBeenCalledWith('/workspaces/king');
   expect(current.creatingKing).toBe(false);
   expect(current.kingCreateError).toBe('');
+  current.dispose();
+});
+
+test('places an isolated workspace below its source in shared manual order', async () => {
+  const source = workspace('source');
+  const tail = workspace('tail');
+  const isolated = workspace('isolated', { workspaceKind: 'worktree' });
+  let persistedOrder = ['source', 'tail'];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const path = String(input);
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    if (path === '/api/workspaces/source/worktrees' && init?.method === 'POST') {
+      return json({ workspace: isolated });
+    }
+    if (path === '/api/workspace-preferences' && init?.method === 'PUT') {
+      const preferences = JSON.parse(String(init.body)) as {
+        workspaceOrderMode: 'manual';
+        manualWorkspaceOrder: string[];
+      };
+      persistedOrder = preferences.manualWorkspaceOrder;
+      return json({ preferences });
+    }
+    if (path === '/api/workspaces') {
+      return json({
+        workspaces: [source, tail, isolated],
+        preferences: { workspaceOrderMode: 'manual', manualWorkspaceOrder: persistedOrder },
+      });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  const current = state();
+  current.applyWorkspaceSnapshot([source, tail]);
+  current.applyWorkspacePreferences({ workspaceOrderMode: 'manual', manualWorkspaceOrder: persistedOrder });
+
+  await expect(current.createIsolatedWorkspace('source', 'Parallel task')).resolves.toEqual({ ok: true });
+
+  await vi.waitFor(() => expect(persistedOrder).toEqual(['source', 'isolated', 'tail']));
+  expect(current.displayedWorkspaces.map((item) => item.id)).toEqual(['source', 'isolated', 'tail']);
   current.dispose();
 });

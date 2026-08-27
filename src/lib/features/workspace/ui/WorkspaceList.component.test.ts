@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { expect, test, vi } from 'vitest';
-import WorkspaceList from './WorkspaceList.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import WorkspaceList from './WorkspaceList.svelte';
 
 function workspace(id: string, overrides: Partial<ManagedWorkspace> = {}): ManagedWorkspace {
   return {
@@ -21,6 +21,27 @@ function workspace(id: string, overrides: Partial<ManagedWorkspace> = {}): Manag
     agentState: null,
     isGitRepository: false,
     ...overrides,
+  };
+}
+
+function props(currentWorkspace: ManagedWorkspace, workspaceAction?: 'close') {
+  return {
+    workspaces: [currentWorkspace],
+    displayedWorkspaces: [currentWorkspace],
+    selectedWorkspaceId: currentWorkspace.id,
+    activityRecords: new Map(),
+    errorMessage: '',
+    workspaceOrderMode: 'activity' as const,
+    onReorder: vi.fn(),
+    onOpen: vi.fn(),
+    workspaceAction,
+    onCloseWorkspace: vi.fn(async () => ({ ok: true })),
+    onRemoveWorkspace: vi.fn(async () => ({ ok: true })),
+    onSettings: vi.fn(),
+    onAlias: vi.fn(),
+    onNewWorktree: vi.fn(),
+    onAutomations: vi.fn(),
+    onNewWorkspace: vi.fn(),
   };
 }
 
@@ -107,4 +128,26 @@ test('shows delegated King agents on their owning workspace instead of counting 
   expect(screen.getByText('1 King agent')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /1 King agent; 0 background processes/ })).toBeInTheDocument();
   expect(screen.queryByText('1 background')).not.toBeInTheDocument();
+});
+
+test('keeps Ended collapsed while the selected workspace is being explicitly closed', async () => {
+  const running = workspace('workspace-1');
+  const view = render(WorkspaceList, props(running));
+
+  await view.rerender(props({ ...running, state: 'missing' }, 'close'));
+
+  const endedToggle = screen.getByRole('button', { name: /Ended/ });
+  await waitFor(() => expect(endedToggle).toHaveAttribute('aria-expanded', 'false'));
+  expect(screen.queryByRole('button', { name: /Open ended/ })).not.toBeInTheDocument();
+});
+
+test('reveals Ended when the selected workspace terminates outside the close action', async () => {
+  const running = workspace('workspace-1');
+  const view = render(WorkspaceList, props(running));
+
+  await view.rerender(props({ ...running, state: 'missing' }));
+
+  const endedToggle = screen.getByRole('button', { name: /Ended/ });
+  await waitFor(() => expect(endedToggle).toHaveAttribute('aria-expanded', 'true'));
+  expect(screen.getByRole('button', { name: /Open ended/ })).toBeInTheDocument();
 });

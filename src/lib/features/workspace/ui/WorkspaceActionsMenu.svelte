@@ -6,6 +6,7 @@ import LogOut from '@lucide/svelte/icons/log-out';
 import Tags from '@lucide/svelte/icons/tags';
 import SquarePlay from '@lucide/svelte/icons/square-play';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import DropdownMenuGroup from '~/lib/shared/ui/DropdownMenuGroup.svelte';
 import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
@@ -110,6 +111,9 @@ async function confirmSelectedAction() {
           {:else}
             The workspace will be removed from Vampire. Project files stay on disk.
           {/if}
+          {#if confirming === 'remove' && workspace.notePreview}
+            Its Vampire note will also be deleted.
+          {/if}
         </p>
         <div class="vampire-menu-confirm-actions">
           <DropdownMenuItem align="center" onSelect={() => confirming = undefined}> Cancel </DropdownMenuItem>
@@ -127,39 +131,49 @@ async function confirmSelectedAction() {
         {/if}
       </div>
     {:else}
-      <DropdownMenuItem onSelect={() => onAlias(workspace)}>
-        <Tags size={16} strokeWidth={1.8} aria-hidden="true" />
-        {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
-      </DropdownMenuItem>
+      <DropdownMenuGroup label="Configuration">
+        <DropdownMenuItem onSelect={() => onAlias(workspace)}>
+          <Tags size={16} strokeWidth={1.8} aria-hidden="true" />
+          {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onSettings(workspace)}>
+          <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
+          Startup profile
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
       {#if workspace.isGitRepository && workspace.workspaceAvailable !== false}
-        <DropdownMenuItem onSelect={() => onNewWorktree(workspace)}>
-          <GitBranchPlus size={16} strokeWidth={1.8} aria-hidden="true" />
-          New isolated workspace
-        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup label="Git">
+          <DropdownMenuItem onSelect={() => onNewWorktree(workspace)}>
+            <GitBranchPlus size={16} strokeWidth={1.8} aria-hidden="true" />
+            New isolated workspace
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       {/if}
-      <DropdownMenuItem onSelect={() => onSettings(workspace)}>
-        <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
-        Startup profile
-      </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => onAutomations(workspace)}>
-        <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
-        Agent automations
-      </DropdownMenuItem>
       <DropdownMenuSeparator />
-      {#if workspace.state === 'running'}
-        <DropdownMenuItem disabled={Boolean(action)} onSelect={(event) => requestConfirmation(event, 'close')}>
-          <LogOut size={16} strokeWidth={1.8} aria-hidden="true" />
-          Close workspace
+      <DropdownMenuGroup label="Automation">
+        <DropdownMenuItem onSelect={() => onAutomations(workspace)}>
+          <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
+          Agent automations
         </DropdownMenuItem>
-      {/if}
-      <DropdownMenuItem
-        tone="danger"
-        disabled={Boolean(action)}
-        onSelect={(event) => requestConfirmation(event, 'remove')}
-      >
-        <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
-        Remove workspace
-      </DropdownMenuItem>
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup label="Lifecycle">
+        {#if workspace.state === 'running'}
+          <DropdownMenuItem disabled={Boolean(action)} onSelect={(event) => requestConfirmation(event, 'close')}>
+            <LogOut size={16} strokeWidth={1.8} aria-hidden="true" />
+            Close workspace
+          </DropdownMenuItem>
+        {/if}
+        <DropdownMenuItem
+          tone="danger"
+          disabled={Boolean(action)}
+          onSelect={(event) => requestConfirmation(event, 'remove')}
+        >
+          <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
+          Remove workspace
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
     {/if}
   {/snippet}
 </DropdownMenuShell>

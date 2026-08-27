@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RepositoryFingerprint } from '~/lib/features/repository/server/repository-fingerprint.ts';
-import type { TmuxSession } from '~/lib/features/terminal/server/tmux.ts';
+import type { RepositoryFingerprint } from '~/lib/features/repository/server/repository-fingerprint.server.ts';
+import type { TmuxSession } from '~/lib/features/terminal/server/tmux.server.ts';
 import type { KingAttempt } from '~/lib/shared/contracts/king-workflow.ts';
 import type { RepositorySnapshot } from '~/lib/shared/contracts/repository.ts';
 import type { WorkspaceKingControl } from '~/lib/shared/contracts/workspace.ts';
@@ -9,8 +9,8 @@ import {
   handOverWorkspaceToKing,
   takeControlFromKing,
   type WorkspaceKingControlDependencies,
-} from './workspace-king-control.ts';
-import type { ManagedWorkspace } from './workspace-registry.ts';
+} from './workspace-king-control.server.ts';
+import type { ManagedWorkspace } from './workspace-registry.server.ts';
 
 function workspace(id = 'workspace-1'): ManagedWorkspace {
   return {

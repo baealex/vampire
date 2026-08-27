@@ -1,14 +1,14 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   answerKingDecisionRequest,
   decideKingAttempt,
   KingWorkflowError,
   readKingWorkflowStore,
   readKingWorkflowSummary,
-} from '~/lib/features/workspace/server/king-workflow-store.ts';
-import { readWorkspaceStore, type StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.ts';
-import { interruptTmuxTerminal } from '~/lib/features/terminal/server/tmux.ts';
+} from '~/lib/features/workspace/server/king-workflow-store.server.ts';
+import { readWorkspaceStore, type StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
+import { interruptTmuxTerminal } from '~/lib/features/terminal/server/tmux.server.ts';
 
 const ACTIVE_ATTEMPT_STATUSES = new Set([
   'queued',

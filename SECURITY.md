@@ -28,6 +28,19 @@ Do not include real access tokens, private terminal output, project files, or se
 - Keep the host operating system, Node.js, tmux, reverse proxy, and clipboard tools updated.
 - Protect `~/.vampire` or `VAMPIRE_STATE_DIR`; it contains project paths, session metadata, notes, and saved status plugin commands.
 
+For a reverse-proxy deployment, prefer a fixed public origin instead of trusting request headers:
+
+```sh
+VAMPIRE_HOST=127.0.0.1 \
+VAMPIRE_PUBLIC_ORIGIN=https://vampire.example.com \
+VAMPIRE_TOKEN="..." \
+npx vampire
+```
+
+`VAMPIRE_PUBLIC_ORIGIN` controls HTTP URL construction, secure session cookies, same-origin checks, and WebSocket origin checks. The backend should remain available only through the proxy.
+
+Adapter-node forwarding variables such as `VAMPIRE_ADAPTER_PROTOCOL_HEADER`, `VAMPIRE_ADAPTER_HOST_HEADER`, `VAMPIRE_ADAPTER_PORT_HEADER`, and `VAMPIRE_ADAPTER_ADDRESS_HEADER` are advanced explicit opt-ins. A client can spoof these headers when it can reach the backend directly. Configure them only when the proxy overwrites the corresponding headers and direct backend access is blocked; otherwise leave them unset and use `VAMPIRE_PUBLIC_ORIGIN`.
+
 Vampire provides authentication and defense-in-depth controls, but it is not a sandbox, privilege boundary, or multi-tenant terminal service. Host compromise, malicious shell commands, exposed credentials, and insecure reverse-proxy configuration are outside the protection that the application alone can provide.
 
 ## Status plugin considerations

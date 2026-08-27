@@ -8,7 +8,7 @@ import {
   STATUS_PLUGIN_STATE_VERSION,
   writeStatusPluginStore,
   type StatusPluginStore,
-} from '~/lib/features/status/server/status-plugin-store.ts';
+} from '~/lib/features/status/server/status-plugin-store.server.ts';
 import { STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND } from '~/lib/shared/contracts/status-plugin.ts';
 
 test('starts with CPU and RAM presets and persists an explicitly empty bar', async (t) => {

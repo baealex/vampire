@@ -16,7 +16,7 @@ import {
   terminalSnapshotData,
   terminalSnapshotHistoryLines,
   tmuxSupportsTerminalColorReports,
-} from '~/lib/features/terminal/server/terminal.ts';
+} from '~/lib/features/terminal/server/terminal.server.ts';
 
 test('converts an exact tmux activity watermark without inventing a future window', () => {
   assert.equal(terminalActivityTimestamp('1786280522\n'), 1_786_280_522_000);

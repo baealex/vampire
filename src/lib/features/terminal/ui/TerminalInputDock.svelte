@@ -12,7 +12,7 @@ let {
   inputEnabled = true,
   send,
   submit,
-  onComposerFocus,
+  onComposerFocusChange,
   onImageSelected,
   scrollToTop,
   scrollToBottom,
@@ -26,7 +26,7 @@ let {
   inputEnabled?: boolean;
   send: (data: string) => void;
   submit: (data: string) => boolean;
-  onComposerFocus: () => void;
+  onComposerFocusChange: (focused: boolean) => void;
   onImageSelected: (image: File) => void;
   scrollToTop: () => void;
   scrollToBottom: () => void;
@@ -248,7 +248,8 @@ function handleImageSelection(event: Event) {
       bind:value={composerMessage}
       oninput={resizeComposer}
       onkeydown={handleComposerKeydown}
-      onfocus={onComposerFocus}
+      onfocus={() => onComposerFocusChange(true)}
+      onblur={() => onComposerFocusChange(false)}
       rows="1"
       placeholder="Send to shell…"
       autocapitalize="off"

@@ -9,7 +9,7 @@ import {
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
   writeWorkspaceStore,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
   assertManagedWorkspaceOwnerControl,
   createManagedWorkspace,
@@ -24,7 +24,7 @@ import {
   updateManagedStartupProfile,
   updateManagedWorkspaceStartup,
   WorkspaceMutationError,
-} from './workspace-registry.ts';
+} from './workspace-registry.server.ts';
 
 const execFile = promisify(execFileCallback);
 
@@ -152,7 +152,6 @@ test('launches a selected profile only into an idle main shell', async (t) => {
     (error) => error instanceof WorkspaceMutationError && error.reason === 'workspace-running'
   );
 });
-
 test('deleting a global profile clears workspace selections without blocking the deletion', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-global-profiles-'));
   const previousStateDirectory = process.env.VAMPIRE_STATE_DIR;

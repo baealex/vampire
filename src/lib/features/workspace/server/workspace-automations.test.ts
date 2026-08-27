@@ -10,12 +10,12 @@ import {
   listDueManagedWorkspaceAutomations,
   listManagedWorkspaceAutomations,
   setManagedWorkspaceAutomationEnabled,
-} from '~/lib/features/workspace/server/workspace-automations.ts';
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import {
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
   writeWorkspaceStore,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 async function createStoredWorkspace(t: test.TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-automations-'));

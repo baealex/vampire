@@ -27,7 +27,7 @@ let {
   onClose: () => void;
   onEditFile?: (path: string) => void;
   onRequestDiscardChange?: (path: string) => void;
-  onFileSaved?: (file: WorkspaceFile) => void;
+  onFileSaved?: (file: WorkspaceFile, dirty: boolean) => void;
   onFileDirtyChange?: (dirty: boolean) => void;
 } = $props();
 
@@ -70,10 +70,10 @@ function setFileDirty(dirty: boolean) {
   onFileDirtyChange?.(dirty);
 }
 
-function handleFileSaved(saved: WorkspaceFile) {
+function handleFileSaved(saved: WorkspaceFile, dirty: boolean) {
   file = saved;
-  setFileDirty(false);
-  onFileSaved?.(saved);
+  setFileDirty(dirty);
+  onFileSaved?.(saved, dirty);
 }
 
 function readTextFile(selectionKey: string, path: string): Promise<WorkspaceFile> {

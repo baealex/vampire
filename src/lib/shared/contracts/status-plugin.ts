@@ -295,7 +295,7 @@ const payload = await response.json();
 const rows = (Array.isArray(payload.limits) ? payload.limits : [])
 	.map((limit) => {
 		const model = limit.scope?.model?.display_name;
-		const label = limit.kind === 'workspace'
+		const label = limit.kind === 'session' || limit.kind === 'workspace'
 			? '5h'
 			: limit.kind === 'weekly_all'
 				? '7d'

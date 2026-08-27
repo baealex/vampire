@@ -9,7 +9,7 @@ import {
   readWorkspaceStore,
   type StoredWorkspace,
   WORKSPACE_STATE_VERSION,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 test('resolves King control by checkout even for a legacy duplicate registration', () => {
   const workspace = (id: string): StoredWorkspace => ({

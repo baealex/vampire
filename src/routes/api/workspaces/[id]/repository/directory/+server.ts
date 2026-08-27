@@ -1,12 +1,12 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   createWorkspaceDirectory,
   deleteWorkspaceEntry,
   readRepositoryDirectory,
   RepositoryReadError,
-} from '~/lib/features/repository/server/repository.ts';
-import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry';
+} from '~/lib/features/repository/server/repository.server.ts';
+import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
 import { workspaceAcceptsOwnerWrites } from '~/lib/shared/contracts/workspace.ts';
 
 function repositoryErrorStatus(reason: string): number {

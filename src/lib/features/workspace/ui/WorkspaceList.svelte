@@ -95,7 +95,7 @@ const selectedEndedWorkspace = $derived(
 );
 
 $effect(() => {
-  if (selectedEndedWorkspace) endedGroupExpanded = true;
+  if (selectedEndedWorkspace && workspaceAction !== 'close') endedGroupExpanded = true;
 });
 
 onMount(() => {

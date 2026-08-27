@@ -124,10 +124,42 @@ test('keeps terminal IME input visible and focused while the mobile viewport res
   await expect(composition).not.toHaveClass(/active/);
   await terminalInput.press('Enter');
   await expect(page.locator('.xterm-rows')).toContainText('모바일-IME-확인');
-  await expect
-    .poll(() => sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize').length)
-    .toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
   await expect(terminalInput).toBeFocused();
+});
+
+test('keeps terminal geometry stable while the mobile composer changes the viewport height', async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const sentTerminalMessages: Array<string | Buffer> = [];
+  page.on('websocket', (socket) => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
+    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
+  });
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  const composer = page.getByRole('textbox', { name: 'Terminal input' });
+  await composer.focus();
+  await expect(composer).toBeFocused();
+  await page.waitForTimeout(250);
+  sentTerminalMessages.length = 0;
+
+  for (const height of [viewport!.height - 280, viewport!.height, viewport!.height - 320, viewport!.height]) {
+    await page.setViewportSize({ width: viewport!.width, height });
+    await page.waitForTimeout(250);
+    await expect(composer).toBeFocused();
+  }
+
+  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
 });
 
 test('defers a reconnect snapshot until terminal IME composition finishes', async ({ context, page }) => {
@@ -378,6 +410,7 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   ]);
   expect(popoverBox).not.toBeNull();
   expect(statusBarBox).not.toBeNull();
+  expect(popoverBox!.width).toBeLessThanOrEqual(14 * 16);
   expect(popoverBox!.x).toBeGreaterThanOrEqual(7);
   expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(viewportWidth + 1);
   const statusBarBottom = statusBarBox!.y + statusBarBox!.height;

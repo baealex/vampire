@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { authenticate, clearAuthentication } from '~/lib/features/auth/server/auth';
+import { authenticate, clearAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 
 export const POST: RequestHandler = async (event) => {
   await authenticate(event);

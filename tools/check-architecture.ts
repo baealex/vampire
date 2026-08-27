@@ -6,7 +6,9 @@ if (violations.length > 0) {
   console.error('Architecture check failed:');
   for (const violation of violations) {
     console.error(
-      `  ${violation.source}:${violation.line} imports ${violation.specifier} -> ${violation.target} (${violation.reason})`
+      violation.specifier
+        ? `  ${violation.source}:${violation.line} imports ${violation.specifier} -> ${violation.target} (${violation.reason})`
+        : `  ${violation.source}:${violation.line} (${violation.reason})`
     );
   }
   process.exitCode = 1;

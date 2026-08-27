@@ -25,8 +25,8 @@ import {
   requireKingAttemptOwner,
   resumeKingAttemptPreparation,
   scanKingAttemptEvents,
-} from './king-workflow-store.ts';
-import { ensureManagedKingWorkspace, KING_BOOTSTRAP_VERSION } from './king-workspace.ts';
+} from './king-workflow-store.server.ts';
+import { ensureManagedKingWorkspace, KING_BOOTSTRAP_VERSION } from './king-workspace.server.ts';
 
 const execFile = promisify(execFileCallback);
 

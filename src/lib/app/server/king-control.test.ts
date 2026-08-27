@@ -3,8 +3,12 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { KingAttempt, KingAttemptVerification, KingRun, KingTask } from '~/lib/shared/contracts/king-workflow.ts';
 import type { RepositoryDiff, RepositorySnapshot } from '~/lib/shared/contracts/repository.ts';
-import { handleKingControlRequest, type KingControlDependencies, runKingVerificationCommand } from './king-control.ts';
-import type { ManagedWorkspace } from './workspace-registry.ts';
+import {
+  handleKingControlRequest,
+  type KingControlDependencies,
+  runKingVerificationCommand,
+} from './king-control.server.ts';
+import type { ManagedWorkspace } from './workspace-registry.server.ts';
 
 function workspace(): ManagedWorkspace {
   return {

@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux-backed terminals.",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "node --import ./tools/register-ts-alias.mjs src/lib/app/server/dev.ts",
+    "dev": "node --import ./tools/register-ts-alias.mjs src/lib/app/server/dev.server.ts",
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
     "check": "node tools/check.ts",
