@@ -2,18 +2,18 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
 
-import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.ts';
+import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import {
   listManagedWorkspaces,
   readManagedLaunchProfiles,
   readManagedWorkspacePreferences,
-} from './workspace-registry.ts';
+} from './workspace-registry.server.ts';
 import {
   listTmuxSessionActivity,
   type TmuxProcessHint,
   type TmuxSessionActivity,
   type TmuxTerminal,
-} from '~/lib/features/terminal/server/tmux.ts';
+} from '~/lib/features/terminal/server/tmux.server.ts';
 import {
   encodeWorkspaceServerMessage,
   type WorkspaceChanges,
@@ -26,8 +26,8 @@ import {
   installWebSocketHeartbeat,
   rejectWebSocketUpgrade,
   scheduleAuthenticationExpiry,
-} from '~/lib/shared/server/websocket-support.ts';
-import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.ts';
+} from '~/lib/server/websocket-support.ts';
+import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;

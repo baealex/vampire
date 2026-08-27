@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   runStatusPluginCommand,
   StatusPluginCommandError,
-} from '~/lib/features/status/server/status-plugin-command.ts';
+} from '~/lib/features/status/server/status-plugin-command.server.ts';
 
 test('runs a status command in a shell and captures bounded output', async () => {
   const result = await runStatusPluginCommand("printf 'ready\\ndetail\\n'");

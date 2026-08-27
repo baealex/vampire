@@ -3,9 +3,12 @@ import {
   StatusPluginCommandError,
   type StatusPluginCommandOptions,
   type StatusPluginCommandResult,
-} from '~/lib/features/status/server/status-plugin-command.ts';
-import { parseStatusPluginOutput } from '~/lib/features/status/server/status-plugin-output.ts';
-import { readStatusPluginStore, type StatusPluginStore } from '~/lib/features/status/server/status-plugin-store.ts';
+} from '~/lib/features/status/server/status-plugin-command.server.ts';
+import { parseStatusPluginOutput } from '~/lib/features/status/server/status-plugin-output.server.ts';
+import {
+  readStatusPluginStore,
+  type StatusPluginStore,
+} from '~/lib/features/status/server/status-plugin-store.server.ts';
 import {
   cloneStatusPlugins,
   type StatusPlugin,

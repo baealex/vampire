@@ -33,7 +33,7 @@ import type {
   WorkspaceUploadConflict,
   WorkspaceUploadResult,
 } from '~/lib/shared/contracts/repository.ts';
-import { errorHasCode, pathStaysInside } from '~/lib/shared/server/path-policy.ts';
+import { errorHasCode, pathStaysInside } from '~/lib/server/path-policy.ts';
 
 export type RepositoryReadErrorReason =
   | 'conflict'

@@ -1,0 +1,120 @@
+import assert from 'node:assert/strict';
+import { delimiter, join, resolve } from 'node:path';
+import test from 'node:test';
+import {
+  applyVampireEnvironmentDefaults,
+  configureAdapterRequestOrigin,
+  configuredPublicOrigin,
+  configuredToken,
+  expectedRequestOrigin,
+  listeningUrl,
+  parseWorkspaceRootPaths,
+  runtimeConfig,
+} from '~/lib/server/runtime-config.ts';
+
+test('defaults workspace browsing to the server launch directory', () => {
+  assert.deepEqual(parseWorkspaceRootPaths(undefined, '/tmp/vampire-project', '/tmp/home'), ['/tmp/vampire-project']);
+});
+
+test('parses, expands, resolves, and deduplicates configured workspace roots', () => {
+  const baseDirectory = '/tmp/vampire-project';
+  const homeDirectory = '/tmp/home';
+  const configured = ['~/Code', join(baseDirectory, 'Projects'), join(homeDirectory, 'Code'), './Projects'].join(
+    delimiter
+  );
+
+  assert.deepEqual(parseWorkspaceRootPaths(configured, baseDirectory, homeDirectory), [
+    '/tmp/home/Code',
+    '/tmp/vampire-project/Projects',
+  ]);
+});
+
+test('includes parsed workspace roots in runtime configuration', () => {
+  const config = runtimeConfig({
+    VAMPIRE_HOST: '127.0.0.1',
+    VAMPIRE_PORT: '7677',
+    VAMPIRE_WORKSPACE_ROOTS: '/tmp/one:/tmp/two',
+  });
+
+  assert.deepEqual(config.workspaceRoots, [resolve('/tmp/one'), resolve('/tmp/two')]);
+});
+
+test('requires an explicit opt-in for unauthenticated non-loopback access', () => {
+  assert.throws(() => runtimeConfig({ VAMPIRE_HOST: '192.168.219.106' }), /non-loopback bind without VAMPIRE_TOKEN/);
+
+  const config = runtimeConfig({
+    VAMPIRE_HOST: '192.168.219.106',
+    VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1',
+  });
+  assert.equal(config.tokenConfigured, false);
+  assert.equal(config.unauthenticatedRemoteAccess, true);
+});
+
+test('validates and shares one public origin across runtime consumers', () => {
+  assert.equal(
+    configuredPublicOrigin({ VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' }),
+    'https://vampire.example.com'
+  );
+  assert.equal(
+    configuredPublicOrigin({ VAMPIRE_ADAPTER_ORIGIN: 'https://legacy.example.com/' }),
+    'https://legacy.example.com'
+  );
+  assert.throws(
+    () => configuredPublicOrigin({ VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com/path' }),
+    /without a path/
+  );
+  assert.throws(
+    () =>
+      configuredPublicOrigin({
+        VAMPIRE_PUBLIC_ORIGIN: 'https://one.example.com',
+        VAMPIRE_ADAPTER_ORIGIN: 'https://two.example.com',
+      }),
+    /must describe the same origin/
+  );
+});
+
+test('uses an internal overwritten protocol header for direct HTTP', () => {
+  const env: NodeJS.ProcessEnv = {};
+  const config = runtimeConfig(env);
+  const policy = configureAdapterRequestOrigin(config, env);
+
+  assert.equal(policy.injectedProtocolHeader, 'x-vampire-internal-protocol');
+  assert.equal(env.VAMPIRE_ADAPTER_PROTOCOL_HEADER, 'x-vampire-internal-protocol');
+  assert.equal(
+    expectedRequestOrigin(
+      { host: 'localhost:7677', 'x-vampire-internal-protocol': 'http', 'x-forwarded-proto': 'https' },
+      env
+    ),
+    'http://localhost:7677'
+  );
+});
+
+test('uses a fixed public origin instead of forwarded request headers', () => {
+  const env: NodeJS.ProcessEnv = { VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' };
+  const config = runtimeConfig(env);
+  const policy = configureAdapterRequestOrigin(config, env);
+
+  assert.deepEqual(policy, {});
+  assert.equal(env.VAMPIRE_ADAPTER_ORIGIN, 'https://vampire.example.com');
+  assert.equal(
+    expectedRequestOrigin({ host: 'internal:7677', 'x-forwarded-proto': 'http' }, env),
+    'https://vampire.example.com'
+  );
+});
+
+test('loads development env files as defaults without overriding the shell', () => {
+  const env: NodeJS.ProcessEnv = { VAMPIRE_PORT: '9000' };
+  applyVampireEnvironmentDefaults(
+    { VAMPIRE_PORT: '8000', VAMPIRE_TOKEN: 'file-token', UNRELATED_SECRET: 'ignored' },
+    env
+  );
+
+  assert.equal(env.VAMPIRE_PORT, '9000');
+  assert.equal(configuredToken(env), 'file-token');
+  assert.equal(env.UNRELATED_SECRET, undefined);
+});
+
+test('formats usable wildcard and IPv6 listening URLs', () => {
+  assert.equal(listeningUrl({ host: '0.0.0.0', port: 7677 }), 'http://localhost:7677');
+  assert.equal(listeningUrl({ host: '::1', port: 7677 }), 'http://[::1]:7677');
+});

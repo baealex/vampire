@@ -6,8 +6,8 @@ import {
   readRepositorySummary,
   readRepositoryWatchPaths,
   type RepositorySummary,
-} from '~/lib/features/repository/server/repository.ts';
-import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/repository/server/repository.server.ts';
+import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import { encodeTerminalServerMessage, type TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
 
 const STATUS_SETTLE_MS = 400;

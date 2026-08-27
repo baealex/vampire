@@ -1,16 +1,16 @@
-import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.ts';
+import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import {
   dispatchManagedWorkspaceAutomation,
   listDueManagedWorkspaceAutomations,
   migrateManagedWorkspaceNotes,
-} from '~/lib/features/workspace/server/workspace-automations.ts';
-import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
+import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
   listTmuxSessions,
   submitTmuxPrompt,
   type TmuxSession,
   type TmuxTerminal,
-} from '~/lib/features/terminal/server/tmux.ts';
+} from '~/lib/features/terminal/server/tmux.server.ts';
 import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 

@@ -1,15 +1,15 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   findManagedWorkspaceNote,
   WorkspaceMutationError,
   updateManagedWorkspaceNote,
-} from '~/lib/app/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry.server.ts';
 import {
   normalizeWorkspaceNote,
   workspaceNoteByteLength,
   WORKSPACE_NOTE_MAX_BYTES,
-} from '~/lib/features/workspace/server/workspace-note';
+} from '~/lib/features/workspace/server/workspace-note.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

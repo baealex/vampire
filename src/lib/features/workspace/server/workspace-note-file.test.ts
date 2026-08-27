@@ -6,23 +6,23 @@ import test from 'node:test';
 import {
   migrateManagedWorkspaceNotes,
   queueManagedWorkspaceNoteUpdate,
-} from '~/lib/features/workspace/server/workspace-automations.ts';
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import {
   managedWorkspaceNoteMigrationBackupPath,
   managedWorkspaceNotePath,
-} from '~/lib/features/workspace/server/workspace-note-file.ts';
-import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.ts';
+} from '~/lib/features/workspace/server/workspace-note-file.server.ts';
+import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.server.ts';
 import {
   findManagedWorkspaceNote,
   removeManagedWorkspace,
   updateManagedWorkspaceNote,
-} from '~/lib/app/server/workspace-registry.ts';
+} from '~/lib/app/server/workspace-registry.server.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
   writeWorkspaceStore,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 async function useTemporaryStateDirectory(
   t: test.TestContext,

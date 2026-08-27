@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inferAgentState, isAgentProcessLabel } from '~/lib/features/workspace/server/workspace-agent-activity.ts';
+import {
+  inferAgentState,
+  isAgentProcessLabel,
+} from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 
 const codex = { kind: 'command' as const, label: 'codex' };
 

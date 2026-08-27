@@ -5,7 +5,7 @@ import {
   loginRetryAfter,
   recordLoginFailure,
   resetLoginFailures,
-} from '~/lib/features/auth/server/login-rate-limit.ts';
+} from '~/lib/features/auth/server/login-rate-limit.server.ts';
 
 test('temporarily blocks repeated login failures', () => {
   const key = `test-${Math.random()}`;

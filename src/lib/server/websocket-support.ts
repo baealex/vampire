@@ -3,7 +3,8 @@ import type { Duplex } from 'node:stream';
 import type WebSocket from 'ws';
 import type { WebSocketServer } from 'ws';
 
-import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '~/lib/shared/server/session-cookie.ts';
+import { isAuthorized, parseCookie, sessionCookieExpiresAt } from '~/lib/server/session-cookie.ts';
+import { configuredToken, expectedRequestOrigin } from '~/lib/server/runtime-config.ts';
 
 export interface AuthorizedUpgrade {
   authorized: true;
@@ -16,17 +17,21 @@ export interface RejectedUpgrade {
   reason: string;
 }
 
-export function authorizeWebSocketUpgrade(request: IncomingMessage): AuthorizedUpgrade | RejectedUpgrade {
+export function authorizeWebSocketUpgrade(
+  request: IncomingMessage,
+  env: NodeJS.ProcessEnv = process.env
+): AuthorizedUpgrade | RejectedUpgrade {
   const origin = request.headers.origin;
   try {
-    if (!origin || new URL(origin).host !== request.headers.host) {
+    const expectedOrigin = expectedRequestOrigin(request.headers, env);
+    if (!origin || !expectedOrigin || new URL(origin).origin !== expectedOrigin) {
       return { authorized: false, status: 403, reason: 'Forbidden' };
     }
   } catch {
     return { authorized: false, status: 403, reason: 'Forbidden' };
   }
 
-  const token = process.env.VAMPIRE_TOKEN?.trim() || undefined;
+  const token = configuredToken(env);
   const cookies = parseCookie(request.headers.cookie);
   if (
     !isAuthorized({

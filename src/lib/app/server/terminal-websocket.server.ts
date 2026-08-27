@@ -2,7 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
 
-import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.ts';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
 import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
@@ -12,15 +12,15 @@ import {
   updateTerminalGeometry,
   type ManagedTerminalAttachment,
   type TerminalAttachmentState,
-} from '~/lib/features/terminal/server/terminal-attachments.ts';
+} from '~/lib/features/terminal/server/terminal-attachments.server.ts';
 import {
   attachTerminal,
   type TerminalScreenSynchronizer,
   type TerminalSize,
   type TerminalSizeController,
-} from '~/lib/features/terminal/server/terminal.ts';
-import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.ts';
-import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/terminal/server/terminal.server.ts';
+import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.server.ts';
+import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
   encodeTerminalServerMessage,
   TERMINAL_PROTOCOL_VERSION,
@@ -32,7 +32,7 @@ import {
   installWebSocketHeartbeat,
   rejectWebSocketUpgrade,
   scheduleAuthenticationExpiry,
-} from '~/lib/shared/server/websocket-support.ts';
+} from '~/lib/server/websocket-support.ts';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 72 * 1024;

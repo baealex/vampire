@@ -9,12 +9,12 @@ import {
   updateManagedLaunchProfiles,
   updateManagedStartupProfile,
   updateManagedWorkspaceStartup,
-} from './workspace-registry.ts';
+} from './workspace-registry.server.ts';
 import {
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
   writeWorkspaceStore,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 test('deleting a global profile clears workspace selections without blocking the deletion', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-global-profiles-'));

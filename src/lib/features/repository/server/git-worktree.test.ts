@@ -10,7 +10,7 @@ import {
   createGitWorktree,
   GitWorktreeError,
   removeManagedGitWorktree,
-} from '~/lib/features/repository/server/git-worktree.ts';
+} from '~/lib/features/repository/server/git-worktree.server.ts';
 
 const run = promisify(execFile);
 

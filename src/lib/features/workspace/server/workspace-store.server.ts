@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { errorHasCode } from '~/lib/shared/server/path-policy.ts';
-import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
+import { errorHasCode } from '~/lib/server/path-policy.ts';
+import { vampireStatePath } from '~/lib/server/state-path.ts';
 import {
   normalizeWorkspaceAutomations,
   type WorkspaceAutomation,

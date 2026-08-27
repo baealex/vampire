@@ -37,11 +37,14 @@ The development server listens on `127.0.0.1:7677` by default.
 
 ## Project layout
 
+Vampire uses a SvelteKit-first domain layout rather than strict Feature-Sliced Design. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding or moving modules; it defines the placement decision tree, server-only rules, dependency direction, and allowed exceptions.
+
 - `src/routes` contains SvelteKit page and API route entrypoints.
 - `src/lib/app` contains application composition and bootstrap state.
-- `src/lib/features/<feature>` contains feature-owned code. Keep Svelte components and browser-facing UI behavior in `ui`, external calls and client adapters in `api`, feature state and transformations in `model`, and Node-only implementation in `server`.
+- `src/lib/server` contains domain-independent Node-only configuration, authentication support, path policy, and persistence helpers. SvelteKit enforces this directory as server-only.
+- `src/lib/features/<feature>` contains feature-owned code. Keep Svelte components and browser-facing UI behavior in `ui`, external calls and client adapters in `api`, feature state and transformations in `model`, and Node-only implementation in `server`. Production modules in feature `server` directories use the `*.server.ts` suffix so SvelteKit enforces the boundary.
 - `src/lib/shared` contains domain-independent API helpers, contracts, theme, UI primitives, and utility code shared by features.
-- `src/lib/app/server` contains the custom Node runtime entrypoints; feature server behavior stays with its owning feature.
+- `src/lib/app/server` contains the custom Node runtime entrypoints, also named `*.server.ts`; feature server behavior stays with its owning feature.
 - `src/lib` imports use the `~/lib/...` alias; same-feature leaf components may use relative imports.
 - The dependency direction is `app → features → shared`; `shared` must not depend on a feature, and SvelteKit routes should remain thin adapters.
 - `tools` contains development, build, release, and package smoke-test scripts; `bin` contains the npm executable entrypoint.
@@ -54,7 +57,7 @@ Run the local verification before squashing a working branch into main:
 ```sh
 pnpm format:check
 pnpm check
-node --test tests/*.test.ts
+pnpm test:node
 pnpm build
 ```
 

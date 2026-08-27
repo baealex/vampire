@@ -10,10 +10,10 @@ import {
   type TerminalServerMessage,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { terminalColorReport, type TerminalColorSlot } from '~/lib/shared/contracts/terminal-color.ts';
-import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.ts';
-import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
+import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
+import { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.server.ts';
 
-export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.ts';
+export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.server.ts';
 export { terminalSubmissionData, terminalSubmissionSettleMs };
 
 const execFile = promisify(execFileCallback);

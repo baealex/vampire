@@ -35,6 +35,27 @@ function isTestFile(path: string): boolean {
   return path.endsWith('.test.ts') || path.endsWith('.component.test.ts');
 }
 
+function isServerOnlyModule(repositoryRoot: string, path: string): boolean {
+  const pathFromRoot = relativePath(repositoryRoot, path);
+  if (pathFromRoot.startsWith('src/lib/server/')) return true;
+
+  const filename = pathFromRoot.split('/').at(-1) ?? '';
+  return filename.startsWith('+server.') || filename.includes('.server.');
+}
+
+function requiresServerOnlyFilename(repositoryRoot: string, path: string): boolean {
+  const segments = relativePath(repositoryRoot, path).split('/');
+  const inAppServer =
+    segments[0] === 'src' && segments[1] === 'lib' && segments[2] === 'app' && segments[3] === 'server';
+  const inFeatureServer =
+    segments[0] === 'src' &&
+    segments[1] === 'lib' &&
+    segments[2] === 'features' &&
+    Boolean(segments[3]) &&
+    segments[4] === 'server';
+  return (inAppServer || inFeatureServer) && !isServerOnlyModule(repositoryRoot, path);
+}
+
 async function collectFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -136,18 +157,27 @@ function violationReason(source: Layer, target: Layer): string | undefined {
 export async function findArchitectureViolations(
   repositoryRoot = resolve(import.meta.dirname, '..')
 ): Promise<ArchitectureViolation[]> {
-  const libRoot = resolve(repositoryRoot, 'src', 'lib');
-  const allFiles = await collectFiles(libRoot);
+  const sourceRoot = resolve(repositoryRoot, 'src');
+  const allFiles = await collectFiles(sourceRoot);
   const knownFiles = new Set(allFiles);
   const sourceFiles = allFiles.filter((path) => SOURCE_EXTENSIONS.has(extname(path)) && !isTestFile(path));
   const violations: ArchitectureViolation[] = [];
 
   for (const sourcePath of sourceFiles) {
+    if (requiresServerOnlyFilename(repositoryRoot, sourcePath)) {
+      violations.push({
+        line: 1,
+        reason: 'production modules in app/server and feature/server must use a *.server.* filename',
+        source: relativePath(repositoryRoot, sourcePath),
+        specifier: '',
+        target: '',
+      });
+    }
+
     const sourceLayer = layerFor(repositoryRoot, sourcePath);
-    if (!sourceLayer) continue;
     const source = await readFile(sourcePath, 'utf8');
     for (const reference of importedModules(source)) {
-      if (reference.specifier === 'bits-ui' && sourceLayer.kind !== 'shared') {
+      if (reference.specifier === 'bits-ui' && sourceLayer?.kind !== 'shared') {
         violations.push({
           line: reference.line,
           reason: 'bits-ui must be accessed through shared/ui primitives',
@@ -159,6 +189,19 @@ export async function findArchitectureViolations(
       }
       const targetPath = resolveImport(repositoryRoot, sourcePath, reference.specifier, knownFiles);
       if (!targetPath) continue;
+
+      if (!isServerOnlyModule(repositoryRoot, sourcePath) && isServerOnlyModule(repositoryRoot, targetPath)) {
+        violations.push({
+          line: reference.line,
+          reason: 'browser-capable modules must not depend on server-only modules',
+          source: relativePath(repositoryRoot, sourcePath),
+          specifier: reference.specifier,
+          target: relativePath(repositoryRoot, targetPath),
+        });
+        continue;
+      }
+
+      if (!sourceLayer) continue;
       const targetLayer = layerFor(repositoryRoot, targetPath);
       if (!targetLayer) continue;
       const reason = violationReason(sourceLayer, targetLayer);

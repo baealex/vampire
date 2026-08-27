@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import * as tmux from '~/lib/features/terminal/server/tmux.ts';
+import * as tmux from '~/lib/features/terminal/server/tmux.server.ts';
 
 test('keeps Vampire server configuration out of new tmux sessions', () => {
   const sourceEnvironment = {

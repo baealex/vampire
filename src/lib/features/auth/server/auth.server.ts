@@ -1,13 +1,9 @@
-import { env } from '$env/dynamic/private';
 import { error, type RequestEvent } from '@sveltejs/kit';
-import { createSessionCookie, isAuthorized } from '~/lib/shared/server/session-cookie.ts';
-import { loginRetryAfter, recordLoginFailure, resetLoginFailures } from './login-rate-limit.ts';
+import { createSessionCookie, isAuthorized } from '~/lib/server/session-cookie.ts';
+import { configuredToken } from '~/lib/server/runtime-config.ts';
+import { loginRetryAfter, recordLoginFailure, resetLoginFailures } from './login-rate-limit.server.ts';
 
 const MAX_LOGIN_BODY_BYTES = 8 * 1024;
-
-function configuredToken(): string | undefined {
-  return env.VAMPIRE_TOKEN?.trim() || undefined;
-}
 
 export function authenticationRequired(): boolean {
   return Boolean(configuredToken());

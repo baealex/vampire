@@ -11,15 +11,15 @@ import {
   type TmuxProcessHint,
   type TmuxSession,
   type TmuxTerminal,
-} from '~/lib/features/terminal/server/tmux.ts';
-import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.ts';
+} from '~/lib/features/terminal/server/tmux.server.ts';
+import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.server.ts';
 import {
   ensureManagedWorkspaceNoteFile,
   prepareManagedWorkspaceNoteRemoval,
   readManagedWorkspaceNoteFile,
   writeManagedWorkspaceNoteFile,
-} from '~/lib/features/workspace/server/workspace-note-file.ts';
-import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.ts';
+} from '~/lib/features/workspace/server/workspace-note-file.server.ts';
+import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
@@ -27,18 +27,18 @@ import {
   type StoredWorkspace,
   withWorkspaceStoreMutation,
   writeWorkspaceStore as writeState,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
   resolveAllowedWorkspaceDirectory,
   resolveExistingWorkspaceDirectory,
   WorkspaceRootError,
-} from '~/lib/features/system/server/workspace-roots.ts';
+} from '~/lib/features/system/server/workspace-roots.server.ts';
 import {
   createGitWorktree,
   GitWorktreeError,
   removeManagedGitWorktree,
   rollbackGitWorktree,
-} from '~/lib/features/repository/server/git-worktree.ts';
+} from '~/lib/features/repository/server/git-worktree.server.ts';
 import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';

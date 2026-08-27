@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { sendTmuxInput } from './tmux.ts';
+import { sendTmuxInput } from './tmux.server.ts';
 
 const execFile = promisify(execFileCallback);
 const IMAGE_CONVERSION_TIMEOUT_MS = 8_000;

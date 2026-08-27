@@ -1,12 +1,12 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   ImagePasteError,
   MAX_IMAGE_PASTE_BYTES,
   pasteImageToWorkspace,
   SUPPORTED_IMAGE_TYPES,
-} from '~/lib/features/terminal/server/image-paste';
-import { findManagedWorkspace } from '~/lib/app/server/workspace-registry';
+} from '~/lib/features/terminal/server/image-paste.server.ts';
+import { findManagedWorkspace } from '~/lib/app/server/workspace-registry.server.ts';
 
 const MAX_UPLOAD_BODY_BYTES = MAX_IMAGE_PASTE_BYTES + 64 * 1024;
 

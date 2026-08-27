@@ -5,7 +5,7 @@ import {
   terminateProcessTrees,
   type ProcessRecord,
   type ProcessTerminationDependencies,
-} from '~/lib/features/terminal/server/process-cleanup.ts';
+} from '~/lib/features/terminal/server/process-cleanup.server.ts';
 
 test('parses process ownership fields without splitting command arguments', () => {
   assert.deepEqual(parseProcessTable(' 42  10  42  43 ttys007 S+ node /tmp/server.js --port 4000\n').get(42), {

@@ -7,7 +7,7 @@ import {
   terminalAttachmentKey,
   updateTerminalGeometry,
   type ManagedTerminalAttachment,
-} from '~/lib/features/terminal/server/terminal-attachments.ts';
+} from '~/lib/features/terminal/server/terminal-attachments.server.ts';
 
 function attachment(name: string, events: string[]): ManagedTerminalAttachment & { name: string } {
   return {

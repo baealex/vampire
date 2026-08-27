@@ -1,8 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status.ts';
-import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.ts';
-import { listProcesses, terminateProcessTrees, type ProcessRecord } from './process-cleanup.ts';
+import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
+import { listProcesses, terminateProcessTrees, type ProcessRecord } from './process-cleanup.server.ts';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;

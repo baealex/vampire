@@ -1,8 +1,8 @@
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { parseWorkspaceRootPaths } from '~/lib/shared/server/runtime-config.ts';
-import { pathStaysInside } from '~/lib/shared/server/path-policy.ts';
+import { parseWorkspaceRootPaths } from '~/lib/server/runtime-config.ts';
+import { pathStaysInside } from '~/lib/server/path-policy.ts';
 
 export type WorkspaceRootErrorReason = 'invalid-path' | 'outside-root' | 'not-found' | 'not-directory' | 'unreadable';
 

@@ -22,7 +22,7 @@ import {
   uploadWorkspaceFile,
   writeWorkspaceFile,
   RepositoryReadError,
-} from '~/lib/features/repository/server/repository.ts';
+} from '~/lib/features/repository/server/repository.server.ts';
 
 const run = promisify(execFile);
 

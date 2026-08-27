@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { errorHasCode, pathStaysInside } from '~/lib/shared/server/path-policy.ts';
-import { vampireStatePath } from '~/lib/shared/server/state-path.ts';
+import { errorHasCode, pathStaysInside } from '~/lib/server/path-policy.ts';
+import { vampireStatePath } from '~/lib/server/state-path.ts';
 
 export const WORKTREE_LABEL_MAX_LENGTH = 80;
 

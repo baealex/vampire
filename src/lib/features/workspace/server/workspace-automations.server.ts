@@ -16,14 +16,14 @@ import {
   managedWorkspaceNotePath,
   readManagedWorkspaceNoteFile,
   writeManagedWorkspaceNoteFile,
-} from './workspace-note-file.ts';
+} from './workspace-note-file.server.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
   type StoredWorkspace,
   withWorkspaceStoreMutation,
   writeWorkspaceStore,
-} from './workspace-store.ts';
+} from './workspace-store.server.ts';
 
 const WORKSPACE_AUTOMATION_DISPATCH_COOLDOWN_MS = 5_000;
 

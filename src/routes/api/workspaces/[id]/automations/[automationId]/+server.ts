@@ -1,10 +1,10 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   deleteManagedWorkspaceAutomation,
   WorkspaceAutomationMutationError,
   setManagedWorkspaceAutomationEnabled,
-} from '~/lib/features/workspace/server/workspace-automations';
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
 
 function automationError(cause: WorkspaceAutomationMutationError): never {
   throw error(

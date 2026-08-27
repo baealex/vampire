@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseStatusPluginOutput } from '~/lib/features/status/server/status-plugin-output.ts';
+import { parseStatusPluginOutput } from '~/lib/features/status/server/status-plugin-output.server.ts';
 
 test('parses SwiftBar-style plain output into a generic menu', () => {
   assert.deepEqual(

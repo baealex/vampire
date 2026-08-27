@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.ts';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
 import type { TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
 
 const run = promisify(execFile);

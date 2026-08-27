@@ -6,7 +6,7 @@ import {
   parseLsofListeningSockets,
   parseSsListeningSockets,
   terminateListeningProcess,
-} from '~/lib/features/system/server/listening-ports.ts';
+} from '~/lib/features/system/server/listening-ports.server.ts';
 
 test('parses and deduplicates lsof TCP listeners', () => {
   const output = [

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveAdapterHandlerPath } from './adapter-handler-path.ts';
+import { resolveAdapterHandlerPath } from './adapter-handler-path.server.ts';
 
 test('resolves the adapter handler from a source entrypoint', () => {
   const existing = new Set(['/repo/build-e2e/handler.js']);

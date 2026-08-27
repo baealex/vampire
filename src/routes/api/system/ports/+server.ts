@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
-import { ListeningPortError, listListeningPorts } from '~/lib/features/system/server/listening-ports';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { ListeningPortError, listListeningPorts } from '~/lib/features/system/server/listening-ports.server.ts';
 
 function inspectionErrorStatus(reason: ListeningPortError['reason']): number {
   if (reason === 'unsupported-platform') return 501;

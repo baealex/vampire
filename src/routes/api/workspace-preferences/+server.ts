@@ -1,10 +1,10 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { requireAuthentication } from '~/lib/features/auth/server/auth';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   readManagedWorkspacePreferences,
   WorkspaceMutationError,
   updateManagedWorkspacePreferences,
-} from '~/lib/app/server/workspace-registry';
+} from '~/lib/app/server/workspace-registry.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

@@ -7,7 +7,7 @@ import {
   findWorkspaceConnection,
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
-} from '~/lib/features/workspace/server/workspace-store.ts';
+} from '~/lib/features/workspace/server/workspace-store.server.ts';
 
 test('finds the terminal and workspace registered for a workspace ID', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-state-'));
