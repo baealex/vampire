@@ -19,7 +19,7 @@ function workspace(control: WorkspaceKingControl): ManagedWorkspace {
     lastActiveAt: 1,
     notePreview: '',
     favoriteCommands: [],
-    startupProfileId: 'codex',
+    startupProfileId: null,
     lastOutputAt: 1,
     state: 'running',
     attachedClients: 0,
@@ -68,6 +68,7 @@ test('hands an existing workspace to King from its crown control', async () => {
 
   await user.click(screen.getByRole('button', { name: 'King requested workspace control' }));
   expect(await screen.findByText('Continue the approved work in this existing worktree.')).toBeInTheDocument();
+  expect(screen.queryByText(/startup profile/i)).not.toBeInTheDocument();
   await user.click(screen.getByText('Hand over', { selector: 'button' }));
 
   await waitFor(() => expect(onControlChange).toHaveBeenCalledWith(granted));
@@ -75,4 +76,24 @@ test('hands an existing workspace to King from its crown control', async () => {
   expect(typeof requests[0]?.init?.body).toBe('string');
   if (typeof requests[0]?.init?.body !== 'string') return;
   expect(JSON.parse(requests[0].init.body)).toEqual({ action: 'handoff' });
+});
+
+test('requires an existing main agent instead of offering to start one', async () => {
+  const manualControl: WorkspaceKingControl = {
+    ...requestedControl(),
+    state: 'manual',
+    requestedAt: null,
+    lastAction: 'released',
+  };
+  const shellOnly: ManagedWorkspace = {
+    ...workspace(manualControl),
+    foregroundProcess: { kind: 'shell', label: 'zsh' },
+  };
+  const user = userEvent.setup();
+  render(WorkspaceKingControlPanel, { workspace: shellOnly });
+
+  await user.click(screen.getByRole('button', { name: 'Hand this workspace to King' }));
+
+  expect(screen.getByText(/King will not launch an agent or write into a shell/)).toBeInTheDocument();
+  expect(screen.getByText('Hand over to King', { selector: 'button' })).toBeDisabled();
 });

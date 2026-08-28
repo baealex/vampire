@@ -72,7 +72,7 @@ function setupBlockedAttempt(): KingAttempt {
     verification: null,
     verdict: {
       outcome: 'owner-required',
-      reason: 'Select a startup profile before King dispatches work to this workspace.',
+      reason: 'Workspace workspace-1 has no recognized main agent. Start Codex or Claude manually.',
       decidedBy: 'vampire',
       decidedAt: 2,
     },
@@ -136,6 +136,7 @@ const response = {
   attempts: [ownerAttempt()],
   decisions: [],
   inbox: [],
+  workspaceLabels: { 'workspace-1': 'Feature workspace' },
   controlRequests: [],
 };
 
@@ -156,10 +157,10 @@ test('opens from an urgent header control and approves with one click', async ()
   const user = userEvent.setup();
   render(KingWorkflowPanel);
 
-  const trigger = await screen.findByRole('button', { name: 'Open King orchestration, 1 item needs you' });
-  expect(screen.queryByRole('heading', { name: 'Owner decisions' })).not.toBeInTheDocument();
+  const trigger = await screen.findByRole('button', { name: 'Open King orchestration, 1 item needs attention' });
+  expect(screen.queryByRole('heading', { name: 'Approval needed' })).not.toBeInTheDocument();
   await user.click(trigger);
-  expect(await screen.findByText('Owner decisions', { selector: 'h2' })).toBeInTheDocument();
+  expect(await screen.findByText('Approval needed', { selector: 'h2' })).toBeInTheDocument();
   expect(screen.getByText('The baseline was already dirty.')).toBeInTheDocument();
   const approve = screen.getByText('Approve', { selector: 'button' });
   expect(approve).toBeEnabled();
@@ -172,28 +173,42 @@ test('opens from an urgent header control and approves with one click', async ()
 
 test('shows an undelivered setup failure without asking for an impossible approval', async () => {
   const setupResponse = { ...response, attempts: [setupBlockedAttempt()] };
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal(
     'fetch',
-    vi.fn(
-      async () =>
-        new Response(JSON.stringify(setupResponse), {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify(init?.method === 'POST' ? { attempt: setupBlockedAttempt() } : setupResponse),
+        {
           status: 200,
           headers: { 'content-type': 'application/json' },
-        })
-    )
+        }
+      );
+    })
   );
   const user = userEvent.setup();
   render(KingWorkflowPanel);
 
-  await user.click(await screen.findByRole('button', { name: 'Open King orchestration' }));
+  await user.click(await screen.findByRole('button', { name: 'Open King orchestration, 1 item needs attention' }));
 
-  expect(await screen.findByText('Setup issues', { selector: 'h2' })).toBeInTheDocument();
-  expect(screen.getByText(/Select a startup profile/)).toBeInTheDocument();
-  expect(screen.getByText(/No approval is needed/)).toBeInTheDocument();
-  expect(screen.queryByRole('heading', { name: 'Owner decisions' })).not.toBeInTheDocument();
+  expect(await screen.findByText('Attention needed', { selector: 'h2' })).toBeInTheDocument();
+  expect(screen.getByText(/no recognized main agent/i)).toBeInTheDocument();
+  expect(screen.getByText(/then retry the assignment/)).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Approval needed' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   expect(screen.queryByText('Rationale (optional)')).not.toBeInTheDocument();
+  const retry = screen.getByText('Retry assignment', { selector: 'button' });
+  expect(retry).toBeEnabled();
   expect(screen.getByText('Cancel attempt', { selector: 'button' })).toBeEnabled();
+  await user.click(retry);
+
+  await waitFor(() => expect(requests.some((request) => request.init?.method === 'POST')).toBe(true));
+  const retryRequest = requests.find((request) => request.init?.method === 'POST');
+  expect(typeof retryRequest?.init?.body).toBe('string');
+  if (typeof retryRequest?.init?.body === 'string') {
+    expect(JSON.parse(retryRequest.init.body)).toEqual({ action: 'retry', attemptId: 'attempt-1' });
+  }
 });
 
 function assertDecisionBody(body: BodyInit | null | undefined) {
@@ -245,7 +260,7 @@ test('shows a focused King question and sends the authenticated owner answer', a
   const user = userEvent.setup();
   render(KingWorkflowPanel);
 
-  await user.click(await screen.findByRole('button', { name: 'Open King orchestration, 2 items need you' }));
+  await user.click(await screen.findByRole('button', { name: 'Open King orchestration, 2 items need attention' }));
   expect(await screen.findByText('Questions from King', { selector: 'h2' })).toBeInTheDocument();
   await user.click(screen.getByText('Keep compatibility', { selector: 'button' }));
   await user.click(screen.getByText('Send answer', { selector: 'button' }));
@@ -284,7 +299,6 @@ test('approves a workspace handoff directly from King orchestration', async () =
             id: 'workspace-1',
             label: 'Feature worktree',
             cwd: '/project-feature',
-            startupProfileId: 'codex',
             control,
           },
         ],
@@ -307,7 +321,7 @@ test('approves a workspace handoff directly from King orchestration', async () =
   const user = userEvent.setup();
   render(KingWorkflowPanel);
 
-  await user.click(await screen.findByRole('button', { name: 'Open King orchestration, 1 item needs you' }));
+  await user.click(await screen.findByRole('button', { name: 'Open King orchestration, 1 item needs attention' }));
   expect(await screen.findByText('Workspace handoffs', { selector: 'h2' })).toBeInTheDocument();
   await user.click(screen.getByText('Hand over', { selector: 'button' }));
 
@@ -317,4 +331,117 @@ test('approves a workspace handoff directly from King orchestration', async () =
   expect(typeof handoff?.init?.body).toBe('string');
   if (typeof handoff?.init?.body !== 'string') return;
   expect(JSON.parse(handoff.init.body)).toEqual({ action: 'handoff' });
+});
+
+test('shows assignment progress in user language without exposing internal event codes', async () => {
+  const workingAttempt: KingAttempt = {
+    ...ownerAttempt(),
+    status: 'working',
+    result: null,
+    verification: null,
+    verdict: null,
+    resultEventHash: null,
+    resultSubmittedAt: null,
+  };
+  const progressResponse = {
+    ...response,
+    summary: { ...response.summary, needsOwner: 0, pendingInbox: 3 },
+    runs: [{ ...response.runs[0], phase: 'executing' as const, status: 'active' as const }],
+    tasks: [{ ...response.tasks[0], status: 'running' as const }],
+    attempts: [workingAttempt],
+    inbox: [
+      {
+        id: 'event-1',
+        type: 'attempt-dispatched' as const,
+        runId: 'run-1',
+        taskId: 'task-1',
+        attemptId: 'attempt-1',
+        workspaceId: 'workspace-1',
+        message: 'Attempt attempt-1 was dispatched.',
+        createdAt: 2,
+        notifiedAt: null,
+        acknowledgedAt: null,
+      },
+    ],
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify(progressResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+    )
+  );
+  const user = userEvent.setup();
+  render(KingWorkflowPanel);
+
+  await user.click(await screen.findByRole('button', { name: 'Open King orchestration' }));
+
+  expect(await screen.findByText('Current work', { selector: 'h2' })).toBeInTheDocument();
+  expect(screen.getByText('Agent is working')).toBeInTheDocument();
+  expect(screen.getByText('Feature workspace')).toBeInTheDocument();
+  expect(screen.getByText('Working')).toBeInTheDocument();
+  expect(screen.queryByText('attempt-dispatched')).not.toBeInTheDocument();
+  expect(screen.queryByText('Attempt attempt-1 was dispatched.')).not.toBeInTheDocument();
+  expect(screen.queryByText('3 events')).not.toBeInTheDocument();
+});
+
+test('keeps verified read-only analysis out of the owner approval queue', async () => {
+  const analysisAttempt: KingAttempt = {
+    ...ownerAttempt(),
+    status: 'verified',
+    result: {
+      ...ownerAttempt().result!,
+      changedPaths: [],
+      verification: [],
+      plan: {
+        candidateWorkspaceId: 'workspace-1',
+        recommendation: 'proceed',
+        confidence: 0.9,
+        summary: 'Prioritize the compatibility fix.',
+        steps: ['Fix compatibility'],
+        assumptions: [],
+        risks: [],
+        questions: [],
+        proposedTasks: [],
+      },
+    },
+    verification: { ...ownerAttempt().verification!, outcome: 'passed', commands: [], reasons: [] },
+    verdict: null,
+  };
+  const analysisResponse = {
+    ...response,
+    summary: { ...response.summary, needsOwner: 0 },
+    runs: [{ ...response.runs[0], phase: 'analyzing' as const, status: 'active' as const }],
+    tasks: [
+      {
+        ...response.tasks[0],
+        kind: 'analysis' as const,
+        title: 'Analyze next priority',
+        approvalPolicy: 'auto' as const,
+        status: 'verified' as const,
+      },
+    ],
+    attempts: [analysisAttempt],
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify(analysisResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+    )
+  );
+  const user = userEvent.setup();
+  render(KingWorkflowPanel);
+
+  await user.click(await screen.findByRole('button', { name: 'Open King orchestration' }));
+
+  expect(screen.queryByRole('heading', { name: 'Approval needed' })).not.toBeInTheDocument();
+  expect(screen.getByText('Waiting for King to review the verified result')).toBeInTheDocument();
+  expect(screen.getByText('Analyze next priority')).toBeInTheDocument();
 });

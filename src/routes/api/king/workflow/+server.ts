@@ -6,6 +6,7 @@ import {
   KingWorkflowError,
   readKingWorkflowStore,
   readKingWorkflowSummary,
+  resumeKingAttemptPreparation,
 } from '~/lib/features/workspace/server/king-workflow-store.server.ts';
 import { readWorkspaceStore, type StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import { interruptTmuxTerminal } from '~/lib/features/terminal/server/tmux.server.ts';
@@ -27,7 +28,6 @@ function workspaceControlRequest(workspace: StoredWorkspace) {
     id: workspace.id,
     label: workspace.workspaceLabel || workspace.cwd,
     cwd: workspace.cwd,
-    startupProfileId: workspace.startupProfileId,
     control,
   };
 }
@@ -68,6 +68,12 @@ export const GET: RequestHandler = async (event) => {
         .filter((decision) => decision.status === 'pending' || runIds.has(decision.runId))
         .slice(-50),
       inbox: store.inbox.slice(-20).reverse(),
+      workspaceLabels: Object.fromEntries(
+        workspaceStore.workspaces.map((workspace) => [
+          workspace.id,
+          workspace.workspaceKind === 'king' ? 'The King of Vampire' : workspace.workspaceLabel || workspace.cwd,
+        ])
+      ),
       controlRequests: workspaceStore.workspaces.flatMap((workspace) => {
         const request = workspaceControlRequest(workspace);
         return request ? [request] : [];
@@ -82,6 +88,20 @@ export const POST: RequestHandler = async (event) => {
   const body: unknown = await event.request.json().catch(() => undefined);
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw error(400, 'Decision input is required.');
   const input = body as Record<string, unknown>;
+  if (input.action === 'retry') {
+    if (typeof input.attemptId !== 'string') throw error(400, 'Attempt id is required.');
+    const store = await readKingWorkflowStore();
+    const attempt = store.attempts.find((candidate) => candidate.id === input.attemptId);
+    if (!attempt) throw error(404, 'King Attempt was not found.');
+    const reason = attempt.verdict?.outcome === 'owner-required' ? attempt.verdict.reason : undefined;
+    if (!reason) throw error(409, 'This King Attempt cannot retry delivery preparation.');
+    try {
+      return json({ attempt: await resumeKingAttemptPreparation(attempt.id, reason) });
+    } catch (cause) {
+      if (cause instanceof KingWorkflowError) throw error(409, cause.message);
+      throw error(500, 'Vampire could not retry the King Attempt.');
+    }
+  }
   if (input.action === 'answer') {
     if (typeof input.decisionId !== 'string') throw error(400, 'Decision id is required.');
     if (typeof input.answer !== 'string' || !input.answer.trim()) throw error(400, 'Owner answer is required.');

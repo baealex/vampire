@@ -191,6 +191,25 @@ export type KingAttempt = {
   resultSubmittedAt: number | null;
 };
 
+export function kingAttemptCanRetryPreparation(attempt: KingAttempt): boolean {
+  return (
+    attempt.status === 'needs-owner' &&
+    attempt.verdict?.outcome === 'owner-required' &&
+    attempt.verdict.decidedBy === 'vampire' &&
+    attempt.deliveryTarget === null &&
+    attempt.result === null &&
+    attempt.verification === null &&
+    attempt.startedEventHash === null &&
+    attempt.startedEventConflictHash === null &&
+    attempt.resultEventHash === null &&
+    attempt.resultEventConflictHash === null &&
+    attempt.deliveryAttemptedAt === null &&
+    attempt.dispatchedAt === null &&
+    attempt.startedAt === null &&
+    attempt.resultSubmittedAt === null
+  );
+}
+
 export type KingInboxEventType =
   | 'attempt-dispatched'
   | 'attempt-started'

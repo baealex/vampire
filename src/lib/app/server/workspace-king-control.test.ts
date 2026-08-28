@@ -126,6 +126,24 @@ test('captures an exact handoff snapshot before granting King the writer lease',
   });
 });
 
+test('refuses handoff when the workspace has no running main agent', async () => {
+  const shellOnly: ManagedWorkspace = {
+    ...workspace(),
+    foregroundProcess: { kind: 'shell', label: 'zsh' },
+  };
+  await assert.rejects(
+    () =>
+      handOverWorkspaceToKing(shellOnly.id, 'Delegate work.', dependencies({ findWorkspace: async () => shellOnly })),
+    /no recognized main agent.*Start Codex or Claude/i
+  );
+
+  const stopped: ManagedWorkspace = { ...workspace(), state: 'missing', foregroundProcess: null };
+  await assert.rejects(
+    () => handOverWorkspaceToKing(stopped.id, 'Delegate work.', dependencies({ findWorkspace: async () => stopped })),
+    /stopped.*Open it and start its agent/i
+  );
+});
+
 test('taking control interrupts every Attempt and task terminal sharing the checkout', async () => {
   const primary = { ...workspace('workspace-1'), kingControl: control('king') };
   const duplicate = workspace('workspace-2');

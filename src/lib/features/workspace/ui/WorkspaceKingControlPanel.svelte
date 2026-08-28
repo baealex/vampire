@@ -4,6 +4,7 @@ import ShieldCheck from '@lucide/svelte/icons/shield-check';
 import UserRound from '@lucide/svelte/icons/user-round';
 import { requestJson } from '~/lib/shared/api/request.ts';
 import type { ManagedWorkspace, WorkspaceKingControl } from '~/lib/shared/contracts/workspace.ts';
+import { workspaceHasRecognizedMainAgent } from '~/lib/shared/contracts/workspace-agent.ts';
 import Button from '~/lib/shared/ui/Button.svelte';
 import PopoverShell from '~/lib/shared/ui/PopoverShell.svelte';
 
@@ -24,6 +25,7 @@ let errorMessage = $state('');
 const controlState = $derived(workspace.kingControl?.state ?? 'manual');
 const requested = $derived(workspace.kingControl?.state === 'requested');
 const kingControlled = $derived(workspace.kingControl?.state === 'king');
+const liveMainAgent = $derived(workspaceHasRecognizedMainAgent(workspace));
 
 function controlTriggerLabel(state: typeof controlState): string {
   if (state === 'requested') return 'King requested workspace control';
@@ -99,16 +101,18 @@ async function applyAction(action: 'handoff' | 'decline' | 'take-control') {
       {#if requested}
         <p>{workspace.kingControl?.reason}</p>
         <p class="workspace-king-control__hint">
-          Handing over preserves this checkout and starts Tasks in a separate agent session.
+          Handing over preserves this checkout and lets King assign work to its existing main agent.
         </p>
-        {#if !workspace.startupProfileId}
-          <p class="workspace-king-control__warning">Select a startup profile before King can start a worker.</p>
+        {#if !liveMainAgent}
+          <p class="workspace-king-control__warning">
+            Start Codex or Claude in this workspace first. King will not launch an agent or write into a shell.
+          </p>
         {/if}
         <div class="workspace-king-control__actions">
           <Button
             size="sm"
             variant="primary"
-            disabled={Boolean(pendingAction)}
+            disabled={Boolean(pendingAction) || !liveMainAgent}
             onclick={() => void applyAction('handoff')}
           >
             <ShieldCheck size={15} strokeWidth={1.8} aria-hidden="true" />
@@ -124,9 +128,14 @@ async function applyAction(action: 'handoff' | 'decline' | 'take-control') {
         </div>
       {:else if kingControlled}
         <p>
-          King owns the writer lease. Your existing agent conversation stays untouched while Tasks run in dedicated
-          sessions.
+          King owns the writer lease and assigns Tasks to this workspace’s existing main agent. Progress remains visible
+          in the same terminal.
         </p>
+        {#if !liveMainAgent}
+          <p class="workspace-king-control__warning">
+            The main agent is no longer running. Start it manually before asking King to assign more work.
+          </p>
+        {/if}
         {#if workspace.kingControl?.handoffSnapshot}
           <dl>
             <div>
@@ -155,21 +164,23 @@ async function applyAction(action: 'handoff' | 'decline' | 'take-control') {
         </div>
       {:else}
         <p>
-          Hand this checkout to King when you want it to coordinate work here. Your current terminal and conversation
-          are preserved.
+          Hand this checkout to King when you want it to coordinate the existing main agent. King will not create a
+          workspace, terminal, worktree, or agent for you.
         </p>
         <label>
           <span>Context for King (optional)</span>
           <textarea bind:value={reason} rows="2" placeholder="Why King should control this workspace"></textarea>
         </label>
-        {#if !workspace.startupProfileId}
-          <p class="workspace-king-control__warning">Select a startup profile before King can start a worker.</p>
+        {#if !liveMainAgent}
+          <p class="workspace-king-control__warning">
+            Start Codex or Claude in this workspace first. King will not launch an agent or write into a shell.
+          </p>
         {/if}
         <div class="workspace-king-control__actions">
           <Button
             size="sm"
             variant="primary"
-            disabled={Boolean(pendingAction)}
+            disabled={Boolean(pendingAction) || !liveMainAgent}
             onclick={() => void applyAction('handoff')}
           >
             <Crown size={15} strokeWidth={1.8} aria-hidden="true" />

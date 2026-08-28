@@ -21,7 +21,6 @@ import {
 } from '~/lib/features/workspace/server/king-workspace.server.ts';
 import {
   isAgentProcessLabel,
-  readTerminalAgentState,
   readWorkspaceAgentStates,
 } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import { readWorkspaceStore, type StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
@@ -34,7 +33,6 @@ import { markManagedWorkspaceKingControlNotified } from './workspace-registry.se
 
 const KING_ORCHESTRATION_POLL_INTERVAL_MS = 2_000;
 const DELIVERY_UNCERTAIN_ESCALATION_MS = 30_000;
-const TASK_TERMINAL_STARTUP_TIMEOUT_MS = 30_000;
 const ATTEMPT_START_TIMEOUT_MS = 2 * 60_000;
 const ATTEMPT_RESULT_TIMEOUT_MS = 60 * 60_000;
 const MAX_NOTIFICATION_EVENTS = 20;
@@ -52,7 +50,6 @@ export type KingOrchestrationDependencies = {
   verifyAttempt: (attemptId: string, now?: number) => Promise<KingAttempt>;
   listTmuxSessions: typeof listTmuxSessions;
   readAgentStates: typeof readWorkspaceAgentStates;
-  readTerminalAgentState: typeof readTerminalAgentState;
   killTerminal: typeof killTmuxTerminal;
   markControlNotified: typeof markManagedWorkspaceKingControlNotified;
   submitPrompt: typeof submitTmuxPrompt;
@@ -71,7 +68,6 @@ const defaultDependencies: KingOrchestrationDependencies = {
   verifyAttempt: (attemptId, now) => verifyKingAttemptById(attemptId, undefined, now),
   listTmuxSessions,
   readAgentStates: readWorkspaceAgentStates,
-  readTerminalAgentState,
   killTerminal: killTmuxTerminal,
   markControlNotified: markManagedWorkspaceKingControlNotified,
   submitPrompt: submitTmuxPrompt,
@@ -107,9 +103,8 @@ function workerPrompt(attempt: KingAttempt, task: KingTask, cliPath: string): st
 }
 
 function kingNotificationPrompt(events: KingInboxEvent[], cliPath: string): string {
-  const references = events.map((event) => `${event.type}:${event.attemptId}`).join(', ');
   return [
-    `Vampire orchestration recorded ${events.length} new event${events.length === 1 ? '' : 's'}: ${references}.`,
+    `Vampire has ${events.length} actionable orchestration update${events.length === 1 ? '' : 's'}.`,
     `Read and acknowledge the structured inbox with: node ${JSON.stringify(cliPath)} inbox list --pending --ack`,
     'Use the referenced verified Result, owner response, or failure to decide the next action.',
     'Do not repeat a worker analysis, inspect an in-progress workspace, poll, or wait for more events. Finish the actionable transition, then return control.',
@@ -175,12 +170,6 @@ async function findKingSubmission(
     : undefined;
 }
 
-function attemptTaskTerminal(runtime: WorkspaceRuntime, attemptId: string): TmuxTerminal | undefined {
-  return runtime.running?.terminals.find(
-    (terminal) => terminal.terminalKind === 'king-task' && terminal.kingAttemptId === attemptId
-  );
-}
-
 function mainAgentSubmission(runtime: WorkspaceRuntime): PromptSubmission | undefined {
   const mainTerminal =
     runtime.running?.terminals.find((terminal) => terminal.terminalKind === 'main') ??
@@ -199,17 +188,9 @@ function hasTimedOut(startedAt: number | null, timeoutMs: number, now: number): 
   return startedAt !== null && now - startedAt >= timeoutMs;
 }
 
-function assertTaskTerminalCanStillStart(terminal: TmuxTerminal, now: number): void {
-  if (terminal.state === 'exited') throw new Error('The dedicated King task agent exited before accepting its Task.');
-  if (hasTimedOut(terminal.startedAt, TASK_TERMINAL_STARTUP_TIMEOUT_MS, now)) {
-    throw new Error('The dedicated King task agent did not become ready within 30 seconds.');
-  }
-}
-
 async function prepareAttemptSubmission(
   attempt: KingAttempt,
   task: KingTask,
-  now: number,
   dependencies: KingOrchestrationDependencies
 ): Promise<PromptSubmission | undefined> {
   const runtime = await readWorkspaceRuntime(attempt.workspaceId, dependencies);
@@ -219,20 +200,6 @@ async function prepareAttemptSubmission(
   }
   if (!runtime.running) {
     throw new Error(`Workspace ${runtime.stored.id} is stopped. Open it manually before King assigns work.`);
-  }
-
-  const existingTerminal = attemptTaskTerminal(runtime, attempt.id);
-  if (existingTerminal) {
-    const agentState = await dependencies.readTerminalAgentState(existingTerminal);
-    if (agentState !== 'waiting') {
-      assertTaskTerminalCanStillStart(existingTerminal, now);
-      return undefined;
-    }
-    return {
-      tmuxSession: runtime.stored.tmuxSession,
-      terminalId: existingTerminal.id,
-      agentLabel: existingTerminal.foregroundProcess?.label ?? 'agent',
-    };
   }
 
   const mainAgent = mainAgentSubmission(runtime);
@@ -258,7 +225,7 @@ async function dispatchQueuedAttempts(
     await withWorkspacePromptLock(attempt.workspaceId, async () => {
       let submission: PromptSubmission | undefined;
       try {
-        submission = await prepareAttemptSubmission(attempt, task, now, dependencies);
+        submission = await prepareAttemptSubmission(attempt, task, dependencies);
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'The King task agent could not be prepared.';
         await dependencies.requireOwner(attempt.id, detail, now);

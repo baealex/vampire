@@ -133,8 +133,8 @@ function dependencies(
       cliPath: '/state/king/bin/king.mjs',
       controlConfigPath: '/state/king/control.json',
       controlSocketPath: '/tmp/vampire-king/control.sock',
-      bootstrapVersion: 8,
-      contractRevision: '8-revision',
+      bootstrapVersion: 9,
+      contractRevision: '9-revision',
       bootstrapPrompt: 'bootstrap',
     }),
     readWorkspaceStore: async () => ({
@@ -175,7 +175,6 @@ function dependencies(
     verifyAttempt: async (id) => ({ ...attempt('verified'), id }),
     listTmuxSessions: async () => [tmuxSession('worker-session'), tmuxSession('king-session')],
     readAgentStates: async (workspaces) => new Map([...workspaces].map((workspace) => [workspace.id, 'waiting'])),
-    readTerminalAgentState: async () => 'waiting',
     killTerminal: async () => undefined,
     markControlNotified: async () => {
       throw new Error('Control notification was not expected.');
@@ -198,9 +197,6 @@ test('dispatches a queued packet to the existing main agent without routing on i
     100,
     dependencies(workflow([queued]), {
       listTmuxSessions: async () => [workerSession, tmuxSession('king-session')],
-      readTerminalAgentState: async () => {
-        throw new Error('Main-agent dispatch must not inspect coarse activity state.');
-      },
       listInbox: async () => [event],
       markDeliveryUncertain: async (id, target) => {
         transitions.push(`uncertain:${id}`);
@@ -261,7 +257,8 @@ test('wakes King for an actionable verified Result and keeps its visible agent u
   );
 
   assert.equal(prompts.length, 1);
-  assert.match(prompts[0] ?? '', /verification-complete/);
+  assert.match(prompts[0] ?? '', /1 actionable orchestration update/);
+  assert.doesNotMatch(prompts[0] ?? '', /verification-complete|11111111-1111/);
   assert.match(prompts[0] ?? '', /Do not repeat a worker analysis/);
   assert.match(prompts[0] ?? '', /Do not .*poll, or wait/);
   assert.deepEqual(notifiedIds, [event.id]);
@@ -298,7 +295,8 @@ test('wakes King after an authenticated owner decision', async () => {
   );
 
   assert.equal(prompts.length, 1);
-  assert.match(prompts[0] ?? '', /owner-decision/);
+  assert.match(prompts[0] ?? '', /actionable orchestration update/);
+  assert.doesNotMatch(prompts[0] ?? '', /owner-decision/);
 });
 
 test('does not materialize or scan King state before a King workspace is registered', async () => {
@@ -391,28 +389,20 @@ test('does not start a stopped workspace to deliver a queued Attempt', async () 
   assert.match(ownerReviews[0] ?? '', /stopped.*open it manually/i);
 });
 
-test('escalates a task terminal that never becomes ready instead of waiting forever', async () => {
+test('ignores a legacy task terminal and always dispatches new work to the main agent', async () => {
   const queued = attempt('queued');
-  const ownerReviews: string[] = [];
-  const prompts: string[] = [];
+  const terminals: string[] = [];
 
   await runKingOrchestrationTick(
-    30_001,
+    100,
     dependencies(workflow([queued]), {
-      readTerminalAgentState: async () => null,
-      requireOwner: async (id, reason) => {
-        ownerReviews.push(`${id}:${reason}`);
-        return { ...queued, status: 'needs-owner' };
-      },
-      submitPrompt: async (_session, _terminal, prompt) => {
-        prompts.push(prompt);
+      submitPrompt: async (_session, terminal) => {
+        terminals.push(terminal);
       },
     })
   );
 
-  assert.equal(ownerReviews.length, 1);
-  assert.match(ownerReviews[0] ?? '', /did not become ready within 30 seconds/i);
-  assert.deepEqual(prompts, []);
+  assert.deepEqual(terminals, ['@1']);
 });
 
 test('escalates dispatched and working Attempts that never report progress', async () => {

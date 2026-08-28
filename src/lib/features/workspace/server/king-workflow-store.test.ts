@@ -108,7 +108,7 @@ test('records the exact intended delivery target for an Attempt audit trail', as
 test('resumes a preparation-only owner block without treating it as owner approval', async (t) => {
   await useTemporaryStateDirectory(t);
   const { run, attempt } = await createAttemptFixture();
-  const reason = 'Select a startup profile before King dispatches work to this workspace.';
+  const reason = 'Workspace workspace-1 has no recognized main agent.';
   await requireKingAttemptOwner(attempt.id, reason, 120);
   assert.equal((await readKingRun(run.id)).run.status, 'needs-owner');
 

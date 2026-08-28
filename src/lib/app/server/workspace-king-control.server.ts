@@ -11,6 +11,7 @@ import {
 } from '~/lib/features/terminal/server/tmux.server.ts';
 import { interruptKingWorkspaceAttempts } from '~/lib/features/workspace/server/king-workflow-store.server.ts';
 import type { WorkspaceHandoffSnapshot, WorkspaceKingControl } from '~/lib/shared/contracts/workspace.ts';
+import { workspaceHasRecognizedMainAgent } from '~/lib/shared/contracts/workspace-agent.ts';
 import {
   declineManagedWorkspaceKingControl,
   findManagedWorkspace,
@@ -18,6 +19,7 @@ import {
   listManagedWorkspaces,
   releaseManagedWorkspaceKingControl,
   type ManagedWorkspace,
+  WorkspaceMutationError,
 } from './workspace-registry.server.ts';
 
 export type WorkspaceKingControlDependencies = {
@@ -61,6 +63,23 @@ function requireControlTarget(workspace: ManagedWorkspace | undefined, workspace
 function requireAvailableControlTarget(workspace: ManagedWorkspace | undefined, workspaceId: string): ManagedWorkspace {
   const target = requireControlTarget(workspace, workspaceId);
   if (!target.workspaceAvailable) throw new Error(`Workspace ${workspaceId} is unavailable.`);
+  return target;
+}
+
+function requireLiveAgentControlTarget(workspace: ManagedWorkspace | undefined, workspaceId: string): ManagedWorkspace {
+  const target = requireAvailableControlTarget(workspace, workspaceId);
+  if (target.state !== 'running') {
+    throw new WorkspaceMutationError(
+      'workspace-not-running',
+      `Workspace ${workspaceId} is stopped. Open it and start its agent before handing it to King.`
+    );
+  }
+  if (!workspaceHasRecognizedMainAgent(target)) {
+    throw new WorkspaceMutationError(
+      'invalid-king-control',
+      `Workspace ${workspaceId} has no recognized main agent. Start Codex or Claude before handing it to King.`
+    );
+  }
   return target;
 }
 
@@ -126,7 +145,7 @@ export async function handOverWorkspaceToKing(
   dependencies: WorkspaceKingControlDependencies = defaultDependencies,
   now = Date.now()
 ): Promise<WorkspaceControlActionResult> {
-  const workspace = requireAvailableControlTarget(await dependencies.findWorkspace(workspaceId), workspaceId);
+  const workspace = requireLiveAgentControlTarget(await dependencies.findWorkspace(workspaceId), workspaceId);
   const snapshot = await captureHandoffSnapshot(workspace, dependencies, now);
   const control = await dependencies.handOver(
     workspaceId,

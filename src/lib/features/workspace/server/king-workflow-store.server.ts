@@ -5,6 +5,7 @@ import {
   KING_EVENT_SCHEMA_VERSION,
   KING_RESULT_SCHEMA_VERSION,
   KING_WORKFLOW_VERSION,
+  kingAttemptCanRetryPreparation,
   type KingAttempt,
   type KingAttemptBaseline,
   type KingAttemptDeliveryTarget,
@@ -1298,22 +1299,6 @@ export async function requireKingAttemptOwner(
   });
 }
 
-function attemptWasNeverDelivered(attempt: KingAttempt): boolean {
-  return (
-    attempt.deliveryTarget === null &&
-    attempt.result === null &&
-    attempt.verification === null &&
-    attempt.startedEventHash === null &&
-    attempt.startedEventConflictHash === null &&
-    attempt.resultEventHash === null &&
-    attempt.resultEventConflictHash === null &&
-    attempt.deliveryAttemptedAt === null &&
-    attempt.dispatchedAt === null &&
-    attempt.startedAt === null &&
-    attempt.resultSubmittedAt === null
-  );
-}
-
 export async function resumeKingAttemptPreparation(
   attemptId: string,
   expectedReason: string,
@@ -1323,13 +1308,7 @@ export async function resumeKingAttemptPreparation(
     const store = await readKingWorkflowStore();
     const attempt = requireAttempt(store, attemptId);
     const reason = normalizeText(expectedReason, 'expectedReason', MAX_ITEM_LENGTH);
-    if (
-      attempt.status !== 'needs-owner' ||
-      attempt.verdict?.outcome !== 'owner-required' ||
-      attempt.verdict.decidedBy !== 'vampire' ||
-      attempt.verdict.reason !== reason ||
-      !attemptWasNeverDelivered(attempt)
-    ) {
+    if (!kingAttemptCanRetryPreparation(attempt) || attempt.verdict?.reason !== reason) {
       throw new KingWorkflowError('invalid-state', `Attempt ${attempt.id} cannot resume preparation.`);
     }
     attempt.status = 'queued';

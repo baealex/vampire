@@ -268,8 +268,41 @@ test('keeps run summaries compact and leaves command output behind attempt.show'
   assert.match(JSON.stringify(response), /pnpm test/);
 });
 
+test('never accepts an owner identity claimed through the King control socket', async () => {
+  let decidedBy: 'king' | 'owner' | undefined;
+  const deps = dependencies({
+    decideAttempt: async (_attemptId, decision) => {
+      decidedBy = decision.decidedBy;
+      return attempt();
+    },
+  });
+  const spoofed = await handleKingControlRequest(
+    {
+      id: 'spoof-owner',
+      command: 'attempt.decide',
+      input: { attemptId: 'attempt-1', outcome: 'accepted', reason: 'Trust me.', decidedBy: 'owner' },
+    },
+    deps
+  );
+  assert.equal(spoofed.ok, false);
+  if (!spoofed.ok) assert.match(spoofed.error, /authenticated Vampire UI/i);
+  assert.equal(decidedBy, undefined);
+
+  const kingDecision = await handleKingControlRequest(
+    {
+      id: 'king-decision',
+      command: 'attempt.decide',
+      input: { attemptId: 'attempt-1', outcome: 'accepted', reason: 'Verified.' },
+    },
+    deps
+  );
+  assert.equal(kingDecision.ok, true);
+  assert.equal(decidedBy, 'king');
+});
+
 test('verification compares the real diff and reruns the declared command before recording a pass', async () => {
   let recorded: KingAttemptVerification | undefined;
+  let verificationTimeoutMs: number | undefined;
   const currentAttempt = attempt();
   const response = await handleKingControlRequest(
     { id: 'request-2', command: 'attempt.verify', input: { attemptId: currentAttempt.id } },
@@ -278,14 +311,17 @@ test('verification compares the real diff and reruns the declared command before
       readTask: async () => task(),
       findWorkspace: async () => workspace(),
       readSnapshot: async () => snapshot([{ path: 'src/feature.ts', status: ' M' }]),
-      runVerification: async (cwd, command) => ({
-        command,
-        outcome: cwd === '/project' ? 'passed' : 'failed',
-        exitCode: 0,
-        stdout: 'ok',
-        stderr: '',
-        durationMs: 5,
-      }),
+      runVerification: async (cwd, command, timeoutMs) => {
+        verificationTimeoutMs = timeoutMs;
+        return {
+          command,
+          outcome: cwd === '/project' ? 'passed' : 'failed',
+          exitCode: 0,
+          stdout: 'ok',
+          stderr: '',
+          durationMs: 5,
+        };
+      },
       recordVerification: async (_id, verification) => {
         recorded = verification;
         return { ...currentAttempt, status: 'verified', verification };
@@ -297,6 +333,7 @@ test('verification compares the real diff and reruns the declared command before
   assert.deepEqual(recorded?.attemptChangePaths, ['src/feature.ts']);
   assert.deepEqual(recorded?.unexpectedPaths, []);
   assert.equal(recorded?.commands[0]?.outcome, 'passed');
+  assert.equal(verificationTimeoutMs, 5 * 60_000);
 });
 
 test('verification fails on undeclared or forbidden changes and rejects mutating package commands', async () => {
@@ -328,6 +365,32 @@ test('verification fails on undeclared or forbidden changes and rejects mutating
   assert.deepEqual(recorded?.unexpectedPaths, ['src/feature.ts', 'src/secrets/token.ts']);
   await assert.rejects(() => runKingVerificationCommand('/project', 'pnpm install'), /allowlisted verification/i);
   await assert.rejects(() => runKingVerificationCommand('/project', 'pnpm destroy'), /allowlisted verification/i);
+});
+
+test('shares one bounded timeout across every verification command', async () => {
+  const timeouts: Array<number | undefined> = [];
+  const currentAttempt = attempt();
+  const response = await handleKingControlRequest(
+    { id: 'bounded-verification', command: 'attempt.verify', input: { attemptId: currentAttempt.id } },
+    dependencies({
+      readAttempt: async () => currentAttempt,
+      readTask: async () => ({ ...task(), verificationCommands: ['pnpm test', 'pnpm check'] }),
+      findWorkspace: async () => workspace(),
+      readSnapshot: async () => snapshot([{ path: 'src/feature.ts', status: ' M' }]),
+      runVerification: async (_cwd, command, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        return { command, outcome: 'passed', exitCode: 0, stdout: '', stderr: '', durationMs: 1 };
+      },
+      recordVerification: async (_id, verification) => ({
+        ...currentAttempt,
+        status: 'verified',
+        verification,
+      }),
+    })
+  );
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(timeouts, [150_000, 150_000]);
 });
 
 test('verification fails when a worker changes Git HEAD even if its working tree diff looks correct', async () => {

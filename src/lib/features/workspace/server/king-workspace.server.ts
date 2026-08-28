@@ -7,7 +7,7 @@ import { vampireStatePath } from '~/lib/server/state-path.ts';
 import { readWorkspaceStore, withWorkspaceStoreMutation, writeWorkspaceStore } from './workspace-store.server.ts';
 
 export const KING_WORKSPACE_NAME = 'King';
-export const KING_BOOTSTRAP_VERSION = 8;
+export const KING_BOOTSTRAP_VERSION = 9;
 
 const KING_DIRECTORY_NAME = 'king';
 const KING_INSTRUCTIONS_FILE_NAME = 'KING.md';
@@ -207,7 +207,11 @@ async function callControl(command, input) {
     const socket = createConnection(socketPath);
     const chunks = [];
     let size = 0;
-    const timeout = setTimeout(() => socket.destroy(new Error('Vampire King control request timed out.')), 60_000);
+    const timeoutMs = command === 'attempt.verify' ? 5 * 60_000 + 30_000 : 60_000;
+    const timeout = setTimeout(
+      () => socket.destroy(new Error('Vampire King control request timed out.')),
+      timeoutMs
+    );
     timeout.unref();
     socket.setEncoding('utf8');
     socket.on('connect', () => socket.end(request));
@@ -432,7 +436,7 @@ async function main() {
   if (group === 'attempt' && action === 'decide') {
     const verdict = options.get('verdict');
     if (verdict !== 'accept' && verdict !== 'reject') fail('--verdict must be accept or reject.');
-    return callControl('attempt.decide', { attemptId: positional[0], outcome: verdict === 'accept' ? 'accepted' : 'rejected', reason: options.get('reason'), decidedBy: 'king' });
+    return callControl('attempt.decide', { attemptId: positional[0], outcome: verdict === 'accept' ? 'accepted' : 'rejected', reason: options.get('reason') });
   }
   if (group === 'decisions' && action === 'list') return callControl('decisions.list', { pendingOnly: options.has('pending') });
   if (group === 'decision' && action === 'create') return callControl('decision.create', await readJsonInput(options.get('input')));

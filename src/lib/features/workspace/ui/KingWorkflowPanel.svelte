@@ -10,6 +10,7 @@ import type {
   KingTask,
   KingWorkflowSummary,
 } from '~/lib/shared/contracts/king-workflow.ts';
+import { kingAttemptCanRetryPreparation } from '~/lib/shared/contracts/king-workflow.ts';
 import type { WorkspaceKingControl } from '~/lib/shared/contracts/workspace.ts';
 import { requestJson } from '~/lib/shared/api/request.ts';
 import Button from '~/lib/shared/ui/Button.svelte';
@@ -25,6 +26,7 @@ type WorkflowResponse = {
   attempts: KingAttempt[];
   decisions: KingDecisionRequest[];
   inbox: KingInboxEvent[];
+  workspaceLabels: Record<string, string>;
   controlRequests: WorkspaceControlRequest[];
 };
 
@@ -32,8 +34,12 @@ type WorkspaceControlRequest = {
   id: string;
   label: string;
   cwd: string;
-  startupProfileId: string | null;
   control: WorkspaceKingControl & { state: 'requested' };
+};
+
+type OwnerReviewAttempt = KingAttempt & {
+  result: NonNullable<KingAttempt['result']>;
+  verification: NonNullable<KingAttempt['verification']>;
 };
 
 let open = $state(false);
@@ -42,18 +48,34 @@ let errorMessage = $state('');
 let decidingAttemptId = $state<string>();
 let answeringDecisionId = $state<string>();
 let controllingWorkspaceId = $state<string>();
+let retryingAttemptId = $state<string>();
 let decisionReasons = $state<Record<string, string>>({});
 let ownerAnswers = $state<Record<string, string>>({});
 let workflow = $state<WorkflowResponse>();
-const ownerAttempts = $derived(
-  workflow?.attempts.filter(
-    (attempt) => attempt.status === 'needs-owner' && attempt.result !== null && attempt.verification !== null
-  ) ?? []
-);
-const blockedAttempts = $derived(
+const ACTIVE_ATTEMPT_STATUSES = new Set<KingAttempt['status']>([
+  'queued',
+  'delivery-uncertain',
+  'dispatched',
+  'working',
+  'result-submitted',
+  'verified',
+]);
+const TERMINAL_ATTEMPT_STATUSES = new Set<KingAttempt['status']>(['accepted', 'rejected', 'blocked', 'failed']);
+function needsOwnerReview(attempt: KingAttempt): attempt is OwnerReviewAttempt {
+  return attempt.status === 'needs-owner' && attempt.result !== null && attempt.verification !== null;
+}
+
+const ownerAttempts = $derived(workflow?.attempts.filter(needsOwnerReview) ?? []);
+const attentionAttempts = $derived(
   workflow?.attempts.filter(
     (attempt) => attempt.status === 'needs-owner' && (attempt.result === null || attempt.verification === null)
   ) ?? []
+);
+const activeAttempts = $derived(
+  workflow?.attempts.filter((attempt) => ACTIVE_ATTEMPT_STATUSES.has(attempt.status)) ?? []
+);
+const recentAttempts = $derived(
+  (workflow?.attempts.filter((attempt) => TERMINAL_ATTEMPT_STATUSES.has(attempt.status)) ?? []).slice(-5).reverse()
 );
 const pendingDecisions = $derived(workflow?.decisions.filter((decision) => decision.status === 'pending') ?? []);
 const activeRuns = $derived(
@@ -62,31 +84,72 @@ const activeRuns = $derived(
 const ownerActionCount = $derived(
   ownerAttempts.length + pendingDecisions.length + (workflow?.controlRequests.length ?? 0)
 );
+const attentionCount = $derived(ownerActionCount + attentionAttempts.length);
 
 function orchestrationTriggerLabel(actionCount: number): string {
   if (actionCount === 0) return 'Open King orchestration';
   const itemLabel = actionCount === 1 ? 'item needs' : 'items need';
-  return `Open King orchestration, ${actionCount} ${itemLabel} you`;
+  return `Open King orchestration, ${actionCount} ${itemLabel} attention`;
 }
 
-const triggerLabel = $derived(orchestrationTriggerLabel(ownerActionCount));
+function attentionSummary(actionCount: number): string {
+  return `${actionCount} ${actionCount === 1 ? 'needs' : 'need'} attention`;
+}
+
+function activeGoalSummary(goalCount: number): string {
+  return `${goalCount} ${goalCount === 1 ? 'goal' : 'goals'}`;
+}
+
+const triggerLabel = $derived(orchestrationTriggerLabel(attentionCount));
 
 function taskFor(attempt: KingAttempt): KingTask | undefined {
   return workflow?.tasks.find((task) => task.id === attempt.taskId);
 }
 
-function isLaunchProfileSetupBlock(attempt: KingAttempt): boolean {
-  const reason = attempt.verdict?.reason ?? '';
-  return (
-    reason.includes('startup profile') || reason.includes('launch profile') || reason.startsWith('Startup profile ')
-  );
+function workspaceLabel(workspaceId: string): string {
+  return workflow?.workspaceLabels[workspaceId] ?? workspaceId;
 }
 
-function blockedAttemptGuidance(attempt: KingAttempt): string {
-  if (isLaunchProfileSetupBlock(attempt)) {
-    return 'No approval is needed. Vampire retries automatically as soon as it can select a launch profile.';
+function attemptStage(attempt: KingAttempt): string {
+  if (attempt.status === 'queued') return 'Preparing assignment';
+  if (attempt.status === 'delivery-uncertain') return 'Confirming delivery';
+  if (attempt.status === 'dispatched') return 'Waiting for the agent to start';
+  if (attempt.status === 'working') return 'Agent is working';
+  if (attempt.status === 'result-submitted') return 'Checking the submitted result';
+  if (attempt.status === 'verified') return 'Waiting for King to review the verified result';
+  return attempt.status;
+}
+
+function runPhaseLabel(phase: KingRun['phase']): string {
+  if (phase === 'intake') return 'Choosing a workspace';
+  if (phase === 'analyzing') return 'Analyzing';
+  if (phase === 'needs-owner') return 'Needs attention';
+  if (phase === 'approved') return 'Plan ready';
+  if (phase === 'executing') return 'Working';
+  if (phase === 'verifying') return 'Checking results';
+  if (phase === 'completed') return 'Completed';
+  return 'Cancelled';
+}
+
+function attemptOutcome(attempt: KingAttempt): string {
+  if (attempt.status === 'accepted') return taskFor(attempt)?.kind === 'analysis' ? 'Analysis accepted' : 'Completed';
+  if (attempt.status === 'rejected') return 'Not accepted';
+  if (attempt.status === 'blocked') return 'Blocked';
+  return 'Failed';
+}
+
+function attentionGuidance(attempt: KingAttempt): string {
+  const reason = attempt.verdict?.reason ?? '';
+  if (/no recognized main agent/i.test(reason)) {
+    return 'Start Codex or Claude in this workspace, then retry the assignment.';
   }
-  return 'There is no verified Result to approve. Review the blocker, or cancel the Attempt if King should stop.';
+  if (/workspace .* is stopped/i.test(reason)) {
+    return 'Open the workspace and start its agent manually, then retry the assignment.';
+  }
+  if (kingAttemptCanRetryPreparation(attempt)) {
+    return 'Resolve the setup issue, then retry. No approval is required.';
+  }
+  return 'No approval is possible because no verified result exists. Cancel this attempt and ask King to create a fresh one.';
 }
 
 function defaultDecisionReason(attempt: KingAttempt, outcome: 'accepted' | 'rejected'): string {
@@ -167,6 +230,28 @@ async function answer(decision: KingDecisionRequest) {
   }
 }
 
+async function retryPreparation(attempt: KingAttempt) {
+  retryingAttemptId = attempt.id;
+  errorMessage = '';
+  try {
+    await requestJson(
+      '/api/king/workflow',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'retry', attemptId: attempt.id }),
+      },
+      'Retrying the King assignment',
+      { timeoutMs: KING_ACTION_TIMEOUT_MS }
+    );
+    await refresh();
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : 'Unable to retry the King assignment.';
+  } finally {
+    retryingAttemptId = undefined;
+  }
+}
+
 async function decideWorkspaceControl(request: WorkspaceControlRequest, action: 'handoff' | 'decline') {
   controllingWorkspaceId = request.id;
   errorMessage = '';
@@ -211,8 +296,8 @@ onMount(() => {
 >
   {#snippet trigger()}
     <Crown size={16} strokeWidth={1.9} aria-hidden="true" />
-    {#if ownerActionCount > 0}
-      <span class="king-workflow-button__count">{ownerActionCount > 99 ? '99+' : ownerActionCount}</span>
+    {#if attentionCount > 0}
+      <span class="king-workflow-button__count">{attentionCount > 99 ? '99+' : attentionCount}</span>
     {/if}
   {/snippet}
 
@@ -224,12 +309,9 @@ onMount(() => {
           <strong>King orchestration</strong>
         </span>
         {#if workflow}
-          <span class="king-workflow__metric">{workflow.summary.activeRuns} runs</span>
-          {#if ownerActionCount > 0}
-            <span class="king-workflow__alert">{ownerActionCount} need you</span>
-          {/if}
-          {#if workflow.summary.pendingInbox > 0}
-            <span class="king-workflow__metric">{workflow.summary.pendingInbox} events</span>
+          <span class="king-workflow__metric">{activeGoalSummary(workflow.summary.activeRuns)}</span>
+          {#if attentionCount > 0}
+            <span class="king-workflow__alert">{attentionSummary(attentionCount)}</span>
           {/if}
         {:else if loading}
           <span class="king-workflow__metric">loading</span>
@@ -248,14 +330,9 @@ onMount(() => {
                 <div class="king-decision__heading">
                   <Crown size={15} strokeWidth={1.8} aria-hidden="true" />
                   <strong>{request.label}</strong>
-                  <code>{request.id}</code>
+                  <small>{request.cwd}</small>
                 </div>
                 <p>{request.control.reason}</p>
-                {#if !request.startupProfileId}
-                  <p class="king-decision__warning">
-                    No startup profile is pinned. King will use an unambiguous available profile or pause setup.
-                  </p>
-                {/if}
                 <div class="king-decision__actions">
                   <Button
                     size="sm"
@@ -286,7 +363,7 @@ onMount(() => {
                 <div class="king-decision__heading">
                   <Crown size={15} strokeWidth={1.8} aria-hidden="true" />
                   <strong>{decision.question}</strong>
-                  <code>{decision.workspaceId}</code>
+                  <small>{workspaceLabel(decision.workspaceId)}</small>
                 </div>
                 {#if decision.context}
                   <p>{decision.context}</p>
@@ -326,46 +403,38 @@ onMount(() => {
 
         {#if ownerAttempts.length > 0}
           <section aria-labelledby="king-owner-title">
-            <h2 id="king-owner-title">Owner decisions</h2>
+            <h2 id="king-owner-title">Approval needed</h2>
             {#each ownerAttempts as attempt (attempt.id)}
               {@const task = taskFor(attempt)}
               <article class="king-decision">
                 <div class="king-decision__heading">
                   <ShieldCheck size={15} strokeWidth={1.8} aria-hidden="true" />
                   <strong>{task?.title ?? attempt.taskId}</strong>
-                  <code>{attempt.workspaceId}</code>
+                  <small>{workspaceLabel(attempt.workspaceId)}</small>
                 </div>
-                {#if attempt.result}
-                  <p>{attempt.result.summary}</p>
-                {/if}
-                {#if attempt.verification}
-                  <dl>
-                    <div>
-                      <dt>Verification</dt>
-                      <dd>{attempt.verification.outcome}</dd>
-                    </div>
-                    <div>
-                      <dt>Changed</dt>
-                      <dd>{attempt.verification.attemptChangePaths.length}</dd>
-                    </div>
-                    <div>
-                      <dt>Checks</dt>
-                      <dd>
-                        {attempt.verification.commands.filter((command) => command.outcome === 'passed').length}/{attempt.verification.commands.length}
-                      </dd>
-                    </div>
-                  </dl>
-                  {#if attempt.verification.reasons.length > 0}
-                    <ul>
-                      {#each attempt.verification.reasons as reason}
-                        <li>{reason}</li>
-                      {/each}
-                    </ul>
-                  {/if}
-                {:else}
-                  <p class="king-decision__warning">
-                    No verified Result exists. You can reject this Attempt, but it cannot be approved.
-                  </p>
+                <p>{attempt.result.summary}</p>
+                <dl>
+                  <div>
+                    <dt>Verification</dt>
+                    <dd>{attempt.verification.outcome}</dd>
+                  </div>
+                  <div>
+                    <dt>Changed</dt>
+                    <dd>{attempt.verification.attemptChangePaths.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Checks</dt>
+                    <dd>
+                      {attempt.verification.commands.filter((command) => command.outcome === 'passed').length}/{attempt.verification.commands.length}
+                    </dd>
+                  </div>
+                </dl>
+                {#if attempt.verification.reasons.length > 0}
+                  <ul>
+                    {#each attempt.verification.reasons as reason}
+                      <li>{reason}</li>
+                    {/each}
+                  </ul>
                 {/if}
                 <label>
                   <span>Rationale (optional)</span>
@@ -380,7 +449,7 @@ onMount(() => {
                   <Button
                     size="sm"
                     variant="primary"
-                    disabled={!attempt.verification || attempt.verification.outcome === 'failed' || decidingAttemptId === attempt.id}
+                    disabled={attempt.verification.outcome === 'failed' || decidingAttemptId === attempt.id}
                     onclick={() => void decide(attempt, 'accepted')}
                     >Approve</Button
                   >
@@ -397,22 +466,31 @@ onMount(() => {
           </section>
         {/if}
 
-        {#if blockedAttempts.length > 0}
-          <section aria-labelledby="king-blocked-title">
-            <h2 id="king-blocked-title">Setup issues</h2>
-            {#each blockedAttempts as attempt (attempt.id)}
+        {#if attentionAttempts.length > 0}
+          <section aria-labelledby="king-attention-title">
+            <h2 id="king-attention-title">Attention needed</h2>
+            {#each attentionAttempts as attempt (attempt.id)}
               {@const task = taskFor(attempt)}
               <article class="king-decision">
                 <div class="king-decision__heading">
                   <Crown size={15} strokeWidth={1.8} aria-hidden="true" />
                   <strong>{task?.title ?? attempt.taskId}</strong>
-                  <code>{attempt.workspaceId}</code>
+                  <small>{workspaceLabel(attempt.workspaceId)}</small>
                 </div>
                 <p class="king-decision__warning">
                   {attempt.verdict?.reason ?? 'Vampire could not prepare this Attempt.'}
                 </p>
-                <p>{blockedAttemptGuidance(attempt)}</p>
+                <p>{attentionGuidance(attempt)}</p>
                 <div class="king-decision__actions">
+                  {#if kingAttemptCanRetryPreparation(attempt)}
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={retryingAttemptId === attempt.id}
+                      onclick={() => void retryPreparation(attempt)}
+                      >Retry assignment</Button
+                    >
+                  {/if}
                   <Button
                     size="sm"
                     variant="danger-outline"
@@ -426,25 +504,57 @@ onMount(() => {
           </section>
         {/if}
 
-        <section aria-labelledby="king-runs-title">
-          <h2 id="king-runs-title">Active runs</h2>
-          {#if activeRuns.length === 0}
-            <p class="king-workflow__empty">No active Run. Ask King to create one before dispatching work.</p>
+        <section aria-labelledby="king-work-title">
+          <h2 id="king-work-title">Current work</h2>
+          {#if activeAttempts.length === 0}
+            <p class="king-workflow__empty">No assignment is running right now.</p>
           {:else}
-            <ul class="king-runs">
-              {#each activeRuns as run (run.id)}
-                <li><span>{run.title}</span><small>{run.phase}</small></li>
+            <ul class="king-work">
+              {#each activeAttempts as attempt (attempt.id)}
+                {@const task = taskFor(attempt)}
+                <li>
+                  <div>
+                    <strong>{task?.title ?? 'King assignment'}</strong>
+                    <small>{workspaceLabel(attempt.workspaceId)}</small>
+                  </div>
+                  <span>{attemptStage(attempt)}</span>
+                </li>
               {/each}
             </ul>
           {/if}
         </section>
 
-        {#if workflow?.inbox.length}
-          <section aria-labelledby="king-events-title">
-            <h2 id="king-events-title">Recent events</h2>
-            <ul class="king-events">
-              {#each workflow.inbox.slice(0, 5) as event (event.id)}
-                <li><code>{event.type}</code><span>{event.message}</span></li>
+        <section aria-labelledby="king-runs-title">
+          <h2 id="king-runs-title">Active goals</h2>
+          {#if activeRuns.length === 0}
+            <p class="king-workflow__empty">No active goal. Tell King what you want to do next.</p>
+          {:else}
+            <ul class="king-runs">
+              {#each activeRuns as run (run.id)}
+                <li><span>{run.title}</span><small>{runPhaseLabel(run.phase)}</small></li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+
+        {#if recentAttempts.length > 0}
+          <section aria-labelledby="king-outcomes-title">
+            <h2 id="king-outcomes-title">Recent outcomes</h2>
+            <ul class="king-outcomes">
+              {#each recentAttempts as attempt (attempt.id)}
+                {@const task = taskFor(attempt)}
+                <li>
+                  <div>
+                    <strong>{task?.title ?? 'King assignment'}</strong>
+                    <small>{workspaceLabel(attempt.workspaceId)}</small>
+                  </div>
+                  {#if attempt.result?.summary}
+                    <p>{attempt.result.summary}</p>
+                  {:else if attempt.verdict?.reason}
+                    <p>{attempt.verdict.reason}</p>
+                  {/if}
+                  <span>{attemptOutcome(attempt)}</span>
+                </li>
               {/each}
             </ul>
           </section>
@@ -572,10 +682,13 @@ onMount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.king-decision__heading code,
-.king-events code {
-  color: var(--color-warning-code);
+.king-decision__heading small {
+  overflow: hidden;
+  max-width: 45%;
+  color: var(--color-text-tertiary);
   font-size: var(--text-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .king-decision dl {
   display: flex;
@@ -653,7 +766,8 @@ onMount(() => {
   gap: 0.4rem;
 }
 .king-runs,
-.king-events {
+.king-work,
+.king-outcomes {
   display: grid;
   gap: 0.35rem;
   margin: 0;
@@ -670,12 +784,60 @@ onMount(() => {
 .king-runs small {
   color: var(--color-text-tertiary);
 }
-.king-events li {
+.king-work li,
+.king-outcomes li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.3rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.king-work li > div,
+.king-outcomes li > div {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
   gap: 0.45rem;
+}
+.king-work strong,
+.king-outcomes strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.king-work small,
+.king-outcomes small {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.king-work span,
+.king-outcomes span {
+  color: var(--color-warning-text-secondary);
+  font-size: var(--text-micro);
+}
+.king-outcomes p {
+  margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--text-micro);
+  line-height: var(--leading-body);
+}
+.king-outcomes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.king-outcomes li > div,
+.king-outcomes li > p {
+  grid-column: 1;
+}
+.king-outcomes li > span {
+  grid-column: 2;
+  grid-row: 1;
 }
 @media (max-width: 36rem) {
   :global(.king-workflow-popover) {

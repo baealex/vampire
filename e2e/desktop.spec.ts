@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
+import { expect, type BrowserContext, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 import { E2E_STATE_DIRECTORY } from './runtime.ts';
 import {
@@ -48,6 +48,25 @@ async function tmuxPaneCursor(tmuxSession: string): Promise<{ column: number; ro
   const { stdout } = await run('tmux', ['display-message', '-p', '-t', tmuxSession, '#{cursor_x}\t#{cursor_y}']);
   const [column, row] = stdout.trim().split('\t').map(Number);
   return { column, row };
+}
+
+async function startRecognizedMainAgent(context: BrowserContext, workspace: ManagedWorkspace): Promise<void> {
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', 'exec -a codex sleep 120']);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect
+    .poll(
+      async () => {
+        const response = await context.request.get('/api/workspaces');
+        if (!response.ok()) return null;
+        const body = (await response.json()) as { workspaces: ManagedWorkspace[] };
+        const current = body.workspaces.find((candidate) => candidate.id === workspace.id);
+        const mainTerminal =
+          current?.terminals.find((terminal) => terminal.terminalKind === 'main') ?? current?.terminals[0];
+        return mainTerminal?.foregroundProcess?.label ?? current?.foregroundProcess?.label ?? null;
+      },
+      { timeout: 15_000 }
+    )
+    .toBe('codex');
 }
 
 async function renderedTerminalGeometry(page: Page): Promise<{
@@ -327,6 +346,7 @@ test('hands an existing workspace to King and returns it to manual control', asy
   expect(kingResponse.ok()).toBe(true);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
+  await startRecognizedMainAgent(context, workspace);
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);

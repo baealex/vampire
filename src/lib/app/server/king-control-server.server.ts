@@ -11,6 +11,11 @@ import { handleKingControlRequest } from './king-control.server.ts';
 
 const MAX_CONTROL_REQUEST_BYTES = 1024 * 1024;
 const CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const VERIFICATION_REQUEST_TIMEOUT_MS = 5 * 60_000 + 30_000;
+
+function requestTimeoutMs(command: KingControlRequest['command']): number {
+  return command === 'attempt.verify' ? VERIFICATION_REQUEST_TIMEOUT_MS : CONTROL_REQUEST_TIMEOUT_MS;
+}
 
 function invalidRequest(id: string, error: string): KingControlResponse {
   return { id, ok: false, error };
@@ -79,7 +84,9 @@ function serveConnection(socket: Socket, handler: (request: KingControlRequest) 
           .map((line) => line.trim())
           .filter(Boolean);
         if (lines.length !== 1) throw new Error('Send exactly one JSON request per connection.');
-        response = await handler(parseRequest(lines[0] ?? ''));
+        const request = parseRequest(lines[0] ?? '');
+        socket.setTimeout(requestTimeoutMs(request.command));
+        response = await handler(request);
       } catch (error) {
         response = invalidRequest('', error instanceof Error ? error.message : 'Control request is invalid.');
       }

@@ -61,6 +61,12 @@ The repository viewer exposes files and Git diffs from every managed workspace t
 
 Do not add a workspace that contains secrets an authenticated Vampire user should not be able to read. Run Vampire with an operating-system account whose file permissions match the intended access boundary.
 
+## Vampire King considerations
+
+King's local control socket is restricted to the Vampire operating-system user and never grants authenticated owner authority. Owner approvals, answers, and workspace handoffs are recorded only through authenticated HTTP actions. Other processes running as the same operating-system user can still issue King-level orchestration commands, read that user's files, and control their terminals; the socket is not a privilege boundary against them.
+
+King verification accepts only bounded, allowlisted command shapes and runs them without a shell, but package scripts and test tools execute code from the selected repository with the Vampire server user's permissions. Verification has a five-minute total command budget; it is not a sandbox. Delegate and verify only repositories you would otherwise trust an authenticated terminal user to execute.
+
 ## Listening port inspector considerations
 
 The listening port inspector shows TCP bind addresses, process IDs, process names, and working directories visible to the Vampire server user. An authenticated browser can send `SIGTERM` to a listed process when that operating-system user has permission. Vampire protects its own server process, refuses incomplete process records, and rechecks the port, process name, and working directory immediately before signaling, but it is not a process sandbox.

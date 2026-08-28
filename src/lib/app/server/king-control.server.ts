@@ -29,10 +29,7 @@ import {
   recordKingAttemptVerification,
 } from '~/lib/features/workspace/server/king-workflow-store.server.ts';
 import { KING_CONTRACT_REVISION } from '~/lib/features/workspace/server/king-workspace.server.ts';
-import {
-  isAgentProcessLabel,
-  readWorkspaceAgentStates,
-} from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
+import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import type {
   KingAttempt,
   KingAttemptBaseline,
@@ -44,6 +41,7 @@ import type {
   KingVerificationCommandResult,
 } from '~/lib/shared/contracts/king-workflow.ts';
 import type { RepositoryChange, RepositorySnapshot } from '~/lib/shared/contracts/repository.ts';
+import { workspaceHasRecognizedMainAgent } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { ManagedWorkspace } from './workspace-registry.server.ts';
 import {
   findManagedWorkspace,
@@ -54,7 +52,7 @@ import {
 
 const MAX_VERIFICATION_OUTPUT_BYTES = 64 * 1024;
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
-const VERIFICATION_TIMEOUT_MS = 5 * 60_000;
+const VERIFICATION_BATCH_TIMEOUT_MS = 5 * 60_000;
 const MAX_REQUEST_ID_LENGTH = 200;
 
 export type KingControlDependencies = {
@@ -83,7 +81,7 @@ export type KingControlDependencies = {
   decideAttempt: typeof decideKingAttempt;
   createDecision: typeof createKingDecisionRequest;
   listDecisions: typeof listKingDecisionRequests;
-  runVerification: (cwd: string, command: string) => Promise<KingVerificationCommandResult>;
+  runVerification: (cwd: string, command: string, timeoutMs?: number) => Promise<KingVerificationCommandResult>;
 };
 
 const defaultDependencies: KingControlDependencies = {
@@ -184,10 +182,7 @@ function assertExistingMainAgentTarget(workspace: ManagedWorkspace): void {
   if (workspace.state !== 'running') {
     throw new Error(`Workspace ${workspace.id} is stopped. Open it manually before using it with King.`);
   }
-  const mainTerminal =
-    workspace.terminals.find((terminal) => terminal.terminalKind === 'main') ?? workspace.terminals[0];
-  const process = mainTerminal?.foregroundProcess ?? workspace.foregroundProcess;
-  if (process?.kind !== 'command' || !isAgentProcessLabel(process.label)) {
+  if (!workspaceHasRecognizedMainAgent(workspace)) {
     throw new Error(
       `Workspace ${workspace.id} has no recognized main agent. Start Codex or Claude manually before delegating it to King.`
     );
@@ -408,11 +403,16 @@ function appendLimited(target: { value: string; bytes: number }, chunk: Buffer):
   if (chunk.length > remaining) target.value += '\n[output truncated]\n';
 }
 
-export async function runKingVerificationCommand(cwd: string, command: string): Promise<KingVerificationCommandResult> {
+export async function runKingVerificationCommand(
+  cwd: string,
+  command: string,
+  timeoutMs = VERIFICATION_BATCH_TIMEOUT_MS
+): Promise<KingVerificationCommandResult> {
   const tokens = tokenizeVerificationCommand(command);
   assertAllowedVerificationCommand(tokens);
   const executable = tokens[0];
   if (!executable) throw new Error('Verification executable is missing.');
+  const boundedTimeoutMs = Math.max(1, Math.min(timeoutMs, VERIFICATION_BATCH_TIMEOUT_MS));
   const startedAt = Date.now();
   return new Promise((resolvePromise) => {
     const child = spawn(executable, tokens.slice(1), {
@@ -445,8 +445,8 @@ export async function runKingVerificationCommand(cwd: string, command: string): 
     const timeout = setTimeout(() => {
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 1_000).unref();
-      finish(null, new Error(`Verification timed out after ${VERIFICATION_TIMEOUT_MS}ms.`));
-    }, VERIFICATION_TIMEOUT_MS);
+      finish(null, new Error(`Verification timed out after ${boundedTimeoutMs}ms.`));
+    }, boundedTimeoutMs);
     timeout.unref();
   });
 }
@@ -518,8 +518,12 @@ async function verifyAttempt(
   ]);
   if (!workspace) throw new Error(`Workspace ${attempt.workspaceId} was not found.`);
   const commands: KingVerificationCommandResult[] = [];
+  const commandTimeoutMs = Math.max(
+    1,
+    Math.floor(VERIFICATION_BATCH_TIMEOUT_MS / Math.max(1, task.verificationCommands.length))
+  );
   for (const command of task.verificationCommands) {
-    commands.push(await dependencies.runVerification(workspace.cwd, command));
+    commands.push(await dependencies.runVerification(workspace.cwd, command, commandTimeoutMs));
   }
   // Project checks execute repository code and may themselves change files or
   // HEAD. Capture the authoritative state after checks so those effects cannot
@@ -735,13 +739,14 @@ async function executeControlCommand(
   if (request.command === 'attempt.decide') {
     const input = inputRecord(request.input);
     const outcome = input.outcome;
-    const decidedBy = input.decidedBy;
     if (outcome !== 'accepted' && outcome !== 'rejected') throw new Error('outcome must be accepted or rejected.');
-    if (decidedBy !== 'king' && decidedBy !== 'owner') throw new Error('decidedBy must be king or owner.');
+    if (input.decidedBy !== undefined && input.decidedBy !== 'king') {
+      throw new Error('Owner decisions are accepted only through the authenticated Vampire UI.');
+    }
     return dependencies.decideAttempt(inputString(input.attemptId, 'attemptId'), {
       outcome,
       reason: inputString(input.reason, 'reason'),
-      decidedBy,
+      decidedBy: 'king',
     });
   }
   if (request.command === 'inbox.list') {
