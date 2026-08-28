@@ -1,6 +1,14 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import { configureAdapterRequestOrigin, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
+import {
+  configureAdapterRequestOrigin,
+  listeningUrl,
+  requestHostAllowed,
+  runtimeConfig,
+} from '~/lib/server/runtime-config.ts';
+import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
+import { rejectWebSocketUpgrade, webSocketRequestUrl } from '~/lib/server/websocket-support.ts';
 import { resolveAdapterHandlerPath } from './adapter-handler-path.server.ts';
 import { installTerminalWebSocket } from './terminal-websocket.server.ts';
 import { installWorkspaceWebSocket } from './workspace-websocket.server.ts';
@@ -12,6 +20,7 @@ if (!process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT?.trim()) {
 }
 
 const config = runtimeConfig();
+await initializeAuthentication();
 const originPolicy = configureAdapterRequestOrigin(config);
 const injectedProtocolHeader = originPolicy.injectedProtocolHeader;
 const adapterOutputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
@@ -19,6 +28,11 @@ const handlerPath = resolveAdapterHandlerPath(import.meta.dirname, adapterOutput
 const handlerUrl = pathToFileURL(handlerPath);
 const { handler } = await import(handlerUrl.href);
 const server = createServer((request, response) => {
+  if (!requestHostAllowed(request.headers)) {
+    response.writeHead(421, { 'content-type': 'text/plain; charset=utf-8', connection: 'close' });
+    response.end('Misdirected Request');
+    return;
+  }
   if (injectedProtocolHeader) request.headers[injectedProtocolHeader] = 'http';
   void handler(request, response);
 });
@@ -39,12 +53,25 @@ await new Promise<void>((resolve, reject) => {
 
 let closeTerminalSockets: () => void = () => undefined;
 let closeWorkspaceSockets: () => void = () => undefined;
+let closeUnsupportedUpgradeRejection: () => void = () => undefined;
 let closeAutomationRunner: () => void = () => undefined;
 try {
   closeTerminalSockets = installTerminalWebSocket(server);
   closeWorkspaceSockets = installWorkspaceWebSocket(server);
+  const rejectUnsupportedUpgrade = (request: IncomingMessage, socket: Duplex) => {
+    const url = webSocketRequestUrl(request);
+    if (!url) {
+      rejectWebSocketUpgrade(socket, 400, 'Bad Request');
+      return;
+    }
+    if (url.pathname === '/ws/terminal' || url.pathname === '/ws/workspace') return;
+    rejectWebSocketUpgrade(socket, 404, 'Not Found');
+  };
+  server.on('upgrade', rejectUnsupportedUpgrade);
+  closeUnsupportedUpgradeRejection = () => server.off('upgrade', rejectUnsupportedUpgrade);
   closeAutomationRunner = await installWorkspaceAutomationRunner();
 } catch (error) {
+  closeUnsupportedUpgradeRejection();
   closeTerminalSockets();
   closeWorkspaceSockets();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
@@ -55,13 +82,7 @@ console.log(`Vampire listening at ${config.publicOrigin ?? listeningUrl(config)}
 if (config.host === '0.0.0.0' || config.host === '::') {
   console.log(`Bound to all interfaces (${config.host}:${config.port}).`);
 }
-console.log(
-  config.tokenConfigured
-    ? 'Token authentication is enabled.'
-    : config.unauthenticatedRemoteAccess
-      ? 'Warning: token authentication is disabled on a non-loopback address.'
-      : 'Local-only mode: no token configured.'
-);
+console.log(config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Warning: TOKEN authentication is disabled.');
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 
@@ -70,6 +91,7 @@ const shutdown = () => {
   if (closing) return;
   closing = true;
   closeAutomationRunner();
+  closeUnsupportedUpgradeRejection();
   closeTerminalSockets();
   closeWorkspaceSockets();
   const forceCloseTimer = setTimeout(() => server.closeAllConnections(), 5_000);

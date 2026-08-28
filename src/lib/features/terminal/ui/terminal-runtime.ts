@@ -436,7 +436,7 @@ export class TerminalRuntime {
             controlsTerminal: undefined,
             reconnecting: false,
             error:
-              event.code === 1008 && event.reason === 'authentication expired'
+              event.code === 1008 && ['authentication expired', 'authentication revoked'].includes(event.reason)
                 ? 'This terminal workspace is no longer authorized.'
                 : 'Terminal connection closed.',
           });

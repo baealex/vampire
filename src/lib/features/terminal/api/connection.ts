@@ -55,7 +55,7 @@ export function terminalReconnectDelay(attempt: number): number {
 
 export function terminalCloseIsRetryable(event: { code: number; reason: string }): boolean {
   if (event.code !== 1008) return true;
-  return event.reason !== 'authentication expired' && event.reason !== 'message rate exceeded';
+  return !['authentication expired', 'authentication revoked', 'message rate exceeded'].includes(event.reason);
 }
 
 export class TerminalConnection {

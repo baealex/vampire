@@ -89,6 +89,8 @@ export interface AttachTerminalOptions {
   historyLines?: number;
   lazyHistory?: boolean;
   ignoreSize?: boolean;
+  isAuthorized?: () => boolean;
+  onAuthorizationRevoked?: (listener: () => void) => () => void;
   canResize?: () => boolean;
   canReportTerminalColor?: () => boolean;
   getGeometry?: () => TerminalSize | undefined;
@@ -426,9 +428,11 @@ export async function attachTerminal(
   initialSize: TerminalSize | undefined,
   options: AttachTerminalOptions = {}
 ): Promise<void> {
+  if (options.isAuthorized?.() === false) throw new Error('Terminal authorization is no longer active.');
   const snapshotHistoryLines = terminalSnapshotHistoryLines(options.historyLines);
 
   const { windowId, paneId, geometry: targetGeometry } = await terminalTarget(tmuxSession, options.terminalId);
+  if (options.isAuthorized?.() === false) throw new Error('Terminal authorization is no longer active.');
   options.onGeometryChange?.(targetGeometry);
   const attachFlags = options.ignoreSize ? ['-f', 'ignore-size'] : [];
   const control = spawn('tmux', ['-C', 'attach-session', ...attachFlags, '-t', windowId], {
@@ -436,6 +440,7 @@ export async function attachTerminal(
   });
   control.stderr.resume();
   let closed = false;
+  const inputAllowed = () => !closed && options.isAuthorized?.() !== false;
   let snapshotSent = false;
   let snapshotAcknowledged = false;
   let pendingSnapshotOutput: QueuedOutput[] = [];
@@ -496,7 +501,7 @@ export async function attachTerminal(
 
   const runControlCommand = (command: string, onSuccess?: (output: string) => void): Promise<string> =>
     new Promise((resolve, reject) => {
-      if (closed || control.exitCode !== null) {
+      if (!inputAllowed() || control.exitCode !== null) {
         reject(new Error('tmux control client is unavailable.'));
         return;
       }
@@ -551,18 +556,21 @@ export async function attachTerminal(
 
   const sendControlInput = async (data: string): Promise<void> => {
     for (const command of terminalInputControlCommands(paneId, data)) {
+      if (!inputAllowed()) return;
       await runControlCommand(command);
     }
   };
 
   const sendTerminalSubmission = async (data: string, bracketedPaste: boolean): Promise<void> => {
+    if (!inputAllowed()) return;
     await sendControlInput(terminalSubmissionData(data, bracketedPaste));
-    if (closed) return;
+    if (!inputAllowed()) return;
     await new Promise((resolve) => setTimeout(resolve, terminalSubmissionSettleMs(bracketedPaste)));
-    if (!closed) await runControlCommand(`send-keys -t ${paneId} Enter`);
+    if (inputAllowed()) await runControlCommand(`send-keys -t ${paneId} Enter`);
   };
 
   const queueTerminalInput = (data: string, operation: () => Promise<void>): void => {
+    if (!inputAllowed()) return;
     const bytes = Buffer.byteLength(data);
     if (bytes > MAX_INPUT_BYTES) throw new Error('Input is too large.');
     if (pendingInputBytes + bytes > MAX_PENDING_INPUT_BYTES) {
@@ -573,7 +581,9 @@ export async function attachTerminal(
     pendingInputBytes += bytes;
     if (syntheticOutputDepth === 0) syntheticOutputUntil = 0;
     inputQueue = inputQueue
-      .then(operation)
+      .then(async () => {
+        if (inputAllowed()) await operation();
+      })
       .catch((error) =>
         message(socket, {
           type: 'error',
@@ -861,8 +871,10 @@ export async function attachTerminal(
       socket.close(1011, 'tmux session unavailable');
     }
   });
-  socket.once('close', () => {
+  const closeTerminalControl = () => {
+    if (closed) return;
     closed = true;
+    rejectControlCommands(new Error('tmux control client is unavailable.'));
     if (suppressedOutputResyncTimer) clearTimeout(suppressedOutputResyncTimer);
     suppressedOutputResyncTimer = undefined;
     suppressedOutputResyncRequested = false;
@@ -873,6 +885,11 @@ export async function attachTerminal(
     controlLineBuffer = Buffer.alloc(0);
     control.stdin.end();
     control.kill();
+  };
+  const unsubscribeAuthorization = options.onAuthorizationRevoked?.(closeTerminalControl) ?? (() => undefined);
+  socket.once('close', () => {
+    closeTerminalControl();
+    unsubscribeAuthorization();
   });
 
   const resizeControlClient = async (): Promise<void> => {
@@ -954,7 +971,7 @@ export async function attachTerminal(
   };
 
   socket.on('message', (raw, isBinary) => {
-    if (isBinary || closed) return;
+    if (isBinary || !inputAllowed()) return;
     const now = Date.now();
     if (now - messageWindowStartedAt >= MESSAGE_WINDOW_MS) {
       messageWindowStartedAt = now;
@@ -1015,7 +1032,9 @@ export async function attachTerminal(
   });
 
   await attached;
+  if (!inputAllowed()) return;
   await options.onAttached?.(setIgnoreSize, resyncTerminalScreen);
+  if (!inputAllowed()) return;
   if (requestedSize) await resizeControlClient();
   const snapshotGeometry = options.getGeometry?.() ?? currentGeometry;
   if (options.sendGeometry)

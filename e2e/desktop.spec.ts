@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { connect, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
-import { E2E_STATE_DIRECTORY } from './runtime.ts';
+import { E2E_BASE_URL, E2E_STATE_DIRECTORY } from './runtime.ts';
 import {
   authenticate,
   createWorkspace,
@@ -36,6 +38,76 @@ async function gitWorkspace(...args: string[]): Promise<string> {
     },
   });
   return stdout;
+}
+
+function maskedWebSocketTextFrame(value: string): Buffer {
+  const payload = Buffer.from(value);
+  if (payload.byteLength > 125) throw new Error('The E2E raw WebSocket frame is too large.');
+  const mask = randomBytes(4);
+  const masked = Buffer.alloc(payload.byteLength);
+  for (let index = 0; index < payload.byteLength; index += 1) {
+    masked[index] = payload[index] ^ mask[index % mask.byteLength];
+  }
+  return Buffer.concat([Buffer.from([0x81, 0x80 | payload.byteLength]), mask, masked]);
+}
+
+function openRawWebSocket(path: string, cookie: string): Promise<Socket> {
+  const url = new URL(E2E_BASE_URL);
+  return new Promise((resolveSocket, rejectSocket) => {
+    const socket = connect({ host: url.hostname, port: Number(url.port) });
+    let response = '';
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      rejectSocket(new Error('Timed out opening the raw terminal WebSocket.'));
+    }, 3_000);
+    const fail = (cause: Error) => {
+      clearTimeout(timeout);
+      rejectSocket(cause);
+    };
+    const onData = (chunk: Buffer) => {
+      response += chunk.toString('latin1');
+      if (!response.includes('\r\n\r\n')) return;
+      clearTimeout(timeout);
+      socket.off('data', onData);
+      socket.off('error', fail);
+      if (!response.startsWith('HTTP/1.1 101 ')) {
+        socket.destroy();
+        rejectSocket(new Error(`Raw terminal WebSocket upgrade failed: ${response.split('\r\n', 1)[0]}`));
+        return;
+      }
+      socket.on('data', () => undefined);
+      socket.on('error', () => undefined);
+      resolveSocket(socket);
+    };
+    socket.once('error', fail);
+    socket.on('data', onData);
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          `Host: ${url.host}`,
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+          `Origin: ${url.origin}`,
+          `Cookie: ${cookie}`,
+          '',
+          '',
+        ].join('\r\n')
+      );
+    });
+  });
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw cause;
+  }
 }
 
 async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
@@ -221,16 +293,53 @@ test.afterEach(async ({ context }) => {
 
 test('rejects a wrong token and unlocks without waiting for the workspace stream', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByLabel('Access token')).toBeVisible();
+  await expect(page.getByLabel('VAMPIRE_TOKEN')).toBeVisible();
 
-  await page.getByLabel('Access token').fill('wrong-token');
+  await page.getByLabel('VAMPIRE_TOKEN').fill('wrong-token');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('alert')).toContainText('That access token did not work.');
+  await expect(page.getByRole('alert')).toContainText('That VAMPIRE_TOKEN did not work.');
 
   await page.routeWebSocket(/\/ws\/workspace(?:\?|$)/, () => undefined);
-  await page.getByLabel('Access token').fill('vampire-playwright-token');
+  await page.getByLabel('VAMPIRE_TOKEN').fill('vampire-playwright-token');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
+});
+
+test('rejects terminal input immediately when logout revokes an uncooperative websocket', async ({ context }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const beforePath = join(E2E_WORKSPACE_DIRECTORY, '.vampire-authorized-input');
+  const afterPath = join(E2E_WORKSPACE_DIRECTORY, '.vampire-revoked-input');
+  await Promise.all([rm(beforePath, { force: true }), rm(afterPath, { force: true })]);
+  const cookies = await context.cookies(E2E_BASE_URL);
+  const cookie = cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+  const path = `/ws/terminal?workspace=${encodeURIComponent(workspace.id)}&columns=80&rows=24&active=1&protocol=2`;
+  const socket = await openRawWebSocket(path, cookie);
+
+  try {
+    const authorizedInput = maskedWebSocketTextFrame(
+      JSON.stringify({ type: 'input', data: `touch ${basename(beforePath)}\r` })
+    );
+    await expect
+      .poll(async () => {
+        socket.write(authorizedInput);
+        return pathExists(beforePath);
+      })
+      .toBe(true);
+
+    const logout = await context.request.delete(`${E2E_BASE_URL}/api/login`);
+    expect(logout.ok()).toBe(true);
+    expect(socket.destroyed).toBe(false);
+    socket.write(maskedWebSocketTextFrame(JSON.stringify({ type: 'input', data: `touch ${basename(afterPath)}\r` })));
+    await new Promise((resolve) => setTimeout(resolve, 750));
+
+    expect(await pathExists(afterPath)).toBe(false);
+  } finally {
+    socket.destroy();
+    await Promise.all([rm(beforePath, { force: true }), rm(afterPath, { force: true })]);
+    await authenticate(context).catch(() => undefined);
+  }
 });
 
 test('inspects listening ports as an on-demand system utility', async ({ context, page }) => {

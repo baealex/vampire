@@ -1,11 +1,22 @@
 import { createServer, loadEnv } from 'vite';
-import { applyVampireEnvironmentDefaults, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
+import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
+import {
+  applyVampireEnvironmentDefaults,
+  isLoopbackHost,
+  listeningUrl,
+  runtimeConfig,
+} from '~/lib/server/runtime-config.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.server.ts';
 
 const fileEnvironment = loadEnv('development', process.cwd(), 'VAMPIRE_');
 applyVampireEnvironmentDefaults(fileEnvironment);
+delete fileEnvironment.VAMPIRE_TOKEN;
 
 const config = runtimeConfig();
+if (!isLoopbackHost(config.host)) {
+  throw new Error('The development server is restricted to localhost. Use the production server for remote access.');
+}
+await initializeAuthentication();
 const vite = await createServer({
   server: {
     host: config.host,
@@ -24,13 +35,7 @@ try {
 }
 vite.printUrls();
 console.log(`Vampire runtime URL: ${config.publicOrigin ?? listeningUrl(config)}`);
-console.log(
-  config.tokenConfigured
-    ? 'Token authentication is enabled.'
-    : config.unauthenticatedRemoteAccess
-      ? 'Warning: token authentication is disabled on a non-loopback address.'
-      : 'Local-only mode: no token configured.'
-);
+console.log(config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Warning: TOKEN authentication is disabled.');
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 

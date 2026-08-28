@@ -14,7 +14,7 @@ test('accepts a convention-compliant release note', () => {
 
 ## Install
 
-npx vampire@0.13.1
+npx vampire@0.13.1 --token-file ~/.config/vampire/token
 
 npm install --global vampire@0.13.1
 

@@ -158,6 +158,7 @@ test('reconnects after transient closes and ignores messages from replaced socke
 
 test('does not reconnect after authentication or rate-limit policy closes', () => {
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'authentication expired' }), false);
+  assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'authentication revoked' }), false);
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'message rate exceeded' }), false);
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'other policy' }), true);
 

@@ -20,11 +20,12 @@ Do not include real access tokens, private terminal output, project files, or se
 
 ## Deployment expectations
 
-- Bind to loopback unless remote binding is intentional. Prefer token authentication for every remote bind.
-- Use `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` only on a trusted private network. Every device that can reach an unauthenticated instance can control shell sessions with the server user's permissions.
+- Bind to loopback unless remote binding is intentional. `VAMPIRE_TOKEN` authentication is required on every bind address by default.
+- Use `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` only for an isolated, disposable local environment. Every device that can reach an unauthenticated instance can control shell sessions with the server user's permissions; a private network alone is not a sufficient boundary.
 - Never expose an unauthenticated instance to the public Internet. Put Internet-reachable deployments behind HTTPS/WSS and an additional private-network or access-control layer.
 - Run Vampire as an unprivileged user with access only to the projects it needs.
-- Use a long, random, unique `VAMPIRE_TOKEN` and rotate it after suspected exposure.
+- Use a unique `VAMPIRE_TOKEN` of at least 12 characters. A long passphrase is supported; a random value is stronger. Rotate it after suspected exposure.
+- Prefer an owner-readable `--token-file`; protect every environment, env file, secret manager, or token file containing `VAMPIRE_TOKEN` with the same care as a password.
 - Keep the host operating system, Node.js, tmux, reverse proxy, and clipboard tools updated.
 - Protect `~/.vampire` or `VAMPIRE_STATE_DIR`; it contains project paths, session metadata, notes, and saved status plugin commands.
 
@@ -33,19 +34,28 @@ For a reverse-proxy deployment, prefer a fixed public origin instead of trusting
 ```sh
 VAMPIRE_HOST=127.0.0.1 \
 VAMPIRE_PUBLIC_ORIGIN=https://vampire.example.com \
-VAMPIRE_TOKEN="..." \
-npx vampire
+npx vampire --token-file /run/secrets/vampire-token
 ```
 
-`VAMPIRE_PUBLIC_ORIGIN` controls HTTP URL construction, secure session cookies, same-origin checks, and WebSocket origin checks. The backend should remain available only through the proxy.
+This command starts a plain HTTP loopback backend; `VAMPIRE_PUBLIC_ORIGIN` does not enable TLS. The reverse proxy must provide browser-facing HTTPS/WSS, forward WebSocket upgrades, and preserve or overwrite `Host` to exactly match the configured authority, including a non-default port. The backend should remain available only through the proxy.
 
 Adapter-node forwarding variables such as `VAMPIRE_ADAPTER_PROTOCOL_HEADER`, `VAMPIRE_ADAPTER_HOST_HEADER`, `VAMPIRE_ADAPTER_PORT_HEADER`, and `VAMPIRE_ADAPTER_ADDRESS_HEADER` are advanced explicit opt-ins. A client can spoof these headers when it can reach the backend directly. Configure them only when the proxy overwrites the corresponding headers and direct backend access is blocked; otherwise leave them unset and use `VAMPIRE_PUBLIC_ORIGIN`.
+
+## Authentication model
+
+`VAMPIRE_TOKEN` is the only login secret an operator configures. At startup, Vampire derives a memory-hard scrypt verifier and retains that verifier and its salt for later login checks. Before user commands start, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so subsequently spawned children do not inherit it. This is not secure erasure: shell history, parent processes, initial operating-system environment snapshots, process memory, env files, secret managers, and token files can retain the plaintext.
+
+The browser submits the TOKEN only to `/api/login`. A successful login creates a random, opaque server-side session; protected HTTP APIs and both WebSocket endpoints accept that session cookie, not `Authorization: Bearer <VAMPIRE_TOKEN>`. Sessions are stored only in memory, expire after 24 hours, and are invalidated by logout or server restart. Logging out also closes WebSockets associated with that session. HTTPS deployments receive a Secure `__Host-` cookie.
+
+Login verification is deliberately expensive and rate-limited. Request admission and a body deadline bound concurrent pre-verification work, while only an actual failed TOKEN verification contributes to credential backoff. This improves resistance to guessing but cannot make a weak or reused password safe, prevent every login-denial attack, or replace proxy-level connection and request limits on an Internet-reachable deployment. Behind a reverse proxy, configure `VAMPIRE_ADAPTER_ADDRESS_HEADER` only when the proxy overwrites it; otherwise Vampire deliberately falls back to its shared account limit instead of treating the proxy address as an individual client.
+
+The Vite development server contains module and HMR endpoints outside Vampire's application session boundary. Vampire therefore refuses non-loopback development binds. Do not expose `pnpm dev` through a remote reverse proxy; use the production server for remote testing.
 
 Vampire provides authentication and defense-in-depth controls, but it is not a sandbox, privilege boundary, or multi-tenant terminal service. Host compromise, malicious shell commands, exposed credentials, and insecure reverse-proxy configuration are outside the protection that the application alone can provide.
 
 ## Status plugin considerations
 
-An authenticated browser can save a status plugin that executes an arbitrary shell command or multiline script with the operating-system permissions and environment of the Vampire server user. Treat this as equivalent to terminal access. Do not put access tokens directly in plugin scripts; the script is stored in owner-readable plaintext under `VAMPIRE_STATE_DIR`.
+An authenticated browser can save a status plugin that executes an arbitrary shell command or multiline script with the operating-system permissions and remaining environment of the Vampire server user. Treat this as equivalent to terminal access. `VAMPIRE_TOKEN` is removed from Node's `process.env` before plugins run so it is not inherited, but the original secret sources and other secrets may remain. Do not put access tokens directly in plugin scripts; the script is stored in owner-readable plaintext under `VAMPIRE_STATE_DIR`.
 
 The Claude Limit preset may read the Vampire server user's existing Claude Code OAuth credential from `CLAUDE_CODE_OAUTH_TOKEN`, the macOS Keychain, or Claude Code's credentials file. It uses that credential only as an authorization header to Anthropic's usage endpoint and does not print, cache, refresh, or modify it. The endpoint is an undocumented Claude Code interface and may change. Remove or disable that preset if Vampire should not access the account's usage data.
 

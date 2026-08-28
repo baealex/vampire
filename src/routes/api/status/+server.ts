@@ -8,6 +8,6 @@ export const GET: RequestHandler = async (event) => {
   return json({
     authenticationRequired: authenticationRequired(),
     authenticated,
-    tmux: await getTmuxStatus(),
+    tmux: authenticated ? await getTmuxStatus() : null,
   });
 };

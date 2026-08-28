@@ -26,6 +26,7 @@ import {
   installWebSocketHeartbeat,
   rejectWebSocketUpgrade,
   scheduleAuthenticationExpiry,
+  webSocketRequestUrl,
 } from '~/lib/server/websocket-support.ts';
 import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
 
@@ -73,6 +74,7 @@ interface WorkspaceUpdate {
 
 interface WorkspaceConnectionContext {
   expiresAt?: number;
+  sessionId?: string;
 }
 
 function send(socket: WebSocket, payload: WorkspaceServerMessage): void {
@@ -521,8 +523,8 @@ export function installWorkspaceWebSocket(server: HttpServer): () => void {
 
   const connectionContexts = new WeakMap<WebSocket, WorkspaceConnectionContext>();
   const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-    if (url.pathname !== '/ws/workspace') return;
+    const url = webSocketRequestUrl(request);
+    if (!url || url.pathname !== '/ws/workspace') return;
     if (workspaceSockets.clients.size >= MAX_CONNECTIONS) {
       rejectWebSocketUpgrade(socket, 503, 'Service Unavailable');
       return;
@@ -535,7 +537,10 @@ export function installWorkspaceWebSocket(server: HttpServer): () => void {
     }
 
     workspaceSockets.handleUpgrade(request, socket, head, (websocket) => {
-      connectionContexts.set(websocket, { expiresAt: authorization.expiresAt });
+      connectionContexts.set(websocket, {
+        expiresAt: authorization.expiresAt,
+        sessionId: authorization.sessionId,
+      });
       workspaceSockets.emit('connection', websocket, request);
     });
   };
@@ -543,7 +548,7 @@ export function installWorkspaceWebSocket(server: HttpServer): () => void {
   server.on('upgrade', handleUpgrade);
   workspaceSockets.on('connection', (socket) => {
     const context = connectionContexts.get(socket) ?? {};
-    scheduleAuthenticationExpiry(socket, context.expiresAt);
+    scheduleAuthenticationExpiry(socket, context.expiresAt, context.sessionId);
     void workspaceStatusHub.subscribe(socket).catch(() => socket.close(1011, 'workspace state unavailable'));
   });
   const closeHeartbeat = installWebSocketHeartbeat(workspaceSockets, HEARTBEAT_INTERVAL_MS);

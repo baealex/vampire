@@ -22,7 +22,7 @@ type WorkspaceEvent =
 type StatusResponse = {
   authenticationRequired: boolean;
   authenticated: boolean;
-  tmux: TmuxStatus;
+  tmux: TmuxStatus | null;
 };
 
 type ConnectionStartOptions = {
@@ -90,11 +90,12 @@ export class WorkspaceConnectionState {
       });
       this.token = '';
       this.authenticated = true;
-      this.#authenticationVersion += 1;
+      const authenticationVersion = ++this.#authenticationVersion;
+      void this.#refreshAuthenticatedStatus(authenticationVersion);
       if (this.#connectionOptions) this.#startWorkspaceStream(this.#connectionOptions, this.#runVersion);
     } catch (error) {
       this.loginError = isUnauthorized(error)
-        ? 'That access token did not work.'
+        ? 'That VAMPIRE_TOKEN did not work.'
         : error instanceof Error
           ? error.message
           : 'Unable to connect';
@@ -120,6 +121,22 @@ export class WorkspaceConnectionState {
     this.#stopWorkspaceStream();
   }
 
+  async #refreshAuthenticatedStatus(authenticationVersion: number) {
+    try {
+      const status = await requestJson<StatusResponse>('/api/status');
+      if (authenticationVersion !== this.#authenticationVersion) return;
+      if (!status.authenticated) {
+        this.markUnauthenticated();
+        return;
+      }
+      this.tmuxStatus = status.tmux ?? undefined;
+    } catch (error) {
+      if (authenticationVersion === this.#authenticationVersion) {
+        this.errorMessage = error instanceof Error ? error.message : 'Unable to refresh Vampire status';
+      }
+    }
+  }
+
   async #loadStatus(runVersion: number, signal: AbortSignal) {
     let shouldRefreshWorkspaces = false;
     try {
@@ -127,7 +144,7 @@ export class WorkspaceConnectionState {
       if (runVersion !== this.#runVersion) return;
       this.authenticationRequired = status.authenticationRequired;
       this.authenticated = status.authenticated;
-      this.tmuxStatus = status.tmux;
+      this.tmuxStatus = status.tmux ?? undefined;
       shouldRefreshWorkspaces = status.authenticated;
     } catch (error) {
       if (runVersion === this.#runVersion && !signal.aborted) {
@@ -203,7 +220,7 @@ export class WorkspaceConnectionState {
     socket.onclose = (event) => {
       if (this.#workspaceSocket !== socket) return;
       this.#workspaceSocket = undefined;
-      if (event.code === 1008 && event.reason === 'authentication expired') {
+      if (event.code === 1008 && ['authentication expired', 'authentication revoked'].includes(event.reason)) {
         this.markUnauthenticated();
         return;
       }

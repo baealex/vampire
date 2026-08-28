@@ -1,10 +1,14 @@
 import { delimiter, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { IncomingHttpHeaders } from 'node:http';
+import { isIP } from 'node:net';
 import { vampireStateDirectory } from './state-path.ts';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const INTERNAL_PROTOCOL_HEADER = 'x-vampire-internal-protocol';
+const TOKEN_CONTROL_CHARACTER_PATTERN = /\p{Cc}/u;
+export const MINIMUM_TOKEN_CHARACTERS = 12;
+export const MAXIMUM_TOKEN_BYTES = 4 * 1024;
 
 export interface RuntimeConfig {
   host: string;
@@ -12,7 +16,7 @@ export interface RuntimeConfig {
   publicOrigin?: string;
   stateDirectory: string;
   tokenConfigured: boolean;
-  unauthenticatedRemoteAccess: boolean;
+  unauthenticatedAccess: boolean;
   workspaceRoots: string[];
 }
 
@@ -50,7 +54,8 @@ function parseOrigin(name: string, value: string): string {
 }
 
 export function configuredToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return environmentValue(env, 'VAMPIRE_TOKEN');
+  const token = env.VAMPIRE_TOKEN;
+  return token && token.trim().length > 0 ? token : undefined;
 }
 
 export function configuredPublicOrigin(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -96,13 +101,23 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
   const port = Number(portValue);
   const token = configuredToken(env);
   const allowInsecureNoAuth = env.VAMPIRE_ALLOW_INSECURE_NO_AUTH === '1';
-  const nonLoopbackHost = !LOOPBACK_HOSTS.has(host.toLowerCase());
 
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`Invalid VAMPIRE_PORT: ${portValue}`);
   }
-  if (nonLoopbackHost && !token && !allowInsecureNoAuth) {
-    throw new Error('Refusing a non-loopback bind without VAMPIRE_TOKEN. Use a private network or TLS reverse proxy.');
+  if (!token && !allowInsecureNoAuth) {
+    throw new Error(
+      'Refusing to start without VAMPIRE_TOKEN. For an isolated local runtime only, set VAMPIRE_ALLOW_INSECURE_NO_AUTH=1 or pass --allow-insecure-no-auth to the CLI.'
+    );
+  }
+  if (token && [...token].length < MINIMUM_TOKEN_CHARACTERS) {
+    throw new Error(`VAMPIRE_TOKEN must contain at least ${MINIMUM_TOKEN_CHARACTERS} characters.`);
+  }
+  if (token && Buffer.byteLength(token, 'utf8') > MAXIMUM_TOKEN_BYTES) {
+    throw new Error(`VAMPIRE_TOKEN must not exceed ${MAXIMUM_TOKEN_BYTES} UTF-8 bytes.`);
+  }
+  if (token && TOKEN_CONTROL_CHARACTER_PATTERN.test(token)) {
+    throw new Error('VAMPIRE_TOKEN must not contain control characters such as tabs or line breaks.');
   }
 
   return {
@@ -111,7 +126,7 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
     publicOrigin: configuredPublicOrigin(env),
     stateDirectory: vampireStateDirectory(env),
     tokenConfigured: Boolean(token),
-    unauthenticatedRemoteAccess: nonLoopbackHost && !token,
+    unauthenticatedAccess: !token,
     workspaceRoots: parseWorkspaceRootPaths(env.VAMPIRE_WORKSPACE_ROOTS),
   };
 }
@@ -121,10 +136,43 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | undef
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function normalizedHostname(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+export function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(normalizedHostname(hostname));
+}
+
+export function requestHostAllowed(headers: IncomingHttpHeaders, env: NodeJS.ProcessEnv = process.env): boolean {
+  const host = headerValue(headers, environmentValue(env, 'VAMPIRE_ADAPTER_HOST_HEADER')?.toLowerCase() || 'host');
+  if (!host || /[\s/\\?#@]/u.test(host)) return false;
+
+  const publicOrigin = configuredPublicOrigin(env);
+  let requestUrl: URL;
+  try {
+    const protocol = publicOrigin ? new URL(publicOrigin).protocol : 'http:';
+    requestUrl = new URL(`${protocol}//${host}`);
+  } catch {
+    return false;
+  }
+
+  if (publicOrigin) return requestUrl.host.toLowerCase() === new URL(publicOrigin).host.toLowerCase();
+
+  const requestHostname = normalizedHostname(requestUrl.hostname);
+  const configuredHost = normalizedHostname(environmentValue(env, 'VAMPIRE_HOST') || '127.0.0.1');
+  if (isLoopbackHost(configuredHost)) return isLoopbackHost(requestHostname);
+  if (configuredHost === '0.0.0.0' || configuredHost === '::') {
+    return requestHostname === 'localhost' || isIP(requestHostname) !== 0;
+  }
+  return requestHostname === configuredHost;
+}
+
 export function expectedRequestOrigin(
   headers: IncomingHttpHeaders,
   env: NodeJS.ProcessEnv = process.env
 ): string | undefined {
+  if (!requestHostAllowed(headers, env)) return undefined;
   const configuredOrigin = configuredPublicOrigin(env);
   if (configuredOrigin) return configuredOrigin;
 

@@ -7,8 +7,11 @@ import {
   configuredPublicOrigin,
   configuredToken,
   expectedRequestOrigin,
+  isLoopbackHost,
   listeningUrl,
+  MAXIMUM_TOKEN_BYTES,
   parseWorkspaceRootPaths,
+  requestHostAllowed,
   runtimeConfig,
 } from '~/lib/server/runtime-config.ts';
 
@@ -34,20 +37,33 @@ test('includes parsed workspace roots in runtime configuration', () => {
     VAMPIRE_HOST: '127.0.0.1',
     VAMPIRE_PORT: '7677',
     VAMPIRE_WORKSPACE_ROOTS: '/tmp/one:/tmp/two',
+    VAMPIRE_TOKEN: 'workspace password',
   });
 
   assert.deepEqual(config.workspaceRoots, [resolve('/tmp/one'), resolve('/tmp/two')]);
 });
 
-test('requires an explicit opt-in for unauthenticated non-loopback access', () => {
-  assert.throws(() => runtimeConfig({ VAMPIRE_HOST: '192.168.219.106' }), /non-loopback bind without VAMPIRE_TOKEN/);
+test('requires TOKEN authentication by default on every bind address', () => {
+  assert.throws(() => runtimeConfig({ VAMPIRE_HOST: '127.0.0.1' }), /without VAMPIRE_TOKEN/);
+  assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'too-short' }), /at least 12 characters/);
+  assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'x'.repeat(MAXIMUM_TOKEN_BYTES + 1) }), /must not exceed/);
+  assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'password with\nnewline' }), /control characters/);
 
   const config = runtimeConfig({
-    VAMPIRE_HOST: '192.168.219.106',
+    VAMPIRE_HOST: '127.0.0.1',
     VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1',
   });
   assert.equal(config.tokenConfigured, false);
-  assert.equal(config.unauthenticatedRemoteAccess, true);
+  assert.equal(config.unauthenticatedAccess, true);
+});
+
+test('identifies only explicit loopback hosts for development binds', () => {
+  assert.equal(isLoopbackHost('127.0.0.1'), true);
+  assert.equal(isLoopbackHost('localhost'), true);
+  assert.equal(isLoopbackHost('[::1]'), true);
+  assert.equal(isLoopbackHost('0.0.0.0'), false);
+  assert.equal(isLoopbackHost('::'), false);
+  assert.equal(isLoopbackHost('development.example.com'), false);
 });
 
 test('validates and shares one public origin across runtime consumers', () => {
@@ -74,7 +90,7 @@ test('validates and shares one public origin across runtime consumers', () => {
 });
 
 test('uses an internal overwritten protocol header for direct HTTP', () => {
-  const env: NodeJS.ProcessEnv = {};
+  const env: NodeJS.ProcessEnv = { VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1' };
   const config = runtimeConfig(env);
   const policy = configureAdapterRequestOrigin(config, env);
 
@@ -90,15 +106,30 @@ test('uses an internal overwritten protocol header for direct HTTP', () => {
 });
 
 test('uses a fixed public origin instead of forwarded request headers', () => {
-  const env: NodeJS.ProcessEnv = { VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' };
+  const env: NodeJS.ProcessEnv = {
+    VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com',
+    VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1',
+  };
   const config = runtimeConfig(env);
   const policy = configureAdapterRequestOrigin(config, env);
 
   assert.deepEqual(policy, {});
   assert.equal(env.VAMPIRE_ADAPTER_ORIGIN, 'https://vampire.example.com');
   assert.equal(
-    expectedRequestOrigin({ host: 'internal:7677', 'x-forwarded-proto': 'http' }, env),
+    expectedRequestOrigin({ host: 'vampire.example.com', 'x-forwarded-proto': 'http' }, env),
     'https://vampire.example.com'
+  );
+});
+
+test('rejects unconfigured hostnames that can be used for DNS rebinding', () => {
+  assert.equal(requestHostAllowed({ host: 'localhost:7677' }, { VAMPIRE_HOST: '127.0.0.1' }), true);
+  assert.equal(requestHostAllowed({ host: '127.0.0.1:7677' }, { VAMPIRE_HOST: '127.0.0.1' }), true);
+  assert.equal(requestHostAllowed({ host: 'attacker.example:7677' }, { VAMPIRE_HOST: '127.0.0.1' }), false);
+  assert.equal(requestHostAllowed({ host: 'attacker@127.0.0.1:7677' }, { VAMPIRE_HOST: '127.0.0.1' }), false);
+  assert.equal(requestHostAllowed({ host: '127.0.0.1:7677/path' }, { VAMPIRE_HOST: '127.0.0.1' }), false);
+  assert.equal(
+    requestHostAllowed({ host: 'vampire.example.com' }, { VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' }),
+    true
   );
 });
 

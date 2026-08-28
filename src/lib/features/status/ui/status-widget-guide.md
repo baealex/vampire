@@ -43,7 +43,7 @@ VAMPIRE_STATUS
 
 `VAMPIRE_STATUS` is not a Vampire API or a required variable. It is only the heredoc delimiter: choose any clear token and repeat it exactly at the start and end of the script. The quotes keep the script body from being expanded by the shell.
 
-Commands inherit the Vampire server's environment. Read values as `$NAME` in shell or `process.env.NAME` in Node. `VAMPIRE_*` names such as `VAMPIRE_WORKSPACE_ROOTS` are server configuration, not widget fields; never print `VAMPIRE_TOKEN` or other secrets.
+Commands inherit the Vampire server's remaining environment. Read values as `$NAME` in shell or `process.env.NAME` in Node. `VAMPIRE_TOKEN` is deleted from Node's `process.env` before commands start, so children do not inherit it; this does not erase the original secret source or process memory. Other secrets may remain. `VAMPIRE_*` names such as `VAMPIRE_WORKSPACE_ROOTS` are server configuration, not widget fields; never print secrets.
 
 ## Return structured JSON
 

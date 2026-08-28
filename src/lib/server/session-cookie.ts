@@ -1,52 +1,130 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const MAX_SESSIONS = 64;
+const SESSION_STATE_KEY = '__vampireAuthenticationSessionsV2' as const;
 
-function signature(token: string, payload: string): string {
-  return createHmac('sha256', token).update(payload).digest('base64url');
+export const SESSION_COOKIE_NAME = 'vampire_session';
+export const SECURE_SESSION_COOKIE_NAME = '__Host-vampire_session';
+
+interface SessionRecord {
+  expiresAt: number;
 }
 
-function equal(left: string, right: string): boolean {
-  const leftHash = createHmac('sha256', 'vampire-compare').update(left).digest();
-  const rightHash = createHmac('sha256', 'vampire-compare').update(right).digest();
-  return timingSafeEqual(leftHash, rightHash);
+interface SessionState {
+  authenticationRequired: boolean;
+  sessions: Map<string, SessionRecord>;
+  revocationListeners: Map<string, Set<() => void>>;
 }
 
-export function createSessionCookie(token: string): { value: string; maxAge: number } {
-  const expiresAt = Math.floor(Date.now() / 1_000) + SESSION_TTL_SECONDS;
-  const payload = `${expiresAt}.${randomBytes(18).toString('base64url')}`;
-  return { value: `${payload}.${signature(token, payload)}`, maxAge: SESSION_TTL_SECONDS };
+interface SessionRuntimeGlobal {
+  [SESSION_STATE_KEY]?: SessionState;
 }
 
-export function isSessionCookieValid(value: string | undefined, token: string | undefined): boolean {
-  if (!value || !token) return false;
-  const separator = value.lastIndexOf('.');
-  if (separator < 1) return false;
-  const payload = value.slice(0, separator);
-  const suppliedSignature = value.slice(separator + 1);
-  const [expiresAt] = payload.split('.');
-  if (!/^\d+$/.test(expiresAt) || Number(expiresAt) <= Math.floor(Date.now() / 1_000)) return false;
-  return equal(suppliedSignature, signature(token, payload));
+export interface AuthorizedSession {
+  authorized: true;
+  expiresAt?: number;
+  sessionId?: string;
 }
 
-export function sessionCookieExpiresAt(value: string | undefined, token: string | undefined): number | undefined {
-  if (!value || !token || !isSessionCookieValid(value, token)) return undefined;
-  const expiresAt = Number(value.slice(0, value.indexOf('.')));
-  return Number.isFinite(expiresAt) ? expiresAt * 1_000 : undefined;
+export interface RejectedSession {
+  authorized: false;
 }
 
-export function isAuthorized({
-  authorization,
-  sessionCookie,
-  token,
-}: {
-  authorization?: string;
-  sessionCookie?: string;
-  token?: string;
-}): boolean {
-  if (!token) return true;
-  if (authorization?.startsWith('Bearer ') && equal(authorization.slice(7), token)) return true;
-  return isSessionCookieValid(sessionCookie, token);
+function state(): SessionState {
+  const runtimeGlobal = globalThis as typeof globalThis & SessionRuntimeGlobal;
+  runtimeGlobal[SESSION_STATE_KEY] ??= {
+    authenticationRequired: true,
+    sessions: new Map(),
+    revocationListeners: new Map(),
+  };
+  return runtimeGlobal[SESSION_STATE_KEY];
+}
+
+function sessionId(value: string): string {
+  return createHash('sha256').update(value).digest('base64url');
+}
+
+function removeSession(id: string): void {
+  const runtime = state();
+  runtime.sessions.delete(id);
+  const listeners = runtime.revocationListeners.get(id);
+  runtime.revocationListeners.delete(id);
+  for (const listener of listeners ?? []) listener();
+}
+
+function clearSessions(): void {
+  for (const id of [...state().sessions.keys()]) removeSession(id);
+}
+
+function pruneExpiredSessions(now: number): void {
+  for (const [id, session] of state().sessions) {
+    if (session.expiresAt <= now) removeSession(id);
+  }
+}
+
+export function configureSessionAuthentication(authenticationRequired: boolean): void {
+  clearSessions();
+  state().authenticationRequired = authenticationRequired;
+}
+
+export function authenticationSessionRequired(): boolean {
+  return state().authenticationRequired;
+}
+
+export function createSessionCookie(now = Date.now()): { value: string; maxAge: number; expiresAt: number } {
+  const runtime = state();
+  if (!runtime.authenticationRequired) {
+    throw new Error('Cannot create an authentication session when authentication is disabled.');
+  }
+
+  pruneExpiredSessions(now);
+  while (runtime.sessions.size >= MAX_SESSIONS) {
+    const oldestSessionId = runtime.sessions.keys().next().value;
+    if (oldestSessionId === undefined) break;
+    removeSession(oldestSessionId);
+  }
+
+  const value = randomBytes(32).toString('base64url');
+  const expiresAt = now + SESSION_TTL_SECONDS * 1_000;
+  runtime.sessions.set(sessionId(value), { expiresAt });
+  return { value, maxAge: SESSION_TTL_SECONDS, expiresAt };
+}
+
+export function authorizeSession(value: string | undefined, now = Date.now()): AuthorizedSession | RejectedSession {
+  const runtime = state();
+  if (!runtime.authenticationRequired) return { authorized: true };
+  if (!value) return { authorized: false };
+
+  const id = sessionId(value);
+  const session = runtime.sessions.get(id);
+  if (!session) return { authorized: false };
+  if (session.expiresAt <= now) {
+    removeSession(id);
+    return { authorized: false };
+  }
+  return { authorized: true, expiresAt: session.expiresAt, sessionId: id };
+}
+
+export function revokeSession(value: string | undefined): void {
+  if (!value) return;
+  removeSession(sessionId(value));
+}
+
+export function onSessionRevoked(id: string, listener: () => void): () => void {
+  const runtime = state();
+  if (!runtime.sessions.has(id)) {
+    listener();
+    return () => undefined;
+  }
+
+  const listeners = runtime.revocationListeners.get(id) ?? new Set();
+  listeners.add(listener);
+  runtime.revocationListeners.set(id, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) runtime.revocationListeners.delete(id);
+  };
 }
 
 export function parseCookie(header: string | undefined): Record<string, string> {

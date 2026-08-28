@@ -32,6 +32,7 @@ import {
   installWebSocketHeartbeat,
   rejectWebSocketUpgrade,
   scheduleAuthenticationExpiry,
+  webSocketRequestUrl,
 } from '~/lib/server/websocket-support.ts';
 
 const MAX_CONNECTIONS = 32;
@@ -65,6 +66,7 @@ interface TerminalConnectionContext {
   claimControl: boolean;
   supportsGeometry: boolean;
   expiresAt?: number;
+  sessionId?: string;
 }
 
 const workspaceAttachmentStates = new Map<string, WorkspaceAttachmentState>();
@@ -159,8 +161,8 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
 
   const connectionContexts = new WeakMap<WebSocket, TerminalConnectionContext>();
   const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-    if (url.pathname !== '/ws/terminal') return;
+    const url = webSocketRequestUrl(request);
+    if (!url || url.pathname !== '/ws/terminal') return;
     if (terminalSockets.clients.size >= MAX_CONNECTIONS) {
       rejectWebSocketUpgrade(socket, 503, 'Service Unavailable');
       return;
@@ -197,6 +199,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
         claimControl,
         supportsGeometry,
         expiresAt: authorization.expiresAt,
+        sessionId: authorization.sessionId,
       });
       terminalSockets.emit('connection', websocket, request);
     });
@@ -209,7 +212,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
       socket.close(1011, 'terminal context unavailable');
       return;
     }
-    scheduleAuthenticationExpiry(socket, context.expiresAt);
+    const authentication = scheduleAuthenticationExpiry(socket, context.expiresAt, context.sessionId);
 
     const attachmentKey = terminalAttachmentKey(context.workspaceId, context.terminalId);
     const state = getAttachmentState(attachmentKey);
@@ -238,7 +241,11 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
       if (fallback) promoteFallbackAttachment(state);
       if (state.attachments.size === 0) workspaceAttachmentStates.delete(attachmentKey);
     };
-    socket.once('close', releaseAttachment);
+    const unsubscribeAttachmentAuthorization = authentication.onRevoked(releaseAttachment);
+    socket.once('close', () => {
+      unsubscribeAttachmentAuthorization();
+      releaseAttachment();
+    });
     void observeRepositoryStatus(socket, context.workspaceId).catch(() => undefined);
 
     void findWorkspaceConnection(context.workspaceId)
@@ -249,23 +256,28 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           historyLines: context.historyLines,
           lazyHistory: context.lazyHistory,
           ignoreSize: true,
-          canResize: () => state.activeAttachment === attachment && !attachment.released,
-          canReportTerminalColor: () => state.activeAttachment === attachment && !attachment.released,
+          isAuthorized: authentication.isAuthorized,
+          onAuthorizationRevoked: authentication.onRevoked,
+          canResize: () =>
+            authentication.isAuthorized() && state.activeAttachment === attachment && !attachment.released,
+          canReportTerminalColor: () =>
+            authentication.isAuthorized() && state.activeAttachment === attachment && !attachment.released,
           getGeometry: () => state.geometry,
-          hasControl: () => state.activeAttachment === attachment && !attachment.released,
+          hasControl: () =>
+            authentication.isAuthorized() && state.activeAttachment === attachment && !attachment.released,
           sendGeometry: context.supportsGeometry,
           onAttached: async (setIgnoreSize, synchronizeScreen) => {
             attachment.setIgnoreSize = setIgnoreSize;
             attachment.synchronizeScreen = synchronizeScreen;
             attachment.resolveReady();
-            if (attachment.released) return;
+            if (attachment.released || !authentication.isAuthorized()) return;
             // A newly entered workspace may explicitly claim control on its first
             // attachment. Reconnects stay passive, but can fill an unclaimed terminal.
             await activateAttachment(state, attachment, context.claimControl ? {} : { onlyIfUnclaimed: true });
           },
           onActivate: async () => {
             await attachment.readyPromise;
-            if (!attachment.released) await activateAttachment(state, attachment);
+            if (!attachment.released && authentication.isAuthorized()) await activateAttachment(state, attachment);
           },
           onGeometryChange: (geometry) => {
             if (updateTerminalGeometry(state, attachment, geometry)) {

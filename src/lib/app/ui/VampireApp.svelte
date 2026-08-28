@@ -352,8 +352,6 @@ onMount(() => {
       <Spinner />
       Connecting…
     </section>
-  {:else if tmuxStatus?.available === false}
-    <TmuxSetupScreen status={tmuxStatus} />
   {:else if connection.authenticationRequired && !connection.authenticated}
     <LoginScreen
       token={connection.token}
@@ -361,6 +359,8 @@ onMount(() => {
       onTokenChange={(token) => connection.token = token}
       onSubmit={() => void unlock()}
     />
+  {:else if tmuxStatus?.available === false}
+    <TmuxSetupScreen status={tmuxStatus} />
   {:else}
     <div class="app-shell">
       <div class="dashboard" class:terminal-open={workspaceState.hasOpenWorkspace}>

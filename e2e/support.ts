@@ -6,6 +6,25 @@ import { E2E_BASE_URL, E2E_TOKEN, E2E_WORKSPACE_DIRECTORY } from './runtime.ts';
 
 export { E2E_WORKSPACE_DIRECTORY };
 
+const authenticatedRequests = new WeakMap<APIRequestContext, Promise<void>>();
+
+function authenticateRequest(request: APIRequestContext): Promise<void> {
+  let authentication = authenticatedRequests.get(request);
+  if (!authentication) {
+    authentication = (async () => {
+      const status = await request.get(`${E2E_BASE_URL}/api/status`);
+      expect(status.ok()).toBe(true);
+      const body = (await status.json()) as { authenticated?: boolean };
+      if (body.authenticated) return;
+
+      const response = await request.post(`${E2E_BASE_URL}/api/login`, { data: { token: E2E_TOKEN } });
+      expect(response.ok()).toBe(true);
+    })().finally(() => authenticatedRequests.delete(request));
+    authenticatedRequests.set(request, authentication);
+  }
+  return authentication;
+}
+
 export async function authenticate(context: BrowserContext): Promise<void> {
   const response = await context.request.post(`${E2E_BASE_URL}/api/login`, {
     data: { token: E2E_TOKEN },
@@ -23,34 +42,32 @@ export async function createWorkspace(context: BrowserContext): Promise<ManagedW
 }
 
 export async function resetWorkspaces(request: APIRequestContext): Promise<void> {
-  const headers = { authorization: `Bearer ${E2E_TOKEN}` };
-  const response = await request.get(`${E2E_BASE_URL}/api/workspaces`, { headers });
+  await authenticateRequest(request);
+  const response = await request.get(`${E2E_BASE_URL}/api/workspaces`);
   expect(response.ok()).toBe(true);
   const body = (await response.json()) as { workspaces: ManagedWorkspace[] };
   for (const workspace of body.workspaces) {
     const removal = await request.delete(
       `${E2E_BASE_URL}/api/workspaces/${encodeURIComponent(workspace.id)}?terminate=true`,
-      { headers }
+      {}
     );
     expect(removal.ok()).toBe(true);
   }
   const launchProfiles = await request.put(`${E2E_BASE_URL}/api/launch-profiles`, {
-    headers,
     data: { launchProfiles: [] },
   });
   expect(launchProfiles.ok()).toBe(true);
   const preferences = await request.put(`${E2E_BASE_URL}/api/workspace-preferences`, {
-    headers,
     data: { workspaceOrderMode: 'activity', manualWorkspaceOrder: [] },
   });
   expect(preferences.ok()).toBe(true);
 }
 
 export async function resetStatusPlugins(request: APIRequestContext): Promise<void> {
+  await authenticateRequest(request);
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await request.put(`${E2E_BASE_URL}/api/status-plugins`, {
-        headers: { authorization: `Bearer ${E2E_TOKEN}` },
         data: { plugins: defaultStatusPlugins() },
       });
       expect(response.ok()).toBe(true);

@@ -22,10 +22,10 @@ You need Node.js 22 or newer, pnpm, and tmux.
 ```sh
 corepack enable
 pnpm install --frozen-lockfile
-VAMPIRE_TOKEN="development-token" pnpm dev
+VAMPIRE_ALLOW_INSECURE_NO_AUTH=1 pnpm dev
 ```
 
-The development server listens on `127.0.0.1:7677` by default.
+The development server is restricted to loopback and listens on `127.0.0.1:7677` by default. Put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file when testing authentication; never expose the Vite development server remotely.
 
 ## Make a change
 

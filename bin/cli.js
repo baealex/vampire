@@ -15,11 +15,11 @@ Options:
       --workspace-root <path>    Allowed workspace root; repeat for more roots
       --state-dir <path>         Persistent state directory (default: ~/.vampire)
       --env-file <path>          Load an explicit environment file
-      --token-file <path>        Read VAMPIRE_TOKEN from a file
-      --allow-insecure-no-auth   Allow an unauthenticated non-loopback bind
+      --token-file <path>        Read the VAMPIRE_TOKEN login secret from a file
+      --allow-insecure-no-auth   Allow startup without authentication (local-only)
 
 Precedence: CLI options > process environment > --env-file > defaults.
-Use VAMPIRE_TOKEN or --token-file for authentication; tokens are not accepted on the command line.
+Use VAMPIRE_TOKEN or --token-file for login; the secret is never accepted on the command line.
 `;
 
 function cliArguments(args) {
@@ -91,8 +91,8 @@ export async function runCli({
   applyCliEnvironment(values, env);
 
   if (values['token-file']) {
-    const token = (await readFile(resolve(cwd, values['token-file']), 'utf8')).trim();
-    if (!token) throw new Error('The token file is empty.');
+    const token = (await readFile(resolve(cwd, values['token-file']), 'utf8')).replace(/\r?\n$/, '');
+    if (!token.trim()) throw new Error('The token file is empty.');
     env.VAMPIRE_TOKEN = token;
   }
 

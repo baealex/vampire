@@ -26,7 +26,7 @@ let {
       </div>
       <ThemeToggle />
     </header>
-    <Field label="Access token" id="token">
+    <Field label="VAMPIRE_TOKEN" id="token">
       <Input
         id="token"
         type="password"
