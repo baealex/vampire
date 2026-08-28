@@ -35,7 +35,9 @@ try {
 }
 vite.printUrls();
 console.log(`Vampire runtime URL: ${config.publicOrigin ?? listeningUrl(config)}`);
-console.log(config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Warning: TOKEN authentication is disabled.');
+console.log(
+  config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Local access does not require TOKEN authentication.'
+);
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 

@@ -85,7 +85,7 @@ product features.
 Run directly:
 
 ```sh
-npx vampire@X.Y.Z --token-file ~/.config/vampire/token
+npx vampire@X.Y.Z
 ```
 
 Or install it globally:

@@ -11,6 +11,7 @@ export const MINIMUM_TOKEN_CHARACTERS = 12;
 export const MAXIMUM_TOKEN_BYTES = 4 * 1024;
 
 export interface RuntimeConfig {
+  externalAccess: boolean;
   host: string;
   port: number;
   publicOrigin?: string;
@@ -99,15 +100,18 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
   const host = environmentValue(env, 'VAMPIRE_HOST') || '127.0.0.1';
   const portValue = environmentValue(env, 'VAMPIRE_PORT') || '7677';
   const port = Number(portValue);
+  const publicOrigin = configuredPublicOrigin(env);
   const token = configuredToken(env);
   const allowInsecureNoAuth = env.VAMPIRE_ALLOW_INSECURE_NO_AUTH === '1';
+  const externalAccess =
+    !isLoopbackHost(host) || Boolean(publicOrigin && !isLoopbackHost(new URL(publicOrigin).hostname));
 
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`Invalid VAMPIRE_PORT: ${portValue}`);
   }
-  if (!token && !allowInsecureNoAuth) {
+  if (externalAccess && !token && !allowInsecureNoAuth) {
     throw new Error(
-      'Refusing to start without VAMPIRE_TOKEN. For an isolated local runtime only, set VAMPIRE_ALLOW_INSECURE_NO_AUTH=1 or pass --allow-insecure-no-auth to the CLI.'
+      'Refusing external access without VAMPIRE_TOKEN. Configure --token-file or VAMPIRE_TOKEN. Use --allow-insecure-no-auth only for isolated testing.'
     );
   }
   if (token && [...token].length < MINIMUM_TOKEN_CHARACTERS) {
@@ -121,9 +125,10 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
   }
 
   return {
+    externalAccess,
     host,
     port,
-    publicOrigin: configuredPublicOrigin(env),
+    publicOrigin,
     stateDirectory: vampireStateDirectory(env),
     tokenConfigured: Boolean(token),
     unauthenticatedAccess: !token,

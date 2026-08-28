@@ -47,10 +47,7 @@ export function releaseNotesErrors(body: string, version: string, previousVersio
   const highlightCount = [...sectionBody(body, 'Highlights').matchAll(/^- /gm)].length;
   if (highlightCount < 2 || highlightCount > 4) errors.push('Highlights must contain between two and four bullets.');
 
-  for (const command of [
-    `npx vampire@${version} --token-file ~/.config/vampire/token`,
-    `npm install --global vampire@${version}`,
-  ]) {
+  for (const command of [`npx vampire@${version}`, `npm install --global vampire@${version}`]) {
     if (!sectionBody(body, 'Install').includes(command))
       errors.push(`Install is missing the exact command: ${command}`);
   }

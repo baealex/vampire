@@ -43,16 +43,60 @@ test('includes parsed workspace roots in runtime configuration', () => {
   assert.deepEqual(config.workspaceRoots, [resolve('/tmp/one'), resolve('/tmp/two')]);
 });
 
-test('requires TOKEN authentication by default on every bind address', () => {
-  assert.throws(() => runtimeConfig({ VAMPIRE_HOST: '127.0.0.1' }), /without VAMPIRE_TOKEN/);
+test('allows unauthenticated loopback access by default and enables authentication when configured', () => {
+  const localConfig = runtimeConfig({ VAMPIRE_HOST: '127.0.0.1' });
+  assert.equal(localConfig.externalAccess, false);
+  assert.equal(localConfig.tokenConfigured, false);
+  assert.equal(localConfig.unauthenticatedAccess, true);
+
+  const authenticatedLocalConfig = runtimeConfig({
+    VAMPIRE_HOST: 'localhost',
+    VAMPIRE_TOKEN: 'workspace password',
+  });
+  assert.equal(authenticatedLocalConfig.externalAccess, false);
+  assert.equal(authenticatedLocalConfig.tokenConfigured, true);
+  assert.equal(authenticatedLocalConfig.unauthenticatedAccess, false);
+});
+
+test('requires TOKEN authentication for external binds and public origins', () => {
+  assert.throws(() => runtimeConfig({ VAMPIRE_HOST: '0.0.0.0' }), /external access without VAMPIRE_TOKEN/);
+  assert.throws(
+    () =>
+      runtimeConfig({
+        VAMPIRE_HOST: '127.0.0.1',
+        VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com',
+      }),
+    /external access without VAMPIRE_TOKEN/
+  );
+
+  const directConfig = runtimeConfig({
+    VAMPIRE_HOST: '0.0.0.0',
+    VAMPIRE_TOKEN: 'workspace password',
+  });
+  assert.equal(directConfig.externalAccess, true);
+  assert.equal(directConfig.tokenConfigured, true);
+
+  const proxiedConfig = runtimeConfig({
+    VAMPIRE_HOST: '127.0.0.1',
+    VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com',
+    VAMPIRE_TOKEN: 'workspace password',
+  });
+  assert.equal(proxiedConfig.externalAccess, true);
+  assert.equal(proxiedConfig.tokenConfigured, true);
+});
+
+test('validates every configured TOKEN', () => {
   assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'too-short' }), /at least 12 characters/);
   assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'x'.repeat(MAXIMUM_TOKEN_BYTES + 1) }), /must not exceed/);
   assert.throws(() => runtimeConfig({ VAMPIRE_TOKEN: 'password with\nnewline' }), /control characters/);
+});
 
+test('allows an explicit insecure override for an unauthenticated external bind', () => {
   const config = runtimeConfig({
-    VAMPIRE_HOST: '127.0.0.1',
+    VAMPIRE_HOST: '0.0.0.0',
     VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1',
   });
+  assert.equal(config.externalAccess, true);
   assert.equal(config.tokenConfigured, false);
   assert.equal(config.unauthenticatedAccess, true);
 });
@@ -90,7 +134,7 @@ test('validates and shares one public origin across runtime consumers', () => {
 });
 
 test('uses an internal overwritten protocol header for direct HTTP', () => {
-  const env: NodeJS.ProcessEnv = { VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1' };
+  const env: NodeJS.ProcessEnv = {};
   const config = runtimeConfig(env);
   const policy = configureAdapterRequestOrigin(config, env);
 
@@ -108,7 +152,7 @@ test('uses an internal overwritten protocol header for direct HTTP', () => {
 test('uses a fixed public origin instead of forwarded request headers', () => {
   const env: NodeJS.ProcessEnv = {
     VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com',
-    VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1',
+    VAMPIRE_TOKEN: 'workspace password',
   };
   const config = runtimeConfig(env);
   const policy = configureAdapterRequestOrigin(config, env);

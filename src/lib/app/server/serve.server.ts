@@ -82,7 +82,13 @@ console.log(`Vampire listening at ${config.publicOrigin ?? listeningUrl(config)}
 if (config.host === '0.0.0.0' || config.host === '::') {
   console.log(`Bound to all interfaces (${config.host}:${config.port}).`);
 }
-console.log(config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Warning: TOKEN authentication is disabled.');
+if (config.tokenConfigured) {
+  console.log('TOKEN authentication is enabled.');
+} else if (config.externalAccess) {
+  console.log('Warning: external access is running without TOKEN authentication.');
+} else {
+  console.log('Local access does not require TOKEN authentication.');
+}
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 

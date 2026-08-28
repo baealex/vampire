@@ -16,9 +16,10 @@ Options:
       --state-dir <path>         Persistent state directory (default: ~/.vampire)
       --env-file <path>          Load an explicit environment file
       --token-file <path>        Read the VAMPIRE_TOKEN login secret from a file
-      --allow-insecure-no-auth   Allow startup without authentication (local-only)
+      --allow-insecure-no-auth   Allow external access without authentication (unsafe)
 
 Precedence: CLI options > process environment > --env-file > defaults.
+Authentication is optional for loopback access and required for external access by default.
 Use VAMPIRE_TOKEN or --token-file for login; the secret is never accepted on the command line.
 `;
 

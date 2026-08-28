@@ -43,6 +43,15 @@ try {
     installedPackageDirectory,
     workspaceDirectory,
     stateDirectory,
+    undefined,
+    undefined,
+    undefined,
+    verifyLocalAccess
+  );
+  await verifyInstalledServer(
+    installedPackageDirectory,
+    workspaceDirectory,
+    stateDirectory,
     smokeToken,
     tokenFile,
     undefined,
@@ -67,10 +76,10 @@ async function verifyInstalledServer(
   installedPackageDirectory: string,
   workspaceDirectory: string,
   stateDirectory: string,
-  token: string,
-  tokenFile: string,
+  token: string | undefined,
+  tokenFile: string | undefined,
   publicOrigin: string | undefined,
-  verify: (baseUrl: string, token: string, publicOrigin?: string) => Promise<void>
+  verify: (baseUrl: string, token?: string, publicOrigin?: string) => Promise<void>
 ): Promise<void> {
   const port = await availablePort();
   const options = [
@@ -83,9 +92,8 @@ async function verifyInstalledServer(
     stateDirectory,
     '--workspace-root',
     workspaceDirectory,
-    '--token-file',
-    tokenFile,
   ];
+  if (tokenFile) options.push('--token-file', tokenFile);
   if (publicOrigin) options.push('--origin', publicOrigin);
   const child = spawn(process.execPath, options, {
     cwd: workspaceDirectory,
@@ -180,10 +188,26 @@ function runtimeEnvironment(): NodeJS.ProcessEnv {
   delete environment.VAMPIRE_ADAPTER_PROTOCOL_HEADER;
   delete environment.VAMPIRE_ADAPTER_HOST_HEADER;
   delete environment.VAMPIRE_ADAPTER_PORT_HEADER;
+  delete environment.VAMPIRE_ALLOW_INSECURE_NO_AUTH;
   return environment;
 }
 
-async function verifyAuthentication(baseUrl: string, token: string): Promise<void> {
+async function verifyLocalAccess(baseUrl: string): Promise<void> {
+  const status = await fetch(`${baseUrl}/api/status`);
+  if (!status.ok) throw new Error(`Packaged CLI rejected local status access with status ${status.status}.`);
+  const body = (await status.json()) as { authenticated?: boolean; authenticationRequired?: boolean };
+  if (body.authenticationRequired !== false || body.authenticated !== true) {
+    throw new Error('Packaged CLI unexpectedly required authentication for loopback access.');
+  }
+
+  const workspaces = await fetch(`${baseUrl}/api/workspaces`);
+  if (!workspaces.ok) {
+    throw new Error(`Packaged CLI rejected unauthenticated loopback access with status ${workspaces.status}.`);
+  }
+}
+
+async function verifyAuthentication(baseUrl: string, token?: string): Promise<void> {
+  if (!token) throw new Error('A TOKEN is required for the authentication smoke test.');
   const wrongHost = await rawHttpRequest(`${baseUrl}/api/status`, { headers: { host: 'attacker.example' } });
   if (wrongHost.status !== 421) {
     throw new Error(`Packaged CLI accepted an unexpected Host header with status ${wrongHost.status}.`);
@@ -293,7 +317,8 @@ async function expectUpgradeStatus(
   });
 }
 
-async function verifyPublicOrigin(baseUrl: string, token: string, publicOrigin?: string): Promise<void> {
+async function verifyPublicOrigin(baseUrl: string, token?: string, publicOrigin?: string): Promise<void> {
+  if (!token) throw new Error('A TOKEN is required for the reverse-proxy smoke test.');
   if (!publicOrigin) throw new Error('A public origin is required for the reverse-proxy smoke test.');
   const publicHost = new URL(publicOrigin).host;
   const body = JSON.stringify({ token });

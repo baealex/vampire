@@ -20,8 +20,9 @@ Do not include real access tokens, private terminal output, project files, or se
 
 ## Deployment expectations
 
-- Bind to loopback unless remote binding is intentional. `VAMPIRE_TOKEN` authentication is required on every bind address by default.
-- Use `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` only for an isolated, disposable local environment. Every device that can reach an unauthenticated instance can control shell sessions with the server user's permissions; a private network alone is not a sufficient boundary.
+- Bind to loopback unless remote access is intentional. Loopback access does not require authentication by default; use it only on a trusted local machine.
+- A non-loopback bind or non-loopback `VAMPIRE_PUBLIC_ORIGIN` requires `VAMPIRE_TOKEN` authentication by default.
+- Use `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` only for deliberate non-loopback testing in an isolated, disposable environment. Every device that can reach an unauthenticated instance can control shell sessions with the server user's permissions; a private network alone is not a sufficient boundary.
 - Never expose an unauthenticated instance to the public Internet. Put Internet-reachable deployments behind HTTPS/WSS and an additional private-network or access-control layer.
 - Run Vampire as an unprivileged user with access only to the projects it needs.
 - Use a unique `VAMPIRE_TOKEN` of at least 12 characters. A long passphrase is supported; a random value is stronger. Rotate it after suspected exposure.
@@ -43,7 +44,9 @@ Adapter-node forwarding variables such as `VAMPIRE_ADAPTER_PROTOCOL_HEADER`, `VA
 
 ## Authentication model
 
-`VAMPIRE_TOKEN` is the only login secret an operator configures. At startup, Vampire derives a memory-hard scrypt verifier and retains that verifier and its salt for later login checks. Before user commands start, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so subsequently spawned children do not inherit it. This is not secure erasure: shell history, parent processes, initial operating-system environment snapshots, process memory, env files, secret managers, and token files can retain the plaintext.
+An unauthenticated loopback instance relies on the operating system's local-access boundary together with Vampire's Host and Origin checks. Loopback is not an identity boundary: other processes running on the same machine may still reach the server. Configure a token even on loopback when that distinction matters.
+
+When configured, `VAMPIRE_TOKEN` is the only login secret an operator provides. At startup, Vampire derives a memory-hard scrypt verifier and retains that verifier and its salt for later login checks. Before user commands start, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so subsequently spawned children do not inherit it. This is not secure erasure: shell history, parent processes, initial operating-system environment snapshots, process memory, env files, secret managers, and token files can retain the plaintext.
 
 The browser submits the TOKEN only to `/api/login`. A successful login creates a random, opaque server-side session; protected HTTP APIs and both WebSocket endpoints accept that session cookie, not `Authorization: Bearer <VAMPIRE_TOKEN>`. Sessions are stored only in memory, expire after 24 hours, and are invalidated by logout or server restart. Logging out also closes WebSockets associated with that session. HTTPS deployments receive a Secure `__Host-` cookie.
 

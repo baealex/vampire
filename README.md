@@ -20,7 +20,7 @@ Vampire runs your terminal workspaces in tmux and lets you reconnect from a desk
 - Persistent tmux-backed terminal workspaces for Codex, Claude Code, and any shell command.
 - Browser workspaces for multiple projects, with desktop and mobile support.
 - At-a-glance workspace status, so you can see what needs your attention.
-- Local-first and self-hosted, with authentication enabled by default.
+- Local-first and self-hosted, with frictionless loopback access and token-protected external sharing.
 
 ## Quick start
 
@@ -29,17 +29,13 @@ Requirements:
 - Node.js 22.18+
 - tmux
 
-Install tmux with your operating system's package manager. Create an owner-readable file containing one unique `VAMPIRE_TOKEN` of at least 12 characters, then run:
+Install tmux with your operating system's package manager, then run:
 
 ```bash
-mkdir -p ~/.config/vampire
-chmod 700 ~/.config/vampire
-${EDITOR:-vi} ~/.config/vampire/token
-chmod 600 ~/.config/vampire/token
-npx vampire --token-file ~/.config/vampire/token
+npx vampire
 ```
 
-Open the printed URL (`http://localhost:7677` by default) and enter the same `VAMPIRE_TOKEN` to sign in. Then choose a project directory and create a workspace. Start the CLI or shell you want to use inside it:
+Open the printed URL (`http://localhost:7677` by default), choose a project directory, and create a workspace. Start the CLI or shell you want to use inside it:
 
 ```bash
 codex
@@ -62,21 +58,22 @@ CLI options override process environment variables, which override values from a
 | Public reverse-proxy origin | `--origin` | `VAMPIRE_PUBLIC_ORIGIN` | direct HTTP origin |
 | Allowed workspace roots | repeat `--workspace-root` | `VAMPIRE_WORKSPACE_ROOTS` | launch directory |
 | Persistent state directory | `--state-dir` | `VAMPIRE_STATE_DIR` | `~/.vampire` |
-| Login secret | `--token-file` | `VAMPIRE_TOKEN` | required |
-| Allow startup without authentication (unsafe) | `--allow-insecure-no-auth` | `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` | disabled |
+| Login secret | `--token-file` | `VAMPIRE_TOKEN` | optional on loopback; required for external access |
+| Allow external access without authentication (unsafe) | `--allow-insecure-no-auth` | `VAMPIRE_ALLOW_INSECURE_NO_AUTH=1` | disabled |
 
 `VAMPIRE_WORKSPACE_ROOTS` uses the operating system's path-list separator (`:` on macOS/Linux and `;` on Windows). Repeat the CLI option when allowing multiple roots:
 
 ```bash
 npx vampire --port 8787 \
-  --token-file ~/.config/vampire/token \
   --workspace-root ~/Code \
   --workspace-root ~/Projects
 ```
 
 The installed CLI does not automatically read `.env` from the current directory. Use `--env-file <path>` when that behavior is intentional. `pnpm dev` does load Vite's development `.env` files, while existing process variables continue to take precedence.
 
-`VAMPIRE_TOKEN` is the only authentication value you configure. Vampire derives a slow scrypt verifier at startup. Before starting user commands, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so later child processes do not inherit it. This cannot erase shell history, parent-process environments, operating-system startup environment snapshots, memory, or the original secret source, which all remain sensitive.
+Loopback access through `127.0.0.1`, `localhost`, or `::1` works without a token by default. A non-loopback bind or non-loopback `VAMPIRE_PUBLIC_ORIGIN` requires a token unless the explicit unsafe override is set. Do not use that override for an instance shared with another device.
+
+When configured, `VAMPIRE_TOKEN` is the only authentication value you provide. Vampire derives a slow scrypt verifier at startup. Before starting user commands, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so later child processes do not inherit it. This cannot erase shell history, parent-process environments, operating-system startup environment snapshots, memory, or the original secret source, which all remain sensitive.
 
 A successful login exchanges the TOKEN for an opaque, revocable server session used by HTTP APIs and WebSockets; the raw TOKEN is not accepted as an API or WebSocket bearer credential. Sessions are memory-only and end on logout, expiry, or server restart.
 
@@ -87,6 +84,11 @@ An ordinary passphrase is supported, but longer and unique is safer; a random va
 Vampire listens on localhost by default and does not terminate TLS itself. A secure remote deployment must put the loopback backend behind an HTTPS/WSS reverse proxy and an additional private-network or access-control layer. The following starts only the loopback backend; it is not a TLS configuration by itself:
 
 ```bash
+mkdir -p ~/.config/vampire
+chmod 700 ~/.config/vampire
+${EDITOR:-vi} ~/.config/vampire/token
+chmod 600 ~/.config/vampire/token
+
 VAMPIRE_HOST=127.0.0.1 \
 VAMPIRE_PUBLIC_ORIGIN=https://vampire.example.com \
 npx vampire --token-file ~/.config/vampire/token
@@ -102,12 +104,12 @@ Wildcard binds accept only `localhost` or IP-literal Host values unless a fixed 
 
 ```bash
 pnpm install
-VAMPIRE_ALLOW_INSECURE_NO_AUTH=1 pnpm dev
+pnpm dev
 pnpm check
 pnpm test
 ```
 
-The Vite development server is forcibly restricted to loopback and must not be exposed through a remote bind or reverse proxy. To exercise authentication during development, put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file instead of using the no-auth opt-in.
+The Vite development server is forcibly restricted to loopback and must not be exposed through a remote bind or reverse proxy. To exercise authentication during development, put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.
 
