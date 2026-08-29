@@ -27,7 +27,7 @@ test('encodes workspace and repository paths and forwards an abort signal', asyn
   assert.equal(calls[0]?.init?.signal, signal);
 });
 
-test('sends versioned file saves and explicit move conflict policies', async (t) => {
+test('sends versioned saves and explicit move, copy, and delete policies', async (t) => {
   const calls: Array<{ input: string; init?: RequestInit }> = [];
   const previousFetch = globalThis.fetch;
   globalThis.fetch = (async (input, init) => {
@@ -41,6 +41,9 @@ test('sends versioned file saves and explicit move conflict policies', async (t)
   const client = new RepositoryClient('workspace-1');
   await client.updateFile('src/main.ts', 'updated', 'version-7');
   await client.moveEntry('src/main.ts', 'file', 'archive', 'rename');
+  await client.renameEntry('archive/main.ts', 'file', 'renamed.ts');
+  await client.copyEntry('archive/renamed.ts', 'file', 'backup', 'rename');
+  await client.deleteEntry('backup/renamed.ts', 'file');
 
   assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
     content: 'updated',
@@ -52,6 +55,21 @@ test('sends versioned file saves and explicit move conflict policies', async (t)
     targetDirectory: 'archive',
     conflict: 'rename',
   });
+  assert.deepEqual(JSON.parse(String(calls[2]?.init?.body)), {
+    path: 'archive/main.ts',
+    kind: 'file',
+    targetDirectory: 'archive',
+    targetName: 'renamed.ts',
+    conflict: 'reject',
+  });
+  assert.deepEqual(JSON.parse(String(calls[3]?.init?.body)), {
+    path: 'archive/renamed.ts',
+    kind: 'file',
+    targetDirectory: 'backup',
+    conflict: 'rename',
+  });
+  assert.equal(calls[4]?.input, '/api/workspaces/workspace-1/repository/file?path=backup%2Frenamed.ts');
+  assert.equal(calls[4]?.init?.method, 'DELETE');
 });
 
 test('preserves an API conflict as a typed request error', async (t) => {

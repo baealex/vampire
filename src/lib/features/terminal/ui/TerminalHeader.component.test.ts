@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { expect, test, vi } from 'vitest';
 import TerminalHeader from './TerminalHeader.svelte';
 
@@ -28,4 +28,34 @@ test('shows one quiet branch label instead of separate worktree badges', () => {
   expect(screen.getByText('fix-login').parentElement).toHaveAttribute('title', 'fix-login · 3 worktrees');
   expect(screen.queryByText('Worktree')).not.toBeInTheDocument();
   expect(screen.queryByText('3 worktrees')).not.toBeInTheDocument();
+});
+
+test('keeps note and repository controls visible as panel toggles', async () => {
+  const toggleRepository = vi.fn();
+  const toggleNote = vi.fn();
+  render(TerminalHeader, {
+    projectName: 'Vampire',
+    cwd: '/workspaces/vampire',
+    isWorktree: false,
+    hasNote: true,
+    noteOpen: false,
+    close: vi.fn(),
+    repositoryOpen: true,
+    isGitRepository: true,
+    workspaceAvailable: true,
+    changeCount: 2,
+    worktreeCount: 1,
+    backgroundOpen: false,
+    backgroundCount: 0,
+    backgroundPanelId: 'background-panel',
+    backgroundTriggerId: 'background-trigger',
+    toggleRepository,
+    toggleNote,
+    toggleBackground: vi.fn(),
+  });
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Close repository' }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Open workspace note' }));
+  expect(toggleRepository).toHaveBeenCalledOnce();
+  expect(toggleNote).toHaveBeenCalledOnce();
 });

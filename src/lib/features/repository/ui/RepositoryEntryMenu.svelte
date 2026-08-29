@@ -4,6 +4,10 @@ import FilePlus from '@lucide/svelte/icons/file-plus';
 import FolderPlus from '@lucide/svelte/icons/folder-plus';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import Copy from '@lucide/svelte/icons/copy';
+import ClipboardPaste from '@lucide/svelte/icons/clipboard-paste';
+import Pencil from '@lucide/svelte/icons/pencil';
+import Scissors from '@lucide/svelte/icons/scissors';
 import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
@@ -18,6 +22,12 @@ let {
   onCreateFile,
   onCreateFolder,
   onInsertPath,
+  selectedCount = 1,
+  canPaste = false,
+  onRename,
+  onCopy,
+  onCut,
+  onPaste,
   onDelete,
 }: {
   path: string;
@@ -27,6 +37,12 @@ let {
   onCreateFile: () => void;
   onCreateFolder: () => void;
   onInsertPath: () => void;
+  selectedCount?: number;
+  canPaste?: boolean;
+  onRename: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
   onDelete: () => void;
 } = $props();
 
@@ -46,7 +62,10 @@ const name = $derived(path.split('/').pop() || path);
   {/snippet}
 
   {#snippet children()}
-    <DropdownMenuHeading title={name} subtitle={kind === 'directory' ? 'Folder actions' : 'File actions'} />
+    <DropdownMenuHeading
+      title={selectedCount > 1 ? `${selectedCount} selected` : name}
+      subtitle={kind === 'directory' ? 'Folder actions' : 'File actions'}
+    />
     <DropdownMenuSeparator />
     {#if kind === 'directory'}
       <DropdownMenuItem onSelect={onCreateFile}>
@@ -59,6 +78,25 @@ const name = $derived(path.split('/').pop() || path);
       </DropdownMenuItem>
       <DropdownMenuSeparator />
     {/if}
+    <DropdownMenuItem disabled={selectedCount !== 1} onSelect={onRename}>
+      <Pencil size={16} strokeWidth={1.8} aria-hidden="true" />
+      Rename
+    </DropdownMenuItem>
+    <DropdownMenuItem onSelect={onCopy}>
+      <Copy size={16} strokeWidth={1.8} aria-hidden="true" />
+      Copy
+    </DropdownMenuItem>
+    <DropdownMenuItem onSelect={onCut}>
+      <Scissors size={16} strokeWidth={1.8} aria-hidden="true" />
+      Cut
+    </DropdownMenuItem>
+    {#if kind === 'directory'}
+      <DropdownMenuItem disabled={!canPaste} onSelect={onPaste}>
+        <ClipboardPaste size={16} strokeWidth={1.8} aria-hidden="true" />
+        Paste into folder
+      </DropdownMenuItem>
+    {/if}
+    <DropdownMenuSeparator />
     <DropdownMenuItem onSelect={onInsertPath}>
       <SquareTerminal size={16} strokeWidth={1.8} aria-hidden="true" />
       Insert path into terminal

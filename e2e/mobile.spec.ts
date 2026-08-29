@@ -351,11 +351,11 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(repositoryPanel).toBeVisible();
   await expect(repositoryPanel).toHaveCSS('transition-property', 'transform');
   await expect(repositoryPanel).toHaveCSS('transition-duration', '0.18s');
-  await expect(repositoryPanel.getByRole('tab', { name: 'Changes' })).toBeVisible();
+  await expect(repositoryPanel.getByRole('tab', { name: 'Git' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole('button', { name: 'Add workspace item' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Choose files…' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Choose folder…' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add inside workspace root' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Upload files…' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Upload folder…' })).toBeVisible();
   await page.keyboard.press('Escape');
   const conflictActions = page.getByRole('button', { name: 'Actions for file conflict.txt' });
   await expect(conflictActions).toBeVisible();

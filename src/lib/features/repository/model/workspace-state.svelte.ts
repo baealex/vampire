@@ -30,7 +30,12 @@ export type RepositoryMoveConflict = {
   targetDirectory: string;
 };
 
-export type RepositoryUploadNoticeKind = '' | 'progress' | 'success' | 'error';
+export type RepositoryClipboard = {
+  operation: 'copy' | 'cut';
+  entries: WorkspaceEntryDragData[];
+};
+
+export type RepositoryUploadNoticeKind = '' | 'error';
 
 type RepositoryWorkspaceStateOptions = {
   isOpen: () => boolean;
@@ -44,14 +49,16 @@ export class RepositoryWorkspaceState {
   selection = $state<RepositorySelection>();
   openedFile = $state<WorkspaceFile>();
   fileDirty = $state(false);
-  deleteTarget = $state<RepositoryDeleteTarget>();
+  deleteTargets = $state<RepositoryDeleteTarget[]>([]);
   discardChangesPrompt = $state(false);
   uploading = $state(false);
   uploadNoticeKind = $state<RepositoryUploadNoticeKind>('');
   uploadNotice = $state('');
+  uploadRevealRequest = $state<{ path: string; token: number }>();
   uploadConflicts = $state<RepositoryUploadConflict[]>([]);
   moving = $state(false);
   moveConflict = $state<RepositoryMoveConflict>();
+  clipboard = $state<RepositoryClipboard>();
   discardTarget = $state<RepositoryChange>();
   discarding = $state(false);
   changeCount = $state(0);
@@ -65,10 +72,10 @@ export class RepositoryWorkspaceState {
   #refreshPromise: Promise<void> | undefined;
   #refreshQueued = false;
   #discardChangesResolver: ((discard: boolean) => void) | undefined;
-  #uploadNoticeTimer: ReturnType<typeof setTimeout> | undefined;
   #uploadedFileCount = 0;
   #skippedGitFileCount = 0;
   #uploadFailures: string[] = [];
+  #uploadRevealToken = 0;
 
   constructor(workspaceId: string, options: RepositoryWorkspaceStateOptions) {
     this.#api = new RepositoryClient(workspaceId);
@@ -214,17 +221,19 @@ export class RepositoryWorkspaceState {
     await this.refresh();
   }
 
-  #setUploadNotice(kind: RepositoryUploadNoticeKind, message: string, duration = 5_000) {
-    if (this.#uploadNoticeTimer) clearTimeout(this.#uploadNoticeTimer);
-    this.uploadNoticeKind = kind;
+  #setUploadError(message: string) {
+    this.uploadNoticeKind = 'error';
     this.uploadNotice = message;
-    if (duration > 0) {
-      this.#uploadNoticeTimer = setTimeout(() => {
-        this.uploadNoticeKind = '';
-        this.uploadNotice = '';
-        this.#uploadNoticeTimer = undefined;
-      }, duration);
-    }
+  }
+
+  #clearUploadNotice() {
+    this.uploadNoticeKind = '';
+    this.uploadNotice = '';
+  }
+
+  #revealUploadedPath(path: string | undefined) {
+    if (!path) return;
+    this.uploadRevealRequest = { path, token: ++this.#uploadRevealToken };
   }
 
   #uploadTouchesDirtyFile(paths: string[]): boolean {
@@ -253,17 +262,19 @@ export class RepositoryWorkspaceState {
     if (this.#uploadTouchesDirtyFile(uploads.map(({ path }) => path)) && !(await this.confirmDiscardChanges())) return;
 
     this.uploading = true;
+    this.#clearUploadNotice();
     this.uploadConflicts = [];
     this.#uploadedFileCount = 0;
     this.#skippedGitFileCount = selection.skippedGitFiles;
     this.#uploadFailures = [];
     const conflicts: RepositoryUploadConflict[] = [];
+    const uploadedPaths: string[] = [];
     try {
-      for (const [index, upload] of uploads.entries()) {
-        this.#setUploadNotice('progress', `Adding ${index + 1} of ${uploads.length}…`, 0);
+      for (const upload of uploads) {
         try {
-          await this.#api.uploadFile(upload.path, upload.candidate.file);
+          const result = await this.#api.uploadFile(upload.path, upload.candidate.file);
           this.#uploadedFileCount += 1;
+          uploadedPaths.push(result.path);
         } catch (error) {
           if (error instanceof RequestError && error.status === 409) {
             conflicts.push(upload);
@@ -277,22 +288,15 @@ export class RepositoryWorkspaceState {
     }
 
     await this.refresh();
+    this.#revealUploadedPath(uploadedPaths.at(-1));
     this.uploadConflicts = conflicts;
     if (this.#uploadFailures.length > 0) {
-      this.#setUploadNotice('error', this.#uploadSummary(), 0);
-    } else if (conflicts.length > 0) {
-      this.#setUploadNotice(
-        'progress',
-        `${this.#uploadedFileCount} added · ${conflicts.length} ${conflicts.length === 1 ? 'file needs' : 'files need'} a conflict choice`,
-        0
-      );
-    } else {
-      this.#setUploadNotice('success', this.#uploadSummary());
+      this.#setUploadError(this.#uploadSummary());
     }
   }
 
   reportUploadError(message: string) {
-    this.#setUploadNotice('error', message, 0);
+    this.#setUploadError(message);
   }
 
   async resolveUploadConflicts(conflict: WorkspaceUploadConflict | 'skip') {
@@ -300,11 +304,7 @@ export class RepositoryWorkspaceState {
     const uploads = this.uploadConflicts;
     if (conflict === 'skip') {
       this.uploadConflicts = [];
-      this.#setUploadNotice(
-        this.#uploadFailures.length > 0 ? 'error' : 'success',
-        this.#uploadSummary(uploads.length),
-        this.#uploadFailures.length > 0 ? 0 : 5_000
-      );
+      if (this.#uploadFailures.length > 0) this.#setUploadError(this.#uploadSummary(uploads.length));
       return;
     }
 
@@ -318,12 +318,13 @@ export class RepositoryWorkspaceState {
 
     this.uploading = true;
     this.uploadConflicts = [];
+    const uploadedPaths: string[] = [];
     try {
-      for (const [index, upload] of uploads.entries()) {
-        this.#setUploadNotice('progress', `Resolving ${index + 1} of ${uploads.length}…`, 0);
+      for (const upload of uploads) {
         try {
-          await this.#api.uploadFile(upload.path, upload.candidate.file, conflict);
+          const result = await this.#api.uploadFile(upload.path, upload.candidate.file, conflict);
           this.#uploadedFileCount += 1;
+          uploadedPaths.push(result.path);
         } catch (error) {
           this.#uploadFailures.push(error instanceof Error ? error.message : `“${upload.path}” could not be added.`);
         }
@@ -333,24 +334,23 @@ export class RepositoryWorkspaceState {
     }
 
     await this.refresh();
+    this.#revealUploadedPath(uploadedPaths.at(-1));
     if (this.#uploadFailures.length > 0) {
-      this.#setUploadNotice('error', this.#uploadSummary(), 0);
-    } else {
-      this.#setUploadNotice('success', this.#uploadSummary());
+      this.#setUploadError(this.#uploadSummary());
     }
   }
 
   async addFilesForTerminal(selection: WorkspaceUploadSelection): Promise<WorkspaceEntryDragData[]> {
     if (this.uploading) throw new Error('Wait for the current file operation to finish.');
     this.uploading = true;
+    this.#clearUploadNotice();
     this.uploadConflicts = [];
     this.#uploadedFileCount = 0;
     this.#skippedGitFileCount = selection.skippedGitFiles;
     this.#uploadFailures = [];
     const added: Array<{ candidate: WorkspaceUploadCandidate; path: string }> = [];
     try {
-      for (const [index, candidate] of selection.candidates.entries()) {
-        this.#setUploadNotice('progress', `Adding ${index + 1} of ${selection.candidates.length}…`, 0);
+      for (const candidate of selection.candidates) {
         try {
           const result = await this.#api.uploadFile(candidate.relativePath, candidate.file, 'rename');
           added.push({ candidate, path: result.path });
@@ -366,11 +366,7 @@ export class RepositoryWorkspaceState {
     }
 
     await this.refresh();
-    this.#setUploadNotice(
-      this.#uploadFailures.length > 0 ? 'error' : 'success',
-      this.#uploadSummary(),
-      this.#uploadFailures.length > 0 ? 0 : 5_000
-    );
+    if (this.#uploadFailures.length > 0) this.#setUploadError(this.#uploadSummary());
     if (added.length === 0) {
       throw new Error(this.#uploadFailures[0] || 'The dropped files could not be added.');
     }
@@ -477,6 +473,77 @@ export class RepositoryWorkspaceState {
     }
   }
 
+  #minimalEntries(entries: WorkspaceEntryDragData[]): WorkspaceEntryDragData[] {
+    const unique = new Map(entries.map((entry) => [`${entry.kind}:${entry.path}`, entry]));
+    return [...unique.values()].filter(
+      (entry) =>
+        ![...unique.values()].some(
+          (candidate) =>
+            candidate.kind === 'directory' &&
+            candidate.path !== entry.path &&
+            entry.path.startsWith(`${candidate.path}/`)
+        )
+    );
+  }
+
+  setClipboard(operation: 'copy' | 'cut', entries: WorkspaceEntryDragData[]) {
+    const selected = this.#minimalEntries(entries);
+    this.clipboard = selected.length > 0 ? { operation, entries: selected } : undefined;
+  }
+
+  async pasteEntries(targetDirectory: string): Promise<WorkspaceMoveResult[]> {
+    const clipboard = this.clipboard;
+    if (!clipboard || clipboard.entries.length === 0 || this.moving) return [];
+    this.moving = true;
+    const results: WorkspaceMoveResult[] = [];
+    try {
+      for (const entry of clipboard.entries) {
+        if (clipboard.operation === 'copy') {
+          results.push(
+            await this.#enqueue(() => this.#api.copyEntry(entry.path, entry.kind, targetDirectory, 'rename'))
+          );
+        } else {
+          results.push(await this.#performMove(entry.path, entry.kind, targetDirectory, 'rename'));
+        }
+      }
+      if (clipboard.operation === 'copy') await this.refresh();
+      else this.clipboard = undefined;
+      this.errorMessage = '';
+      return results;
+    } catch (error) {
+      this.errorMessage = error instanceof Error ? error.message : 'The selected entries could not be pasted.';
+      throw error;
+    } finally {
+      this.moving = false;
+    }
+  }
+
+  async renameEntry(path: string, kind: WorkspaceEntryKind, targetName: string): Promise<WorkspaceMoveResult> {
+    const selectedPath = this.selection?.path;
+    if (
+      this.fileDirty &&
+      selectedPath &&
+      this.#pathContainsEntry(selectedPath, path, kind) &&
+      !(await this.confirmDiscardChanges())
+    ) {
+      throw new Error('Finish editing the current file first.');
+    }
+    const result = await this.#enqueue(() => this.#api.renameEntry(path, kind, targetName));
+    this.#loadedDirectories = [
+      ...new Set(this.#loadedDirectories.map((directory) => this.#rebaseMovedPath(directory, result))),
+    ];
+    if (this.selection) {
+      const nextPath = this.#rebaseMovedPath(this.selection.path, result);
+      if (nextPath !== this.selection.path) {
+        this.selection = { ...this.selection, path: nextPath };
+        this.openedFile = undefined;
+        this.fileDirty = false;
+      }
+    }
+    await this.refresh();
+    return result;
+  }
+
   requestDiscardChange(change: RepositoryChange | string) {
     const target =
       typeof change === 'string' ? this.snapshot?.changes.find((candidate) => candidate.path === change) : change;
@@ -530,10 +597,26 @@ export class RepositoryWorkspaceState {
   }
 
   requestDelete(path: string, kind: 'file' | 'directory') {
-    this.deleteTarget = { path, kind };
+    this.requestDeleteEntries([{ path, kind }]);
   }
 
-  deleteDescription(target: RepositoryDeleteTarget): string {
+  requestDeleteEntries(entries: RepositoryDeleteTarget[]) {
+    this.deleteTargets = this.#minimalEntries(entries);
+  }
+
+  deleteDescription(targets: RepositoryDeleteTarget[]): string {
+    if (targets.length > 1) {
+      const selectedPath = this.selection?.path;
+      const discardsChanges = Boolean(
+        this.fileDirty &&
+          selectedPath &&
+          targets.some((target) => this.#pathContainsEntry(selectedPath, target.path, target.kind))
+      );
+      const description = `${targets.length} selected items will be permanently deleted.`;
+      return discardsChanges ? `${description} The open file has unsaved changes that will be discarded.` : description;
+    }
+    const target = targets[0];
+    if (!target) return 'The selected item will be permanently deleted.';
     const selectedPath = this.selection?.path;
     const discardsChanges = Boolean(
       this.fileDirty && selectedPath && this.#pathContainsEntry(selectedPath, target.path, target.kind)
@@ -552,22 +635,27 @@ export class RepositoryWorkspaceState {
   }
 
   async confirmDelete() {
-    if (!this.deleteTarget) return;
-    const target = this.deleteTarget;
-    const selectedPath = this.selection?.path;
-    const deletingSelected = Boolean(selectedPath && this.#pathContainsEntry(selectedPath, target.path, target.kind));
-
-    await this.#enqueue(async () => {
-      await this.#api.deleteEntry(target.path, target.kind);
+    if (this.deleteTargets.length === 0) return;
+    const targets = this.deleteTargets;
+    for (const target of targets) {
+      const selectedPath = this.selection?.path;
+      const deletingSelected = Boolean(selectedPath && this.#pathContainsEntry(selectedPath, target.path, target.kind));
+      await this.#enqueue(() => this.#api.deleteEntry(target.path, target.kind));
       if (target.kind === 'directory') {
         this.#loadedDirectories = this.#loadedDirectories.filter(
           (directory) => directory !== target.path && !directory.startsWith(`${target.path}/`)
         );
       }
       if (deletingSelected) this.clearSelection();
-    });
+      this.deleteTargets = this.deleteTargets.filter(
+        (candidate) => candidate.path !== target.path || candidate.kind !== target.kind
+      );
+    }
     await this.refresh();
-    this.deleteTarget = undefined;
+  }
+
+  dispose() {
+    this.resolveDiscardChanges(false);
   }
 
   handleFileSaved(saved: WorkspaceFile, dirty = false) {

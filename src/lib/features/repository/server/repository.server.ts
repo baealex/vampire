@@ -1,6 +1,8 @@
 import { execFile as execFileCallback, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  copyFile,
+  cp,
   link,
   mkdir,
   open,
@@ -16,7 +18,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import type { Stats } from 'node:fs';
+import { constants as fsConstants, type Stats } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type {
@@ -1184,6 +1186,21 @@ function moveConflictPath(path: string, index: number, kind: WorkspaceEntryKind)
   return uploadConflictPath(path, index);
 }
 
+function workspaceEntryName(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    value === '.' ||
+    value === '..' ||
+    value.includes('/') ||
+    value.includes('\\') ||
+    value.includes('\0')
+  ) {
+    throw repositoryError('invalid-path', 'Use a single file or folder name.');
+  }
+  return value;
+}
+
 async function moveEntryToTarget(source: string, target: string, kind: WorkspaceEntryKind): Promise<void> {
   if (kind === 'file') {
     try {
@@ -1226,7 +1243,7 @@ export async function moveWorkspaceEntry(
   path: string,
   kind: WorkspaceEntryKind,
   targetDirectory: string,
-  options: { conflict?: WorkspaceMoveConflict } = {}
+  options: { conflict?: WorkspaceMoveConflict; targetName?: string } = {}
 ): Promise<WorkspaceMoveResult> {
   const source = await resolveMovableEntry(cwd, path, kind);
   const normalizedTargetDirectory = targetDirectory === '' ? '' : normalizeRelativePath(targetDirectory);
@@ -1238,8 +1255,12 @@ export async function moveWorkspaceEntry(
     throw repositoryError('invalid-path', 'A folder cannot be moved into itself.');
   }
 
-  const sourceName = basename(source.normalizedPath);
+  const sourceName =
+    options.targetName === undefined ? basename(source.normalizedPath) : workspaceEntryName(options.targetName);
   const requestedPath = normalizedTargetDirectory ? `${normalizedTargetDirectory}/${sourceName}` : sourceName;
+  if (pathContainsGitMetadata(requestedPath)) {
+    throw repositoryError('invalid-path', 'Entries cannot be renamed to Git metadata.');
+  }
   const requestedTarget = join(targetDirectoryEntry.target, sourceName);
   if (source.canonicalTarget === requestedTarget) {
     return { fromPath: source.normalizedPath, path: source.normalizedPath, kind, renamed: false };
@@ -1264,6 +1285,81 @@ export async function moveWorkspaceEntry(
     }
   }
   throw repositoryError('conflict', 'A unique name could not be found for this move.');
+}
+
+async function copyEntryToTarget(source: string, target: string, kind: WorkspaceEntryKind): Promise<void> {
+  if (kind === 'file') {
+    try {
+      await copyFile(source, target, fsConstants.COPYFILE_EXCL);
+      return;
+    } catch (cause) {
+      if (errorHasCode(cause, 'EEXIST'))
+        throw repositoryError('conflict', 'A file or folder with this name already exists.');
+      await unlink(target).catch(() => undefined);
+      throw repositoryError('command-failed', 'The file could not be copied.');
+    }
+  }
+
+  try {
+    await mkdir(target);
+  } catch (cause) {
+    if (errorHasCode(cause, 'EEXIST'))
+      throw repositoryError('conflict', 'A file or folder with this name already exists.');
+    throw repositoryError('command-failed', 'The folder destination could not be reserved.');
+  }
+  try {
+    for (const entry of await readdir(source)) {
+      await cp(join(source, entry), join(target, entry), {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+        preserveTimestamps: true,
+      });
+    }
+  } catch {
+    await rm(target, { recursive: true, force: true }).catch(() => undefined);
+    throw repositoryError('command-failed', 'The folder could not be copied.');
+  }
+}
+
+/** Copy a regular workspace entry while preserving its source. */
+export async function copyWorkspaceEntry(
+  cwd: string,
+  path: string,
+  kind: WorkspaceEntryKind,
+  targetDirectory: string,
+  options: { conflict?: WorkspaceMoveConflict } = {}
+): Promise<WorkspaceMoveResult> {
+  const source = await resolveMovableEntry(cwd, path, kind);
+  const normalizedTargetDirectory = targetDirectory === '' ? '' : normalizeRelativePath(targetDirectory);
+  if (normalizedTargetDirectory && pathContainsGitMetadata(normalizedTargetDirectory)) {
+    throw repositoryError('invalid-path', 'Entries cannot be copied into Git metadata.');
+  }
+  const targetDirectoryEntry = await resolveReadableDirectory(cwd, normalizedTargetDirectory);
+  if (kind === 'directory' && pathStaysInside(source.canonicalTarget, targetDirectoryEntry.target)) {
+    throw repositoryError('invalid-path', 'A folder cannot be copied into itself.');
+  }
+
+  const sourceName = basename(source.normalizedPath);
+  const requestedPath = normalizedTargetDirectory ? `${normalizedTargetDirectory}/${sourceName}` : sourceName;
+  const conflict = options.conflict ?? 'reject';
+  const maximumAttempts = conflict === 'rename' ? 10_000 : 0;
+  for (let index = 0; index <= maximumAttempts; index += 1) {
+    const candidatePath = index === 0 ? requestedPath : moveConflictPath(requestedPath, index, kind);
+    try {
+      await copyEntryToTarget(source.target, join(targetDirectoryEntry.target, basename(candidatePath)), kind);
+      return {
+        fromPath: source.normalizedPath,
+        path: candidatePath,
+        kind,
+        renamed: candidatePath !== requestedPath,
+      };
+    } catch (cause) {
+      if (conflict === 'rename' && cause instanceof RepositoryReadError && cause.reason === 'conflict') continue;
+      throw cause;
+    }
+  }
+  throw repositoryError('conflict', 'A unique name could not be found for this copy.');
 }
 
 /**
@@ -1306,47 +1402,15 @@ export async function deleteWorkspaceEntry(
   path: string,
   kind: 'file' | 'directory'
 ): Promise<{ path: string }> {
-  const root = await workspaceRoot(cwd);
-  const normalizedPath = normalizeRelativePath(path);
-  const target = resolve(root, normalizedPath);
-  if (!pathStaysInside(root, target) || target === root) {
-    throw repositoryError('invalid-path', 'Only entries inside the workspace can be deleted.');
-  }
-  let parent;
-  try {
-    parent = await realpath(dirname(target));
-  } catch {
-    throw repositoryError('not-found', 'The entry is no longer available.');
-  }
-  if (!pathStaysInside(root, parent)) {
-    throw repositoryError('invalid-path', 'Linked entries outside the workspace cannot be deleted.');
-  }
-
-  let details;
-  try {
-    details = await lstat(target);
-  } catch (cause) {
-    if (errorHasCode(cause, 'ENOENT')) {
-      throw repositoryError('not-found', 'The entry is no longer available.');
-    }
-    throw repositoryError('command-failed', 'The entry could not be inspected.');
-  }
-
-  if (details.isSymbolicLink()) {
-    throw repositoryError('invalid-path', 'Linked entries cannot be deleted from the workspace.');
-  }
-  if (kind === 'file' && !details.isFile())
-    throw repositoryError('unsupported-file', 'Only files can be deleted from this action.');
-  if (kind === 'directory' && !details.isDirectory())
-    throw repositoryError('unsupported-file', 'Only folders can be deleted from this action.');
+  const source = await resolveMovableEntry(cwd, path, kind);
 
   try {
-    if (kind === 'directory') await rm(target, { recursive: true, force: false });
-    else await unlink(target);
+    if (kind === 'directory') await rm(source.target, { recursive: true, force: false });
+    else await unlink(source.target);
   } catch {
     throw repositoryError('command-failed', `The ${kind === 'directory' ? 'folder' : 'file'} could not be deleted.`);
   }
-  return { path: normalizedPath };
+  return { path: source.normalizedPath };
 }
 
 /**

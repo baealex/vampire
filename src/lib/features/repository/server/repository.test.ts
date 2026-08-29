@@ -16,6 +16,7 @@ import {
   readWorkspaceImageMetadata,
   readWorkspaceFile,
   createWorkspaceDirectory,
+  copyWorkspaceEntry,
   deleteWorkspaceEntry,
   discardRepositoryChange,
   moveWorkspaceEntry,
@@ -514,6 +515,53 @@ test('moves workspace files and folders without overwriting existing entries', a
   const movedDirectory = await moveWorkspaceEntry(directory, 'docs', 'directory', 'src');
   assert.equal(movedDirectory.path, 'src/docs');
   assert.equal(await readFile(join(directory, 'src', 'docs', 'guides', 'intro.md'), 'utf8'), '# Intro\n');
+});
+
+test('renames workspace entries in place without accepting nested target names', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, 'notes.txt'), 'notes\n', 'utf8');
+
+  const renamed = await moveWorkspaceEntry(directory, 'notes.txt', 'file', '', { targetName: 'journal.md' });
+  assert.deepEqual(renamed, {
+    fromPath: 'notes.txt',
+    path: 'journal.md',
+    kind: 'file',
+    renamed: false,
+  });
+  assert.equal(await readFile(join(directory, 'journal.md'), 'utf8'), 'notes\n');
+
+  await assert.rejects(
+    () => moveWorkspaceEntry(directory, 'journal.md', 'file', '', { targetName: '../outside.md' }),
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+  );
+});
+
+test('copies files and folders without changing the source or overwriting conflicts', async (t) => {
+  const directory = await createRepository(t);
+  await mkdir(join(directory, 'docs', 'guides'), { recursive: true });
+  await writeFile(join(directory, 'docs', 'guides', 'intro.md'), '# Intro\n', 'utf8');
+
+  const copiedFile = await copyWorkspaceEntry(directory, 'src/app.js', 'file', 'docs');
+  assert.deepEqual(copiedFile, {
+    fromPath: 'src/app.js',
+    path: 'docs/app.js',
+    kind: 'file',
+    renamed: false,
+  });
+  assert.equal(await readFile(join(directory, 'src', 'app.js'), 'utf8'), 'const value = 1;\n');
+  assert.equal(await readFile(join(directory, 'docs', 'app.js'), 'utf8'), 'const value = 1;\n');
+
+  await assert.rejects(
+    () => copyWorkspaceEntry(directory, 'src/app.js', 'file', 'docs'),
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+  );
+  const keptBoth = await copyWorkspaceEntry(directory, 'src/app.js', 'file', 'docs', { conflict: 'rename' });
+  assert.equal(keptBoth.path, 'docs/app (1).js');
+
+  const copiedDirectory = await copyWorkspaceEntry(directory, 'docs/guides', 'directory', 'src');
+  assert.equal(copiedDirectory.path, 'src/guides');
+  assert.equal(await readFile(join(directory, 'src', 'guides', 'intro.md'), 'utf8'), '# Intro\n');
+  assert.equal(await readFile(join(directory, 'docs', 'guides', 'intro.md'), 'utf8'), '# Intro\n');
 });
 
 test('rejects workspace moves into descendants, git metadata, and linked directories outside the workspace', async (t) => {

@@ -11,7 +11,7 @@ import { TerminalRuntime, type TerminalOpeningStage, type TerminalRuntimeState }
 import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '~/lib/shared/theme/theme.svelte';
 import { isDesktopViewport } from '~/lib/shared/ui/layout';
 import {
-  parseWorkspaceEntryDrag,
+  parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryDragText,
   type TerminalPathInsertionRequest,
@@ -112,11 +112,11 @@ async function handleTerminalDrop(event: DragEvent) {
   terminalDropKind = '';
   if (!connected || addingDroppedFiles || !event.dataTransfer) return;
   const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
-  const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
-  if (entry) {
+  const draggedEntries = raw ? parseWorkspaceEntryDragEntries(raw) : undefined;
+  if (draggedEntries?.length) {
     event.preventDefault();
     runtime?.focus();
-    runtime?.send(workspaceEntryDragText(entry));
+    runtime?.send(draggedEntries.map(workspaceEntryDragText).join(' '));
     return;
   }
   if (!dataTransferTypes(event).includes('Files')) return;

@@ -157,9 +157,44 @@ export class RepositoryClient {
     );
   }
 
-  async deleteEntry(path: string, kind: RepositoryEntryKind): Promise<void> {
+  renameEntry(path: string, kind: WorkspaceEntryKind, targetName: string): Promise<WorkspaceMoveResult> {
+    const separator = path.lastIndexOf('/');
+    const targetDirectory = separator < 0 ? '' : path.slice(0, separator);
+    return requestJson<WorkspaceMoveResult>(
+      `${this.#basePath}/move`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, kind, targetDirectory, targetName, conflict: 'reject' }),
+      },
+      'The entry could not be renamed.'
+    );
+  }
+
+  copyEntry(
+    path: string,
+    kind: WorkspaceEntryKind,
+    targetDirectory: string,
+    conflict: WorkspaceMoveConflict = 'reject'
+  ): Promise<WorkspaceMoveResult> {
+    return requestJson<WorkspaceMoveResult>(
+      `${this.#basePath}/copy`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, kind, targetDirectory, conflict }),
+      },
+      'The entry could not be copied.'
+    );
+  }
+
+  deleteEntry(path: string, kind: RepositoryEntryKind): Promise<{ path: string }> {
     const endpoint = kind === 'directory' ? 'directory' : 'file';
     const fallback = `The ${kind === 'directory' ? 'folder' : 'file'} could not be deleted.`;
-    await requestJson<unknown>(pathUrl(`${this.#basePath}/${endpoint}`, path), { method: 'DELETE' }, fallback);
+    return requestJson<{ path: string }>(
+      pathUrl(`${this.#basePath}/${endpoint}`, path),
+      { method: 'DELETE' },
+      fallback
+    );
   }
 }

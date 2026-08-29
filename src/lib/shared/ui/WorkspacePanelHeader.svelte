@@ -15,7 +15,7 @@ let {
   titleId?: string;
   subtitle?: string;
   subtitleMonospace?: boolean;
-  close: () => void;
+  close?: () => void;
   closeLabel?: string;
   actions?: Snippet;
 } = $props();
@@ -28,14 +28,18 @@ let {
       <span class:monospace={subtitleMonospace} title={subtitle}>{subtitle}</span>
     {/if}
   </div>
-  <div class="workspace-panel-actions">
-    {#if actions}
-      {@render actions()}
-    {/if}
-    <button type="button" class="workspace-panel-close" onclick={close} aria-label={closeLabel} title={closeLabel}>
-      <X size={17} strokeWidth={1.9} aria-hidden="true" />
-    </button>
-  </div>
+  {#if actions || close}
+    <div class="workspace-panel-actions">
+      {#if actions}
+        {@render actions()}
+      {/if}
+      {#if close}
+        <button type="button" class="workspace-panel-close" onclick={close} aria-label={closeLabel} title={closeLabel}>
+          <X size={17} strokeWidth={1.9} aria-hidden="true" />
+        </button>
+      {/if}
+    </div>
+  {/if}
 </header>
 
 <style>

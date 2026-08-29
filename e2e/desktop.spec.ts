@@ -481,7 +481,7 @@ test('stores custom note-agent instructions and exposes the exact live note path
   await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
-  await expect(page.getByRole('button', { name: 'Add workspace note' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Close workspace note' })).toBeVisible();
   const noteDialog = page.getByRole('dialog', { name: 'Workspace note' });
   const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
@@ -1787,13 +1787,16 @@ test('keeps edits made while a file save is pending unsaved and protected', asyn
 });
 
 test('adds and moves files through repository menus and drop points', async ({ context, page }) => {
-  test.setTimeout(45_000);
+  test.setTimeout(60_000);
   const uploadDirectory = join(E2E_WORKSPACE_DIRECTORY, 'uploads');
   const rootUpload = join(E2E_WORKSPACE_DIRECTORY, 'fresh-upload.bin');
   const renamedConflict = join(E2E_WORKSPACE_DIRECTORY, 'conflict (1).txt');
   const droppedUpload = join(uploadDirectory, 'dropped.txt');
+  const panelDroppedUpload = join(E2E_WORKSPACE_DIRECTORY, 'panel-dropped.txt');
   const movableFile = join(E2E_WORKSPACE_DIRECTORY, 'move-me.txt');
   const movedFile = join(uploadDirectory, 'move-me.txt');
+  const renamedMovedFile = join(uploadDirectory, 'moved-renamed.txt');
+  const copiedMovedFile = join(uploadDirectory, 'moved-renamed (1).txt');
   const moveConflictSource = join(E2E_WORKSPACE_DIRECTORY, 'move-conflict.txt');
   const moveConflictTarget = join(uploadDirectory, 'move-conflict.txt');
   const renamedMoveTarget = join(uploadDirectory, 'move-conflict (1).txt');
@@ -1801,6 +1804,7 @@ test('adds and moves files through repository menus and drop points', async ({ c
   await Promise.all([
     rm(uploadDirectory, { recursive: true, force: true }),
     rm(rootUpload, { force: true }),
+    rm(panelDroppedUpload, { force: true }),
     rm(renamedConflict, { force: true }),
     rm(terminalDroppedFile, { force: true }),
     writeFile(movableFile, 'move this file\n', 'utf8'),
@@ -1816,7 +1820,8 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
 
-    await page.getByRole('button', { name: 'Add workspace item' }).click();
+    await page.locator('.tree-row-shell.root').hover();
+    await page.getByRole('button', { name: 'Add inside workspace root' }).click();
     await page.getByRole('menuitem', { name: 'New folder' }).click();
     const folderName = page.getByRole('textbox', { name: 'New folder name' });
     await expect(folderName).toBeVisible();
@@ -1840,7 +1845,7 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await writeFile(moveConflictTarget, 'existing destination\n', 'utf8');
 
     await dragWorkspaceEntryOver(folderShell, { path: 'move-me.txt', kind: 'file' });
-    await expect(folderShell.getByText('Move here', { exact: true })).toBeVisible();
+    await expect(folderShell).toHaveClass(/drop-target/);
     await dropWorkspaceEntry(folderShell, { path: 'move-me.txt', kind: 'file' });
     await expect.poll(() => readFile(movedFile, 'utf8').catch(() => '')).toBe('move this file\n');
     await expect
@@ -1852,6 +1857,23 @@ test('adds and moves files through repository menus and drop points', async ({ c
       )
       .toBe(false);
     await expect(page.getByRole('button', { name: 'Open uploads/move-me.txt' })).toBeVisible();
+
+    const movedRow = page.getByRole('button', { name: 'Open uploads/move-me.txt' });
+    await movedRow.press('F2');
+    const renameInput = page.getByRole('textbox', { name: 'Rename file' });
+    await renameInput.fill('moved-renamed.txt');
+    await renameInput.press('Enter');
+    await expect.poll(() => readFile(renamedMovedFile, 'utf8').catch(() => '')).toBe('move this file\n');
+
+    const renamedRow = page.getByRole('button', { name: 'Open uploads/moved-renamed.txt' });
+    await renamedRow.press('Control+c');
+    await folderShell.getByRole('button', { name: 'Collapse uploads' }).press('Control+v');
+    await expect.poll(() => readFile(copiedMovedFile, 'utf8').catch(() => '')).toBe('move this file\n');
+
+    const copiedRow = page.getByRole('button', { name: 'Open uploads/moved-renamed (1).txt' });
+    await copiedRow.press('Delete');
+    await page.getByRole('button', { name: 'Delete file', exact: true }).click();
+    await expect.poll(() => pathExists(copiedMovedFile)).toBe(false);
 
     await dropWorkspaceEntry(folderShell, { path: 'move-conflict.txt', kind: 'file' });
     await expect(page.getByRole('heading', { name: 'An item already exists' })).toBeVisible();
@@ -1871,8 +1893,9 @@ test('adds and moves files through repository menus and drop points', async ({ c
     expect(await readFile(moveConflictTarget, 'utf8')).toBe('existing destination\n');
 
     const chooserPromise = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: 'Add workspace item' }).click();
-    await page.getByRole('menuitem', { name: 'Choose files…' }).click();
+    await page.locator('.tree-row-shell.root').hover();
+    await page.getByRole('button', { name: 'Add inside workspace root' }).click();
+    await page.getByRole('menuitem', { name: 'Upload files…' }).click();
     const chooser = await chooserPromise;
     await chooser.setFiles([
       { name: 'fresh-upload.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([0, 1, 2, 255]) },
@@ -1888,6 +1911,24 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await expect(page.getByRole('heading', { name: '1 file already exists' })).toBeHidden();
     await expect.poll(() => readFile(renamedConflict, 'utf8').catch(() => '')).toBe('uploaded conflict\n');
 
+    const rootDropSurface = page.locator('.tree-row-shell.root');
+    const contentBoxBeforeDrop = await page.locator('.repository-content').boundingBox();
+    await rootDropSurface.evaluate((element) => {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(new File(['dropped on the worktree\n'], 'panel-dropped.txt', { type: 'text/plain' }));
+      element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+    });
+    await expect(page.locator('.repository-panel')).toHaveClass(/root-drop-active/);
+    await rootDropSurface.evaluate((element) => {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(new File(['dropped on the worktree\n'], 'panel-dropped.txt', { type: 'text/plain' }));
+      element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    });
+    await expect.poll(() => readFile(panelDroppedUpload, 'utf8').catch(() => '')).toBe('dropped on the worktree\n');
+    await expect(page.getByRole('button', { name: 'Open panel-dropped.txt' })).toBeVisible();
+    await expect(page.locator('.repository-upload-notice')).toHaveCount(0);
+    expect(await page.locator('.repository-content').boundingBox()).toEqual(contentBoxBeforeDrop);
+
     await folderShell.evaluate((element) => {
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(new File(['dropped into folder\n'], 'dropped.txt', { type: 'text/plain' }));
@@ -1897,7 +1938,7 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await expect.poll(() => readFile(droppedUpload, 'utf8').catch(() => '')).toBe('dropped into folder\n');
     await expect(folderShell.getByRole('button', { name: 'Collapse uploads' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open uploads/dropped.txt' })).toBeVisible();
-    await expect(page.locator('.repository-upload-notice')).toContainText('Added 1 file.');
+    await expect(page.locator('.repository-upload-notice')).toHaveCount(0);
 
     const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
     await terminal.evaluate((element) => {
@@ -1912,11 +1953,13 @@ test('adds and moves files through repository menus and drop points', async ({ c
       element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
     });
     await expect.poll(() => readFile(terminalDroppedFile, 'utf8').catch(() => '')).toBe('terminal drop content\n');
-    await expect(page.locator('.xterm-rows')).toContainText('terminal-drop.txt');
+    // The shell horizontally scrolls a long input line when the repository leaves the terminal narrow.
+    await expect(page.locator('.xterm-rows')).toContainText('drop.txt');
   } finally {
     await Promise.all([
       rm(uploadDirectory, { recursive: true, force: true }),
       rm(rootUpload, { force: true }),
+      rm(panelDroppedUpload, { force: true }),
       rm(renamedConflict, { force: true }),
       rm(terminalDroppedFile, { force: true }),
       rm(movableFile, { force: true }),

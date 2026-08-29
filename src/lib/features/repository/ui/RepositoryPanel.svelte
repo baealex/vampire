@@ -1,12 +1,11 @@
 <script lang="ts">
 import CircleAlert from '@lucide/svelte/icons/circle-alert';
-import CircleCheck from '@lucide/svelte/icons/circle-check';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 import Button from '~/lib/shared/ui/Button.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 import {
-  parseWorkspaceEntryDrag,
+  parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryCanMoveToDirectory,
   type WorkspaceEntryDragData,
@@ -31,6 +30,7 @@ import type { RepositoryUploadNoticeKind } from '../model/workspace-state.svelte
 
 let {
   projectName,
+  projectPath,
   snapshot,
   loading,
   errorMessage,
@@ -45,17 +45,24 @@ let {
   onRequestDiscardChange,
   onMoveEntry,
   onInsertPath,
+  onRenameEntry,
+  onCopyEntries,
+  onCutEntries,
+  onPasteEntries,
+  canPaste = false,
+  cutPaths = [],
   uploading = false,
   moving = false,
   uploadNoticeKind = '',
   uploadNotice = '',
+  uploadRevealRequest,
   onUploadSelection,
   onUploadError,
-  onClose,
   onSelect,
   onTabChange = () => undefined,
 }: {
   projectName: string;
+  projectPath: string;
   snapshot?: RepositorySnapshot;
   loading: boolean;
   errorMessage: string;
@@ -66,17 +73,23 @@ let {
   onLoadDirectory: (path: string) => Promise<void>;
   onCreateFile: (directory: string, name: string) => Promise<void>;
   onCreateDirectory: (directory: string, name: string) => Promise<void>;
-  onRequestDelete: (path: string, kind: 'file' | 'directory') => void;
+  onRequestDelete: (entries: WorkspaceEntryDragData[]) => void;
   onRequestDiscardChange: (change: RepositoryChange) => void;
   onMoveEntry: (entry: WorkspaceEntryDragData, directory: string) => Promise<WorkspaceMoveResult | undefined>;
   onInsertPath: (entry: WorkspaceEntryDragData) => void;
+  onRenameEntry: (entry: WorkspaceEntryDragData, name: string) => Promise<WorkspaceMoveResult>;
+  onCopyEntries: (entries: WorkspaceEntryDragData[]) => void;
+  onCutEntries: (entries: WorkspaceEntryDragData[]) => void;
+  onPasteEntries: (directory: string) => Promise<WorkspaceMoveResult[]>;
+  canPaste?: boolean;
+  cutPaths?: string[];
   uploading?: boolean;
   moving?: boolean;
   uploadNoticeKind?: RepositoryUploadNoticeKind;
   uploadNotice?: string;
+  uploadRevealRequest?: { path: string; token: number };
   onUploadSelection: (selection: WorkspaceUploadSelection, directory: string) => Promise<void>;
   onUploadError: (message: string) => void;
-  onClose: () => void;
   onSelect: (selection: RepositorySelection) => void;
   onTabChange?: (tab: RepositoryTab) => void;
 } = $props();
@@ -84,7 +97,7 @@ let {
 const visibleTab = $derived(snapshot?.isGitRepository === false ? 'files' : activeTab);
 let fileInput: HTMLInputElement;
 let folderInput: HTMLInputElement;
-let rootCreationRequest = $state<{ kind: 'file' | 'directory'; token: number }>();
+let rootCreationRequest = $state<{ kind: 'file' | 'directory'; parent: string; token: number }>();
 let rootCreationToken = 0;
 let rootDropKind = $state<'' | 'copy' | 'move'>('');
 let dropOperation = $state<'' | 'copy' | 'move'>('');
@@ -92,7 +105,7 @@ let readingDrop = $state(false);
 
 function beginRootCreation(kind: 'file' | 'directory') {
   onTabChange('files');
-  rootCreationRequest = { kind, token: ++rootCreationToken };
+  rootCreationRequest = { kind, parent: '', token: ++rootCreationToken };
 }
 
 async function uploadFilesFromInput(input: HTMLInputElement) {
@@ -111,25 +124,26 @@ function handleRootDragOver(event: DragEvent) {
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
   const row = event.target instanceof Element ? event.target.closest('.tree-row-shell') : null;
+  const nestedRow = Boolean(row && !row.classList.contains('root'));
   if (dataTransferHasUploadFiles(dataTransfer)) {
+    event.preventDefault();
     dropOperation = 'copy';
-    if (row) {
+    if (nestedRow) {
       rootDropKind = '';
       return;
     }
-    event.preventDefault();
     dataTransfer.dropEffect = 'copy';
     rootDropKind = 'copy';
     return;
   }
   if (!Array.from(dataTransfer.types).includes(WORKSPACE_ENTRY_DRAG_TYPE)) return;
   dropOperation = 'move';
-  if (row) {
+  if (nestedRow) {
     rootDropKind = '';
     return;
   }
-  const entry = parseWorkspaceEntryDrag(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
-  if (entry && !workspaceEntryCanMoveToDirectory(entry, '')) return;
+  const entries = parseWorkspaceEntryDragEntries(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
+  if (entries?.some((entry) => !workspaceEntryCanMoveToDirectory(entry, ''))) return;
   event.preventDefault();
   dataTransfer.dropEffect = 'move';
   rootDropKind = 'move';
@@ -162,20 +176,26 @@ function handleRootDrop(event: DragEvent) {
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
   const row = event.target instanceof Element ? event.target.closest('.tree-row-shell') : null;
+  const nestedRow = Boolean(row && !row.classList.contains('root'));
   rootDropKind = '';
   dropOperation = '';
-  if (row) return;
   if (dataTransferHasUploadFiles(dataTransfer)) {
     event.preventDefault();
+    if (nestedRow) return;
     void uploadDrop(dataTransfer, '');
     return;
   }
+  if (nestedRow) return;
   if (!Array.from(dataTransfer.types).includes(WORKSPACE_ENTRY_DRAG_TYPE)) return;
-  const entry = parseWorkspaceEntryDrag(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
-  if (!entry || !workspaceEntryCanMoveToDirectory(entry, '')) return;
+  const entries = parseWorkspaceEntryDragEntries(dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
+  if (!entries?.length || entries.some((entry) => !workspaceEntryCanMoveToDirectory(entry, ''))) return;
   event.preventDefault();
   onTabChange('files');
-  void onMoveEntry(entry, '');
+  void moveEntriesToRoot(entries);
+}
+
+async function moveEntriesToRoot(entries: WorkspaceEntryDragData[]) {
+  for (const entry of entries) await onMoveEntry(entry, '');
 }
 
 function endDragWorkspace() {
@@ -192,56 +212,26 @@ function endDragWorkspace() {
   aria-hidden={!open}
   inert={!open}
   aria-busy={uploading || readingDrop || moving}
+  ondragenter={handleRootDragOver}
   ondragover={handleRootDragOver}
   ondragleave={handleRootDragLeave}
   ondrop={handleRootDrop}
   ondragend={endDragWorkspace}
 >
-  <WorkspacePanelHeader
-    title="Workspace"
-    subtitle={projectName}
-    subtitleMonospace
-    close={onClose}
-    closeLabel="Close workspace panel"
-  >
+  <WorkspacePanelHeader title="Workspace" subtitle={projectPath} subtitleMonospace>
     {#snippet actions()}
-      <div class="repository-actions">
-        <RepositoryAddMenu
-          disabled={!snapshot || uploading || readingDrop || moving}
-          onCreateFile={() => beginRootCreation('file')}
-          onCreateFolder={() => beginRootCreation('directory')}
-          onUploadFiles={() => fileInput?.click()}
-          onUploadFolder={() => folderInput?.click()}
-        />
-        <Button
-          class={`repository-refresh${loading ? ' spinning' : ''}`}
-          variant="icon"
-          onclick={onRefresh}
-          disabled={loading}
-          ariaLabel="Refresh repository"
-          title="Refresh repository"
-        >
-          <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
-        </Button>
-      </div>
+      <Button
+        class={`repository-refresh${loading ? ' spinning' : ''}`}
+        variant="icon"
+        onclick={onRefresh}
+        disabled={loading}
+        ariaLabel="Refresh workspace and Git"
+        title="Refresh workspace and Git"
+      >
+        <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
+      </Button>
     {/snippet}
   </WorkspacePanelHeader>
-  <input
-    class="repository-file-input"
-    bind:this={fileInput}
-    type="file"
-    multiple
-    onchange={(event) => void uploadFilesFromInput(event.currentTarget)}
-  >
-  <input
-    class="repository-file-input"
-    bind:this={folderInput}
-    type="file"
-    multiple
-    webkitdirectory
-    onchange={(event) => void uploadFilesFromInput(event.currentTarget)}
-  >
-
   {#if snapshot?.isGitRepository !== false}
     <div class="repository-tabs" role="tablist" aria-label="Repository view">
       <button
@@ -264,25 +254,28 @@ function endDragWorkspace() {
       </button>
     </div>
   {/if}
+  <input
+    class="repository-file-input"
+    bind:this={fileInput}
+    type="file"
+    multiple
+    onchange={(event) => void uploadFilesFromInput(event.currentTarget)}
+  >
+  <input
+    class="repository-file-input"
+    bind:this={folderInput}
+    type="file"
+    multiple
+    webkitdirectory
+    onchange={(event) => void uploadFilesFromInput(event.currentTarget)}
+  >
 
   {#if errorMessage}
     <p class="repository-warning" role="status">{errorMessage}</p>
   {/if}
-  {#if uploadNotice}
-    <p
-      class="repository-upload-notice"
-      class:success={uploadNoticeKind === 'success'}
-      class:error={uploadNoticeKind === 'error'}
-      role="status"
-      aria-live="polite"
-    >
-      {#if uploadNoticeKind === 'progress'}
-        <Spinner size="small" />
-      {:else if uploadNoticeKind === 'success'}
-        <CircleCheck size={15} strokeWidth={1.8} aria-hidden="true" />
-      {:else if uploadNoticeKind === 'error'}
-        <CircleAlert size={15} strokeWidth={1.8} aria-hidden="true" />
-      {/if}
+  {#if uploadNoticeKind === 'error' && uploadNotice}
+    <p class="repository-upload-notice" role="alert">
+      <CircleAlert size={15} strokeWidth={1.8} aria-hidden="true" />
       <span>{uploadNotice}</span>
     </p>
   {/if}
@@ -307,27 +300,42 @@ function endDragWorkspace() {
     {:else}
       <RepositoryFileTree
         {snapshot}
+        {projectName}
+        {projectPath}
         {selected}
         {onLoadDirectory}
         {onCreateFile}
         {onCreateDirectory}
         {onRequestDelete}
         {rootCreationRequest}
+        revealRequest={uploadRevealRequest}
         onDropFiles={(directory, dataTransfer) => uploadDrop(dataTransfer, directory)}
         {onMoveEntry}
         {onInsertPath}
+        {onRenameEntry}
+        {onCopyEntries}
+        {onCutEntries}
+        {onPasteEntries}
+        {canPaste}
+        {cutPaths}
         {dropOperation}
         {onSelect}
-      />
+      >
+        {#snippet rootActions()}
+          <RepositoryAddMenu
+            disabled={uploading || readingDrop || moving}
+            rootPath={projectPath}
+            {canPaste}
+            onCreateFile={() => beginRootCreation('file')}
+            onCreateFolder={() => beginRootCreation('directory')}
+            onUploadFiles={() => fileInput?.click()}
+            onUploadFolder={() => folderInput?.click()}
+            onPaste={() => void onPasteEntries('')}
+          />
+        {/snippet}
+      </RepositoryFileTree>
     {/if}
   </div>
-  {#if rootDropKind}
-    <div class="repository-drop-target" aria-hidden="true">
-      <strong>Workspace root</strong>
-      <span>{rootDropKind === 'move' ? 'Move here' : 'Copy here'}</span>
-    </div>
-  {/if}
-
   {#if snapshot?.truncated}
     <p class="repository-limit">Some folders contain more entries than shown.</p>
   {/if}
@@ -357,32 +365,30 @@ function endDragWorkspace() {
   transform: translateX(0);
   pointer-events: auto;
 }
-.repository-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.15rem;
-}
 .repository-file-input {
   display: none;
 }
 .repository-upload-notice {
+  position: absolute;
+  z-index: 30;
+  right: var(--space-3);
+  bottom: var(--space-3);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 0.45rem;
   margin: 0;
+  width: min(18rem, calc(100% - var(--space-6)));
   padding: 0.55rem 0.8rem;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   background: var(--color-surface-raised);
+  box-shadow: var(--shadow-popover);
   color: var(--color-text-secondary);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
-.repository-upload-notice.success {
-  color: var(--color-success);
-}
-.repository-upload-notice.error {
+.repository-upload-notice {
   background: var(--color-danger-surface);
   color: var(--color-danger-text);
 }
@@ -391,31 +397,10 @@ function endDragWorkspace() {
   overflow-wrap: anywhere;
 }
 .repository-panel.root-drop-active .repository-content {
-  box-shadow: inset 0 0 0 1px var(--color-accent);
-}
-.repository-drop-target {
-  position: absolute;
-  z-index: 12;
-  right: 0.8rem;
-  bottom: 0.8rem;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.48rem 0.62rem;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-pill);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-popover);
-  color: var(--color-text);
-  pointer-events: none;
-}
-.repository-drop-target strong {
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-}
-.repository-drop-target span {
-  color: var(--color-accent-soft-text);
-  font-size: var(--text-caption);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--color-accent),
+    inset 3px 0 0 var(--color-accent);
 }
 :global(.repository-refresh.spinning svg) {
   animation: spin 0.8s linear infinite;
@@ -424,7 +409,7 @@ function endDragWorkspace() {
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0 0.75rem;
+  margin: 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 .repository-tabs button {
@@ -470,6 +455,9 @@ function endDragWorkspace() {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
 }
 .repository-content.repository-content-git {
   overflow: hidden;

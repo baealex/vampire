@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import type { WorkspaceFile } from '~/lib/shared/contracts/repository.ts';
 import { RepositoryWorkspaceState } from './workspace-state.svelte.ts';
 
@@ -76,4 +76,96 @@ test('keeps the viewer open until closing a dirty file is confirmed', async () =
   expect(state.selection).toBeUndefined();
   expect(state.openedFile).toBeUndefined();
   expect(state.fileDirty).toBe(false);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+function repositorySnapshotResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      isGitRepository: true,
+      files: [],
+      directories: [],
+      ignored: [],
+      changes: [],
+      changeStats: { additions: 0, deletions: 0 },
+      truncated: false,
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
+}
+
+test('permanently deletes an entry as soon as deletion is confirmed', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    if (init?.method === 'DELETE') {
+      return new Response(JSON.stringify({ path: 'notes.txt' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+
+  state.requestDelete('notes.txt', 'file');
+  await state.confirmDelete();
+
+  expect(state.deleteTargets).toHaveLength(0);
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/workspaces/workspace-1/repository/file?path=notes.txt',
+    expect.objectContaining({ method: 'DELETE' })
+  );
+});
+
+test('requests the final uploaded path to be revealed in the file tree', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (init?.method === 'POST' && String(input).includes('/upload?')) {
+      return new Response(JSON.stringify({ path: 'docs/new.txt', size: 3, renamed: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+
+  await state.uploadFiles(
+    { candidates: [{ file: new File(['new'], 'new.txt'), relativePath: 'new.txt' }], skippedGitFiles: 0 },
+    'docs'
+  );
+
+  expect(state.uploadRevealRequest).toEqual({ path: 'docs/new.txt', token: 1 });
+});
+
+test('collapses nested clipboard selections and pastes each top-level entry once', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    if (String(input).endsWith('/copy')) {
+      return new Response(JSON.stringify({ fromPath: 'src', path: 'archive/src', kind: 'directory', renamed: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  state.setClipboard('copy', [
+    { path: 'src', kind: 'directory' },
+    { path: 'src/app.ts', kind: 'file' },
+  ]);
+
+  expect(state.clipboard?.entries).toEqual([{ path: 'src', kind: 'directory' }]);
+  await expect(state.pasteEntries('archive')).resolves.toEqual([
+    { fromPath: 'src', path: 'archive/src', kind: 'directory', renamed: false },
+  ]);
+  const copyCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/copy'));
+  expect(JSON.parse(String(copyCall?.[1]?.body))).toEqual({
+    path: 'src',
+    kind: 'directory',
+    targetDirectory: 'archive',
+    conflict: 'rename',
+  });
 });

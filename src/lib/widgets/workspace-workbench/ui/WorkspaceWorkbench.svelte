@@ -2,7 +2,7 @@
 import { onMount, untrack } from 'svelte';
 import Terminal from './Terminal.svelte';
 import type { ManagedWorkspace, MobilePanel, WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
-import { workspaceName } from '~/lib/features/workspace/model/workspace-view';
+import { projectName, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';
 import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
@@ -76,6 +76,7 @@ let notePanelOpen = $state(false);
 let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
 let pathInsertionToken = 0;
 const name = $derived(workspaceName(workspace));
+const repositoryName = $derived(projectName(workspace.cwd));
 const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
 const noteOpen = $derived(desktop ? notePanelOpen : mobilePanel === 'note');
 const sidePanelOpen = $derived(repositoryOpen || noteOpen);
@@ -214,7 +215,7 @@ onMount(() => {
   return () => {
     desktopQuery.removeEventListener('change', syncDesktop);
     window.removeEventListener('keydown', closeOverlay, { capture: true });
-    repository.resolveDiscardChanges(false);
+    repository.dispose();
   };
 });
 </script>
@@ -277,7 +278,8 @@ onMount(() => {
   {/if}
 
   <RepositoryPanel
-    projectName={name}
+    projectName={repositoryName}
+    projectPath={workspace.cwd}
     snapshot={repository.snapshot}
     loading={repository.loading}
     errorMessage={repository.errorMessage}
@@ -285,6 +287,7 @@ onMount(() => {
     moving={repository.moving}
     uploadNoticeKind={repository.uploadNoticeKind}
     uploadNotice={repository.uploadNotice}
+    uploadRevealRequest={repository.uploadRevealRequest}
     selected={repository.selection}
     activeTab={repositoryTab}
     open={repositoryOpen}
@@ -292,13 +295,18 @@ onMount(() => {
     onLoadDirectory={(path) => repository.loadDirectory(path)}
     onCreateFile={createFile}
     onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
-    onRequestDelete={(path, kind) => repository.requestDelete(path, kind)}
+    onRequestDelete={(entries) => repository.requestDeleteEntries(entries)}
     onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
     onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
     onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
+    onRenameEntry={(entry, name) => repository.renameEntry(entry.path, entry.kind, name)}
+    onCopyEntries={(entries) => repository.setClipboard('copy', entries)}
+    onCutEntries={(entries) => repository.setClipboard('cut', entries)}
+    onPasteEntries={(directory) => repository.pasteEntries(directory)}
+    canPaste={Boolean(repository.clipboard?.entries.length)}
+    cutPaths={repository.clipboard?.operation === 'cut' ? repository.clipboard.entries.map((entry) => entry.path) : []}
     onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
     onUploadError={(message) => repository.reportUploadError(message)}
-    onClose={closeRepository}
     onSelect={selectRepositoryItem}
     onTabChange={onRepositoryTabChange}
   />
@@ -330,13 +338,21 @@ onMount(() => {
     />
   {/if}
 
-  {#if repository.deleteTarget}
+  {#if repository.deleteTargets.length > 0}
     <ConfirmDialog
-      title={repository.deleteTarget.kind === 'directory' ? 'Delete folder?' : 'Delete file?'}
-      description={repository.deleteDescription(repository.deleteTarget)}
-      confirmLabel={repository.deleteTarget.kind === 'directory' ? 'Delete folder' : 'Delete file'}
+      title={repository.deleteTargets.length > 1
+        ? `Delete ${repository.deleteTargets.length} items?`
+        : repository.deleteTargets[0]?.kind === 'directory'
+          ? 'Delete folder?'
+          : 'Delete file?'}
+      description={repository.deleteDescription(repository.deleteTargets)}
+      confirmLabel={repository.deleteTargets.length > 1
+        ? 'Delete items'
+        : repository.deleteTargets[0]?.kind === 'directory'
+          ? 'Delete folder'
+          : 'Delete file'}
       busyLabel="Deleting…"
-      close={() => (repository.deleteTarget = undefined)}
+      close={() => (repository.deleteTargets = [])}
       onConfirm={() => repository.confirmDelete()}
     />
   {/if}

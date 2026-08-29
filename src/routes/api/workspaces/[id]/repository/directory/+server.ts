@@ -75,7 +75,6 @@ export const DELETE: RequestHandler = async (event) => {
 
   const workspace = await findWorkspaceDirectory(id);
   if (!workspace) throw error(404, 'Workspace was not found.');
-
   try {
     return json(await deleteWorkspaceEntry(workspace.cwd, path, 'directory'));
   } catch (cause) {

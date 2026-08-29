@@ -2,7 +2,7 @@
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
 import {
-  parseWorkspaceEntryDrag,
+  parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
@@ -83,10 +83,10 @@ function handleComposerDrop(event: DragEvent) {
   composerDropActive = false;
   if (!connected) return;
   const raw = event.dataTransfer?.getData(WORKSPACE_ENTRY_DRAG_TYPE);
-  const entry = raw ? parseWorkspaceEntryDrag(raw) : undefined;
-  if (!entry) return;
+  const entries = raw ? parseWorkspaceEntryDragEntries(raw) : undefined;
+  if (!entries?.length) return;
   event.preventDefault();
-  const insertion = workspaceEntryDragText(entry);
+  const insertion = entries.map(workspaceEntryDragText).join(' ');
   const start = composerElement.selectionStart ?? composerMessage.length;
   const end = composerElement.selectionEnd ?? start;
   composerMessage = `${composerMessage.slice(0, start)}${insertion}${composerMessage.slice(end)}`;

@@ -98,31 +98,41 @@ let {
             <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span>
           {/if}
         </Button>
-        {#if !noteOpen}
-          <Button
-            variant="icon"
-            class={`note-button${hasNote ? ' has-note' : ''}`}
-            onclick={toggleNote}
-            ariaLabel={hasNote ? 'Open workspace note' : 'Add workspace note'}
-            ariaExpanded={noteOpen}
-          >
-            <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
-          </Button>
-        {/if}
-        {#if !repositoryOpen}
-          <Button
-            variant="icon"
-            class="repository-button"
-            onclick={toggleRepository}
-            ariaLabel={isGitRepository === false ? 'Open workspace files' : 'Open repository'}
-            ariaExpanded={repositoryOpen}
-          >
-            <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />
-            {#if isGitRepository && changeCount > 0}
-              <span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>
-            {/if}
-          </Button>
-        {/if}
+        <Button
+          variant="icon"
+          class={`note-button${hasNote ? ' has-note' : ''}${noteOpen ? ' active' : ''}`}
+          onclick={toggleNote}
+          ariaLabel={noteOpen ? 'Close workspace note' : hasNote ? 'Open workspace note' : 'Add workspace note'}
+          title={noteOpen ? 'Close workspace note' : hasNote ? 'Open workspace note' : 'Add workspace note'}
+          ariaExpanded={noteOpen}
+        >
+          <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
+        </Button>
+        <Button
+          variant="icon"
+          class={`repository-button${repositoryOpen ? ' active' : ''}`}
+          onclick={toggleRepository}
+          ariaLabel={repositoryOpen
+            ? isGitRepository === false
+              ? 'Close workspace files'
+              : 'Close repository'
+            : isGitRepository === false
+              ? 'Open workspace files'
+              : 'Open repository'}
+          title={repositoryOpen
+            ? isGitRepository === false
+              ? 'Close workspace files'
+              : 'Close repository'
+            : isGitRepository === false
+              ? 'Open workspace files'
+              : 'Open repository'}
+          ariaExpanded={repositoryOpen}
+        >
+          <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />
+          {#if isGitRepository && changeCount > 0}
+            <span aria-label={`${changeCount} changed files`}>{changeCount > 99 ? '99+' : changeCount}</span>
+          {/if}
+        </Button>
       </div>
     </div>
   {/if}
@@ -253,7 +263,9 @@ let {
 }
 :global(.note-button:focus-visible),
 :global(.background-button:focus-visible),
+:global(.note-button.active),
 :global(.background-button.active),
+:global(.repository-button.active),
 :global(.repository-button:focus-visible) {
   border-color: var(--color-border-strong);
   background: transparent;

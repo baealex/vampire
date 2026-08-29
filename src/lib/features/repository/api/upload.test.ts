@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  dataTransferHasUploadFiles,
   uploadSelectionFromFiles,
   WorkspaceUploadSelectionError,
   workspaceUploadPath,
 } from '~/lib/features/repository/api/upload.ts';
+
+test('recognizes external files even when a browser omits the Files transfer type', () => {
+  assert.equal(
+    dataTransferHasUploadFiles({ types: [], items: [{ kind: 'file' }], files: [] } as unknown as DataTransfer),
+    true
+  );
+});
 
 function fileWithRelativePath(name: string, relativePath: string, content = name): File {
   const file = new File([content], name);
