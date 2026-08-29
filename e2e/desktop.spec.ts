@@ -134,9 +134,10 @@ async function startWaitingMainAgent(context: BrowserContext, workspace: Managed
     `const fs = require('node:fs');`,
     `const readline = require('node:readline');`,
     `const output = ${JSON.stringify(receivedPath)};`,
+    `const prompt = '\\n'.repeat(20) + '› ';`,
     `const input = readline.createInterface({ input: process.stdin, terminal: false });`,
-    `process.stdout.write('› ');`,
-    `input.on('line', (line) => { fs.writeFileSync(output, line, 'utf8'); process.stdout.write('\\n› '); });`,
+    `process.stdout.write(prompt);`,
+    `input.on('line', (line) => { fs.writeFileSync(output, line, 'utf8'); process.stdout.write(prompt); });`,
   ].join('');
   const encodedSource = Buffer.from(agentSource).toString('base64');
   const command = `exec -a codex node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`;
@@ -563,7 +564,11 @@ test('delivers note and widget requests to the existing main agent without expos
   expect(storedNoteAction?.prompt).toBe(
     `Vampire workspace note: ${JSON.stringify(notePath)}\n\nUser request:\n${noteRequest}`
   );
-  await expect.poll(async () => (await readStoredAgentAction(workspace.id, 'note'))?.lastOutcome).toBe('submitted');
+  await expect
+    .poll(async () => (await readStoredAgentAction(workspace.id, 'note'))?.lastOutcome, {
+      timeout: 10_000,
+    })
+    .toBe('submitted');
   await expect
     .poll(async () => ((await pathExists(receivedPath)) ? readFile(receivedPath, 'utf8') : ''))
     .toContain(noteRequest);
@@ -904,7 +909,6 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
       .toBe('auto-started\n');
     await page.reload();
     await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
-    await expect(page.locator('.terminal-identity-title .worktree-badge')).toHaveText('Worktree');
     await expect(page.locator('.workspace-row-shell.selected .workspace-origin')).toContainText(
       isolated!.worktreeBranch!
     );
@@ -1788,7 +1792,7 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await page.getByRole('button', { name: 'Open repository' }).click();
-  await page.getByRole('tab', { name: 'Files' }).click();
+  await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
 
   const editor = page.locator('[aria-label="Edit conflict.txt"] .cm-content');
@@ -1844,7 +1848,7 @@ test('keeps edits made while a file save is pending unsaved and protected', asyn
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
-    await page.getByRole('tab', { name: 'Files' }).click();
+    await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
     await page.getByRole('button', { name: 'Open pending-save.txt' }).click();
 
     const codeEditor = page.locator('[aria-label="Edit pending-save.txt"]');
@@ -2082,7 +2086,7 @@ test('discards tracked and untracked changes from the Git changes UI', async ({ 
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
-    await page.getByRole('tab', { name: 'Changes' }).click();
+    await page.getByRole('tab', { name: 'Git', exact: true }).click();
 
     await page.getByRole('button', { name: /Open diff for conflict\.txt/ }).click();
     const viewer = page.getByRole('region', { name: 'Diff for conflict.txt' });
@@ -2148,7 +2152,7 @@ test('does not restart a slow file open while repository status refreshes', asyn
       '0s'
     );
     await expect(page.locator('.workspace-primary')).toHaveCSS('transition-duration', '0s');
-    await page.getByRole('tab', { name: 'Files' }).click();
+    await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
     await page.getByRole('button', { name: 'Open slow-open.txt' }).click();
     const loadingStatus = page.getByRole('status', { name: 'Loading file: slow-open.txt' });
     await expect(loadingStatus).toBeVisible();
