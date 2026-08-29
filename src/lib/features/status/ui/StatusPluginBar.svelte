@@ -12,9 +12,11 @@ type StatusPluginItem = Extract<StatusPluginMenuEntry, { type: 'item' }>;
 
 let {
   plugins,
+  workspaceId,
   dismissPopovers = false,
 }: {
   plugins: StatusPluginSnapshot[];
+  workspaceId?: string;
   dismissPopovers?: boolean;
 } = $props();
 let settingsOpen = $state(false);
@@ -206,7 +208,7 @@ $effect(() => {
 </section>
 
 {#if settingsOpen}
-  <StatusPluginSettings close={() => (settingsOpen = false)} />
+  <StatusPluginSettings {workspaceId} close={() => (settingsOpen = false)} />
 {/if}
 
 <style>

@@ -4,6 +4,18 @@ A status plugin is a shell script that prints a compact bar value and an optiona
 
 Scripts run only while a browser is connected, never overlap, time out after 10 seconds, and may emit at most 32 KB. Saving the configuration reruns enabled plugins once. A recent result is reused after a short disconnect until its interval is due.
 
+## Ask an agent to create a widget
+
+When a supported agent is running in the workspace's main terminal, open **Status widgets → Add widget → Ask agent…**. Vampire shows the live configuration path, the contract for the installed app version, and a validation command. Describe the widget you want; Vampire sends that context and request to the existing main agent when it is waiting for input. It does not create another workspace or agent session.
+
+The agent support files live under the configured state directory:
+
+- `status-plugins.json` is the live server-wide widget configuration;
+- `agent-guides/status-widget.md` is the current authoring contract; and
+- `agent-guides/validate-status-widgets.mjs` validates a candidate configuration.
+
+Opening the action refreshes the guide and validator from the running Vampire version. The server watches the configuration and reloads valid changes, so an agent can validate and save a widget without a separate plugin API. The validator checks the supported structure and bounds; it does not decide whether a command is trustworthy.
+
 ## Plain output
 
 The first line appears in the bar. The first `---` starts the menu, later `---` lines become separators, and leading `--` pairs indent an item.

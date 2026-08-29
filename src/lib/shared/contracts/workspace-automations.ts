@@ -1,7 +1,13 @@
+import {
+  isWorkspaceAgentActionId,
+  WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
+  type WorkspaceAgentActionId,
+} from './workspace-agent-actions.ts';
+
 export const WORKSPACE_AUTOMATION_NAME_MAX_LENGTH = 80;
 export const WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH = 8_000;
 export const WORKSPACE_AUTOMATION_ERROR_MAX_LENGTH = 500;
-export const WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH = 4_000;
+export const WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH = WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH;
 export const MAX_WORKSPACE_AUTOMATIONS = 32;
 export const MIN_AUTOMATION_INTERVAL_MS = 60_000;
 export const MAX_AUTOMATION_INTERVAL_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -15,7 +21,8 @@ export type WorkspaceAutomationOutcome = 'submitted' | 'failed' | 'uncertain' | 
 
 export type WorkspaceAutomation = {
   id: string;
-  kind: 'custom' | 'note';
+  kind: 'custom' | 'note' | 'agent-action';
+  agentActionId?: WorkspaceAgentActionId;
   name: string;
   prompt: string;
   schedule: WorkspaceAutomationSchedule;
@@ -59,11 +66,15 @@ export function isWorkspaceAutomationSchedule(value: unknown): value is Workspac
 
 export function isWorkspaceAutomation(value: unknown): value is WorkspaceAutomation {
   if (!isRecord(value)) return false;
+  const validKind =
+    value.kind === 'custom' ||
+    value.kind === 'note' ||
+    (value.kind === 'agent-action' && isWorkspaceAgentActionId(value.agentActionId));
   return (
     typeof value.id === 'string' &&
     value.id.length > 0 &&
     value.id.length <= 128 &&
-    (value.kind === 'custom' || value.kind === 'note') &&
+    validKind &&
     typeof value.name === 'string' &&
     value.name.length > 0 &&
     value.name.length <= WORKSPACE_AUTOMATION_NAME_MAX_LENGTH &&

@@ -1,6 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
+import type {
+  WorkspaceAgentActionDescriptor,
+  WorkspaceAgentActionSubmission,
+} from '~/lib/shared/contracts/workspace-agent-actions.ts';
 import WorkspaceNoteEditor from './WorkspaceNoteEditor.svelte';
 
 function deferred() {
@@ -15,17 +19,44 @@ type EditorCallbacks = {
   getNote: (refresh?: boolean) => Promise<string>;
   close: () => void;
   save: (note: string) => Promise<void>;
-  updateWithAgent: (instructions: string) => Promise<{ notePath: string }>;
+  loadAgentAction: () => Promise<WorkspaceAgentActionDescriptor>;
+  queueAgentAction: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+};
+
+const agentAction: WorkspaceAgentActionDescriptor = {
+  id: 'note',
+  title: 'Ask agent about this note',
+  description: 'The note path is supplied as context.',
+  target: { workspaceId: 'workspace-1', workspaceLabel: 'Project', agentLabel: 'codex' },
+  context: [{ label: 'Workspace note', value: '/state/workspace-1.note.md' }],
+  requestLabel: 'What should the agent do?',
+  requestPlaceholder: 'Organize the note.',
+  defaultRequest: 'Organize the important context and next steps.',
+};
+
+const submission: WorkspaceAgentActionSubmission = {
+  actionId: 'note',
+  status: 'queued',
+  queuedAt: 1,
+  prompt: 'Prompt',
 };
 
 function renderEditor({
   getNote = vi.fn(async () => 'Initial note'),
   close = vi.fn(),
   save = vi.fn(async () => undefined),
-  updateWithAgent = vi.fn(async () => ({ notePath: '.vampire/note.md' })),
+  loadAgentAction = vi.fn(async () => agentAction),
+  queueAgentAction = vi.fn(async () => submission),
 }: Partial<EditorCallbacks> = {}) {
-  render(WorkspaceNoteEditor, { getNote, close, save, updateWithAgent });
-  return { getNote, close, save, updateWithAgent };
+  render(WorkspaceNoteEditor, {
+    workspaceId: 'workspace-1',
+    getNote,
+    close,
+    save,
+    loadAgentAction,
+    queueAgentAction,
+  });
+  return { getNote, close, save, loadAgentAction, queueAgentAction };
 }
 
 test('autosaves the latest draft after the user pauses typing', async () => {
@@ -46,10 +77,12 @@ test('saves the latest draft when a workspace switch unmounts the editor before 
   const user = userEvent.setup();
   const save = vi.fn(async () => undefined);
   const view = render(WorkspaceNoteEditor, {
+    workspaceId: 'workspace-1',
     getNote: vi.fn(async () => 'Initial note'),
     close: vi.fn(),
     save,
-    updateWithAgent: vi.fn(async () => ({ notePath: '.vampire/note.md' })),
+    loadAgentAction: vi.fn(async () => agentAction),
+    queueAgentAction: vi.fn(async () => submission),
   });
   const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
 
@@ -116,31 +149,34 @@ test('keeps a failed draft open and closes only after a successful retry', async
   expect(save).toHaveBeenCalledTimes(2);
 });
 
-test('requires custom instructions and saves the latest draft before queuing one agent update', async () => {
+test('shows the note path in a modal and saves the latest draft before queuing the visible request', async () => {
   const user = userEvent.setup();
   const pendingSave = deferred();
   const save = vi.fn(() => pendingSave.promise);
-  const updateWithAgent = vi.fn(async () => ({ notePath: '.vampire/note.md' }));
-  renderEditor({ save, updateWithAgent });
+  const queueAgentAction = vi.fn(async () => submission);
+  renderEditor({ save, queueAgentAction });
   const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
 
   await user.clear(textarea);
   await user.type(textarea, 'Keep this latest draft');
   await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
-  const instructions = screen.getByRole('textbox', { name: 'Agent instructions' });
-  const queueButton = screen.getByRole('button', { name: 'Queue update' });
-  expect(queueButton).toBeDisabled();
+  expect(await screen.findByText('/state/workspace-1.note.md')).toBeInTheDocument();
+  const instructions = screen.getByRole('textbox', { name: 'What should the agent do?' });
+  const queueButton = screen.getByRole('button', { name: 'Send to agent' });
+  await user.clear(instructions);
   await user.type(instructions, 'Preserve everything and add only the current blocker.');
   await user.click(queueButton);
   await user.click(queueButton);
 
   expect(save).toHaveBeenCalledTimes(1);
   expect(save).toHaveBeenCalledWith('Keep this latest draft');
-  expect(updateWithAgent).not.toHaveBeenCalled();
+  expect(queueAgentAction).not.toHaveBeenCalled();
 
   pendingSave.resolve();
 
-  await waitFor(() => expect(updateWithAgent).toHaveBeenCalledTimes(1));
-  expect(updateWithAgent).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
-  expect(await screen.findByText('Queued — waiting for the agent to update the note.')).toBeInTheDocument();
+  await waitFor(() => expect(queueAgentAction).toHaveBeenCalledTimes(1));
+  expect(queueAgentAction).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
+  expect(
+    await screen.findByText('Queued — the request will appear in the main agent session when it is ready.')
+  ).toBeInTheDocument();
 });

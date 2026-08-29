@@ -6,7 +6,6 @@ import type {
   WorkspacePreferences,
   WorkspaceTerminal,
 } from '~/lib/shared/contracts/workspace.ts';
-import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
 import { WorkspaceActivityController } from './workspace-activity-controller.ts';
 import {
@@ -402,26 +401,6 @@ export class WorkspaceState {
       });
     this.#workspaceNoteRequests.set(workspaceId, request);
     return request;
-  }
-
-  async queueWorkspaceNoteUpdate(
-    workspaceId: string,
-    instructions: string
-  ): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
-    try {
-      return await requestJson<{ automation: WorkspaceAutomation; notePath: string }>(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/note/agent`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ instructions }),
-        },
-        'Unable to queue the workspace note update'
-      );
-    } catch (error) {
-      if (isUnauthorized(error)) this.#options.onUnauthorized();
-      throw error;
-    }
   }
 
   async updateWorkspaceStartup(

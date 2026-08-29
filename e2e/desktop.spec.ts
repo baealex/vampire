@@ -4,7 +4,7 @@ import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
+import { expect, type BrowserContext, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 import { E2E_BASE_URL, E2E_STATE_DIRECTORY } from './runtime.ts';
 import {
@@ -108,6 +108,55 @@ async function pathExists(path: string): Promise<boolean> {
     if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw cause;
   }
+}
+
+type StoredAgentAction = {
+  agentActionId?: string;
+  enabled: boolean;
+  prompt: string;
+  lastOutcome: string | null;
+};
+
+async function readStoredAgentAction(workspaceId: string, actionId: string): Promise<StoredAgentAction | undefined> {
+  const raw = await readFile(join(E2E_STATE_DIRECTORY, 'sessions.json'), 'utf8');
+  const state = JSON.parse(raw) as {
+    workspaces?: Array<{ id?: string; automations?: StoredAgentAction[] }>;
+  };
+  return state.workspaces
+    ?.find((workspace) => workspace.id === workspaceId)
+    ?.automations?.find((automation) => automation.agentActionId === actionId);
+}
+
+async function startWaitingMainAgent(context: BrowserContext, workspace: ManagedWorkspace): Promise<string> {
+  const receivedPath = join(E2E_STATE_DIRECTORY, `${workspace.id}.agent-received.txt`);
+  await rm(receivedPath, { force: true });
+  const agentSource = [
+    `const fs = require('node:fs');`,
+    `const readline = require('node:readline');`,
+    `const output = ${JSON.stringify(receivedPath)};`,
+    `const input = readline.createInterface({ input: process.stdin, terminal: false });`,
+    `process.stdout.write('› ');`,
+    `input.on('line', (line) => { fs.writeFileSync(output, line, 'utf8'); process.stdout.write('\\n› '); });`,
+  ].join('');
+  const encodedSource = Buffer.from(agentSource).toString('base64');
+  const command = `exec -a codex node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`;
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+
+  await expect
+    .poll(
+      async () => {
+        const response = await context.request.get('/api/workspaces');
+        if (!response.ok()) return undefined;
+        const body = (await response.json()) as { workspaces: ManagedWorkspace[] };
+        const current = body.workspaces.find((candidate) => candidate.id === workspace.id);
+        const mainTerminal = current?.terminals.find((terminal) => terminal.index === 0);
+        return mainTerminal?.foregroundProcess;
+      },
+      { timeout: 10_000 }
+    )
+    .toEqual({ kind: 'command', label: 'codex' });
+  return receivedPath;
 }
 
 async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
@@ -455,7 +504,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
 
-test('stores custom note-agent instructions and exposes the exact live note path only on request', async ({
+test('delivers note and widget requests to the existing main agent without exposing hidden action queues', async ({
   context,
   page,
 }) => {
@@ -480,20 +529,27 @@ test('stores custom note-agent instructions and exposes the exact live note path
   await expect(savedAutomation).toBeHidden();
   await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
 
+  const receivedPath = await startWaitingMainAgent(context, workspace);
+
   await page.getByRole('button', { name: 'Add workspace note' }).click();
   await expect(page.getByRole('button', { name: 'Close workspace note' })).toBeVisible();
   const noteDialog = page.getByRole('dialog', { name: 'Workspace note' });
   const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
   await expect(noteDialog.getByText('Saved', { exact: true })).toBeVisible();
-  await noteDialog.getByRole('button', { name: 'Ask agent…' }).click();
-  const noteAgentInstructions = 'Preserve the existing text and append only the current release blocker.';
-  await noteDialog.getByRole('textbox', { name: 'Agent instructions' }).fill(noteAgentInstructions);
-  await noteDialog.getByRole('button', { name: 'Queue update' }).click();
-  await expect(noteDialog.getByRole('button', { name: 'Waiting for note update' })).toBeVisible();
-
   const notePath = join(E2E_STATE_DIRECTORY, `${workspace.id}.note.md`);
-  await expect(noteDialog.locator('.note-agent-target')).toContainText(notePath);
+  await expect(noteDialog.getByText(notePath, { exact: true })).toHaveCount(0);
+  await noteDialog.getByRole('button', { name: 'Ask agent…' }).click();
+  const noteAgentDialog = page.getByRole('dialog', { name: 'Ask agent about this note' });
+  await expect(noteAgentDialog).toBeVisible();
+  await expect(noteAgentDialog.getByText(notePath, { exact: true })).toBeVisible();
+  await expect(noteAgentDialog).toContainText('codex');
+  const noteRequest = 'Organize the current context and add the next release step.';
+  await noteAgentDialog.getByRole('textbox', { name: 'What should the agent do?' }).fill(noteRequest);
+  await noteAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(noteAgentDialog).toBeHidden();
+  await expect(noteDialog.getByText(/Queued — the request will appear in the main agent session/)).toBeVisible();
+
   await expect.poll(async () => readFile(notePath, 'utf8')).toBe('Existing project context\n');
   const automationsResponse = await context.request.get(
     `/api/workspaces/${encodeURIComponent(workspace.id)}/automations`
@@ -502,11 +558,48 @@ test('stores custom note-agent instructions and exposes the exact live note path
   const automationsBody = (await automationsResponse.json()) as {
     automations: Array<{ kind: string; prompt: string }>;
   };
-  expect(automationsBody.automations).toHaveLength(1);
-  expect(automationsBody.automations[0]?.kind).toBe('note');
-  expect(automationsBody.automations[0]?.prompt).toContain(notePath);
-  expect(automationsBody.automations[0]?.prompt).toContain(noteAgentInstructions);
-  expect(automationsBody.automations[0]?.prompt).not.toContain('After that line and a blank line');
+  expect(automationsBody.automations).toEqual([]);
+  const storedNoteAction = await readStoredAgentAction(workspace.id, 'note');
+  expect(storedNoteAction?.prompt).toBe(
+    `Vampire workspace note: ${JSON.stringify(notePath)}\n\nUser request:\n${noteRequest}`
+  );
+  await expect.poll(async () => (await readStoredAgentAction(workspace.id, 'note'))?.lastOutcome).toBe('submitted');
+  await expect
+    .poll(async () => ((await pathExists(receivedPath)) ? readFile(receivedPath, 'utf8') : ''))
+    .toContain(noteRequest);
+  await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(notePath);
+
+  await page.getByRole('button', { name: 'Close workspace note' }).click();
+  await page.getByRole('button', { name: 'Manage status widgets' }).click();
+  const statusDialog = page.getByRole('dialog', { name: 'Status widgets' });
+  await statusDialog.getByRole('button', { name: 'Add widget' }).click();
+  await page.getByRole('menuitem', { name: 'Ask agent…' }).click();
+  const widgetAgentDialog = page.getByRole('dialog', { name: 'Create a status widget with an agent' });
+  const widgetConfigurationPath = join(E2E_STATE_DIRECTORY, 'status-plugins.json');
+  const widgetGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'status-widget.md');
+  const widgetValidatorPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'validate-status-widgets.mjs');
+  await expect(widgetAgentDialog.getByText(widgetConfigurationPath, { exact: true })).toBeVisible();
+  await expect(widgetAgentDialog.getByText(widgetGuidePath, { exact: true })).toBeVisible();
+  await expect(widgetAgentDialog).toContainText(widgetValidatorPath);
+  const widgetRequest = 'Create a widget that shows unread pull-request reviews.';
+  await widgetAgentDialog.getByRole('textbox', { name: 'What widget should the agent create?' }).fill(widgetRequest);
+  await widgetAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(widgetAgentDialog).toBeHidden();
+  await expect(statusDialog).toBeHidden();
+
+  const storedWidgetAction = await readStoredAgentAction(workspace.id, 'status-widget');
+  expect(storedWidgetAction?.prompt).toContain(widgetConfigurationPath);
+  expect(storedWidgetAction?.prompt).toContain(widgetGuidePath);
+  expect(storedWidgetAction?.prompt).toContain(widgetRequest);
+  await expect
+    .poll(async () => (await readStoredAgentAction(workspace.id, 'status-widget'))?.lastOutcome, {
+      timeout: 10_000,
+    })
+    .toBe('submitted');
+  await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(widgetRequest);
+  await expect.poll(() => pathExists(widgetConfigurationPath)).toBe(true);
+  await expect.poll(() => pathExists(widgetGuidePath)).toBe(true);
+  await expect.poll(() => pathExists(widgetValidatorPath)).toBe(true);
 
   const removeResponse = await context.request.delete(
     `/api/workspaces/${encodeURIComponent(workspace.id)}?terminate=true`
@@ -524,6 +617,7 @@ test('stores custom note-agent instructions and exposes the exact live note path
       }
     })
     .toBe(false);
+  await rm(receivedPath, { force: true });
 });
 
 test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {

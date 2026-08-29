@@ -511,8 +511,6 @@ onMount(() => {
               close={openWorkspaceNavigator}
               onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
               onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
-              onUpdateNoteWithAgent={(workspaceId, instructions) =>
-                workspaceState.queueWorkspaceNoteUpdate(workspaceId, instructions)}
               onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
               onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
               onTerminalPresentationChange={setTerminalPresentation}

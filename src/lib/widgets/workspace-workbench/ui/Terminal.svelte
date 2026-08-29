@@ -110,7 +110,12 @@ onMount(() => {
 
 <section class="terminal-sheet" style={viewportStyle} aria-label={`Terminal for ${projectName}`}>
   <div class="terminal-topbar">
-    <GlobalStatusBar plugins={statusPlugins} {onLogout} dismissPopovers={dismissStatusPopovers} />
+    <GlobalStatusBar
+      plugins={statusPlugins}
+      workspaceId={workspace.id}
+      {onLogout}
+      dismissPopovers={dismissStatusPopovers}
+    />
     <TerminalHeader
       {projectName}
       cwd={workspace.cwd}

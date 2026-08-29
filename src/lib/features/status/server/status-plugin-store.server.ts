@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   cloneStatusPlugins,
@@ -118,6 +118,31 @@ export async function writeStatusPluginStore(state: StatusPluginStore, file = st
   const temporaryFile = `${file}.${randomUUID()}.tmp`;
   await writeFile(temporaryFile, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   await rename(temporaryFile, file);
+}
+
+async function materializeStatusPluginStoreFile(file: string): Promise<string> {
+  try {
+    const details = await lstat(file);
+    if (!details.isFile() || details.isSymbolicLink()) {
+      throw new Error('Vampire status plugin configuration is not a regular file.');
+    }
+    await readStatusPluginStore(file);
+    return file;
+  } catch (error) {
+    if (!errorHasCode(error, 'ENOENT')) throw error;
+  }
+
+  await writeStatusPluginStore(await readStatusPluginStore(file), file);
+  return file;
+}
+
+export async function ensureStatusPluginStoreFile(file = statusPluginStatePath()): Promise<string> {
+  const operation = mutationQueue.then(() => materializeStatusPluginStoreFile(file));
+  mutationQueue = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  return operation;
 }
 
 export async function replaceStatusPlugins(

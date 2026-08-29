@@ -7,6 +7,7 @@ import ChevronUp from '@lucide/svelte/icons/chevron-up';
 import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
+import Sparkles from '@lucide/svelte/icons/sparkles';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
@@ -19,6 +20,8 @@ import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte'
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
+import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
+import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions.ts';
 import {
   cloneStatusPlugins,
   createStatusPluginPreset,
@@ -37,7 +40,7 @@ type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPres
 type SettingsView = 'list' | 'detail';
 type View = SettingsView | 'guide';
 const STATUS_PLUGINS_QUERY = 'status/plugins';
-let { close }: { close: () => void } = $props();
+let { close, workspaceId }: { close: () => void; workspaceId?: string } = $props();
 const initialResponse = queryCache.get<StatusPluginResponse>(STATUS_PLUGINS_QUERY);
 let plugins = $state<StatusPlugin[]>(initialResponse ? cloneStatusPlugins(initialResponse.plugins) : []);
 let presets = $state<StatusPluginPreset[]>(initialResponse?.presets ?? []);
@@ -50,6 +53,7 @@ let errorMessage = $state('');
 let view = $state<View>('list');
 let viewBeforeGuide = $state<SettingsView>('list');
 let selectedPluginId = $state<string>();
+let agentDialogOpen = $state(false);
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
 const atCapacity = $derived(plugins.length >= MAX_STATUS_PLUGINS);
 const selectedPlugin = $derived(plugins.find((plugin) => plugin.id === selectedPluginId));
@@ -273,6 +277,14 @@ onDestroy(() => unsubscribe?.());
                   <Plus size={14} strokeWidth={2} aria-hidden="true" />
                   <span>Command</span>
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={loading || atCapacity || !workspaceId}
+                  onSelect={() => (agentDialogOpen = true)}
+                >
+                  <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
+                  <span>Ask agent…</span>
+                </DropdownMenuItem>
               {/snippet}
             </DropdownMenuShell>
           </DialogToolbar>
@@ -429,6 +441,15 @@ onDestroy(() => unsubscribe?.());
     </div>
   {/snippet}
 </DialogShell>
+
+{#if agentDialogOpen && workspaceId}
+  <AskAgentDialog
+    close={() => (agentDialogOpen = false)}
+    load={() => loadWorkspaceAgentAction(workspaceId, 'status-widget')}
+    submit={(request) => queueWorkspaceAgentAction(workspaceId, 'status-widget', request)}
+    onQueued={close}
+  />
+{/if}
 
 <style>
 .status-settings {

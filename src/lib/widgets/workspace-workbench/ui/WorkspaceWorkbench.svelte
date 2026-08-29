@@ -32,7 +32,6 @@ let {
   onLogout,
   onUpdateNote,
   onLoadNote,
-  onUpdateNoteWithAgent,
   onInputActivity,
   onOutputActivity,
   onTerminalPresentationChange = () => undefined,
@@ -58,7 +57,6 @@ let {
   onLogout?: () => void;
   onUpdateNote: (workspaceId: string, note: string) => Promise<void>;
   onLoadNote: (workspaceId: string, refresh?: boolean) => Promise<string>;
-  onUpdateNoteWithAgent: (workspaceId: string, instructions: string) => Promise<{ notePath: string }>;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onTerminalPresentationChange?: (workspaceId: string, presented: boolean) => void;
@@ -320,9 +318,9 @@ onMount(() => {
   >
     <WorkspaceNoteEditor
       panel
+      workspaceId={workspace.id}
       getNote={(refresh) => onLoadNote(workspace.id, refresh)}
       save={(note) => onUpdateNote(workspace.id, note)}
-      updateWithAgent={(instructions) => onUpdateNoteWithAgent(workspace.id, instructions)}
       close={closeNotePanel}
     />
   </aside>

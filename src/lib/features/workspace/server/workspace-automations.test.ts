@@ -9,6 +9,7 @@ import {
   dispatchManagedWorkspaceAutomation,
   listDueManagedWorkspaceAutomations,
   listManagedWorkspaceAutomations,
+  queueManagedWorkspaceAgentPrompt,
   setManagedWorkspaceAutomationEnabled,
 } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import { readWorkspaceStore, WORKSPACE_STATE_VERSION } from '~/lib/features/workspace/server/workspace-store.server.ts';
@@ -79,6 +80,56 @@ test('a one-time automation stays queued until the agent is ready, then submits 
   assert.equal(saved?.lastRunAt, now);
   assert.equal(saved?.lastOutcome, 'submitted');
   assert.deepEqual(await listDueManagedWorkspaceAutomations(now + 1), []);
+});
+
+test('agent actions reuse one hidden queue slot without appearing as saved automations', async (t) => {
+  await createStoredWorkspace(t);
+  const first = await queueManagedWorkspaceAgentPrompt(
+    'workspace-1',
+    {
+      actionId: 'note',
+      name: 'Workspace note request',
+      prompt: 'First request',
+    },
+    10_000
+  );
+  await assert.rejects(
+    queueManagedWorkspaceAgentPrompt(
+      'workspace-1',
+      {
+        actionId: 'note',
+        name: 'Workspace note request',
+        prompt: 'Competing request',
+      },
+      10_500
+    ),
+    /already waiting to be delivered/
+  );
+  assert.equal(
+    await dispatchManagedWorkspaceAutomation('workspace-1', first.id, 10_000, async () => async () => undefined),
+    'submitted'
+  );
+  const second = await queueManagedWorkspaceAgentPrompt(
+    'workspace-1',
+    {
+      actionId: 'note',
+      name: 'Workspace note request',
+      prompt: 'Latest request',
+    },
+    16_000
+  );
+
+  assert.equal(second.id, first.id);
+  assert.equal(second.kind, 'agent-action');
+  assert.equal(second.agentActionId, 'note');
+  assert.equal(second.prompt, 'Latest request');
+  assert.deepEqual(await listManagedWorkspaceAutomations('workspace-1'), []);
+  const stored = (await readWorkspaceStore()).workspaces[0]?.automations ?? [];
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]?.prompt, 'Latest request');
+  assert.deepEqual(await listDueManagedWorkspaceAutomations(16_000), [
+    { workspaceId: 'workspace-1', automationId: first.id, dueAt: 16_000 },
+  ]);
 });
 
 test('a recurring automation coalesces missed intervals and never catches up repeatedly', async (t) => {

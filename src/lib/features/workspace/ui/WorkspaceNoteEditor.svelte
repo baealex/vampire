@@ -5,22 +5,34 @@ import X from '@lucide/svelte/icons/x';
 import Button from '~/lib/shared/ui/Button.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
-import { WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH } from '~/lib/shared/contracts/workspace-automations.ts';
+import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
+import {
+  loadWorkspaceAgentAction,
+  queueWorkspaceAgentAction as queueWorkspaceAgentActionRequest,
+} from '~/lib/shared/api/workspace-agent-actions.ts';
+import type {
+  WorkspaceAgentActionDescriptor,
+  WorkspaceAgentActionSubmission,
+} from '~/lib/shared/contracts/workspace-agent-actions.ts';
 
 const AUTOSAVE_DELAY_MS = 700;
 const AGENT_NOTE_REFRESH_MS = 2_000;
 
 let {
+  workspaceId,
   getNote,
   close,
   save,
-  updateWithAgent,
+  loadAgentAction = () => loadWorkspaceAgentAction(workspaceId, 'note'),
+  queueAgentAction = (request: string) => queueWorkspaceAgentActionRequest(workspaceId, 'note', request),
   panel = false,
 }: {
+  workspaceId: string;
   getNote: (refresh?: boolean) => Promise<string>;
   close: () => void;
   save: (note: string) => Promise<void>;
-  updateWithAgent: (instructions: string) => Promise<{ notePath: string }>;
+  loadAgentAction?: () => Promise<WorkspaceAgentActionDescriptor>;
+  queueAgentAction?: (request: string) => Promise<WorkspaceAgentActionSubmission>;
   panel?: boolean;
 } = $props();
 
@@ -35,14 +47,9 @@ let textarea = $state<HTMLTextAreaElement | undefined>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let savePromise: Promise<void> | undefined;
 let agentNoteSyncTimer: ReturnType<typeof setInterval> | undefined;
-let agentComposerOpen = $state(false);
-let agentInstructions = $state('');
-let agentInstructionsElement = $state<HTMLTextAreaElement | undefined>();
-let queueingAgentUpdate = $state(false);
+let agentDialogOpen = $state(false);
 let agentUpdateQueued = $state(false);
 let agentUpdateMessage = $state('');
-let agentUpdateError = $state('');
-let agentTargetPath = $state('');
 let refreshingAgentNote = false;
 let destroyed = false;
 let saveStatus = $derived(
@@ -160,40 +167,18 @@ function startAgentNoteSync() {
   agentNoteSyncTimer = setInterval(() => void refreshAgentNote(), AGENT_NOTE_REFRESH_MS);
 }
 
-async function openAgentComposer() {
-  agentComposerOpen = true;
-  agentUpdateError = '';
-  await tick();
-  agentInstructionsElement?.focus();
-}
-
-function closeAgentComposer() {
-  if (queueingAgentUpdate) return;
-  agentComposerOpen = false;
-  agentUpdateError = '';
-}
-
-async function queueAgentUpdate() {
-  const instructions = agentInstructions.trim();
-  if (!noteLoaded || !instructions || queueingAgentUpdate || agentUpdateQueued) return;
+async function submitAgentRequest(request: string): Promise<WorkspaceAgentActionSubmission> {
+  if (!noteLoaded) throw new Error('The note is not ready.');
   clearSaveTimer();
-  queueingAgentUpdate = true;
-  agentUpdateError = '';
-  agentUpdateMessage = '';
-  try {
-    await saveDraft();
-    if (draft !== savedNote) return;
-    const result = await updateWithAgent(instructions);
-    agentTargetPath = result.notePath;
-    agentUpdateQueued = true;
-    agentComposerOpen = false;
-    agentUpdateMessage = 'Queued — waiting for the agent to update the note.';
-    startAgentNoteSync();
-  } catch (error) {
-    agentUpdateError = error instanceof Error ? error.message : 'The note update could not be queued.';
-  } finally {
-    queueingAgentUpdate = false;
-  }
+  await saveDraft();
+  if (draft !== savedNote) throw new Error(saveError || 'Save the note before asking the agent.');
+  return queueAgentAction(request);
+}
+
+function handleAgentRequestQueued() {
+  agentUpdateQueued = true;
+  agentUpdateMessage = 'Queued — the request will appear in the main agent session when it is ready.';
+  startAgentNoteSync();
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -266,58 +251,27 @@ onDestroy(() => {
         <p class="note-error" role="alert">{saveError}</p>
       {/if}
       <div class="agent-note-action">
-        {#if agentComposerOpen}
-          <label for="workspace-note-agent-instructions">Agent instructions</label>
-          <Textarea
-            id="workspace-note-agent-instructions"
-            bind:element={agentInstructionsElement}
-            bind:value={agentInstructions}
-            size="sm"
-            rows={4}
-            maxlength={WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH}
-            placeholder="For example: preserve everything else and update only the deployment blocker."
-            ariaLabel="Agent instructions"
-            disabled={queueingAgentUpdate}
-          />
-          <p>The agent receives only these instructions plus the exact note path.</p>
-          <div class="agent-note-controls">
-            <Button size="sm" variant="ghost" onclick={closeAgentComposer} disabled={queueingAgentUpdate}
-              >Cancel</Button
-            >
-            <Button
-              size="sm"
-              variant="primary"
-              onclick={() => void queueAgentUpdate()}
-              disabled={!agentInstructions.trim() || queueingAgentUpdate || Boolean(saveError)}
-            >
-              {queueingAgentUpdate ? 'Queuing…' : 'Queue update'}
-            </Button>
-          </div>
-        {:else}
-          <Button
-            variant="secondary"
-            block
-            onclick={() => void openAgentComposer()}
-            disabled={agentUpdateQueued || Boolean(saveError)}
-          >
-            <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
-            {agentUpdateQueued ? 'Waiting for note update' : 'Ask agent…'}
-          </Button>
-          <p>Choose what changes. Vampire does not impose a note format.</p>
-        {/if}
+        <Button variant="secondary" block onclick={() => (agentDialogOpen = true)} disabled={Boolean(saveError)}>
+          <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+          Ask agent…
+        </Button>
+        <p>Give the note path to the current main agent and describe what you want.</p>
       </div>
       {#if agentUpdateMessage}
         <p class="note-agent-status" role="status">{agentUpdateMessage}</p>
       {/if}
-      {#if agentTargetPath}
-        <p class="note-agent-target">Note file: <code>{agentTargetPath}</code></p>
-      {/if}
-      {#if agentUpdateError}
-        <p class="note-error" role="alert">{agentUpdateError}</p>
-      {/if}
     {/if}
   </form>
 </div>
+
+{#if agentDialogOpen}
+  <AskAgentDialog
+    close={() => (agentDialogOpen = false)}
+    load={loadAgentAction}
+    submit={submitAgentRequest}
+    onQueued={handleAgentRequestQueued}
+  />
+{/if}
 
 <style>
 .note-editor {
@@ -425,16 +379,6 @@ form {
   padding-top: 0.2rem;
   border-top: 1px solid var(--color-border-subtle);
 }
-.agent-note-action label {
-  color: var(--color-text-secondary);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
-}
-.agent-note-controls {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
 .agent-note-action p,
 .note-agent-status {
   margin: 0;
@@ -444,16 +388,5 @@ form {
 }
 .note-agent-status {
   color: var(--color-command);
-}
-.note-agent-target {
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-ui);
-}
-.note-agent-target code {
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
 }
 </style>

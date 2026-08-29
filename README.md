@@ -20,6 +20,7 @@ Vampire runs your terminal workspaces in tmux and lets you reconnect from a desk
 - Persistent tmux-backed terminal workspaces for Codex, Claude Code, and any shell command.
 - Browser workspaces for multiple projects, with desktop and mobile support.
 - At-a-glance workspace status, so you can see what needs your attention.
+- Context-aware **Ask agent…** actions that give the existing main agent the right note or widget contract while you describe the outcome.
 - Local-first and self-hosted, with frictionless loopback access and token-protected external sharing.
 
 ## Quick start

@@ -10,6 +10,7 @@ import {
   type CreateWorkspaceAutomationInput,
   type WorkspaceAutomation,
 } from '~/lib/shared/contracts/workspace-automations.ts';
+import type { WorkspaceAgentActionId } from '~/lib/shared/contracts/workspace-agent-actions.ts';
 import {
   ensureManagedWorkspaceNoteFile,
   ensureManagedWorkspaceNoteMigrationBackup,
@@ -27,7 +28,12 @@ import {
 
 const WORKSPACE_AUTOMATION_DISPATCH_COOLDOWN_MS = 5_000;
 
-export type WorkspaceAutomationMutationErrorReason = 'not-found' | 'automation-not-found' | 'invalid-input' | 'limit';
+export type WorkspaceAutomationMutationErrorReason =
+  | 'not-found'
+  | 'automation-not-found'
+  | 'invalid-input'
+  | 'conflict'
+  | 'limit';
 
 export class WorkspaceAutomationMutationError extends Error {
   readonly reason: WorkspaceAutomationMutationErrorReason;
@@ -92,12 +98,14 @@ function normalizeCreateInput(value: unknown): CreateWorkspaceAutomationInput {
 function automationFromInput(
   input: CreateWorkspaceAutomationInput,
   now: number,
-  kind: WorkspaceAutomation['kind'] = 'custom'
+  kind: WorkspaceAutomation['kind'] = 'custom',
+  agentActionId?: WorkspaceAgentActionId
 ): WorkspaceAutomation {
   const nextRunAt = input.schedule.type === 'once' ? input.schedule.runAt : input.schedule.startAt;
   return {
     id: randomUUID(),
     kind,
+    ...(agentActionId ? { agentActionId } : {}),
     name: input.name,
     prompt: input.prompt,
     schedule: { ...input.schedule },
@@ -127,8 +135,64 @@ export async function listManagedWorkspaceAutomations(id: string): Promise<Works
   const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === id);
   if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
   return stored.automations
+    .filter((automation) => automation.kind === 'custom')
     .map((automation) => ({ ...automation, schedule: { ...automation.schedule } }))
     .sort((left, right) => right.createdAt - left.createdAt);
+}
+
+export async function queueManagedWorkspaceAgentPrompt(
+  workspaceId: string,
+  input: {
+    actionId: WorkspaceAgentActionId;
+    name: string;
+    prompt: string;
+  },
+  now = Date.now()
+): Promise<WorkspaceAutomation> {
+  const normalized = normalizeCreateInput({
+    name: input.name,
+    prompt: input.prompt,
+    schedule: { type: 'once', runAt: now },
+  });
+  return withWorkspaceStoreMutation(async () => {
+    const state = await readWorkspaceStore();
+    const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
+    const existing = stored.automations.find(
+      (automation) => automation.kind === 'agent-action' && automation.agentActionId === input.actionId
+    );
+    if (existing?.enabled) {
+      throw new WorkspaceAutomationMutationError(
+        'conflict',
+        'A request for this agent action is already waiting to be delivered.'
+      );
+    }
+    if (!existing && stored.automations.length >= MAX_WORKSPACE_AUTOMATIONS) {
+      throw new WorkspaceAutomationMutationError(
+        'limit',
+        `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations and queued agent actions.`
+      );
+    }
+
+    const automation = existing
+      ? {
+          ...existing,
+          ...normalized,
+          schedule: { ...normalized.schedule },
+          enabled: true,
+          nextRunAt: now,
+          updatedAt: now,
+          lastOutcome: null,
+          lastError: null,
+        }
+      : automationFromInput(normalized, now, 'agent-action', input.actionId);
+    const automations = existing
+      ? stored.automations.map((candidate) => (candidate.id === existing.id ? automation : candidate))
+      : [...stored.automations, automation];
+    const updated = { ...stored, automations };
+    await writeWorkspaceStore({ ...state, workspaces: replaceStoredWorkspace(state.workspaces, updated) });
+    return automation;
+  });
 }
 
 export async function createManagedWorkspaceAutomation(
