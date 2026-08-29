@@ -31,6 +31,7 @@ function sendSummary(socket: RepositoryStatusSocket, summary: RepositorySummary)
     type: 'repository-status',
     changeCount: summary.changeCount,
     worktreeCount: summary.worktreeCount,
+    ...(summary.branch ? { branch: summary.branch } : {}),
   });
 }
 
@@ -194,7 +195,8 @@ class RepositoryStatusMonitor {
         !this.#summary ||
         summary.isGitRepository !== this.#summary.isGitRepository ||
         summary.changeCount !== this.#summary.changeCount ||
-        summary.worktreeCount !== this.#summary.worktreeCount;
+        summary.worktreeCount !== this.#summary.worktreeCount ||
+        summary.branch !== this.#summary.branch;
       this.#summary = summary;
       if (changed || this.#sockets.size > 0) {
         for (const socket of this.#sockets) sendSummary(socket, summary);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -26,8 +26,8 @@ import {
 
 const run = promisify(execFile);
 
-async function git(cwd: string, ...args: string[]): Promise<void> {
-  await run('git', args, {
+async function git(cwd: string, ...args: string[]): Promise<string> {
+  const { stdout } = await run('git', args, {
     cwd,
     env: {
       ...process.env,
@@ -37,6 +37,7 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
       GIT_COMMITTER_EMAIL: 'vampire@example.test',
     },
   });
+  return stdout;
 }
 
 async function createRepository(t: TestContext): Promise<string> {
@@ -90,6 +91,80 @@ test('lists workspace files including Git-ignored entries and reflects structure
       { path: 'src/new.js', status: '??' },
     ]
   );
+});
+
+test('reports local branches, recent commits, upstream distance, and linked worktrees', async (t) => {
+  const directory = await createRepository(t);
+  const branch = (await git(directory, 'branch', '--show-current')).trim();
+  const remote = await mkdtemp(join(tmpdir(), 'vampire-remote-'));
+  const worktreeParent = await mkdtemp(join(tmpdir(), 'vampire-worktrees-'));
+  const linkedWorktree = join(worktreeParent, 'review-auth');
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  t.after(() => rm(worktreeParent, { recursive: true, force: true }));
+
+  await git(remote, 'init', '--quiet', '--bare');
+  await git(directory, 'remote', 'add', 'origin', remote);
+  await git(directory, 'push', '--quiet', '--set-upstream', 'origin', branch);
+  await writeFile(join(directory, 'second.txt'), 'second\n');
+  await git(directory, 'add', 'second.txt');
+  await git(directory, 'commit', '--quiet', '-m', 'second commit');
+  await git(directory, 'worktree', 'add', '--quiet', '-b', 'review-auth', linkedWorktree, 'HEAD~1');
+
+  const snapshot = await readRepositorySnapshot(directory);
+  const canonicalDirectory = await realpath(directory);
+  const canonicalLinkedWorktree = await realpath(linkedWorktree);
+  assert.equal(snapshot.git?.branch, branch);
+  assert.equal(snapshot.git?.detached, false);
+  assert.deepEqual(snapshot.git?.upstream, { name: `origin/${branch}`, ahead: 1, behind: 0 });
+  assert.deepEqual(
+    snapshot.git?.commits.map(({ subject }) => subject),
+    ['second commit', 'initial']
+  );
+  assert.equal(snapshot.git?.commits[0]?.authorName, 'Vampire Test');
+  assert.match(snapshot.git?.commits[0]?.shortHash ?? '', /^[a-f0-9]+$/);
+  assert.deepEqual(
+    snapshot.git?.branches.map(({ name, current, worktreePath }) => ({
+      name,
+      current,
+      worktreePath,
+    })),
+    [
+      { name: branch, current: true, worktreePath: canonicalDirectory },
+      { name: 'review-auth', current: false, worktreePath: canonicalLinkedWorktree },
+    ]
+  );
+  assert.equal(snapshot.git?.worktrees.length, 2);
+  assert.deepEqual(
+    snapshot.git?.worktrees.map(({ name, branch: worktreeBranch, current }) => ({
+      name,
+      branch: worktreeBranch,
+      current,
+    })),
+    [
+      { name: directory.split('/').pop(), branch, current: true },
+      { name: 'review-auth', branch: 'review-auth', current: false },
+    ]
+  );
+});
+
+test('reports an unborn branch without inventing commits or an upstream', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-unborn-details-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await git(directory, 'init', '--quiet');
+
+  const snapshot = await readRepositorySnapshot(directory);
+  assert.equal(snapshot.git?.branch, (await git(directory, 'branch', '--show-current')).trim());
+  assert.equal(snapshot.git?.detached, false);
+  assert.equal(snapshot.git?.upstream, undefined);
+  const canonicalDirectory = await realpath(directory);
+  assert.deepEqual(snapshot.git?.branches, [
+    {
+      name: (await git(directory, 'branch', '--show-current')).trim(),
+      current: true,
+      worktreePath: canonicalDirectory,
+    },
+  ]);
+  assert.deepEqual(snapshot.git?.commits, []);
 });
 
 test('counts the main and linked Git worktrees without scanning their files', async (t) => {

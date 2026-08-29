@@ -22,10 +22,15 @@ import { promisify } from 'node:util';
 import type {
   RepositoryChange,
   RepositoryChangeStats,
+  RepositoryBranch,
+  RepositoryCommit,
   RepositoryDiscardResult,
   RepositoryDiff,
   RepositoryDirectoryListing,
+  RepositoryGitSnapshot,
   RepositorySnapshot,
+  RepositoryUpstream,
+  RepositoryWorktree,
   WorkspaceEntryKind,
   WorkspaceFile,
   WorkspaceMoveConflict,
@@ -60,6 +65,7 @@ export interface RepositorySummary {
   isGitRepository: boolean;
   changeCount: number;
   worktreeCount: number;
+  branch?: string;
 }
 
 export interface RepositoryWatchPaths {
@@ -87,6 +93,7 @@ const MAX_DIRECTORY_ENTRY_COUNT = 8_000;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
+const RECENT_COMMIT_LIMIT = 10;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git']);
 const TEMPORARY_UPLOAD_PREFIX = '.vampire-upload-';
 
@@ -237,6 +244,152 @@ function countGitWorktrees(output: string): number {
 async function readGitWorktreeCount(cwd: string): Promise<number> {
   const { stdout } = await runGit(cwd, ['worktree', 'list', '--porcelain']);
   return countGitWorktrees(stdout);
+}
+
+async function readGitBranch(cwd: string): Promise<string | undefined> {
+  const { stdout } = await runGit(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
+    acceptedExitCodes: [0, 1, 128],
+  });
+  return stdout.trim() || undefined;
+}
+
+async function readGitUpstream(cwd: string): Promise<RepositoryUpstream | undefined> {
+  const { stdout } = await runGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], {
+    acceptedExitCodes: [0, 128],
+  });
+  const name = stdout.trim();
+  if (!name) return undefined;
+
+  const { stdout: countOutput } = await runGit(cwd, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']);
+  const [aheadValue, behindValue] = countOutput.trim().split(/\s+/u);
+  const ahead = Number(aheadValue);
+  const behind = Number(behindValue);
+  if (!Number.isInteger(ahead) || ahead < 0 || !Number.isInteger(behind) || behind < 0) {
+    throw repositoryError('command-failed', 'Git returned an unreadable upstream status.');
+  }
+  return { name, ahead, behind };
+}
+
+function parseGitCommits(output: string): RepositoryCommit[] {
+  const fields = output.split('\0');
+  const commits: RepositoryCommit[] = [];
+  for (let index = 0; index + 4 < fields.length; index += 5) {
+    const [hash, shortHash, authorName, authoredAtValue, subject] = fields.slice(index, index + 5);
+    if (!hash || !shortHash || !authorName || !authoredAtValue) continue;
+    const authoredAt = Number(authoredAtValue) * 1_000;
+    if (!Number.isFinite(authoredAt)) continue;
+    commits.push({ hash, shortHash, authorName, authoredAt, subject });
+  }
+  return commits;
+}
+
+async function readGitRecentCommits(cwd: string): Promise<RepositoryCommit[]> {
+  if (!(await gitHeadExists(cwd))) return [];
+  const { stdout } = await runGit(cwd, [
+    'log',
+    '-z',
+    `-${RECENT_COMMIT_LIMIT}`,
+    '--format=%H%x00%h%x00%an%x00%at%x00%s',
+  ]);
+  return parseGitCommits(stdout);
+}
+
+function parseGitWorktrees(output: string, root: string): RepositoryWorktree[] {
+  const worktrees: RepositoryWorktree[] = [];
+  let current: Omit<RepositoryWorktree, 'name' | 'current'> | undefined;
+  const finish = () => {
+    if (!current) return;
+    worktrees.push({
+      ...current,
+      name: basename(current.path),
+      current: resolve(current.path) === root,
+    });
+    current = undefined;
+  };
+
+  for (const field of output.split('\0')) {
+    if (field.startsWith('worktree ')) {
+      finish();
+      current = { path: field.slice('worktree '.length), head: '' };
+    } else if (current && field.startsWith('HEAD ')) {
+      current.head = field.slice('HEAD '.length);
+    } else if (current && field.startsWith('branch refs/heads/')) {
+      current.branch = field.slice('branch refs/heads/'.length);
+    }
+  }
+  finish();
+  return worktrees.filter(({ head }) => Boolean(head));
+}
+
+async function readGitWorktrees(cwd: string, root: string): Promise<RepositoryWorktree[]> {
+  const { stdout } = await runGit(cwd, ['worktree', 'list', '--porcelain', '-z']);
+  return parseGitWorktrees(stdout, root);
+}
+
+function parseGitBranches(
+  output: string,
+  currentBranch: string | undefined,
+  worktrees: RepositoryWorktree[],
+  root: string
+): RepositoryBranch[] {
+  const worktreeByBranch = new Map(
+    worktrees.flatMap((worktree) => (worktree.branch ? [[worktree.branch, worktree.path] as const] : []))
+  );
+  const branches = output
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((line): RepositoryBranch[] => {
+      const [name, head] = line.split('\t');
+      if (!name || !head) return [];
+      const worktreePath = worktreeByBranch.get(name);
+      return [
+        {
+          name,
+          head,
+          current: name === currentBranch,
+          ...(worktreePath ? { worktreePath } : {}),
+        },
+      ];
+    });
+
+  if (currentBranch && !branches.some(({ name }) => name === currentBranch)) {
+    branches.push({ name: currentBranch, current: true, worktreePath: root });
+  }
+  return branches.sort(
+    (left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name, 'en')
+  );
+}
+
+async function readGitBranches(
+  cwd: string,
+  currentBranch: string | undefined,
+  worktrees: RepositoryWorktree[],
+  root: string
+): Promise<RepositoryBranch[]> {
+  const { stdout } = await runGit(cwd, [
+    'for-each-ref',
+    '--format=%(refname:short)%09%(objectname:short)',
+    'refs/heads',
+  ]);
+  return parseGitBranches(stdout, currentBranch, worktrees, root);
+}
+
+async function readGitSnapshot(cwd: string, root: string): Promise<RepositoryGitSnapshot> {
+  const [branch, upstream, commits, worktrees] = await Promise.all([
+    readGitBranch(cwd),
+    readGitUpstream(cwd),
+    readGitRecentCommits(cwd),
+    readGitWorktrees(cwd, root),
+  ]);
+  const branches = await readGitBranches(cwd, branch, worktrees, root);
+  return {
+    ...(branch ? { branch } : {}),
+    detached: !branch && commits.length > 0,
+    ...(upstream ? { upstream } : {}),
+    commits,
+    branches,
+    worktrees,
+  };
 }
 
 function parseGitChanges(output: string): RepositoryChange[] {
@@ -473,12 +626,14 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
     };
   }
 
-  const [changes, ignored] = await Promise.all([
+  const [changes, ignored, git] = await Promise.all([
     readGitChanges(root),
     readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
+    readGitSnapshot(root, root),
   ]);
   return {
     isGitRepository: true,
+    git,
     files: directory.files,
     directories: directory.directories,
     ignored,
@@ -492,8 +647,12 @@ export async function readRepositorySummary(cwd: string): Promise<RepositorySumm
   const root = await workspaceRoot(cwd);
   const gitRepository = await isGitRepository(root);
   if (!gitRepository) return { isGitRepository: false, changeCount: 0, worktreeCount: 0 };
-  const [changes, worktreeCount] = await Promise.all([readGitChanges(root), readGitWorktreeCount(root)]);
-  return { isGitRepository: true, changeCount: changes.length, worktreeCount };
+  const [changes, worktreeCount, branch] = await Promise.all([
+    readGitChanges(root),
+    readGitWorktreeCount(root),
+    readGitBranch(root),
+  ]);
+  return { isGitRepository: true, changeCount: changes.length, worktreeCount, ...(branch ? { branch } : {}) };
 }
 
 export async function readRepositoryWatchPaths(cwd: string): Promise<RepositoryWatchPaths> {

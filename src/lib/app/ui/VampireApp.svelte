@@ -24,11 +24,7 @@ import WorkspaceAutomationsDialog from '~/lib/widgets/workspace-workbench/ui/Wor
 import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
 import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
 import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/workspace';
-import {
-  isWorktreeWorkspace,
-  workspaceName,
-  workspaceRepositoryName,
-} from '~/lib/features/workspace/model/workspace-view';
+import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 
@@ -399,8 +395,7 @@ onMount(() => {
               projectName={workspaceName(workspaceState.activeWorkspace)}
               cwd={workspaceState.activeWorkspace.cwd}
               isWorktree={isWorktreeWorkspace(workspaceState.activeWorkspace)}
-              repositoryName={workspaceRepositoryName(workspaceState.activeWorkspace)}
-              worktreeBranch={workspaceState.activeWorkspace.worktreeBranch}
+              branch={workspaceState.activeWorkspace.worktreeBranch}
               hasNote={Boolean(workspaceState.activeWorkspace.notePreview)}
               noteOpen={false}
               statusLabel="Ended"

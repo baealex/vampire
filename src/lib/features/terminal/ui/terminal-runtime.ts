@@ -65,7 +65,7 @@ export interface TerminalRuntimeOptions {
   onFontSizeChange: (size: number) => void;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
-  onRepositoryStatus: (changeCount: number, worktreeCount: number) => void;
+  onRepositoryStatus: (changeCount: number, worktreeCount: number, branch?: string) => void;
   onStateChange: (state: Readonly<TerminalRuntimeState>) => void;
 }
 
@@ -416,7 +416,7 @@ export class TerminalRuntime {
             else if (message.screenSync) this.#screenSync?.replaceScreen(message.data);
             else this.#screenSync?.pushOutput(message.data);
           } else if (message.type === 'repository-status') {
-            this.#options.onRepositoryStatus(message.changeCount, message.worktreeCount);
+            this.#options.onRepositoryStatus(message.changeCount, message.worktreeCount, message.branch);
           } else if (message.type === 'error') {
             this.#updateState({ error: message.message });
           }

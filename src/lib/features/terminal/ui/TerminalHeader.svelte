@@ -10,8 +10,7 @@ let {
   projectName,
   cwd,
   isWorktree,
-  repositoryName,
-  worktreeBranch,
+  branch,
   hasNote,
   noteOpen,
   statusLabel,
@@ -33,8 +32,7 @@ let {
   projectName: string;
   cwd: string;
   isWorktree: boolean;
-  repositoryName: string;
-  worktreeBranch?: string;
+  branch?: string;
   hasNote: boolean;
   noteOpen: boolean;
   statusLabel?: string;
@@ -62,21 +60,18 @@ let {
   <div class="terminal-identity">
     <div class="terminal-identity-title">
       <strong>{projectName}</strong>
-      {#if isWorktree}
-        <span class="worktree-badge" title={`${repositoryName}${worktreeBranch ? ` · ${worktreeBranch}` : ''}`}>
+      {#if branch || isWorktree}
+        <span
+          class="branch-label"
+          title={`${branch ?? 'Git worktree'}${worktreeCount > 1 ? ` · ${worktreeCount} worktrees` : ''}`}
+        >
           <GitBranch size={11} strokeWidth={1.9} aria-hidden="true" />
-          Worktree
+          <span>{branch ?? 'Worktree'}</span>
         </span>
       {/if}
       {#if !workspaceAvailable}
         <span class="working-copy-missing" title="The working directory was removed outside Vampire"
           >Working copy missing</span
-        >
-      {/if}
-      {#if isGitRepository && worktreeCount > 1}
-        <span class="worktree-count" title="Git worktrees in this repository"
-          >{worktreeCount > 99 ? '99+' : worktreeCount}
-          worktrees</span
         >
       {/if}
       {#if statusLabel}
@@ -203,27 +198,20 @@ let {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.worktree-count {
-  flex: 0 0 auto;
-  padding: 0.08rem 0.3rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.25;
-}
-.worktree-badge {
+.branch-label {
   display: inline-flex;
-  flex: 0 0 auto;
+  min-width: 0;
   align-items: center;
   gap: 0.2rem;
-  padding: 0.08rem 0.32rem;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-pill);
-  color: var(--color-accent);
+  color: var(--color-text-tertiary);
   font-size: var(--text-nano);
   line-height: 1.25;
+}
+.branch-label > span {
+  overflow: hidden;
+  max-width: 12rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .working-copy-missing {
   flex: 0 0 auto;
@@ -382,6 +370,9 @@ let {
   .terminal-identity-title {
     gap: 0.3rem;
   }
+  .branch-label {
+    display: none;
+  }
   .terminal-controls,
   .terminal-tools {
     gap: 0;
@@ -397,7 +388,6 @@ let {
 
 @media (max-width: 22rem) {
   .terminal-identity-title strong,
-  .worktree-count,
   .working-copy-missing {
     display: none;
   }

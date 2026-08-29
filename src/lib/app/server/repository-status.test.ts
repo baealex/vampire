@@ -26,8 +26,8 @@ class TestSocket extends EventEmitter {
   }
 }
 
-async function git(cwd: string, ...args: string[]): Promise<void> {
-  await run('git', args, {
+async function git(cwd: string, ...args: string[]): Promise<string> {
+  const { stdout } = await run('git', args, {
     cwd,
     env: {
       ...process.env,
@@ -37,6 +37,7 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
       GIT_COMMITTER_EMAIL: 'vampire@example.test',
     },
   });
+  return stdout;
 }
 
 async function waitFor(predicate: () => boolean, timeout = 3_000): Promise<void> {
@@ -83,6 +84,7 @@ test('pushes Git change counts and releases its watcher with the socket', async 
     socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 0)
   );
   assert.equal(socket.messages.at(-1)?.worktreeCount, 2);
+  assert.equal(socket.messages.at(-1)?.branch, (await git(workspace, 'branch', '--show-current')).trim());
 
   await git(workspace, 'worktree', 'remove', '--force', linkedWorktree);
   await waitFor(() => socket.messages.at(-1)?.worktreeCount === 1);

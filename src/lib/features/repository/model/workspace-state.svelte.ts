@@ -56,6 +56,7 @@ export class RepositoryWorkspaceState {
   discarding = $state(false);
   changeCount = $state(0);
   worktreeCount = $state(0);
+  branch = $state<string>();
 
   readonly #api: RepositoryClient;
   readonly #options: RepositoryWorkspaceStateOptions;
@@ -140,6 +141,7 @@ export class RepositoryWorkspaceState {
         this.#loadedDirectories = activeDirectories;
         this.snapshot = nextSnapshot;
         this.changeCount = nextSnapshot.changes.length;
+        this.branch = nextSnapshot.git?.branch;
         this.errorMessage = '';
         this.refreshToken += 1;
       } catch (error) {
@@ -580,9 +582,10 @@ export class RepositoryWorkspaceState {
     return true;
   }
 
-  handleStatus(changeCount: number, worktreeCount: number) {
+  handleStatus(changeCount: number, worktreeCount: number, branch?: string) {
     this.changeCount = changeCount;
     this.worktreeCount = worktreeCount;
+    this.branch = branch;
     if (this.#options.isOpen()) void this.refresh();
   }
 }

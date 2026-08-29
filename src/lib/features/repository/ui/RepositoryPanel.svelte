@@ -12,8 +12,8 @@ import {
   type WorkspaceEntryDragData,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import RepositoryAddMenu from './RepositoryAddMenu.svelte';
-import RepositoryChanges from './RepositoryChanges.svelte';
 import RepositoryFileTree from './RepositoryFileTree.svelte';
+import RepositoryGitPanel from './RepositoryGitPanel.svelte';
 import type {
   RepositoryChange,
   RepositorySelection,
@@ -247,23 +247,20 @@ function endDragWorkspace() {
       <button
         type="button"
         role="tab"
-        class:active={visibleTab === 'changes'}
-        aria-selected={visibleTab === 'changes'}
-        onclick={() => onTabChange('changes')}
-      >
-        Changes
-        {#if snapshot?.changes.length}
-          <span>{snapshot.changes.length}</span>
-        {/if}
-      </button>
-      <button
-        type="button"
-        role="tab"
         class:active={visibleTab === 'files'}
         aria-selected={visibleTab === 'files'}
         onclick={() => onTabChange('files')}
       >
-        Files
+        Explorer
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class:active={visibleTab === 'changes'}
+        aria-selected={visibleTab === 'changes'}
+        onclick={() => onTabChange('changes')}
+      >
+        Git
       </button>
     </div>
   {/if}
@@ -290,7 +287,7 @@ function endDragWorkspace() {
     </p>
   {/if}
 
-  <div class="repository-content">
+  <div class="repository-content" class:repository-content-git={visibleTab === 'changes' && Boolean(snapshot?.git)}>
     {#if loading && !snapshot}
       <div class="repository-state" aria-live="polite">
         <Spinner size="small" />
@@ -298,9 +295,10 @@ function endDragWorkspace() {
       </div>
     {:else if !snapshot}
       <div class="repository-state">Repository information is unavailable.</div>
-    {:else if visibleTab === 'changes'}
-      <RepositoryChanges
+    {:else if visibleTab === 'changes' && snapshot.git}
+      <RepositoryGitPanel
         {snapshot}
+        git={snapshot.git}
         {selected}
         {onSelect}
         {onRequestDiscardChange}
@@ -457,18 +455,6 @@ function endDragWorkspace() {
   border-bottom-color: var(--color-accent);
   color: var(--color-text);
 }
-.repository-tabs button span {
-  display: grid;
-  place-items: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.28rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-soft);
-  color: var(--color-accent-soft-text);
-  font-size: var(--text-micro);
-  font-variant-numeric: tabular-nums;
-}
 .repository-warning {
   flex: 0 0 auto;
   margin: 0;
@@ -484,6 +470,9 @@ function endDragWorkspace() {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+}
+.repository-content.repository-content-git {
+  overflow: hidden;
 }
 .repository-state {
   display: flex;

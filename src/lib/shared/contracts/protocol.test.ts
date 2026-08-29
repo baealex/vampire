@@ -149,6 +149,12 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
     ),
     { type: 'repository-status', changeCount: 2, worktreeCount: 1 }
   );
+  assert.deepEqual(
+    decodeTerminalServerMessage(
+      encodeTerminalServerMessage({ type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' })
+    ),
+    { type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' }
+  );
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
   assert.equal(
     decodeTerminalServerMessage('{"type":"snapshot","data":"screen","history":{"loaded":6,"available":5}}'),
@@ -162,6 +168,10 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"repository-status","changeCount":-1,"worktreeCount":1}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage('{"type":"repository-status","changeCount":0,"worktreeCount":1,"branch":42}'),
     undefined
   );
 });

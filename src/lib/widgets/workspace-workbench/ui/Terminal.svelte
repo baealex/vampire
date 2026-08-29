@@ -1,11 +1,7 @@
 <script lang="ts">
 import { onMount, type Snippet } from 'svelte';
 import type { ManagedWorkspace, WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
-import {
-  isWorktreeWorkspace,
-  workspaceName,
-  workspaceRepositoryName,
-} from '~/lib/features/workspace/model/workspace-view';
+import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import BackgroundProcesses from '~/lib/features/terminal/ui/BackgroundProcesses.svelte';
 import GlobalStatusBar from './GlobalStatusBar.svelte';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
@@ -33,6 +29,7 @@ let {
   isGitRepository = undefined,
   changeCount = 0,
   worktreeCount = 0,
+  repositoryBranch,
   onRepositoryStatus = () => undefined,
   onToggleRepository = () => undefined,
   onToggleNote = () => undefined,
@@ -61,7 +58,8 @@ let {
   isGitRepository?: boolean;
   changeCount?: number;
   worktreeCount?: number;
-  onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
+  repositoryBranch?: string;
+  onRepositoryStatus?: (changeCount: number, worktreeCount: number, branch?: string) => void;
   onToggleRepository?: () => void;
   onToggleNote?: () => void;
   noteOpen?: boolean;
@@ -79,7 +77,6 @@ const minimumFontSize = 10;
 const maximumFontSize = 22;
 const projectName = $derived(workspaceName(workspace));
 const worktreeWorkspace = $derived(isWorktreeWorkspace(workspace));
-const repositoryName = $derived(workspaceRepositoryName(workspace));
 const orderedTerminals = $derived([...workspace.terminals].sort((left, right) => left.index - right.index));
 const mainTerminal = $derived(orderedTerminals[0]);
 const backgroundProcesses = $derived(orderedTerminals.slice(1));
@@ -118,8 +115,7 @@ onMount(() => {
       {projectName}
       cwd={workspace.cwd}
       isWorktree={worktreeWorkspace}
-      {repositoryName}
-      worktreeBranch={workspace.worktreeBranch}
+      branch={repositoryBranch ?? workspace.worktreeBranch}
       hasNote={Boolean(workspace.notePreview)}
       {noteOpen}
       {close}

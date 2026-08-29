@@ -241,7 +241,9 @@ onMount(() => {
       isGitRepository={repository.snapshot?.isGitRepository ?? workspace.isGitRepository}
       changeCount={repository.changeCount}
       worktreeCount={repository.worktreeCount}
-      onRepositoryStatus={(changeCount, worktreeCount) => repository.handleStatus(changeCount, worktreeCount)}
+      repositoryBranch={repository.branch ?? workspace.worktreeBranch}
+      onRepositoryStatus={(changeCount, worktreeCount, branch) =>
+        repository.handleStatus(changeCount, worktreeCount, branch)}
       onToggleRepository={toggleRepository}
       onToggleNote={() => void toggleNote()}
       {pathInsertionRequest}

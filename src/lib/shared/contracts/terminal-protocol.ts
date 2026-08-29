@@ -20,7 +20,7 @@ export type TerminalServerMessage =
   | { type: 'request-terminal-theme' }
   | { type: 'screen-ready' }
   | { type: 'output'; data: string; activity: boolean; activityAt: number | null; screenSync?: boolean }
-  | { type: 'repository-status'; changeCount: number; worktreeCount: number }
+  | { type: 'repository-status'; changeCount: number; worktreeCount: number; branch?: string }
   | { type: 'error'; message: string };
 
 export const TERMINAL_PROTOCOL_VERSION = 2;
@@ -130,12 +130,14 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
     Number.isInteger(value.changeCount) &&
     Number(value.changeCount) >= 0 &&
     Number.isInteger(value.worktreeCount) &&
-    Number(value.worktreeCount) >= 0
+    Number(value.worktreeCount) >= 0 &&
+    (value.branch === undefined || typeof value.branch === 'string')
   ) {
     return {
       type: 'repository-status',
       changeCount: Number(value.changeCount),
       worktreeCount: Number(value.worktreeCount),
+      ...(typeof value.branch === 'string' ? { branch: value.branch } : {}),
     };
   }
   if (value.type === 'error' && typeof value.message === 'string') return { type: 'error', message: value.message };

@@ -9,6 +9,44 @@ export type RepositoryChangeStats = {
   deletions: number;
 };
 
+export type RepositoryCommit = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorName: string;
+  authoredAt: number;
+};
+
+export type RepositoryUpstream = {
+  name: string;
+  ahead: number;
+  behind: number;
+};
+
+export type RepositoryWorktree = {
+  path: string;
+  name: string;
+  branch?: string;
+  head: string;
+  current: boolean;
+};
+
+export type RepositoryBranch = {
+  name: string;
+  head?: string;
+  current: boolean;
+  worktreePath?: string;
+};
+
+export type RepositoryGitSnapshot = {
+  branch?: string;
+  detached: boolean;
+  upstream?: RepositoryUpstream;
+  commits: RepositoryCommit[];
+  branches: RepositoryBranch[];
+  worktrees: RepositoryWorktree[];
+};
+
 export type RepositoryDiscardResult = {
   path: string;
   untracked: boolean;
@@ -16,6 +54,7 @@ export type RepositoryDiscardResult = {
 
 export type RepositorySnapshot = {
   isGitRepository: boolean;
+  git?: RepositoryGitSnapshot;
   files: string[];
   directories: string[];
   ignored: string[];

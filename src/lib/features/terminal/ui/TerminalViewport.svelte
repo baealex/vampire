@@ -36,7 +36,7 @@ let {
   terminalId?: string;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
-  onRepositoryStatus?: (changeCount: number, worktreeCount: number) => void;
+  onRepositoryStatus?: (changeCount: number, worktreeCount: number, branch?: string) => void;
   pathInsertionRequest?: TerminalPathInsertionRequest;
   onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
   fontSize?: number;
