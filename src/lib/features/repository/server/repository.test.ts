@@ -7,7 +7,10 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import {
+  deleteRepositoryBranch,
   readRepositoryDiff,
+  readRepositoryCommitDiff,
+  readRepositoryCommits,
   readRepositoryDirectory,
   readRepositorySummary,
   readRepositorySnapshot,
@@ -122,6 +125,8 @@ test('reports local branches, recent commits, upstream distance, and linked work
     ['second commit', 'initial']
   );
   assert.equal(snapshot.git?.commits[0]?.authorName, 'Vampire Test');
+  assert.deepEqual(snapshot.git?.commits[0]?.stats, { filesChanged: 1, additions: 1, deletions: 0 });
+  assert.ok((snapshot.git?.branches[0]?.committedAt ?? 0) > 0);
   assert.match(snapshot.git?.commits[0]?.shortHash ?? '', /^[a-f0-9]+$/);
   assert.deepEqual(
     snapshot.git?.branches.map(({ name, current, worktreePath }) => ({
@@ -226,6 +231,62 @@ test('returns staged, working tree, and untracked diff sections', async (t) => {
     ['untracked']
   );
   assert.match(untracked.sections[0].patch, /\+# New note/);
+});
+
+test('returns the file patch for a selected commit', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, 'src', 'app.js'), 'const value = 2;\n');
+  await git(directory, 'add', 'src/app.js');
+  await git(directory, 'commit', '--quiet', '-m', 'change value');
+  const hash = (await git(directory, 'rev-parse', 'HEAD')).trim();
+
+  const commit = await readRepositoryCommitDiff(directory, hash);
+  assert.equal(commit.hash, hash);
+  assert.match(commit.patch, /-const value = 1;/);
+  assert.match(commit.patch, /\+const value = 2;/);
+  await assert.rejects(
+    () => readRepositoryCommitDiff(directory, '--all'),
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+  );
+});
+
+test('force deletes local branches that are not checked out', async (t) => {
+  const directory = await createRepository(t);
+  const mainBranch = (await git(directory, 'branch', '--show-current')).trim();
+  await git(directory, 'branch', 'merged-cleanup');
+
+  assert.deepEqual(await deleteRepositoryBranch(directory, 'merged-cleanup'), { name: 'merged-cleanup' });
+  assert.equal((await git(directory, 'branch', '--list', 'merged-cleanup')).trim(), '');
+  await assert.rejects(
+    () => deleteRepositoryBranch(directory, mainBranch),
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+  );
+
+  await git(directory, 'checkout', '--quiet', '-b', 'unmerged-work');
+  await writeFile(join(directory, 'unmerged.txt'), 'work\n');
+  await git(directory, 'add', 'unmerged.txt');
+  await git(directory, 'commit', '--quiet', '-m', 'unmerged work');
+  await git(directory, 'checkout', '--quiet', mainBranch);
+  assert.deepEqual(await deleteRepositoryBranch(directory, 'unmerged-work'), { name: 'unmerged-work' });
+  assert.equal((await git(directory, 'branch', '--list', 'unmerged-work')).trim(), '');
+});
+
+test('paginates commit history with bounded pages', async (t) => {
+  const directory = await createRepository(t);
+  for (let index = 1; index <= 21; index += 1) {
+    await writeFile(join(directory, 'counter.txt'), `${index}\n`);
+    await git(directory, 'add', 'counter.txt');
+    await git(directory, 'commit', '--quiet', '-m', `counter ${index}`);
+  }
+
+  const first = await readRepositoryCommits(directory);
+  assert.equal(first.commits.length, 20);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.commits[0]?.subject, 'counter 21');
+  const second = await readRepositoryCommits(directory, 20);
+  assert.equal(second.commits.length, 2);
+  assert.equal(second.hasMore, false);
+  assert.equal(second.commits[0]?.subject, 'counter 1');
 });
 
 test('discards tracked, staged, renamed, and untracked Git changes', async (t) => {

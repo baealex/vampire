@@ -1,13 +1,26 @@
 <script lang="ts">
 import { onDestroy } from 'svelte';
 import FilePenLine from '@lucide/svelte/icons/file-pen-line';
+import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+import ChevronRight from '@lucide/svelte/icons/chevron-right';
 import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 import X from '@lucide/svelte/icons/x';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DocumentOpening from './DocumentOpening.svelte';
 import { RepositoryClient } from '../api/client';
-import { isPreviewableImage, parseDiffLines } from '../model/view';
-import type { RepositoryDiff, RepositorySelection, WorkspaceFile } from '~/lib/shared/contracts/repository';
+import {
+  isPreviewableImage,
+  repositorySelectionLabel,
+  repositoryViewerEmptyState,
+  repositoryViewerSectionLabel,
+  repositoryViewerSections,
+} from '../model/view';
+import type {
+  RepositoryCommitDiff,
+  RepositoryDiff,
+  RepositorySelection,
+  WorkspaceFile,
+} from '~/lib/shared/contracts/repository';
 
 let {
   workspaceId,
@@ -19,6 +32,8 @@ let {
   onRequestDiscardChange = () => undefined,
   onFileSaved = () => undefined,
   onFileDirtyChange = () => undefined,
+  navigationPaths = [],
+  onNavigate = () => undefined,
 }: {
   workspaceId: string;
   selection: RepositorySelection;
@@ -29,10 +44,13 @@ let {
   onRequestDiscardChange?: (path: string) => void;
   onFileSaved?: (file: WorkspaceFile, dirty: boolean) => void;
   onFileDirtyChange?: (dirty: boolean) => void;
+  navigationPaths?: string[];
+  onNavigate?: (selection: RepositorySelection) => void;
 } = $props();
 
 let file = $state<WorkspaceFile>();
 let diff = $state<RepositoryDiff>();
+let commitDiff = $state<RepositoryCommitDiff>();
 let imageUrl = $state('');
 let imageVersion = '';
 let loading = $state(true);
@@ -47,14 +65,18 @@ let textFileRequest:
       promise: Promise<WorkspaceFile>;
     }
   | undefined;
-let parsedSections = $derived(
-  diff?.sections.map((section) => ({
-    ...section,
-    lines: parseDiffLines(section.patch),
-  })) ?? []
-);
+let parsedSections = $derived(repositoryViewerSections(diff, commitDiff));
 const fileName = $derived(selection.path.split('/').pop() || selection.path);
-const imagePreview = $derived(selection.kind === 'file' && isPreviewableImage(selection.path));
+const imagePreview = $derived(selection.kind !== 'commit' && isPreviewableImage(selection.path));
+const documentKind = $derived(repositorySelectionLabel(selection.kind));
+const emptyState = $derived(repositoryViewerEmptyState(selection.kind));
+const navigationIndex = $derived(navigationPaths.indexOf(selection.path));
+const previousPath = $derived(navigationIndex > 0 ? navigationPaths[navigationIndex - 1] : undefined);
+const nextPath = $derived(
+  navigationIndex >= 0 && navigationIndex < navigationPaths.length - 1
+    ? navigationPaths[navigationIndex + 1]
+    : undefined
+);
 const repositoryApi = $derived(new RepositoryClient(workspaceId));
 
 function loadEditor() {
@@ -102,6 +124,7 @@ $effect(() => {
   if (firstLoad) {
     file = undefined;
     diff = undefined;
+    commitDiff = undefined;
     imageUrl = '';
     imageVersion = '';
     loading = true;
@@ -114,7 +137,7 @@ $effect(() => {
   void (async () => {
     let waitingForImage = false;
     try {
-      if (requestedSelection.kind === 'file' && isPreviewableImage(requestedSelection.path)) {
+      if (requestedSelection.kind !== 'commit' && isPreviewableImage(requestedSelection.path)) {
         const mediaUrl = repositoryApi.mediaUrl(requestedSelection.path);
         const response = await repositoryApi.checkMedia(requestedSelection.path, controller.signal);
         const version =
@@ -129,15 +152,23 @@ $effect(() => {
         }
         file = undefined;
         diff = undefined;
+        commitDiff = undefined;
       } else if (requestedSelection.kind === 'diff') {
         diff = await repositoryApi.readDiff(requestedSelection.path, controller.signal);
         file = undefined;
+        commitDiff = undefined;
+        imageUrl = '';
+      } else if (requestedSelection.kind === 'commit') {
+        commitDiff = await repositoryApi.readCommit(requestedSelection.path, controller.signal);
+        file = undefined;
+        diff = undefined;
         imageUrl = '';
       } else if (!firstLoad && file) {
         loading = false;
       } else if (initialFile?.path === requestedSelection.path) {
         file = initialFile;
         diff = undefined;
+        commitDiff = undefined;
         imageUrl = '';
         loading = false;
       } else {
@@ -145,6 +176,7 @@ $effect(() => {
         if (!active) return;
         file = loadedFile;
         diff = undefined;
+        commitDiff = undefined;
         imageUrl = '';
       }
       errorMessage = '';
@@ -163,14 +195,34 @@ $effect(() => {
 });
 </script>
 
-<section class="repository-viewer" aria-label={`${selection.kind === 'diff' ? 'Diff' : 'File'} for ${selection.path}`}>
+<section class="repository-viewer" aria-label={`${documentKind} for ${selection.path}`}>
   <header class="document-header">
-    <span class="document-kind">{selection.kind === 'diff' ? 'Diff' : 'File'}</span>
+    <span class="document-kind">{documentKind}</span>
     <strong title={selection.path}>{selection.path}</strong>
     <div class="document-actions">
       {#if selection.kind === 'file' && file && !imagePreview && fileDirty}
         <span class="dirty-indicator" role="status">Unsaved</span>
       {/if}
+      <Button
+        class="document-action viewer-previous"
+        variant="icon"
+        disabled={!previousPath}
+        onclick={() => previousPath && onNavigate({ kind: selection.kind, path: previousPath })}
+        ariaLabel={`Open previous ${documentKind.toLowerCase()}`}
+        title={`Previous ${documentKind.toLowerCase()}`}
+      >
+        <ChevronLeft size={17} strokeWidth={1.8} aria-hidden="true" />
+      </Button>
+      <Button
+        class="document-action viewer-next"
+        variant="icon"
+        disabled={!nextPath}
+        onclick={() => nextPath && onNavigate({ kind: selection.kind, path: nextPath })}
+        ariaLabel={`Open next ${documentKind.toLowerCase()}`}
+        title={`Next ${documentKind.toLowerCase()}`}
+      >
+        <ChevronRight size={17} strokeWidth={1.8} aria-hidden="true" />
+      </Button>
       {#if selection.kind === 'diff'}
         <Button
           class="document-action edit-file"
@@ -226,14 +278,14 @@ $effect(() => {
           </div>
         {/if}
       </div>
-    {:else if loading && !file && !diff}
+    {:else if loading && !file && !diff && !commitDiff}
       <DocumentOpening kind={imagePreview ? 'image' : selection.kind} path={selection.path} />
-    {:else if selection.kind === 'diff' && diff}
+    {:else if (selection.kind === 'diff' && diff) || (selection.kind === 'commit' && commitDiff)}
       {#if parsedSections.length === 0}
         <div class="viewer-state">
           <div>
-            <strong>No diff remains</strong>
-            <p>The agent may have reverted or committed this change.</p>
+            <strong>{emptyState.title}</strong>
+            <p>{emptyState.description}</p>
           </div>
         </div>
       {:else}
@@ -242,7 +294,7 @@ $effect(() => {
             <section class="diff-section" aria-label={`${section.kind} changes`}>
               <header>
                 <strong
-                  >{section.kind === 'staged' ? 'Staged changes' : section.kind === 'working' ? 'Working tree' : 'Untracked file'}</strong
+                  >{repositoryViewerSectionLabel(section.kind)}</strong
                 >
               </header>
               <div class="diff-lines">
@@ -439,9 +491,9 @@ $effect(() => {
   background: var(--color-code-background);
 }
 .diff-document {
+  width: 100%;
   min-width: 100%;
   min-height: 100%;
-  width: max-content;
   padding-bottom: 3rem;
 }
 .diff-section > header {
@@ -459,13 +511,13 @@ $effect(() => {
   border-top: 1px solid var(--color-border-strong);
 }
 .diff-lines {
+  width: 100%;
   min-width: 100%;
-  width: max-content;
   padding: 0.45rem 0;
 }
 .diff-line {
   display: grid;
-  grid-template-columns: 3.1rem 3.1rem minmax(max-content, 1fr);
+  grid-template-columns: 3.1rem 3.1rem minmax(0, 1fr);
   min-width: 100%;
   min-height: 1.35rem;
   color: var(--color-diff-text);
@@ -490,9 +542,11 @@ $effect(() => {
   color: var(--color-text-tertiary);
 }
 .diff-line code {
+  min-width: 0;
   padding: 0 0.8rem;
   font: inherit;
-  white-space: pre;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .line-number {
   padding: 0 0.55rem;
@@ -514,7 +568,7 @@ $effect(() => {
     padding: 0.28rem 0.45rem 0.28rem 0.65rem;
   }
   .diff-line {
-    grid-template-columns: 2.5rem 2.5rem minmax(max-content, 1fr);
+    grid-template-columns: 2.5rem 2.5rem minmax(0, 1fr);
     font-size: 0.7rem;
   }
   .line-number {

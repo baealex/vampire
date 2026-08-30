@@ -28,6 +28,8 @@ function props(overrides: Record<string, unknown> = {}) {
     onCreateDirectory: vi.fn(async () => undefined),
     onRequestDelete: vi.fn(),
     onRequestDiscardChange: vi.fn(),
+    onRequestDeleteBranch: vi.fn(),
+    onLoadMoreCommits: vi.fn(async () => undefined),
     onMoveEntry: vi.fn(async () => undefined),
     onInsertPath: vi.fn(),
     onRenameEntry: vi.fn(async () => ({ fromPath: '', path: '', kind: 'file' as const, renamed: false })),

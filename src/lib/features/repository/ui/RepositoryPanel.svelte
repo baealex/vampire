@@ -15,6 +15,7 @@ import RepositoryFileTree from './RepositoryFileTree.svelte';
 import RepositoryGitPanel from './RepositoryGitPanel.svelte';
 import type {
   RepositoryChange,
+  RepositoryBranch,
   RepositorySelection,
   RepositorySnapshot,
   RepositoryTab,
@@ -43,6 +44,9 @@ let {
   onCreateDirectory,
   onRequestDelete,
   onRequestDiscardChange,
+  onRequestDeleteBranch,
+  onLoadMoreCommits,
+  loadingMoreCommits = false,
   onMoveEntry,
   onInsertPath,
   onRenameEntry,
@@ -75,6 +79,9 @@ let {
   onCreateDirectory: (directory: string, name: string) => Promise<void>;
   onRequestDelete: (entries: WorkspaceEntryDragData[]) => void;
   onRequestDiscardChange: (change: RepositoryChange) => void;
+  onRequestDeleteBranch: (branch: RepositoryBranch) => void;
+  onLoadMoreCommits: () => Promise<void>;
+  loadingMoreCommits?: boolean;
   onMoveEntry: (entry: WorkspaceEntryDragData, directory: string) => Promise<WorkspaceMoveResult | undefined>;
   onInsertPath: (entry: WorkspaceEntryDragData) => void;
   onRenameEntry: (entry: WorkspaceEntryDragData, name: string) => Promise<WorkspaceMoveResult>;
@@ -295,6 +302,9 @@ function endDragWorkspace() {
         {selected}
         {onSelect}
         {onRequestDiscardChange}
+        {onRequestDeleteBranch}
+        {onLoadMoreCommits}
+        {loadingMoreCommits}
         onOpenFiles={() => onTabChange('files')}
       />
     {:else}

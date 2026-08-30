@@ -1,6 +1,8 @@
 import { requestJson, requestResponse } from '~/lib/shared/api/request.ts';
 import type {
   RepositoryChange,
+  RepositoryCommitDiff,
+  RepositoryCommitPage,
   RepositoryDiscardResult,
   RepositoryDiff,
   RepositoryDirectoryListing,
@@ -30,11 +32,19 @@ export class RepositoryClient {
     this.#basePath = `/api/workspaces/${encodeURIComponent(workspaceId)}/repository`;
   }
 
-  readSnapshot(signal?: AbortSignal): Promise<RepositorySnapshot> {
+  readSnapshot(commitLimit = 20, signal?: AbortSignal): Promise<RepositorySnapshot> {
     return requestJson<RepositorySnapshot>(
-      this.#basePath,
+      `${this.#basePath}?${new URLSearchParams({ commitLimit: String(commitLimit) }).toString()}`,
       signal ? { signal } : undefined,
       'Unable to refresh this repository.'
+    );
+  }
+
+  readCommits(offset: number, signal?: AbortSignal): Promise<RepositoryCommitPage> {
+    return requestJson<RepositoryCommitPage>(
+      `${this.#basePath}/commits?${new URLSearchParams({ offset: String(offset) }).toString()}`,
+      signal ? { signal } : undefined,
+      'Unable to load more commits.'
     );
   }
 
@@ -60,6 +70,22 @@ export class RepositoryClient {
       pathUrl(`${this.#basePath}/diff`, path),
       signal ? { signal } : undefined,
       'Unable to read this diff.'
+    );
+  }
+
+  readCommit(hash: string, signal?: AbortSignal): Promise<RepositoryCommitDiff> {
+    return requestJson<RepositoryCommitDiff>(
+      pathUrl(`${this.#basePath}/commit`, hash),
+      signal ? { signal } : undefined,
+      'Unable to read this commit.'
+    );
+  }
+
+  deleteBranch(name: string): Promise<{ name: string }> {
+    return requestJson<{ name: string }>(
+      pathUrl(`${this.#basePath}/branch`, name),
+      { method: 'DELETE' },
+      'The branch could not be deleted.'
     );
   }
 

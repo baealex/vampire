@@ -2,6 +2,7 @@ import { RequestError } from '~/lib/shared/api/request.ts';
 import type { WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import { RepositoryClient } from '../api/client.ts';
 import type {
+  RepositoryBranch,
   RepositoryChange,
   RepositoryDirectoryListing,
   RepositorySelection,
@@ -61,6 +62,9 @@ export class RepositoryWorkspaceState {
   clipboard = $state<RepositoryClipboard>();
   discardTarget = $state<RepositoryChange>();
   discarding = $state(false);
+  branchDeleteTarget = $state<RepositoryBranch>();
+  deletingBranch = $state(false);
+  loadingMoreCommits = $state(false);
   changeCount = $state(0);
   worktreeCount = $state(0);
   branch = $state<string>();
@@ -76,6 +80,7 @@ export class RepositoryWorkspaceState {
   #skippedGitFileCount = 0;
   #uploadFailures: string[] = [];
   #uploadRevealToken = 0;
+  #commitLimit = 20;
 
   constructor(workspaceId: string, options: RepositoryWorkspaceStateOptions) {
     this.#api = new RepositoryClient(workspaceId);
@@ -134,7 +139,7 @@ export class RepositoryWorkspaceState {
       const shouldShowLoading = showLoading || !this.snapshot;
       if (shouldShowLoading) this.loading = true;
       try {
-        let nextSnapshot = await this.#api.readSnapshot();
+        let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit);
         const activeDirectories: string[] = [];
         for (const path of this.#loadedDirectories) {
           try {
@@ -593,6 +598,55 @@ export class RepositoryWorkspaceState {
       await this.refresh();
     } finally {
       this.discarding = false;
+    }
+  }
+
+  requestDeleteBranch(branch: RepositoryBranch) {
+    if (branch.worktreePath) {
+      this.errorMessage = 'A branch checked out in a worktree cannot be deleted.';
+      return;
+    }
+    this.branchDeleteTarget = branch;
+  }
+
+  async confirmDeleteBranch() {
+    const target = this.branchDeleteTarget;
+    if (!target || this.deletingBranch) return;
+    this.deletingBranch = true;
+    try {
+      await this.#enqueue(() => this.#api.deleteBranch(target.name));
+      this.branchDeleteTarget = undefined;
+      await this.refresh();
+    } finally {
+      this.deletingBranch = false;
+    }
+  }
+
+  async loadMoreCommits() {
+    const git = this.snapshot?.git;
+    if (!git?.hasMoreCommits || this.loadingMoreCommits) return;
+    this.loadingMoreCommits = true;
+    try {
+      await this.#enqueue(async () => {
+        const current = this.snapshot;
+        if (!current?.git?.hasMoreCommits) return;
+        const page = await this.#api.readCommits(current.git.commits.length);
+        const knownHashes = new Set(current.git.commits.map((commit) => commit.hash));
+        const commits = [
+          ...current.git.commits,
+          ...page.commits.filter((commit) => !knownHashes.has(commit.hash)),
+        ];
+        this.#commitLimit = commits.length;
+        this.snapshot = {
+          ...current,
+          git: { ...current.git, commits, hasMoreCommits: page.hasMore },
+        };
+        this.errorMessage = '';
+      });
+    } catch (error) {
+      this.errorMessage = error instanceof Error ? error.message : 'Unable to load more commits.';
+    } finally {
+      this.loadingMoreCommits = false;
     }
   }
 

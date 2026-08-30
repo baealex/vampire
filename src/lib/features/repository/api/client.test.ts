@@ -27,7 +27,7 @@ test('encodes workspace and repository paths and forwards an abort signal', asyn
   assert.equal(calls[0]?.init?.signal, signal);
 });
 
-test('sends versioned saves and explicit move, copy, and delete policies', async (t) => {
+test('sends versioned saves and explicit move, copy, entry delete, and branch delete policies', async (t) => {
   const calls: Array<{ input: string; init?: RequestInit }> = [];
   const previousFetch = globalThis.fetch;
   globalThis.fetch = (async (input, init) => {
@@ -44,6 +44,7 @@ test('sends versioned saves and explicit move, copy, and delete policies', async
   await client.renameEntry('archive/main.ts', 'file', 'renamed.ts');
   await client.copyEntry('archive/renamed.ts', 'file', 'backup', 'rename');
   await client.deleteEntry('backup/renamed.ts', 'file');
+  await client.deleteBranch('cleanup/old work');
 
   assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
     content: 'updated',
@@ -70,6 +71,8 @@ test('sends versioned saves and explicit move, copy, and delete policies', async
   });
   assert.equal(calls[4]?.input, '/api/workspaces/workspace-1/repository/file?path=backup%2Frenamed.ts');
   assert.equal(calls[4]?.init?.method, 'DELETE');
+  assert.equal(calls[5]?.input, '/api/workspaces/workspace-1/repository/branch?path=cleanup%2Fold+work');
+  assert.equal(calls[5]?.init?.method, 'DELETE');
 });
 
 test('preserves an API conflict as a typed request error', async (t) => {
@@ -87,4 +90,19 @@ test('preserves an API conflict as a typed request error', async (t) => {
       error.status === 409 &&
       error.message === 'This file changed elsewhere.'
   );
+});
+
+test('requests the next commit page from the current list offset', async (t) => {
+  const calls: string[] = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    calls.push(String(input));
+    return jsonResponse({ commits: [], hasMore: false });
+  }) as typeof fetch;
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+  });
+
+  await new RepositoryClient('workspace-1').readCommits(20);
+  assert.equal(calls[0], '/api/workspaces/workspace-1/repository/commits?offset=20');
 });

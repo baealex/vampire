@@ -3,12 +3,19 @@ let {
   kind,
   path,
 }: {
-  kind: 'diff' | 'file' | 'image';
+  kind: 'commit' | 'diff' | 'file' | 'image';
   path: string;
 } = $props();
 
 const fileName = $derived(path.split('/').pop() || path);
-const status = $derived(kind === 'diff' ? 'Loading changes' : kind === 'image' ? 'Loading image' : 'Loading file');
+function openingStatus(value: typeof kind): string {
+  if (value === 'commit') return 'Loading commit';
+  if (value === 'diff') return 'Loading changes';
+  if (value === 'image') return 'Loading image';
+  return 'Loading file';
+}
+
+const status = $derived(openingStatus(kind));
 </script>
 
 <div class="document-opening" role="status" aria-label={`${status}: ${fileName}`}>

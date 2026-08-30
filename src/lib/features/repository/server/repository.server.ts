@@ -26,6 +26,8 @@ import type {
   RepositoryChangeStats,
   RepositoryBranch,
   RepositoryCommit,
+  RepositoryCommitDiff,
+  RepositoryCommitPage,
   RepositoryDiscardResult,
   RepositoryDiff,
   RepositoryDirectoryListing,
@@ -95,9 +97,11 @@ const MAX_DIRECTORY_ENTRY_COUNT = 8_000;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
-const RECENT_COMMIT_LIMIT = 10;
+const DEFAULT_COMMIT_PAGE_SIZE = 20;
+const MAX_COMMIT_PAGE_SIZE = 100;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git']);
 const TEMPORARY_UPLOAD_PREFIX = '.vampire-upload-';
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,64}$/iu;
 
 export class RepositoryReadError extends Error {
   readonly reason: RepositoryReadErrorReason;
@@ -273,27 +277,61 @@ async function readGitUpstream(cwd: string): Promise<RepositoryUpstream | undefi
 }
 
 function parseGitCommits(output: string): RepositoryCommit[] {
-  const fields = output.split('\0');
   const commits: RepositoryCommit[] = [];
-  for (let index = 0; index + 4 < fields.length; index += 5) {
-    const [hash, shortHash, authorName, authoredAtValue, subject] = fields.slice(index, index + 5);
+  for (const record of output.split('\x1e')) {
+    if (!record) continue;
+    const fields = record.split('\0');
+    const [hash, shortHash, authorName, authoredAtValue, subject] = fields;
     if (!hash || !shortHash || !authorName || !authoredAtValue) continue;
     const authoredAt = Number(authoredAtValue) * 1_000;
     if (!Number.isFinite(authoredAt)) continue;
-    commits.push({ hash, shortHash, authorName, authoredAt, subject });
+    const shortstat = fields.slice(5).join('\0');
+    const filesChanged = Number(/(\d+) files? changed/u.exec(shortstat)?.[1] ?? 0);
+    const additions = Number(/(\d+) insertions?\(\+\)/u.exec(shortstat)?.[1] ?? 0);
+    const deletions = Number(/(\d+) deletions?\(-\)/u.exec(shortstat)?.[1] ?? 0);
+    commits.push({
+      hash,
+      shortHash,
+      authorName,
+      authoredAt,
+      subject,
+      stats: { filesChanged, additions, deletions },
+    });
   }
   return commits;
 }
 
-async function readGitRecentCommits(cwd: string): Promise<RepositoryCommit[]> {
-  if (!(await gitHeadExists(cwd))) return [];
+async function readGitCommitPage(cwd: string, offset: number, limit: number): Promise<RepositoryCommitPage> {
+  if (!(await gitHeadExists(cwd))) return { commits: [], hasMore: false };
   const { stdout } = await runGit(cwd, [
     'log',
     '-z',
-    `-${RECENT_COMMIT_LIMIT}`,
-    '--format=%H%x00%h%x00%an%x00%at%x00%s',
+    '--shortstat',
+    `--skip=${offset}`,
+    `--max-count=${limit + 1}`,
+    '--format=%x1e%H%x00%h%x00%an%x00%at%x00%s%x00',
   ]);
-  return parseGitCommits(stdout);
+  const commits = parseGitCommits(stdout);
+  return { commits: commits.slice(0, limit), hasMore: commits.length > limit };
+}
+
+function normalizeCommitPageValue(value: number, fallback: number, maximum: number): number {
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  return Math.min(value, maximum);
+}
+
+export async function readRepositoryCommits(
+  cwd: string,
+  offset = 0,
+  limit = DEFAULT_COMMIT_PAGE_SIZE
+): Promise<RepositoryCommitPage> {
+  const root = await workspaceRoot(cwd);
+  if (!(await isGitRepository(root))) {
+    throw repositoryError('not-git', 'This workspace is not a Git repository.');
+  }
+  const normalizedOffset = normalizeCommitPageValue(offset, 0, Number.MAX_SAFE_INTEGER);
+  const normalizedLimit = normalizeCommitPageValue(limit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE);
+  return readGitCommitPage(root, normalizedOffset, normalizedLimit || DEFAULT_COMMIT_PAGE_SIZE);
 }
 
 function parseGitWorktrees(output: string, root: string): RepositoryWorktree[] {
@@ -341,13 +379,15 @@ function parseGitBranches(
     .split('\n')
     .filter(Boolean)
     .flatMap((line): RepositoryBranch[] => {
-      const [name, head] = line.split('\t');
+      const [name, head, committedAtValue] = line.split('\t');
       if (!name || !head) return [];
       const worktreePath = worktreeByBranch.get(name);
+      const committedAt = Number(committedAtValue) * 1_000;
       return [
         {
           name,
           head,
+          ...(Number.isFinite(committedAt) && committedAt > 0 ? { committedAt } : {}),
           current: name === currentBranch,
           ...(worktreePath ? { worktreePath } : {}),
         },
@@ -370,25 +410,26 @@ async function readGitBranches(
 ): Promise<RepositoryBranch[]> {
   const { stdout } = await runGit(cwd, [
     'for-each-ref',
-    '--format=%(refname:short)%09%(objectname:short)',
+    '--format=%(refname:short)%09%(objectname:short)%09%(committerdate:unix)',
     'refs/heads',
   ]);
   return parseGitBranches(stdout, currentBranch, worktrees, root);
 }
 
-async function readGitSnapshot(cwd: string, root: string): Promise<RepositoryGitSnapshot> {
-  const [branch, upstream, commits, worktrees] = await Promise.all([
+async function readGitSnapshot(cwd: string, root: string, commitLimit: number): Promise<RepositoryGitSnapshot> {
+  const [branch, upstream, commitPage, worktrees] = await Promise.all([
     readGitBranch(cwd),
     readGitUpstream(cwd),
-    readGitRecentCommits(cwd),
+    readGitCommitPage(cwd, 0, commitLimit),
     readGitWorktrees(cwd, root),
   ]);
   const branches = await readGitBranches(cwd, branch, worktrees, root);
   return {
     ...(branch ? { branch } : {}),
-    detached: !branch && commits.length > 0,
+    detached: !branch && commitPage.commits.length > 0,
     ...(upstream ? { upstream } : {}),
-    commits,
+    commits: commitPage.commits,
+    hasMoreCommits: commitPage.hasMore,
     branches,
     worktrees,
   };
@@ -612,7 +653,10 @@ export async function readRepositoryDirectory(cwd: string, path = ''): Promise<R
   };
 }
 
-export async function readRepositorySnapshot(cwd: string): Promise<RepositorySnapshot> {
+export async function readRepositorySnapshot(
+  cwd: string,
+  commitLimit = DEFAULT_COMMIT_PAGE_SIZE
+): Promise<RepositorySnapshot> {
   const root = await workspaceRoot(cwd);
   const gitRepository = await isGitRepository(root);
   const directory = await readWorkspaceDirectory(root);
@@ -631,7 +675,11 @@ export async function readRepositorySnapshot(cwd: string): Promise<RepositorySna
   const [changes, ignored, git] = await Promise.all([
     readGitChanges(root),
     readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
-    readGitSnapshot(root, root),
+    readGitSnapshot(
+      root,
+      root,
+      normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE)
+    ),
   ]);
   return {
     isGitRepository: true,
@@ -1451,4 +1499,45 @@ export async function readRepositoryDiff(cwd: string, path: string): Promise<Rep
     if (stdout) sections.push({ kind: 'working', patch: stdout });
   }
   return { path: normalizedPath, sections };
+}
+
+export async function readRepositoryCommitDiff(cwd: string, hash: string): Promise<RepositoryCommitDiff> {
+  const root = await workspaceRoot(cwd);
+  if (!COMMIT_HASH_PATTERN.test(hash)) {
+    throw repositoryError('invalid-path', 'Commit hash is invalid.');
+  }
+  if (!(await isGitRepository(root))) {
+    throw repositoryError('not-git', 'This workspace is not a Git repository.');
+  }
+
+  const { stdout } = await runGit(
+    root,
+    ['show', '--format=', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', hash, '--'],
+    { maxBuffer: MAX_DIFF_OUTPUT_BYTES }
+  );
+  return { hash, patch: stdout };
+}
+
+export async function deleteRepositoryBranch(cwd: string, name: string): Promise<{ name: string }> {
+  const root = await workspaceRoot(cwd);
+  if (!name || name.trim() !== name || name.includes('\0')) {
+    throw repositoryError('invalid-path', 'Branch name is invalid.');
+  }
+  if (!(await isGitRepository(root))) {
+    throw repositoryError('not-git', 'This workspace is not a Git repository.');
+  }
+  const validation = await runGit(root, ['check-ref-format', '--branch', name], { acceptedExitCodes: [0, 1, 128] });
+  if (validation.stderr) throw repositoryError('invalid-path', 'Branch name is invalid.');
+
+  const currentBranch = await readGitBranch(root);
+  const worktrees = await readGitWorktrees(root, root);
+  const branches = await readGitBranches(root, currentBranch, worktrees, root);
+  const branch = branches.find((candidate) => candidate.name === name);
+  if (!branch) throw repositoryError('not-found', 'This branch no longer exists.');
+  if (branch.worktreePath) {
+    throw repositoryError('conflict', 'A branch checked out in a worktree cannot be deleted.');
+  }
+
+  await runGit(root, ['branch', '--delete', '--force', '--', name]);
+  return { name };
 }

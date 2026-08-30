@@ -1,4 +1,13 @@
-import type { DiffLine, FileTreeRow, RepositoryChange } from '~/lib/shared/contracts/repository';
+import type {
+  DiffLine,
+  DiffSection,
+  FileTreeRow,
+  RepositoryChange,
+  RepositoryCommitDiff,
+  RepositoryDiff,
+  RepositorySelection,
+  RepositorySnapshot,
+} from '~/lib/shared/contracts/repository';
 
 export type FileChangeKind = 'added' | 'modified';
 
@@ -14,6 +23,55 @@ const PREVIEWABLE_IMAGE_EXTENSIONS = new Set(['avif', 'gif', 'jpeg', 'jpg', 'png
 export function isPreviewableImage(path: string): boolean {
   const extension = path.split('.').pop()?.toLowerCase();
   return Boolean(extension && PREVIEWABLE_IMAGE_EXTENSIONS.has(extension));
+}
+
+export function repositorySelectionLabel(kind: RepositorySelection['kind']): 'Commit' | 'Diff' | 'File' {
+  if (kind === 'commit') return 'Commit';
+  if (kind === 'diff') return 'Diff';
+  return 'File';
+}
+
+export function repositoryNavigationPaths(
+  selection: RepositorySelection,
+  snapshot: RepositorySnapshot | undefined
+): string[] {
+  if (selection.kind === 'file') return snapshot?.files ?? [];
+  if (selection.kind === 'diff') return snapshot?.changes.map((change) => change.path) ?? [];
+  return snapshot?.git?.commits.map((commit) => commit.hash) ?? [];
+}
+
+export type RepositoryViewerSection = {
+  kind: DiffSection['kind'] | 'commit';
+  patch: string;
+  lines: DiffLine[];
+};
+
+export function repositoryViewerSections(
+  diff: RepositoryDiff | undefined,
+  commitDiff: RepositoryCommitDiff | undefined
+): RepositoryViewerSection[] {
+  if (diff) {
+    return diff.sections.map((section) => ({ ...section, lines: parseDiffLines(section.patch) }));
+  }
+  if (!commitDiff?.patch) return [];
+  return [{ kind: 'commit', patch: commitDiff.patch, lines: parseDiffLines(commitDiff.patch) }];
+}
+
+export function repositoryViewerSectionLabel(kind: RepositoryViewerSection['kind']): string {
+  if (kind === 'staged') return 'Staged changes';
+  if (kind === 'working') return 'Working tree';
+  if (kind === 'commit') return 'Commit changes';
+  return 'Untracked file';
+}
+
+export function repositoryViewerEmptyState(kind: RepositorySelection['kind']): {
+  title: string;
+  description: string;
+} {
+  if (kind === 'commit') {
+    return { title: 'No file changes', description: 'This commit does not contain a file patch.' };
+  }
+  return { title: 'No diff remains', description: 'The agent may have reverted or committed this change.' };
 }
 
 export function buildVisibleFileTree(

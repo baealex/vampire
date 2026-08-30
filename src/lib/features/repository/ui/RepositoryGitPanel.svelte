@@ -1,8 +1,12 @@
 <script lang="ts">
 import Check from '@lucide/svelte/icons/check';
+import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import GitBranch from '@lucide/svelte/icons/git-branch';
+import Trash2 from '@lucide/svelte/icons/trash-2';
+import Button from '~/lib/shared/ui/Button.svelte';
 import RepositoryChanges from './RepositoryChanges.svelte';
 import type {
+  RepositoryBranch,
   RepositoryChange,
   RepositoryGitSnapshot,
   RepositorySelection,
@@ -16,6 +20,9 @@ let {
   selected,
   onSelect,
   onRequestDiscardChange,
+  onRequestDeleteBranch,
+  onLoadMoreCommits,
+  loadingMoreCommits = false,
   onOpenFiles,
 }: {
   snapshot: RepositorySnapshot;
@@ -23,6 +30,9 @@ let {
   selected?: RepositorySelection;
   onSelect: (selection: RepositorySelection) => void;
   onRequestDiscardChange: (change: RepositoryChange) => void;
+  onRequestDeleteBranch: (branch: RepositoryBranch) => void;
+  onLoadMoreCommits: () => Promise<void>;
+  loadingMoreCommits?: boolean;
   onOpenFiles: () => void;
 } = $props();
 
@@ -45,6 +55,10 @@ function commitTime(timestamp: number): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+}
+
+function branchCommitDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 </script>
 
@@ -109,15 +123,42 @@ function commitTime(timestamp: number): string {
         {#if git.commits.length > 0}
           <div class="repository-commit-list">
             {#each git.commits as commit (commit.hash)}
-              <div class="repository-commit" title={commit.hash}>
+              <button
+                type="button"
+                class="repository-commit"
+                class:selected={selected?.kind === 'commit' && selected.path === commit.hash}
+                title={commit.hash}
+                onclick={() => onSelect({ kind: 'commit', path: commit.hash })}
+                aria-label={`Open changes for commit ${commit.shortHash}: ${commit.subject}`}
+              >
                 <strong>{commit.subject}</strong>
-                <span>
+                <span class="repository-commit__stats" aria-label={`${commit.stats.filesChanged} files changed, ${commit.stats.additions} lines added, ${commit.stats.deletions} lines deleted`}>
+                  <span>{commit.stats.filesChanged} {commit.stats.filesChanged === 1 ? 'file' : 'files'}</span>
+                  <span class="added">+{commit.stats.additions}</span>
+                  <span class="deleted">−{commit.stats.deletions}</span>
+                </span>
+                <span class="repository-commit__meta">
                   <code>{commit.shortHash}</code>
                   <span>{commit.authorName}</span>
                   <time datetime={new Date(commit.authoredAt).toISOString()}>{commitTime(commit.authoredAt)}</time>
                 </span>
-              </div>
+              </button>
             {/each}
+            {#if git.hasMoreCommits}
+              <div class="repository-commit-more">
+                <Button
+                  class="repository-commit-more__button"
+                  block
+                  size="sm"
+                  variant="ghost"
+                  disabled={loadingMoreCommits}
+                  onclick={() => void onLoadMoreCommits()}
+                >
+                  <ChevronDown size={13} strokeWidth={1.9} aria-hidden="true" />
+                  {loadingMoreCommits ? 'Loading older commits…' : 'Load older commits'}
+                </Button>
+              </div>
+            {/if}
           </div>
         {:else}
           <div class="repository-git-empty">
@@ -138,8 +179,26 @@ function commitTime(timestamp: number): string {
                   <GitBranch size={13} strokeWidth={1.8} aria-label="Checked out in another worktree" />
                 {/if}
               </span>
-              <strong>{branch.name}</strong>
+              <span class="repository-branch__details">
+                <strong>{branch.name}</strong>
+                {#if branch.committedAt}
+                  <time datetime={new Date(branch.committedAt).toISOString()} title={commitTime(branch.committedAt)}>
+                    Last commit {branchCommitDate(branch.committedAt)}
+                  </time>
+                {/if}
+              </span>
               <code>{branch.head ?? 'No commits'}</code>
+              {#if !branch.worktreePath}
+                <Button
+                  class="repository-branch__delete"
+                  variant="icon"
+                  onclick={() => onRequestDeleteBranch(branch)}
+                  ariaLabel={`Delete branch ${branch.name}`}
+                  title={`Delete ${branch.name}`}
+                >
+                  <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                </Button>
+              {/if}
             </div>
           {/each}
         </div>
@@ -249,7 +308,7 @@ function commitTime(timestamp: number): string {
 }
 .repository-branch {
   display: grid;
-  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  grid-template-columns: 1rem minmax(0, 1fr) auto 2rem;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
@@ -265,13 +324,25 @@ function commitTime(timestamp: number): string {
 .repository-branch__state[aria-label="Current branch"] {
   color: var(--color-success);
 }
-.repository-branch strong {
+.repository-branch__details {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+.repository-branch__details strong {
   min-width: 0;
   overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--text-caption);
   font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repository-branch__details time {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -282,10 +353,45 @@ function commitTime(timestamp: number): string {
 }
 .repository-commit {
   display: grid;
+  width: 100%;
   min-width: 0;
   gap: 0.24rem;
   padding: 0.65rem 0.85rem;
+  border: 0;
   border-bottom: 1px solid var(--color-divider-subtle);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.repository-commit.selected {
+  background: var(--color-surface-active);
+  box-shadow: inset 0.16rem 0 var(--color-accent);
+}
+.repository-commit-more {
+  border-bottom: 1px solid var(--color-divider-subtle);
+}
+:global(.repository-commit-more__button) {
+  min-height: 2.2rem;
+  gap: 0.3rem;
+  border-radius: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+:global(.repository-commit-more__button svg) {
+  flex: 0 0 auto;
+  transform: translateY(0.02rem);
+}
+.repository-commit:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .repository-commit:hover {
+    background: var(--color-surface-raised);
+  }
 }
 .repository-commit strong {
   overflow: hidden;
@@ -295,23 +401,30 @@ function commitTime(timestamp: number): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.repository-commit > span {
+.repository-commit__meta,
+.repository-commit__stats {
   display: flex;
   min-width: 0;
   gap: 0.45rem;
   color: var(--color-text-tertiary);
   font-size: var(--text-micro);
 }
-.repository-commit > span > span {
+.repository-commit__meta > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.repository-commit__stats .added {
+  color: var(--color-change-add-text);
+}
+.repository-commit__stats .deleted {
+  color: var(--color-change-delete-text);
 }
 .repository-commit code {
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
 }
-.repository-commit time {
+.repository-commit__meta time {
   margin-left: auto;
   white-space: nowrap;
 }

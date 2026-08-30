@@ -121,6 +121,89 @@ test('permanently deletes an entry as soon as deletion is confirmed', async () =
   );
 });
 
+test('deletes an unused local branch only after confirmation', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    if (init?.method === 'DELETE') {
+      return new Response(JSON.stringify({ name: 'merged-cleanup' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+
+  state.requestDeleteBranch({ name: 'merged-cleanup', current: false, head: 'abc123' });
+  expect(state.branchDeleteTarget?.name).toBe('merged-cleanup');
+  await state.confirmDeleteBranch();
+
+  expect(state.branchDeleteTarget).toBeUndefined();
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/workspaces/workspace-1/repository/branch?path=merged-cleanup',
+    expect.objectContaining({ method: 'DELETE' })
+  );
+});
+
+test('does not offer deletion for a branch checked out in a worktree', () => {
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  state.requestDeleteBranch({ name: 'in-use', current: false, worktreePath: '/worktrees/in-use' });
+
+  expect(state.branchDeleteTarget).toBeUndefined();
+  expect(state.errorMessage).toMatch(/checked out in a worktree/i);
+});
+
+test('appends the next commit page without replacing the visible history', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        commits: [
+          {
+            hash: 'older-hash',
+            shortHash: 'older',
+            subject: 'Older commit',
+            authorName: 'Vampire Test',
+            authoredAt: 1,
+            stats: { filesChanged: 1, additions: 2, deletions: 0 },
+          },
+        ],
+        hasMore: false,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )
+  );
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  state.snapshot = {
+    isGitRepository: true,
+    files: [],
+    directories: [],
+    ignored: [],
+    changes: [],
+    changeStats: { additions: 0, deletions: 0 },
+    truncated: false,
+    git: {
+      detached: false,
+      commits: [
+        {
+          hash: 'newer-hash',
+          shortHash: 'newer',
+          subject: 'Newer commit',
+          authorName: 'Vampire Test',
+          authoredAt: 2,
+          stats: { filesChanged: 1, additions: 1, deletions: 0 },
+        },
+      ],
+      hasMoreCommits: true,
+      branches: [],
+      worktrees: [],
+    },
+  };
+
+  await state.loadMoreCommits();
+
+  expect(state.snapshot.git?.commits.map((commit) => commit.hash)).toEqual(['newer-hash', 'older-hash']);
+  expect(state.snapshot.git?.hasMoreCommits).toBe(false);
+});
+
 test('requests the final uploaded path to be revealed in the file tree', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     if (init?.method === 'POST' && String(input).includes('/upload?')) {

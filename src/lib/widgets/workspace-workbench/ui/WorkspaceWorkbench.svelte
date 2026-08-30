@@ -15,6 +15,7 @@ import WorkspaceNoteEditor from '~/lib/features/workspace/ui/WorkspaceNoteEditor
 import UploadConflictDialog from '~/lib/features/repository/ui/UploadConflictDialog.svelte';
 import { uploadSelectionFromDataTransfer } from '~/lib/features/repository/api/upload';
 import { RepositoryWorkspaceState } from '~/lib/features/repository/model/workspace-state.svelte';
+import { repositoryNavigationPaths } from '~/lib/features/repository/model/view';
 import type { RepositorySelection, RepositoryTab } from '~/lib/shared/contracts/repository';
 
 let {
@@ -261,6 +262,8 @@ onMount(() => {
           onRequestDiscardChange={(path) => repository.requestDiscardChange(path)}
           onFileSaved={(file, dirty) => repository.handleFileSaved(file, dirty)}
           onFileDirtyChange={(dirty) => (repository.fileDirty = dirty)}
+          navigationPaths={repositoryNavigationPaths(repository.selection, repository.snapshot)}
+          onNavigate={selectRepositoryItem}
         />
       {/if}
     </Terminal>
@@ -295,6 +298,9 @@ onMount(() => {
     onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
     onRequestDelete={(entries) => repository.requestDeleteEntries(entries)}
     onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
+    onRequestDeleteBranch={(branch) => repository.requestDeleteBranch(branch)}
+    onLoadMoreCommits={() => repository.loadMoreCommits()}
+    loadingMoreCommits={repository.loadingMoreCommits}
     onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
     onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
     onRenameEntry={(entry, name) => repository.renameEntry(entry.path, entry.kind, name)}
@@ -382,6 +388,17 @@ onMount(() => {
       busyLabel={repository.discardTarget.status === '??' ? 'Deleting…' : 'Discarding…'}
       close={() => (repository.discardTarget = undefined)}
       onConfirm={() => repository.confirmDiscardChange()}
+    />
+  {/if}
+
+  {#if repository.branchDeleteTarget}
+    <ConfirmDialog
+      title="Delete branch?"
+      description={`“${repository.branchDeleteTarget.name}” will be deleted locally, including any commits not merged into another branch. This does not delete a remote branch.`}
+      confirmLabel="Delete branch"
+      busyLabel="Deleting…"
+      close={() => (repository.branchDeleteTarget = undefined)}
+      onConfirm={() => repository.confirmDeleteBranch()}
     />
   {/if}
 </section>

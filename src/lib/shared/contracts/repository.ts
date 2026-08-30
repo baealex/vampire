@@ -15,6 +15,23 @@ export type RepositoryCommit = {
   subject: string;
   authorName: string;
   authoredAt: number;
+  stats: RepositoryCommitStats;
+};
+
+export type RepositoryCommitStats = {
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+};
+
+export type RepositoryCommitDiff = {
+  hash: string;
+  patch: string;
+};
+
+export type RepositoryCommitPage = {
+  commits: RepositoryCommit[];
+  hasMore: boolean;
 };
 
 export type RepositoryUpstream = {
@@ -34,6 +51,7 @@ export type RepositoryWorktree = {
 export type RepositoryBranch = {
   name: string;
   head?: string;
+  committedAt?: number;
   current: boolean;
   worktreePath?: string;
 };
@@ -43,6 +61,7 @@ export type RepositoryGitSnapshot = {
   detached: boolean;
   upstream?: RepositoryUpstream;
   commits: RepositoryCommit[];
+  hasMoreCommits: boolean;
   branches: RepositoryBranch[];
   worktrees: RepositoryWorktree[];
 };
@@ -71,7 +90,7 @@ export type RepositoryDirectoryListing = {
 };
 
 export type RepositorySelection = {
-  kind: 'file' | 'diff';
+  kind: 'file' | 'diff' | 'commit';
   path: string;
 };
 
