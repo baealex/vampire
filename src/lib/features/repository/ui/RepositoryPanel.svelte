@@ -62,6 +62,7 @@ let {
   uploadRevealRequest,
   onUploadSelection,
   onUploadError,
+  onClose,
   onSelect,
   onTabChange = () => undefined,
 }: {
@@ -97,6 +98,7 @@ let {
   uploadRevealRequest?: { path: string; token: number };
   onUploadSelection: (selection: WorkspaceUploadSelection, directory: string) => Promise<void>;
   onUploadError: (message: string) => void;
+  onClose: () => void;
   onSelect: (selection: RepositorySelection) => void;
   onTabChange?: (tab: RepositoryTab) => void;
 } = $props();
@@ -225,7 +227,13 @@ function endDragWorkspace() {
   ondrop={handleRootDrop}
   ondragend={endDragWorkspace}
 >
-  <WorkspacePanelHeader title="Workspace" subtitle={projectPath} subtitleMonospace>
+  <WorkspacePanelHeader
+    title="Workspace"
+    subtitle={projectPath}
+    subtitleMonospace
+    close={onClose}
+    closeLabel="Close workspace panel"
+  >
     {#snippet actions()}
       <Button
         class={`repository-refresh${loading ? ' spinning' : ''}`}

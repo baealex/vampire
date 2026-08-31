@@ -352,6 +352,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(repositoryPanel).toHaveCSS('transition-property', 'transform');
   await expect(repositoryPanel).toHaveCSS('transition-duration', '0.18s');
   await expect(repositoryPanel.getByRole('tab', { name: 'Git' })).toBeVisible();
+  await repositoryPanel.getByRole('button', { name: 'Close workspace panel' }).click();
+  await expect(repositoryPanel).toBeHidden();
+  await page.getByRole('button', { name: 'Open repository' }).click();
+  await expect(repositoryPanel).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Add inside workspace root' }).click();
   await expect(page.getByRole('menuitem', { name: 'Upload files…' })).toBeVisible();
@@ -370,6 +374,12 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
   await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add workspace note' }).click();
+  const notePanel = page.getByRole('dialog', { name: 'Workspace note' });
+  await expect(notePanel).toBeVisible();
+  await notePanel.getByRole('button', { name: 'Close workspace note' }).click();
+  await expect(notePanel).toBeHidden();
 });
 
 test('anchors a status popover to the mobile status bar and dismisses it for workspace tools', async ({

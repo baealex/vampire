@@ -38,6 +38,7 @@ function props(overrides: Record<string, unknown> = {}) {
     onPasteEntries: vi.fn(async () => []),
     onUploadSelection: vi.fn(async () => undefined),
     onUploadError: vi.fn(),
+    onClose: vi.fn(),
     onSelect: vi.fn(),
     ...overrides,
   };
@@ -63,5 +64,14 @@ test('keeps the Explorer add action scoped to workspace root after selecting a f
   expect(screen.getByRole('textbox', { name: 'New file name' })).toBeInTheDocument();
   expect(onLoadDirectory).toHaveBeenCalledWith('src');
   expect(screen.getByRole('button', { name: 'Refresh workspace and Git' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Close workspace panel' })).not.toBeInTheDocument();
+});
+
+test('keeps the panel close action available', async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(RepositoryPanel, props({ onClose }));
+
+  await user.click(screen.getByRole('button', { name: 'Close workspace panel' }));
+
+  expect(onClose).toHaveBeenCalledTimes(1);
 });

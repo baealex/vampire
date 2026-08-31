@@ -311,6 +311,7 @@ onMount(() => {
     cutPaths={repository.clipboard?.operation === 'cut' ? repository.clipboard.entries.map((entry) => entry.path) : []}
     onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
     onUploadError={(message) => repository.reportUploadError(message)}
+    onClose={() => void closeRepository()}
     onSelect={selectRepositoryItem}
     onTabChange={onRepositoryTabChange}
   />

@@ -209,7 +209,13 @@ onDestroy(() => {
   onkeydown={handleKeydown}
 >
   {#if panel}
-    <WorkspacePanelHeader title="Workspace note" titleId="workspace-note-title" subtitle="Keep the next step here." />
+    <WorkspacePanelHeader
+      title="Workspace note"
+      titleId="workspace-note-title"
+      subtitle="Keep the next step here."
+      close={() => void closeEditor()}
+      closeLabel="Close workspace note"
+    />
   {:else}
     <header>
       <div>

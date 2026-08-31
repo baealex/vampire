@@ -149,6 +149,25 @@ test('keeps a failed draft open and closes only after a successful retry', async
   expect(save).toHaveBeenCalledTimes(2);
 });
 
+test('keeps the close action available in panel mode', async () => {
+  const user = userEvent.setup();
+  const close = vi.fn();
+  render(WorkspaceNoteEditor, {
+    workspaceId: 'workspace-1',
+    getNote: vi.fn(async () => 'Initial note'),
+    close,
+    save: vi.fn(async () => undefined),
+    loadAgentAction: vi.fn(async () => agentAction),
+    queueAgentAction: vi.fn(async () => submission),
+    panel: true,
+  });
+
+  await screen.findByRole('textbox', { name: 'Workspace note' });
+  await user.click(screen.getByRole('button', { name: 'Close workspace note' }));
+
+  expect(close).toHaveBeenCalledTimes(1);
+});
+
 test('shows the note path in a modal and saves the latest draft before queuing the visible request', async () => {
   const user = userEvent.setup();
   const pendingSave = deferred();
