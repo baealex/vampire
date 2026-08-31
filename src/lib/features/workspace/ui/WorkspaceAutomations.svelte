@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, onMount, tick, untrack } from 'svelte';
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import Clock3 from '@lucide/svelte/icons/clock-3';
 import Pause from '@lucide/svelte/icons/pause';
 import Play from '@lucide/svelte/icons/play';
@@ -28,13 +29,18 @@ import Select from '~/lib/shared/ui/Select.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
 
 const REFRESH_INTERVAL_MS = 5_000;
+export type AutomationEditorMode = 'create' | 'edit';
 
 let {
   workspaceId,
   onBusyChange = () => undefined,
+  editorMode = $bindable(),
+  showEditorHeader = true,
 }: {
   workspaceId: string;
   onBusyChange?: (busy: boolean) => void;
+  editorMode?: AutomationEditorMode;
+  showEditorHeader?: boolean;
 } = $props();
 
 type WorkspaceAutomationsResponse = { automations: WorkspaceAutomation[] };
@@ -66,6 +72,7 @@ let now = $state(Date.now());
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let nameInput = $state<HTMLInputElement>();
 const mutationBusy = $derived(creating || Boolean(updatingId));
+const editingAutomation = $derived(automations.find((automation) => automation.id === editingId));
 
 $effect(() => onBusyChange(mutationBusy || agentSubmitting));
 
@@ -192,12 +199,7 @@ async function createAutomation() {
     );
     automations = [data.automation, ...automations.filter((item) => item.id !== data.automation.id)];
     queryCache.set(automationsQuery, { automations });
-    if (editingId) cancelEditing();
-    else {
-      name = '';
-      prompt = '';
-      resetRunAt();
-    }
+    cancelEditing();
   } catch (error) {
     mutationError = error instanceof Error ? error.message : 'Unable to save the automation';
   } finally {
@@ -207,6 +209,7 @@ async function createAutomation() {
 
 async function editAutomation(automation: WorkspaceAutomation) {
   if (creating || updatingId) return;
+  editorMode = 'edit';
   editingId = automation.id;
   name = automation.name;
   prompt = automation.prompt;
@@ -248,12 +251,21 @@ async function editAutomation(automation: WorkspaceAutomation) {
 }
 
 function cancelEditing() {
+  editorMode = undefined;
   editingId = undefined;
   name = '';
   prompt = '';
   scheduleType = 'once';
   timeZone = localTimeZone();
   resetRunAt();
+}
+
+async function beginCreating() {
+  cancelEditing();
+  editorMode = 'create';
+  mutationError = '';
+  await tick();
+  nameInput?.focus();
 }
 
 async function closeAskAgent() {
@@ -355,7 +367,6 @@ let unsubscribe: (() => void) | undefined;
 onMount(() => {
   timeZone = localTimeZone();
   resetRunAt();
-  void tick().then(() => nameInput?.focus());
   unsubscribe = queryCache.subscribe(automationsQuery, applyQuerySnapshot);
   void loadAutomations(false, true);
   refreshTimer = setInterval(() => {
@@ -379,24 +390,31 @@ onDestroy(() => {
     onQueued={() => agentMessage = 'Automation request sent. It will appear here after the agent validates it.'}
     onSubmittingChange={(value) => agentSubmitting = value}
   />
-{:else}
-  <div class="automation-panel" aria-busy={fetching}>
-    <div class="automation-intro">
-      <p class="automation-description">Prompts are sent directly to the recognized main agent.</p>
-      <Button
-        id="automation-ask-agent-trigger"
-        variant="primary"
-        size="sm"
-        disabled={mutationBusy}
-        onclick={() => { agentMessage = ''; askAgentOpen = true; }}
-      >
-        <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
-        Ask agent…
-      </Button>
-    </div>
-
-    {#if agentMessage}
-      <p class="automation-agent-message" role="status">{agentMessage}</p>
+{:else if editorMode}
+  <section class="automation-editor" aria-labelledby="automation-editor-title" aria-busy={mutationBusy}>
+    {#if showEditorHeader}
+      <header class="automation-editor-header">
+        <button
+          type="button"
+          class="automation-back"
+          onclick={cancelEditing}
+          disabled={mutationBusy}
+          aria-label="Back to automations"
+        >
+          <ArrowLeft size={18} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <div>
+          <h2 id="automation-editor-title">{editingId ? 'Edit automation' : 'New automation'}</h2>
+          <p>{editingId ? 'Update this automation’s prompt and schedule.' : 'Choose what should run and when.'}</p>
+        </div>
+      </header>
+    {:else}
+      <h2 id="automation-editor-title" class="visually-hidden">
+        {editingId ? 'Edit automation' : 'New automation'}
+      </h2>
+      <p class="automation-editor-description">
+        {editingId ? 'Update this automation’s prompt and schedule.' : 'Choose what should run and when.'}
+      </p>
     {/if}
 
     <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
@@ -413,7 +431,7 @@ onDestroy(() => {
         <Textarea
           bind:value={prompt}
           maxlength={WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH}
-          rows={4}
+          rows={6}
           placeholder="Review the current work and take the next useful step…"
           required
         />
@@ -482,10 +500,25 @@ onDestroy(() => {
           <small>{timeZone}</small>
         </fieldset>
       {/if}
+
+      {#if mutationError}
+        <p class="automation-error" role="alert">{mutationError}</p>
+      {/if}
+
       <div class="form-actions">
-        {#if editingId}
-          <Button type="button" onclick={cancelEditing} disabled={mutationBusy}>Cancel</Button>
+        {#if editingAutomation}
+          <Button
+            type="button"
+            variant="danger-outline"
+            disabled={mutationBusy}
+            onclick={() => void deleteAutomation(editingAutomation)}
+          >
+            <Trash2 size={15} strokeWidth={1.9} aria-hidden="true" />
+            Delete
+          </Button>
         {/if}
+        <span class="form-actions-spacer"></span>
+        <Button type="button" onclick={cancelEditing} disabled={mutationBusy}>Cancel</Button>
         <Button variant="primary" class="create-button" type="submit" disabled={mutationBusy}>
           {#if editingId}
             <Pencil size={16} strokeWidth={1.9} aria-hidden="true" />
@@ -496,6 +529,35 @@ onDestroy(() => {
         </Button>
       </div>
     </form>
+  </section>
+{:else}
+  <div class="automation-panel" aria-busy={fetching}>
+    <div class="automation-toolbar">
+      <div>
+        <strong>{automations.length} {automations.length === 1 ? 'automation' : 'automations'}</strong>
+        <p class="automation-description">Scheduled prompts for this workspace.</p>
+      </div>
+      <div class="automation-toolbar-actions">
+        <Button
+          id="automation-ask-agent-trigger"
+          variant="secondary"
+          size="sm"
+          disabled={mutationBusy}
+          onclick={() => { agentMessage = ''; askAgentOpen = true; }}
+        >
+          <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
+          Ask agent…
+        </Button>
+        <Button variant="primary" size="sm" disabled={mutationBusy} onclick={() => void beginCreating()}>
+          <Plus size={15} strokeWidth={1.9} aria-hidden="true" />
+          New automation
+        </Button>
+      </div>
+    </div>
+
+    {#if agentMessage}
+      <p class="automation-agent-message" role="status">{agentMessage}</p>
+    {/if}
 
     {#if mutationError}
       <p class="automation-error" role="alert">{mutationError}</p>
@@ -571,15 +633,31 @@ onDestroy(() => {
 }
 .automation-description {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
-.automation-intro {
+.automation-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.automation-toolbar > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+.automation-toolbar strong {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+.automation-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 .automation-agent-message {
   margin: 0;
@@ -587,9 +665,79 @@ onDestroy(() => {
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
+.automation-editor {
+  display: grid;
+  width: 100%;
+  gap: 1.5rem;
+}
+.automation-editor-description {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.automation-editor-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.automation-editor-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+.automation-editor-header h2,
+.automation-editor-header p {
+  margin: 0;
+}
+.automation-editor-header h2 {
+  font-size: var(--text-heading);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-tight);
+}
+.automation-editor-header p {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.automation-back {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.automation-back:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+@media (hover: hover) {
+  .automation-back:not(:disabled):hover {
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+  }
+}
 form {
   display: grid;
-  gap: 0.7rem;
+  gap: 1rem;
 }
 .schedule-row,
 .interval-row {
@@ -633,8 +781,15 @@ form {
 }
 .form-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+.form-actions-spacer {
+  flex: 1 1 auto;
 }
 .automation-list {
   display: grid;
@@ -712,8 +867,28 @@ form {
 }
 
 @media (max-width: 32rem) {
-  .automation-intro {
-    align-items: flex-start;
+  .automation-editor {
+    gap: 1rem;
+  }
+  .automation-editor-description {
+    margin-bottom: 0.15rem;
+  }
+  .automation-editor form {
+    gap: 0.85rem;
+  }
+  .automation-editor :global(textarea:not(.textarea--code)) {
+    min-height: 9rem;
+  }
+  .automation-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .automation-toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :global(.automation-toolbar-actions .vampire-button) {
+    width: 100%;
   }
   .schedule-row,
   .interval-row {
@@ -721,6 +896,23 @@ form {
   }
   .weekday-options {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .form-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    margin-top: 0.15rem;
+    padding-top: 0.85rem;
+  }
+  .form-actions-spacer {
+    display: none;
+  }
+  :global(.form-actions .vampire-button) {
+    width: 100%;
+  }
+  :global(.form-actions .vampire-button--danger-outline) {
+    grid-column: 1 / -1;
+    justify-self: start;
+    width: auto;
   }
 }
 </style>

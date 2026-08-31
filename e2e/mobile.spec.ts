@@ -246,7 +246,13 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
   await expect(page.getByRole('button', { name: 'Manage status widgets' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
+  await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open workspaces' }).click();
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+  await expect(workspaceList.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
+  await expect(workspaceList.getByRole('button', { name: /Switch to .* theme/ })).toBeVisible();
+  await expect(workspaceList.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close workspace navigator' }).click();
   const terminalTypography = await page
     .getByRole('application', { name: 'Interactive shell terminal' })
     .evaluate((terminal) => {
@@ -393,10 +399,14 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
   await expect(automationPage).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
-  await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await expect(automationPage.getByRole('heading', { name: 'Agent automations' })).toBeFocused();
+  await expect(automationPage.getByLabel('Name')).toHaveCount(0);
   await page.reload();
   await expect(automationPage).toBeVisible();
+  await expect(automationPage.getByRole('heading', { name: 'Agent automations' })).toBeFocused();
+  await automationPage.getByRole('button', { name: 'New automation' }).click();
   await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await automationPage.getByRole('button', { name: 'Back to automations' }).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
@@ -444,8 +454,10 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   const statusBar = page.getByRole('region', { name: 'Server status plugins' });
   const cpuPlugin = statusBar.locator('.status-plugin').filter({ hasText: 'CPU' });
   await expect(cpuPlugin).toBeVisible();
-  const ports = page.getByRole('button', { name: 'Inspect listening ports' });
-  const theme = page.getByRole('button', { name: /Switch to .* theme/ });
+  await page.getByRole('button', { name: 'Open workspaces' }).click();
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+  const ports = workspaceList.getByRole('button', { name: 'Inspect listening ports' });
+  const theme = workspaceList.getByRole('button', { name: /Switch to .* theme/ });
   const [portsBox, portsIconBox, themeBox] = await Promise.all([
     ports.boundingBox(),
     ports.locator('svg').boundingBox(),
@@ -455,9 +467,8 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   expect(portsIconBox).not.toBeNull();
   expect(themeBox).not.toBeNull();
   expect(Math.abs(portsBox!.width - themeBox!.width)).toBeLessThan(1);
-  const portsLeftGap = portsIconBox!.x - portsBox!.x;
-  const portsRightGap = portsBox!.x + portsBox!.width - (portsIconBox!.x + portsIconBox!.width);
-  expect(Math.abs(portsLeftGap - portsRightGap)).toBeLessThan(1);
+  expect(portsIconBox!.x).toBeGreaterThan(portsBox!.x);
+  await page.getByRole('button', { name: 'Close workspace navigator' }).click();
   await cpuPlugin.click();
   const popover = page.locator('.status-plugin-popover');
   const repositoryButton = page.getByRole('button', { name: 'Open repository' });

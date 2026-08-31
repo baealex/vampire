@@ -22,7 +22,6 @@ let {
   updatingFavoriteCommand,
   backgroundActionError = '',
   close,
-  onLogout,
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
   repositoryOpen = false,
@@ -52,7 +51,6 @@ let {
   updatingFavoriteCommand?: string;
   backgroundActionError?: string;
   close: () => void;
-  onLogout?: () => void;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
   repositoryOpen?: boolean;
@@ -112,12 +110,7 @@ onMount(() => {
 
 <section class="terminal-sheet" style={viewportStyle} aria-label={`Terminal for ${projectName}`}>
   <div class="terminal-topbar">
-    <GlobalStatusBar
-      plugins={statusPlugins}
-      {onLogout}
-      dismissPopovers={dismissStatusPopovers}
-      {onManageStatusWidgets}
-    />
+    <GlobalStatusBar plugins={statusPlugins} dismissPopovers={dismissStatusPopovers} {onManageStatusWidgets} />
     <TerminalHeader
       {projectName}
       cwd={workspace.cwd}

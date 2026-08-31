@@ -30,7 +30,6 @@ let {
   updatingFavoriteCommand,
   backgroundActionError = '',
   close,
-  onLogout,
   onUpdateNote,
   onLoadNote,
   onInputActivity,
@@ -57,7 +56,6 @@ let {
   updatingFavoriteCommand?: string;
   backgroundActionError?: string;
   close: () => void;
-  onLogout?: () => void;
   onUpdateNote: (workspaceId: string, note: string) => Promise<void>;
   onLoadNote: (workspaceId: string, refresh?: boolean) => Promise<string>;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
@@ -256,7 +254,6 @@ onMount(() => {
       {updatingFavoriteCommand}
       {backgroundActionError}
       close={openWorkspaceNavigator}
-      {onLogout}
       {onInputActivity}
       {onOutputActivity}
       {repositoryOpen}

@@ -22,6 +22,7 @@ import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.sve
 import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
 import WorkspaceAliasDialog from '~/lib/features/workspace/ui/WorkspaceAliasDialog.svelte';
 import WorkspaceAutomationsPage from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsPage.svelte';
+import AppSidebarActions from './AppSidebarActions.svelte';
 import StatusPluginSettings from '~/lib/features/status/ui/StatusPluginSettings.svelte';
 import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
 import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
@@ -593,7 +594,11 @@ onMount(() => {
     <TmuxSetupScreen status={tmuxStatus} />
   {:else}
     <div class="app-shell">
-      <div class="dashboard" class:terminal-open={workspaceState.hasOpenWorkspace}>
+      <div
+        class="dashboard"
+        class:terminal-open={workspaceState.hasOpenWorkspace}
+        class:management-open={Boolean(managementView)}
+      >
         <WorkspaceNavigator
           workspaces={workspaceState.workspaces}
           displayedWorkspaces={workspaceState.displayedWorkspaces}
@@ -621,7 +626,11 @@ onMount(() => {
           onCloseWorkspace={closeWorkspace}
           onRemoveWorkspace={removeWorkspace}
           onCreate={() => void createWorkspace()}
-        />
+        >
+          {#snippet tools()}
+            <AppSidebarActions onLogout={connection.authenticationRequired ? () => void logout() : undefined} />
+          {/snippet}
+        </WorkspaceNavigator>
 
         {#if managementView === 'widgets'}
           <StatusPluginSettings
@@ -756,7 +765,6 @@ onMount(() => {
                 stoppingBackgroundProcessId={workspaceState.stoppingBackgroundProcessId}
                 updatingFavoriteCommand={workspaceState.updatingFavoriteCommand}
                 backgroundActionError={workspaceState.backgroundActionErrorWorkspaceId === workspaceState.activeWorkspace.id ? workspaceState.backgroundActionError : ''}
-                onLogout={connection.authenticationRequired ? () => void logout() : undefined}
                 close={openWorkspaceNavigator}
                 onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
                 onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
@@ -853,6 +861,11 @@ main {
   min-width: 0;
   min-height: 100dvh;
   padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+}
+@media (max-width: 63.999rem) {
+  .dashboard.management-open {
+    padding: 0;
+  }
 }
 .error {
   margin: 0;

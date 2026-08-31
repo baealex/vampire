@@ -12,6 +12,7 @@ import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
 import Button from '~/lib/shared/ui/Button.svelte';
+import CodeEditor from '~/lib/shared/ui/CodeEditor.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
@@ -19,7 +20,6 @@ import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte'
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
 import Select from '~/lib/shared/ui/Select.svelte';
-import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
 import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions.ts';
@@ -303,7 +303,7 @@ onDestroy(() => unsubscribe?.());
   {close}
   closeLabel="Close status widget settings"
   busy={saving || agentSubmitting}
-  showFooter={view !== 'guide' && view !== 'agent'}
+  showFooter={hasUnsavedChanges && view !== 'guide' && view !== 'agent'}
   back={view === 'agent' ? () => void closeAgentView() : view === 'guide' ? leaveGuide : view === 'detail' ? showPluginList : undefined}
   backLabel={view === 'guide' ? 'Back to status widget settings' : 'Back to status widgets'}
 >
@@ -358,12 +358,16 @@ onDestroy(() => unsubscribe?.());
           <DialogToolbar>
             <span>{plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}</span>
             <div class="status-toolbar-actions">
+              <Button variant="secondary" size="sm" onclick={showGuide}>
+                <BookOpen size={14} strokeWidth={1.9} aria-hidden="true" />
+                <span>Guide</span>
+              </Button>
               <Button
                 id="status-widget-ask-agent-trigger"
                 variant="secondary"
                 size="sm"
                 onclick={openAgentView}
-                disabled={loading || hasUnsavedChanges || !selectedTargetWorkspaceId}
+                disabled={loading}
               >
                 <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
                 <span>Ask agent…</span>
@@ -520,19 +524,15 @@ onDestroy(() => unsubscribe?.());
                     <span>Remove widget</span>
                   </Button>
                 </div>
-                <label class="command-field">
+                <div class="command-field">
                   <span>Command</span>
-                  <Textarea
-                    size="code"
-                    mono
+                  <CodeEditor
+                    ariaLabel="Command"
                     value={selectedPlugin.source.command}
-                    oninput={(event) => (selectedPlugin.source.command = (event.currentTarget as HTMLTextAreaElement).value)}
                     maxlength={STATUS_PLUGIN_COMMAND_MAX_LENGTH}
-                    spellcheck={false}
-                    rows={7}
-                    wrap="off"
+                    onValueChange={(value) => (selectedPlugin.source.command = value)}
                   />
-                </label>
+                </div>
               </div>
             </div>
           </div>
@@ -548,10 +548,7 @@ onDestroy(() => unsubscribe?.());
   {#snippet footer()}
     {#if view !== 'guide' && view !== 'agent'}
       <div class="status-settings-footer">
-        <Button variant="secondary" onclick={showGuide}>
-          <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
-          <span>Guide</span>
-        </Button>
+        <span>Unsaved changes</span>
         <Button variant="primary" onclick={() => void save()} disabled={loading || saving || !hasUnsavedChanges}>
           <Save size={15} strokeWidth={1.9} aria-hidden="true" />
           <span>{saving ? 'Saving…' : 'Save changes'}</span>
@@ -570,8 +567,7 @@ onDestroy(() => unsubscribe?.());
 }
 .status-agent-view {
   display: grid;
-  width: min(100%, 42rem);
-  margin: 0 auto;
+  width: 100%;
   gap: 1.25rem;
 }
 .status-toolbar-actions {
@@ -706,8 +702,7 @@ onDestroy(() => unsubscribe?.());
 }
 .status-detail-editor {
   display: block;
-  width: min(100%, 36rem);
-  margin: 0 auto;
+  width: 100%;
   padding: 0.15rem 0;
 }
 .status-plugin-editor__fields {
@@ -729,6 +724,14 @@ onDestroy(() => unsubscribe?.());
   min-height: 2.2rem;
 }
 .status-plugin-editor label {
+  display: grid;
+  min-width: 0;
+  gap: 0.28rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-medium);
+}
+.command-field {
   display: grid;
   min-width: 0;
   gap: 0.28rem;
@@ -776,8 +779,12 @@ onDestroy(() => unsubscribe?.());
 .status-settings-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.45rem;
+}
+.status-settings-footer > span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
 }
 @media (max-width: 42rem) {
   .status-detail-editor .status-plugin-editor__top {
@@ -786,6 +793,17 @@ onDestroy(() => unsubscribe?.());
 }
 
 @media (max-width: 32rem) {
+  .status-settings :global(.toolbar) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .status-toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .status-toolbar-actions :global(button) {
+    width: 100%;
+  }
   .status-detail-editor .status-plugin-editor__top {
     grid-template-columns: minmax(0, 1fr) 6.2rem;
   }

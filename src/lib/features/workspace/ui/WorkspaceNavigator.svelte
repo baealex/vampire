@@ -1,5 +1,5 @@
 <script lang="ts">
-import Plus from '@lucide/svelte/icons/plus';
+import type { Snippet } from 'svelte';
 import WorkspaceList from './WorkspaceList.svelte';
 import WorkspaceNavigatorHeader from './WorkspaceNavigatorHeader.svelte';
 import WorkspaceDirectoryPicker from './WorkspaceDirectoryPicker.svelte';
@@ -33,6 +33,7 @@ let {
   onNewWorktree,
   onAutomations,
   onCreate,
+  tools,
 }: {
   workspaces: ManagedWorkspace[];
   displayedWorkspaces: ManagedWorkspace[];
@@ -60,6 +61,7 @@ let {
   onNewWorktree: (workspace: ManagedWorkspace) => void;
   onAutomations: (workspace: ManagedWorkspace) => void;
   onCreate: () => void;
+  tools?: Snippet;
 } = $props();
 
 function openNewWorkspace() {
@@ -84,6 +86,8 @@ function createWorkspace(path: string) {
       {workspacePreferencesError}
       {onClose}
       {onOrderModeChange}
+      onNewWorkspace={openNewWorkspace}
+      {tools}
     />
     <WorkspaceList
       {workspaces}
@@ -103,13 +107,6 @@ function createWorkspace(path: string) {
       {onAutomations}
       onNewWorkspace={openNewWorkspace}
     />
-  </section>
-
-  <section class="new-workspace-panel" aria-labelledby="new-workspace-title">
-    <button class="new-workspace-toggle" type="button" onclick={openNewWorkspace}>
-      <span class="new-workspace-toggle__icon" aria-hidden="true"><Plus size={14} strokeWidth={2.1} /></span>
-      <strong id="new-workspace-title">New workspace</strong>
-    </button>
   </section>
 
   {#if newWorkspaceOpen}
@@ -135,8 +132,7 @@ function createWorkspace(path: string) {
 .workspace-scrim {
   display: none;
 }
-.workspace-panel,
-.new-workspace-panel {
+.workspace-panel {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
@@ -144,41 +140,6 @@ function createWorkspace(path: string) {
 .workspace-panel {
   min-width: 0;
   overflow: hidden;
-}
-.new-workspace-panel {
-  overflow: hidden;
-}
-.new-workspace-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  min-height: 3.5rem;
-  padding: 0.5rem 1rem;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .new-workspace-toggle:hover {
-    background: var(--color-surface-raised);
-  }
-}
-.new-workspace-toggle__icon {
-  display: grid;
-  place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-}
-.new-workspace-toggle strong {
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
 }
 
 @media (min-width: 64rem) {
@@ -192,8 +153,7 @@ function createWorkspace(path: string) {
     border-right: 1px solid var(--color-border);
     background: var(--color-panel);
   }
-  .workspace-panel,
-  .new-workspace-panel {
+  .workspace-panel {
     width: 100%;
     border: 0;
     border-radius: 0;
@@ -204,17 +164,6 @@ function createWorkspace(path: string) {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-  }
-  .new-workspace-panel {
-    position: relative;
-    z-index: 1;
-    flex: 0 0 auto;
-    border-top: 1px solid var(--color-border);
-    background: var(--color-panel);
-  }
-  .new-workspace-toggle {
-    min-height: 3.25rem;
-    padding-block: 0.4rem;
   }
 }
 
@@ -261,8 +210,7 @@ function createWorkspace(path: string) {
     transition: transform 180ms ease;
     visibility: visible;
   }
-  .workspace-panel,
-  .new-workspace-panel {
+  .workspace-panel {
     width: 100%;
     border: 0;
     border-radius: 0;
@@ -273,13 +221,6 @@ function createWorkspace(path: string) {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-  }
-  .new-workspace-panel {
-    position: relative;
-    z-index: 1;
-    flex: 0 0 auto;
-    border-top: 1px solid var(--color-border);
-    background: var(--color-panel);
   }
 }
 

@@ -56,6 +56,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+test('keeps save actions out of the clean widget list', () => {
+  const initial = { plugins: [plugin('Original widget')], presets: [] };
+  queryCache.set(STATUS_PLUGINS_QUERY, initial);
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify(initial), { headers: { 'content-type': 'application/json' } })
+  );
+
+  render(StatusPluginSettings, { close: vi.fn() });
+
+  expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+});
+
 test('does not replace an unsaved widget draft with a background refresh', async () => {
   const user = userEvent.setup();
   const initial = { plugins: [plugin('Original widget')], presets: [] };
@@ -143,11 +155,13 @@ test('requires unsaved widget changes to be saved before Ask Agent', async () =>
   await user.click(screen.getByRole('button', { name: 'Edit Original widget' }));
   await user.type(screen.getByRole('textbox', { name: 'Name' }), ' changed');
   await user.click(screen.getByRole('button', { name: 'Back to status widgets' }));
-  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeEnabled();
   expect(
     screen.getByText('Save changes before asking an agent to update the global widget configuration.')
   ).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Save your widget changes before asking an agent.');
 
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeEnabled());
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });

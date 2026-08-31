@@ -1,11 +1,6 @@
 import { createServer, loadEnv } from 'vite';
 import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
-import {
-  applyVampireEnvironmentDefaults,
-  isLoopbackHost,
-  listeningUrl,
-  runtimeConfig,
-} from '~/lib/server/runtime-config.ts';
+import { applyVampireEnvironmentDefaults, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.server.ts';
 
 const fileEnvironment = loadEnv('development', process.cwd(), 'VAMPIRE_');
@@ -13,8 +8,8 @@ applyVampireEnvironmentDefaults(fileEnvironment);
 delete fileEnvironment.VAMPIRE_TOKEN;
 
 const config = runtimeConfig();
-if (!isLoopbackHost(config.host)) {
-  throw new Error('The development server is restricted to localhost. Use the production server for remote access.');
+if (config.host === '0.0.0.0' || config.host === '::') {
+  throw new Error('The development server requires a specific host address and cannot bind to every interface.');
 }
 await initializeAuthentication();
 const vite = await createServer({

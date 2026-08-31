@@ -467,8 +467,10 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(statusBar).toBeVisible();
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
-  await expect(page.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
-  await page.getByRole('button', { name: 'Inspect listening ports' }).click();
+  await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+  await expect(workspaceList.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
+  await workspaceList.getByRole('button', { name: 'Inspect listening ports' }).click();
   const portsDialog = page.getByRole('dialog', { name: 'Listening ports' });
   await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
   await expect(portsDialog.getByRole('searchbox', { name: 'Filter listening ports' })).toBeFocused();
@@ -521,6 +523,7 @@ test('delivers note and widget requests to the existing main agent without expos
   const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
   await expect(automationPage).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
+  await automationPage.getByRole('button', { name: 'New automation' }).click();
   await expect(automationPage.getByLabel('Name')).toBeFocused();
   await automationPage.getByLabel('Name').fill('Review project state');
   await automationPage.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
@@ -763,8 +766,9 @@ test('manages server-wide status plugins and shares their ordered output across 
   await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Codex Limit', exact: true }).click();
   const codexLimit = settings.locator('.status-detail-editor');
-  await expect(codexLimit.getByLabel('Command')).toHaveValue(/account\/rateLimits\/read/);
-  await expect(codexLimit.getByLabel('Command')).toHaveValue(/\n/);
+  const codexLimitCommand = codexLimit.getByRole('textbox', { name: 'Command' });
+  await expect(codexLimitCommand).toContainText(/^node --input-type=module/);
+  expect(await codexLimitCommand.locator('.cm-line').count()).toBeGreaterThan(1);
   await expect(codexLimit.getByLabel('Enabled')).toBeChecked();
   await codexLimit.getByRole('button', { name: 'Remove Codex Limit' }).click();
   await settings.getByRole('button', { name: 'Add widget' }).click();
@@ -778,6 +782,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await settings.getByRole('button', { name: 'Back to status widgets' }).click();
   await settings.getByRole('button', { name: 'Close status widget settings' }).click();
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -790,7 +795,6 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
-  await settings.getByRole('button', { name: 'Back to status widgets' }).click();
   await settings.getByRole('button', { name: 'Actions for Build' }).click();
   await page.getByRole('menuitem', { name: 'Move Build up' }).click();
   await settings.getByRole('button', { name: 'Actions for Build' }).click();
@@ -798,13 +802,13 @@ test('manages server-wide status plugins and shares their ordered output across 
 
   await settings.getByRole('button', { name: 'Edit CPU' }).click();
   const cpu = settings.locator('.status-detail-editor');
-  await expect(cpu.getByLabel('Command')).toHaveValue(/^node --input-type=module/);
-  await expect(cpu.getByLabel('Command')).toHaveValue(/function snapshot\(\)/);
+  await expect(cpu.getByRole('textbox', { name: 'Command' })).toContainText(/^node --input-type=module/);
+  await expect(cpu.getByRole('textbox', { name: 'Command' })).toContainText(/function snapshot\(\)/);
   await settings.getByRole('button', { name: 'Back to status widgets' }).click();
   await settings.getByRole('button', { name: 'Actions for CPU' }).click();
   await page.getByRole('menuitem', { name: 'Remove CPU' }).click();
   await settings.getByRole('button', { name: 'Save changes' }).click();
-  await expect(settings.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  await expect(settings.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Close status widget settings' }).click();
   await expect(settings).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));

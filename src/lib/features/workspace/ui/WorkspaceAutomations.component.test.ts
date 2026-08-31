@@ -42,6 +42,10 @@ test('creates a weekly automation with the selected local weekdays and time', as
   });
   render(WorkspaceAutomations, { workspaceId: WORKSPACE_ID });
 
+  expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'New automation' }));
+  expect(screen.getByRole('heading', { name: 'New automation' })).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus();
   await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Weekday review');
   await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Review open work.');
   await user.selectOptions(screen.getByRole('combobox', { name: 'Schedule' }), 'weekly');
@@ -145,7 +149,7 @@ test('edits an existing automation and saves its replacement schedule', async ()
     schedule: { type: 'weekly', weekdays: [1, 3, 5], hour: 14, minute: 30, timeZone: 'Asia/Seoul' },
   });
   expect(await screen.findByText('Afternoon review')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Add automation' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'New automation' })).toBeInTheDocument();
 });
 
 test('round-trips an agent-created interval that is not a whole second', async () => {

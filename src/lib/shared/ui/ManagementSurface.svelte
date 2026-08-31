@@ -1,6 +1,5 @@
 <script lang="ts">
 import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-import X from '@lucide/svelte/icons/x';
 import { onMount, tick, type Snippet } from 'svelte';
 
 let {
@@ -39,60 +38,69 @@ onMount(() => {
 </script>
 
 <section class="management-surface" aria-labelledby={titleId}>
-  <header>
-    <div class="management-heading">
-      {#if back}
-        <button type="button" class="management-icon-button" onclick={back} disabled={busy} aria-label={backLabel}>
-          <ArrowLeft size={19} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      {/if}
-      <div>
+  <header class="management-header">
+    <div class="management-header-inner">
+      <button
+        type="button"
+        class="management-back"
+        onclick={back ?? close}
+        disabled={busy}
+        aria-label={back ? backLabel : closeLabel}
+      >
+        <ArrowLeft size={19} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      <div class="management-heading">
         {#if eyebrow}
           <p>{eyebrow}</p>
         {/if}
         <h1 bind:this={titleElement} id={titleId} tabindex="-1">{title}</h1>
       </div>
     </div>
-    <button type="button" class="management-icon-button" onclick={close} disabled={busy} aria-label={closeLabel}>
-      <X size={19} strokeWidth={1.8} aria-hidden="true" />
-    </button>
   </header>
-  <div class="management-body">{@render children()}</div>
-  {#if footer && showFooter}
-    <footer>{@render footer()}</footer>
-  {/if}
+  <div class="management-body">
+    <div class="management-content">
+      {@render children()}
+      {#if footer && showFooter}
+        <footer>{@render footer()}</footer>
+      {/if}
+    </div>
+  </div>
 </section>
 
 <style>
 .management-surface {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: var(--color-surface);
   color: var(--color-text);
 }
-header {
-  display: flex;
+.management-header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+.management-header-inner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  width: min(100%, 70rem);
+  margin: 0 auto;
+  gap: 0.7rem;
   min-height: 4.5rem;
   padding: max(0.8rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.8rem
     max(1rem, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-panel);
+  box-sizing: border-box;
 }
 .management-heading {
-  display: flex;
-  align-items: center;
+  display: grid;
   min-width: 0;
-  gap: 0.6rem;
-}
-.management-heading > div {
-  min-width: 0;
+  gap: 0.05rem;
 }
 p,
 h1 {
@@ -101,17 +109,20 @@ h1 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+h1:focus {
+  outline: none;
+}
 p {
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
 h1 {
-  font-size: var(--text-title);
+  font-size: clamp(var(--text-title), 2vw, 1.35rem);
   font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
 }
-.management-icon-button {
+.management-back {
   display: grid;
   flex: 0 0 var(--control-height-md);
   place-items: center;
@@ -124,32 +135,55 @@ h1 {
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.management-icon-button:disabled {
+.management-back:disabled {
   cursor: wait;
   opacity: 0.55;
 }
 .management-body {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: clamp(1rem, 3vw, 2rem);
+  padding: 1rem 0 max(2rem, env(safe-area-inset-bottom));
+}
+.management-content {
+  display: grid;
+  width: min(100%, 70rem);
+  margin: 0 auto;
+  padding-right: calc(max(1rem, env(safe-area-inset-right)) + var(--control-height-md) + 0.7rem);
+  padding-left: calc(max(1rem, env(safe-area-inset-left)) + var(--control-height-md) + 0.7rem);
+  box-sizing: border-box;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
 }
 footer {
-  padding: 0.8rem max(1rem, env(safe-area-inset-right)) max(0.8rem, env(safe-area-inset-bottom))
-    max(1rem, env(safe-area-inset-left));
+  padding-top: 1rem;
   border-top: 1px solid var(--color-border);
-  background: var(--color-panel);
 }
 @media (hover: hover) {
-  .management-icon-button:not(:disabled):hover {
+  .management-back:not(:disabled):hover {
     background: var(--color-surface-raised);
     color: var(--color-text);
   }
 }
-@media (min-width: 64rem) {
+@media (max-width: 42rem) {
+  .management-content {
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+}
+@media (max-width: 32rem) {
+  .management-surface {
+    min-height: 100dvh;
+  }
+  .management-header-inner {
+    min-height: 4.25rem;
+    padding-right: max(0.8rem, env(safe-area-inset-right));
+    padding-left: max(0.8rem, env(safe-area-inset-left));
+  }
   .management-body {
-    padding-inline: max(2rem, calc((100% - 64rem) / 2));
+    padding-top: 0.8rem;
+  }
+  .management-content {
+    padding-right: max(0.8rem, env(safe-area-inset-right));
+    padding-left: max(0.8rem, env(safe-area-inset-left));
   }
 }
 </style>
