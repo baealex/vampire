@@ -18,7 +18,13 @@ function plugin(name: string, command = 'echo ready'): StatusPlugin {
   };
 }
 
-function agentWorkspace(id: string, label: string, agentLabel: string, lastActiveAt: number): ManagedWorkspace {
+function agentWorkspace(
+  id: string,
+  label: string,
+  agentLabel: string,
+  lastActiveAt: number,
+  terminalAgentLabel: string | null = agentLabel
+): ManagedWorkspace {
   return {
     id,
     tmuxSession: `tmux-${id}`,
@@ -40,7 +46,7 @@ function agentWorkspace(id: string, label: string, agentLabel: string, lastActiv
         name: 'main',
         active: true,
         lastOutputAt: null,
-        foregroundProcess: { kind: 'command', label: agentLabel },
+        foregroundProcess: terminalAgentLabel ? { kind: 'command', label: terminalAgentLabel } : null,
         command: agentLabel,
         startedAt: 1,
         state: 'running',
@@ -95,13 +101,15 @@ test('does not replace an unsaved widget draft with a background refresh', async
   expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
 
-test('opens Ask Agent inside the settings page with an explicit workspace target', async () => {
+test('opens Ask Agent from the workspace process summary when the terminal detail is stale', async () => {
   const user = userEvent.setup();
   const initial = { plugins: [], presets: [] };
   const workspaces = [
-    agentWorkspace('workspace-1', 'Project one', 'codex', 1),
+    agentWorkspace('workspace-1', 'Project one', 'codex', 1, null),
     agentWorkspace('workspace-2', 'Project two', 'claude', 2),
   ];
+  workspaces[0]!.terminals[0]!.state = 'exited';
+  workspaces[0]!.foregroundProcess = { kind: 'shell', label: 'zsh' };
   queryCache.set(STATUS_PLUGINS_QUERY, initial);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input);

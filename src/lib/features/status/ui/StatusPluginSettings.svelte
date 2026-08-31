@@ -78,15 +78,17 @@ const agentTargets = $derived(
   workspaces
     .flatMap((workspace) => {
       const main = workspace.terminals.find((terminal) => terminal.index === 0);
-      const process = main?.foregroundProcess;
-      return workspace.state === 'running' &&
-        main?.state === 'running' &&
-        process?.kind === 'command' &&
-        isAgentProcessLabel(process.label)
+      const process = main?.foregroundProcess ?? workspace.foregroundProcess;
+      return workspace.state === 'running' && process?.kind === 'command' && isAgentProcessLabel(process.label)
         ? [{ workspace, agentLabel: process.label }]
         : [];
     })
     .sort((left, right) => right.workspace.lastActiveAt - left.workspace.lastActiveAt)
+);
+const selectedFallbackWorkspace = $derived(
+  selectedTargetWorkspaceId && !agentTargets.some(({ workspace }) => workspace.id === selectedTargetWorkspaceId)
+    ? workspaces.find((workspace) => workspace.id === selectedTargetWorkspaceId)
+    : undefined
 );
 
 $effect(() => onBusyChange(saving || agentSubmitting));
@@ -94,6 +96,7 @@ $effect(() => onDirtyChange(hasUnsavedChanges));
 
 $effect(() => {
   if (agentTargets.some(({ workspace }) => workspace.id === selectedTargetWorkspaceId)) return;
+  if (view === 'agent' && selectedTargetWorkspaceId) return;
   const preferred = agentTargets.find(({ workspace }) => workspace.id === workspaceId) ?? agentTargets[0];
   selectedTargetWorkspaceId = preferred?.workspace.id ?? '';
 });
@@ -204,10 +207,16 @@ function openAgentView() {
     errorMessage = 'Save your widget changes before asking an agent.';
     return;
   }
-  if (!selectedTargetWorkspaceId) {
+  const targetWorkspaceId =
+    (workspaceId && workspaces.some((workspace) => workspace.id === workspaceId) ? workspaceId : undefined) ??
+    (agentTargets.some(({ workspace }) => workspace.id === selectedTargetWorkspaceId)
+      ? selectedTargetWorkspaceId
+      : agentTargets[0]?.workspace.id);
+  if (!targetWorkspaceId) {
     errorMessage = 'Start a supported agent in a workspace before using Ask agent.';
     return;
   }
+  selectedTargetWorkspaceId = targetWorkspaceId;
   agentMessage = '';
   errorMessage = '';
   view = 'agent';
@@ -316,19 +325,23 @@ onDestroy(() => unsubscribe?.());
           <span>Send to</span>
           <Select
             value={selectedTargetWorkspaceId}
-            disabled={agentSubmitting || agentTargets.length === 0}
+            disabled={agentSubmitting || (agentTargets.length === 0 && !selectedFallbackWorkspace)}
             onchange={(event) => selectedTargetWorkspaceId = (event.currentTarget as HTMLSelectElement).value}
           >
-            {#if agentTargets.length === 0}
+            {#if selectedFallbackWorkspace}
+              <option value={selectedFallbackWorkspace.id}>
+                {selectedFallbackWorkspace.workspaceLabel?.trim() || selectedFallbackWorkspace.cwd}
+                · checking agent…
+              </option>
+            {:else if agentTargets.length === 0}
               <option value="">No running main agent</option>
-            {:else}
-              {#each agentTargets as target (target.workspace.id)}
-                <option value={target.workspace.id}>
-                  {target.workspace.workspaceLabel?.trim() || target.workspace.cwd}
-                  · {target.agentLabel}
-                </option>
-              {/each}
             {/if}
+            {#each agentTargets as target (target.workspace.id)}
+              <option value={target.workspace.id}>
+                {target.workspace.workspaceLabel?.trim() || target.workspace.cwd}
+                · {target.agentLabel}
+              </option>
+            {/each}
           </Select>
           <small>Widget files are global; choose the workspace agent that should update them.</small>
         </label>
