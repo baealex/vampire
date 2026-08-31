@@ -195,7 +195,5 @@ test('shows the note path in a modal and saves the latest draft before queuing t
 
   await waitFor(() => expect(queueAgentAction).toHaveBeenCalledTimes(1));
   expect(queueAgentAction).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
-  expect(
-    await screen.findByText('Queued — the request will appear in the main agent session when it is ready.')
-  ).toBeInTheDocument();
+  expect(await screen.findByText('Sent to the main agent session.')).toBeInTheDocument();
 });

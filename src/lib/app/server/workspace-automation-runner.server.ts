@@ -1,4 +1,3 @@
-import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import {
   dispatchManagedWorkspaceAutomation,
   listDueManagedWorkspaceAutomations,
@@ -11,20 +10,16 @@ import {
   type TmuxSession,
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
-import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
 
 const AUTOMATION_POLL_INTERVAL_MS = 2_000;
 
-export function automationSubmissionTerminal(
-  tmuxSession: TmuxSession | undefined,
-  agentState: AgentState
-): TmuxTerminal | undefined {
+export function automationSubmissionTerminal(tmuxSession: TmuxSession | undefined): TmuxTerminal | undefined {
   const mainTerminal = tmuxSession?.terminals[0];
   const process = mainTerminal?.foregroundProcess;
-  return agentState === 'waiting' &&
-    mainTerminal?.index === 0 &&
+  return mainTerminal?.index === 0 &&
     mainTerminal.state === 'running' &&
     process?.kind === 'command' &&
     isAgentProcessLabel(process.label)
@@ -34,13 +29,11 @@ export function automationSubmissionTerminal(
 
 type AutomationSubmissionDependencies = {
   listTmuxSessions: typeof listTmuxSessions;
-  readAgentStates: typeof readWorkspaceAgentStates;
   submitPrompt: typeof submitTmuxPrompt;
 };
 
 const submissionDependencies: AutomationSubmissionDependencies = {
   listTmuxSessions,
-  readAgentStates: readWorkspaceAgentStates,
   submitPrompt: submitTmuxPrompt,
 };
 
@@ -53,14 +46,7 @@ export async function prepareAutomationSubmission(
     (tmuxSession) => tmuxSession.name === stored.tmuxSession
   );
   if (!running) return undefined;
-  const detected = await dependencies.readAgentStates([
-    {
-      id: stored.id,
-      state: 'running',
-      terminals: running.terminals,
-    },
-  ]);
-  const terminal = automationSubmissionTerminal(running, detected.get(stored.id) ?? null);
+  const terminal = automationSubmissionTerminal(running);
   if (!terminal) return undefined;
   return () => dependencies.submitPrompt(stored.tmuxSession, terminal.id, automation.prompt);
 }

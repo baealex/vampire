@@ -177,7 +177,7 @@ async function submitAgentRequest(request: string): Promise<WorkspaceAgentAction
 
 function handleAgentRequestQueued() {
   agentUpdateQueued = true;
-  agentUpdateMessage = 'Queued — the request will appear in the main agent session when it is ready.';
+  agentUpdateMessage = 'Sent to the main agent session.';
   startAgentNoteSync();
 }
 

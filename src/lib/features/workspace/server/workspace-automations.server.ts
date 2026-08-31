@@ -173,7 +173,7 @@ export async function queueManagedWorkspaceAgentPrompt(
     if (existing?.enabled) {
       throw new WorkspaceAutomationMutationError(
         'conflict',
-        'A request for this agent action is already waiting to be delivered.'
+        'A request for this agent action is already being delivered.'
       );
     }
     const automation = existing

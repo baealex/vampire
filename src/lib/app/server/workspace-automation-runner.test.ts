@@ -66,26 +66,21 @@ const automation: WorkspaceAutomation = {
   lastError: null,
 };
 
-test('automation submission targets only the waiting recognized agent in the main terminal', () => {
-  assert.equal(automationSubmissionTerminal(running, 'waiting')?.id, '@1');
-  assert.equal(automationSubmissionTerminal(running, 'working'), undefined);
+test('automation submission targets the recognized main agent without reading its screen', () => {
+  assert.equal(automationSubmissionTerminal(running)?.id, '@1');
   assert.equal(
-    automationSubmissionTerminal(
-      {
-        ...running,
-        terminals: [{ ...running.terminals[0], foregroundProcess: { kind: 'shell', label: 'zsh' } }],
-      },
-      'waiting'
-    ),
+    automationSubmissionTerminal({
+      ...running,
+      terminals: [{ ...running.terminals[0], foregroundProcess: { kind: 'shell', label: 'zsh' } }],
+    }),
     undefined
   );
 });
 
-test('prepares one literal prompt submission only after the live waiting-state check', async () => {
+test('prepares one literal prompt submission while the recognized agent is running', async () => {
   const submissions: Array<[string, string, string]> = [];
   const ready = await prepareAutomationSubmission(stored, automation, {
     listTmuxSessions: async () => [running],
-    readAgentStates: async () => new Map([[stored.id, 'waiting']]),
     submitPrompt: async (...input) => {
       submissions.push(input);
     },
@@ -93,13 +88,4 @@ test('prepares one literal prompt submission only after the live waiting-state c
   assert.ok(ready);
   await ready();
   assert.deepEqual(submissions, [[running.name, '@1', automation.prompt]]);
-
-  assert.equal(
-    await prepareAutomationSubmission(stored, automation, {
-      listTmuxSessions: async () => [running],
-      readAgentStates: async () => new Map([[stored.id, 'working']]),
-      submitPrompt: async () => undefined,
-    }),
-    undefined
-  );
 });

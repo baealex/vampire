@@ -103,7 +103,7 @@ test('agent actions reuse one hidden queue slot without appearing as saved autom
       },
       10_500
     ),
-    /already waiting to be delivered/
+    /already being delivered/
   );
   assert.equal(
     await dispatchManagedWorkspaceAutomation('workspace-1', first.id, 10_000, async () => async () => undefined),

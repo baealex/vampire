@@ -552,7 +552,7 @@ test('delivers note and widget requests to the existing main agent without expos
   await noteAgentDialog.getByRole('textbox', { name: 'What should the agent do?' }).fill(noteRequest);
   await noteAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
   await expect(noteAgentDialog).toBeHidden();
-  await expect(noteDialog.getByText(/Queued — the request will appear in the main agent session/)).toBeVisible();
+  await expect(noteDialog.getByText('Sent to the main agent session.')).toBeVisible();
 
   await expect.poll(async () => readFile(notePath, 'utf8')).toBe('Existing project context\n');
   const automationsResponse = await context.request.get(
