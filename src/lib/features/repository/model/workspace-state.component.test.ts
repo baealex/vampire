@@ -121,6 +121,72 @@ test('permanently deletes an entry as soon as deletion is confirmed', async () =
   );
 });
 
+test('keeps a Git discard confirmation busy until its refreshed change list is ready', async () => {
+  let finishRefresh!: () => void;
+  const refreshReady = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (String(input).endsWith('/repository/discard') && init?.method === 'POST') {
+      return new Response(JSON.stringify({ path: 'scratch.txt', status: '??' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    await refreshReady;
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  const change = { path: 'scratch.txt', status: '??' as const };
+  state.requestDiscardChange(change);
+
+  const discard = state.confirmDiscardChange();
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/repository/discard'))).toBe(true)
+  );
+  expect(state.discarding).toBe(true);
+  expect(state.discardTarget).toEqual(change);
+
+  finishRefresh();
+  await discard;
+  expect(state.discarding).toBe(false);
+  expect(state.discardTarget).toBeUndefined();
+});
+
+test('waits for the queued snapshot when refresh is requested during an active refresh', async () => {
+  let finishFirstRefresh!: () => void;
+  let finishQueuedRefresh!: () => void;
+  const firstRefreshReady = new Promise<void>((resolve) => {
+    finishFirstRefresh = resolve;
+  });
+  const queuedRefreshReady = new Promise<void>((resolve) => {
+    finishQueuedRefresh = resolve;
+  });
+  let snapshotRequestCount = 0;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    snapshotRequestCount += 1;
+    await (snapshotRequestCount === 1 ? firstRefreshReady : queuedRefreshReady);
+    return repositorySnapshotResponse();
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+
+  const activeRefresh = state.refresh();
+  await vi.waitFor(() => expect(snapshotRequestCount).toBe(1));
+  let queuedSettled = false;
+  const queuedRefresh = state.refresh().then(() => {
+    queuedSettled = true;
+  });
+
+  finishFirstRefresh();
+  await vi.waitFor(() => expect(snapshotRequestCount).toBe(2));
+  expect(queuedSettled).toBe(false);
+
+  finishQueuedRefresh();
+  await Promise.all([activeRefresh, queuedRefresh]);
+  expect(queuedSettled).toBe(true);
+  expect(state.refreshToken).toBe(2);
+});
+
 test('deletes an unused local branch only after confirmation', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
     if (init?.method === 'DELETE') {

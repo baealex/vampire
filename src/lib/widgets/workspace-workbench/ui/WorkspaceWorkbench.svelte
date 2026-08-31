@@ -37,12 +37,14 @@ let {
   onOutputActivity,
   onTerminalPresentationChange = () => undefined,
   statusPlugins = [],
+  onManageStatusWidgets = () => undefined,
   mobilePanel,
   onMobilePanelChange = () => undefined,
   repositoryPanelOpen = false,
   onRepositoryPanelOpenChange = () => undefined,
   repositoryTab = 'changes',
   onRepositoryTabChange = () => undefined,
+  onNavigationGuardChange = () => undefined,
 }: {
   workspace: ManagedWorkspace;
   onStartBackground: (command: string) => Promise<WorkspaceTerminal | undefined>;
@@ -62,16 +64,20 @@ let {
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onTerminalPresentationChange?: (workspaceId: string, presented: boolean) => void;
   statusPlugins?: StatusPluginSnapshot[];
+  onManageStatusWidgets?: () => void;
   mobilePanel?: MobilePanel;
   onMobilePanelChange?: (panel: MobilePanel | undefined) => void;
   repositoryPanelOpen?: boolean;
   onRepositoryPanelOpenChange?: (open: boolean) => void;
   repositoryTab?: RepositoryTab;
   onRepositoryTabChange?: (tab: RepositoryTab) => void;
+  onNavigationGuardChange?: (guard: (() => Promise<boolean>) | undefined) => void;
 } = $props();
 
 let desktop = $state(false);
 let notePanelOpen = $state(false);
+let flushNoteDraft: (() => Promise<boolean>) | undefined;
+let notePanelLocked = $state(false);
 let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
 let pathInsertionToken = 0;
 const name = $derived(workspaceName(workspace));
@@ -89,14 +95,16 @@ function toggleRepository() {
     void closeRepository();
     return;
   }
-  closeNotePanel();
+  if (!closeNotePanel()) return;
   onRepositoryPanelOpenChange(true);
   if (!desktop) onMobilePanelChange('repository');
 }
 
-function closeNotePanel() {
+function closeNotePanel(): boolean {
+  if (notePanelLocked) return false;
   notePanelOpen = false;
   if (!desktop && mobilePanel === 'note') onMobilePanelChange(undefined);
+  return true;
 }
 
 function hideRepositoryPanel() {
@@ -111,7 +119,7 @@ function openNotePanel() {
 
 async function toggleNote() {
   if (noteOpen) {
-    closeNotePanel();
+    if (!closeNotePanel()) return;
     return;
   }
   if (repositoryOpen && !(await closeRepository())) return;
@@ -129,12 +137,26 @@ async function openWorkspaceNavigator() {
   if (repositoryOpen) {
     if (!(await closeRepository())) return;
   } else if (noteOpen) {
+    if (!(await confirmWorkspaceNavigation())) return;
     closeNotePanel();
   } else if (!(await repository.confirmDiscardChanges())) {
     return;
   }
   close();
 }
+
+async function confirmWorkspaceNavigation(): Promise<boolean> {
+  if (flushNoteDraft && !(await flushNoteDraft())) {
+    openNotePanel();
+    return false;
+  }
+  return repository.confirmDiscardChanges();
+}
+
+$effect(() => {
+  onNavigationGuardChange(confirmWorkspaceNavigation);
+  return () => onNavigationGuardChange(undefined);
+});
 
 async function selectRepositoryItem(selection: RepositorySelection) {
   if (!(await repository.selectItem(selection))) return;
@@ -200,6 +222,7 @@ onMount(() => {
       void closeRepository();
     } else if (noteOpen) {
       if (!target?.closest('.workspace-note-panel')) return;
+      if (target.closest('.note-agent-view')) return;
       event.preventDefault();
       closeNotePanel();
     } else if (repository.selection) {
@@ -250,6 +273,7 @@ onMount(() => {
       onExternalFileDrop={addDroppedFilesToTerminal}
       dismissStatusPopovers={!desktop && mobilePanel !== undefined}
       {statusPlugins}
+      {onManageStatusWidgets}
     >
       {#if repository.selection}
         <RepositoryViewer
@@ -329,6 +353,8 @@ onMount(() => {
       getNote={(refresh) => onLoadNote(workspace.id, refresh)}
       save={(note) => onUpdateNote(workspace.id, note)}
       close={closeNotePanel}
+      onFlushAvailable={(flush) => flushNoteDraft = flush}
+      onPanelLockChange={(locked) => notePanelLocked = locked}
     />
   </aside>
 

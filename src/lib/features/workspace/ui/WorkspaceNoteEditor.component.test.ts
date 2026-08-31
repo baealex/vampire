@@ -21,6 +21,9 @@ type EditorCallbacks = {
   save: (note: string) => Promise<void>;
   loadAgentAction: () => Promise<WorkspaceAgentActionDescriptor>;
   queueAgentAction: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  onBusyChange: (busy: boolean) => void;
+  onFlushAvailable: (flush: (() => Promise<boolean>) | undefined) => void;
+  onPanelLockChange: (locked: boolean) => void;
 };
 
 const agentAction: WorkspaceAgentActionDescriptor = {
@@ -47,6 +50,9 @@ function renderEditor({
   save = vi.fn(async () => undefined),
   loadAgentAction = vi.fn(async () => agentAction),
   queueAgentAction = vi.fn(async () => submission),
+  onBusyChange = vi.fn(),
+  onFlushAvailable = vi.fn(),
+  onPanelLockChange = vi.fn(),
 }: Partial<EditorCallbacks> = {}) {
   render(WorkspaceNoteEditor, {
     workspaceId: 'workspace-1',
@@ -55,8 +61,20 @@ function renderEditor({
     save,
     loadAgentAction,
     queueAgentAction,
+    onBusyChange,
+    onFlushAvailable,
+    onPanelLockChange,
   });
-  return { getNote, close, save, loadAgentAction, queueAgentAction };
+  return {
+    getNote,
+    close,
+    save,
+    loadAgentAction,
+    queueAgentAction,
+    onBusyChange,
+    onFlushAvailable,
+    onPanelLockChange,
+  };
 }
 
 test('autosaves the latest draft after the user pauses typing', async () => {
@@ -71,6 +89,45 @@ test('autosaves the latest draft after the user pauses typing', async () => {
   await waitFor(() => expect(save).toHaveBeenCalledWith('Latest plan'), { timeout: 2_000 });
   expect(save).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
+});
+
+test('reports an edited draft as busy until automatic saving finishes', async () => {
+  const user = userEvent.setup();
+  const pendingSave = deferred();
+  const onBusyChange = vi.fn();
+  renderEditor({ save: vi.fn(() => pendingSave.promise), onBusyChange });
+  const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
+
+  await user.clear(textarea);
+  await user.type(textarea, 'Protected draft');
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true));
+
+  pendingSave.resolve();
+  await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false), { timeout: 2_000 });
+});
+
+test('provides a navigation guard that flushes the current draft before leaving', async () => {
+  const user = userEvent.setup();
+  const pendingSave = deferred();
+  let flushDraft: (() => Promise<boolean>) | undefined;
+  renderEditor({
+    save: vi.fn(() => pendingSave.promise),
+    onFlushAvailable: (flush) => (flushDraft = flush),
+  });
+  const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
+
+  await user.clear(textarea);
+  await user.type(textarea, 'Save before leaving');
+  expect(flushDraft).toBeDefined();
+  let navigationReady = false;
+  const flush = flushDraft!().then((ready) => {
+    navigationReady = ready;
+  });
+  expect(navigationReady).toBe(false);
+
+  pendingSave.resolve();
+  await flush;
+  expect(navigationReady).toBe(true);
 });
 
 test('saves the latest draft when a workspace switch unmounts the editor before autosave', async () => {
@@ -168,7 +225,7 @@ test('keeps the close action available in panel mode', async () => {
   expect(close).toHaveBeenCalledTimes(1);
 });
 
-test('shows the note path in a modal and saves the latest draft before queuing the visible request', async () => {
+test('shows the note path inside the panel and saves the latest draft before queuing the visible request', async () => {
   const user = userEvent.setup();
   const pendingSave = deferred();
   const save = vi.fn(() => pendingSave.promise);
@@ -179,6 +236,7 @@ test('shows the note path in a modal and saves the latest draft before queuing t
   await user.clear(textarea);
   await user.type(textarea, 'Keep this latest draft');
   await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(await screen.findByText('/state/workspace-1.note.md')).toBeInTheDocument();
   const instructions = screen.getByRole('textbox', { name: 'What should the agent do?' });
   const queueButton = screen.getByRole('button', { name: 'Send to agent' });
@@ -196,4 +254,25 @@ test('shows the note path in a modal and saves the latest draft before queuing t
   await waitFor(() => expect(queueAgentAction).toHaveBeenCalledTimes(1));
   expect(queueAgentAction).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
   expect(await screen.findByText('Sent to the main agent session.')).toBeInTheDocument();
+});
+
+test('locks panel transitions while an agent request is being submitted', async () => {
+  const user = userEvent.setup();
+  let finishQueue!: (value: WorkspaceAgentActionSubmission) => void;
+  const queueAgentAction = vi.fn(
+    () =>
+      new Promise<WorkspaceAgentActionSubmission>((resolve) => {
+        finishQueue = resolve;
+      })
+  );
+  const onPanelLockChange = vi.fn();
+  renderEditor({ queueAgentAction, onPanelLockChange });
+
+  await screen.findByRole('textbox', { name: 'Workspace note' });
+  await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
+  await user.click(screen.getByRole('button', { name: 'Send to agent' }));
+  await waitFor(() => expect(onPanelLockChange).toHaveBeenLastCalledWith(true));
+
+  finishQueue(submission);
+  await waitFor(() => expect(onPanelLockChange).toHaveBeenLastCalledWith(false));
 });

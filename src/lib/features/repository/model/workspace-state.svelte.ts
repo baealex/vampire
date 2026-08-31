@@ -132,45 +132,49 @@ export class RepositoryWorkspaceState {
   async refresh(showLoading = false) {
     if (this.#refreshPromise) {
       this.#refreshQueued = true;
+      await this.#refreshPromise;
       return;
     }
     if (document.hidden) return;
-    const run = this.#enqueue(async () => {
-      const shouldShowLoading = showLoading || !this.snapshot;
-      if (shouldShowLoading) this.loading = true;
-      try {
-        let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit);
-        const activeDirectories: string[] = [];
-        for (const path of this.#loadedDirectories) {
+    const run = (async () => {
+      let nextShowLoading = showLoading;
+      do {
+        this.#refreshQueued = false;
+        await this.#enqueue(async () => {
+          const shouldShowLoading = nextShowLoading || !this.snapshot;
+          if (shouldShowLoading) this.loading = true;
           try {
-            nextSnapshot = this.#mergeDirectoryListing(nextSnapshot, path, await this.#api.readDirectory(path));
-            activeDirectories.push(path);
+            let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit);
+            const activeDirectories: string[] = [];
+            for (const path of this.#loadedDirectories) {
+              try {
+                nextSnapshot = this.#mergeDirectoryListing(nextSnapshot, path, await this.#api.readDirectory(path));
+                activeDirectories.push(path);
+              } catch (error) {
+                if (error instanceof RequestError && error.status === 404) continue;
+                throw error;
+              }
+            }
+            this.#loadedDirectories = activeDirectories;
+            this.snapshot = nextSnapshot;
+            this.changeCount = nextSnapshot.changes.length;
+            this.branch = nextSnapshot.git?.branch;
+            this.errorMessage = '';
+            this.refreshToken += 1;
           } catch (error) {
-            if (error instanceof RequestError && error.status === 404) continue;
-            throw error;
+            this.errorMessage = error instanceof Error ? error.message : 'Unable to refresh this repository.';
+          } finally {
+            if (shouldShowLoading) this.loading = false;
           }
-        }
-        this.#loadedDirectories = activeDirectories;
-        this.snapshot = nextSnapshot;
-        this.changeCount = nextSnapshot.changes.length;
-        this.branch = nextSnapshot.git?.branch;
-        this.errorMessage = '';
-        this.refreshToken += 1;
-      } catch (error) {
-        this.errorMessage = error instanceof Error ? error.message : 'Unable to refresh this repository.';
-      } finally {
-        if (shouldShowLoading) this.loading = false;
-      }
-    });
+        });
+        nextShowLoading = false;
+      } while (this.#refreshQueued && this.#options.isOpen() && !document.hidden);
+    })();
     this.#refreshPromise = run;
     try {
       await run;
     } finally {
       if (this.#refreshPromise === run) this.#refreshPromise = undefined;
-      if (this.#refreshQueued) {
-        this.#refreshQueued = false;
-        if (this.#options.isOpen() && !document.hidden) void this.refresh();
-      }
     }
   }
 
@@ -591,11 +595,11 @@ export class RepositoryWorkspaceState {
     this.discarding = true;
     try {
       await this.#enqueue(() => this.#api.discardChange(target));
+      await this.refresh();
       if (this.selection && [target.path, target.previousPath].includes(this.selection.path)) {
         this.clearSelection();
       }
       this.discardTarget = undefined;
-      await this.refresh();
     } finally {
       this.discarding = false;
     }
@@ -632,10 +636,7 @@ export class RepositoryWorkspaceState {
         if (!current?.git?.hasMoreCommits) return;
         const page = await this.#api.readCommits(current.git.commits.length);
         const knownHashes = new Set(current.git.commits.map((commit) => commit.hash));
-        const commits = [
-          ...current.git.commits,
-          ...page.commits.filter((commit) => !knownHashes.has(commit.hash)),
-        ];
+        const commits = [...current.git.commits, ...page.commits.filter((commit) => !knownHashes.has(commit.hash))];
         this.#commitLimit = commits.length;
         this.snapshot = {
           ...current,

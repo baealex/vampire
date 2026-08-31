@@ -3,6 +3,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { queryCache } from '~/lib/shared/api/query-cache.ts';
 import type { StatusPlugin } from '~/lib/shared/contracts/status-plugin.ts';
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import StatusPluginSettings from './StatusPluginSettings.svelte';
 
 const STATUS_PLUGINS_QUERY = 'status/plugins';
@@ -17,7 +18,43 @@ function plugin(name: string, command = 'echo ready'): StatusPlugin {
   };
 }
 
-afterEach(() => queryCache.clear());
+function agentWorkspace(id: string, label: string, agentLabel: string, lastActiveAt: number): ManagedWorkspace {
+  return {
+    id,
+    tmuxSession: `tmux-${id}`,
+    cwd: `/projects/${id}`,
+    workspaceLabel: label,
+    createdAt: 1,
+    lastActiveAt,
+    notePreview: '',
+    favoriteCommands: [],
+    startupProfileId: null,
+    lastOutputAt: null,
+    state: 'running',
+    attachedClients: 1,
+    foregroundProcess: { kind: 'command', label: agentLabel },
+    terminals: [
+      {
+        id: `terminal-${id}`,
+        index: 0,
+        name: 'main',
+        active: true,
+        lastOutputAt: null,
+        foregroundProcess: { kind: 'command', label: agentLabel },
+        command: agentLabel,
+        startedAt: 1,
+        state: 'running',
+        exitCode: null,
+      },
+    ],
+    isGitRepository: true,
+  };
+}
+
+afterEach(() => {
+  queryCache.clear();
+  vi.restoreAllMocks();
+});
 
 test('does not replace an unsaved widget draft with a background refresh', async () => {
   const user = userEvent.setup();
@@ -44,4 +81,73 @@ test('does not replace an unsaved widget draft with a background refresh', async
 
   expect(name).toHaveValue('Local widget draft');
   expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+});
+
+test('opens Ask Agent inside the settings page with an explicit workspace target', async () => {
+  const user = userEvent.setup();
+  const initial = { plugins: [], presets: [] };
+  const workspaces = [
+    agentWorkspace('workspace-1', 'Project one', 'codex', 1),
+    agentWorkspace('workspace-2', 'Project two', 'claude', 2),
+  ];
+  queryCache.set(STATUS_PLUGINS_QUERY, initial);
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes('/agent-actions/status-widget')) {
+      const workspaceId = url.includes('workspace-1') ? 'workspace-1' : 'workspace-2';
+      return new Response(
+        JSON.stringify({
+          action: {
+            id: 'status-widget',
+            title: 'Create a status widget with an agent',
+            description: 'Update the global widget configuration.',
+            target: {
+              workspaceId,
+              workspaceLabel: workspaceId === 'workspace-1' ? 'Project one' : 'Project two',
+              agentLabel: workspaceId === 'workspace-1' ? 'codex' : 'claude',
+            },
+            context: [],
+            requestLabel: 'What widget should the agent create?',
+            requestPlaceholder: 'Show open reviews.',
+            defaultRequest: '',
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } }
+      );
+    }
+    return new Response(JSON.stringify(initial), { headers: { 'content-type': 'application/json' } });
+  });
+  render(StatusPluginSettings, { close: vi.fn(), workspaceId: 'workspace-1', workspaces });
+
+  await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Create a status widget with an agent' })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: /^Send to/ })).toHaveValue('workspace-1');
+  expect(screen.getByRole('textbox', { name: 'What widget should the agent create?' })).toHaveFocus();
+});
+
+test('requires unsaved widget changes to be saved before Ask Agent', async () => {
+  const user = userEvent.setup();
+  const initial = { plugins: [plugin('Original widget')], presets: [] };
+  const workspaces = [agentWorkspace('workspace-1', 'Project one', 'codex', 1)];
+  queryCache.set(STATUS_PLUGINS_QUERY, initial);
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async (_input, init) =>
+      new Response(init?.method === 'PUT' ? String(init.body) : JSON.stringify(initial), {
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  render(StatusPluginSettings, { close: vi.fn(), workspaceId: 'workspace-1', workspaces });
+
+  await user.click(screen.getByRole('button', { name: 'Edit Original widget' }));
+  await user.type(screen.getByRole('textbox', { name: 'Name' }), ' changed');
+  await user.click(screen.getByRole('button', { name: 'Back to status widgets' }));
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeDisabled();
+  expect(
+    screen.getByText('Save changes before asking an agent to update the global widget configuration.')
+  ).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeEnabled());
 });

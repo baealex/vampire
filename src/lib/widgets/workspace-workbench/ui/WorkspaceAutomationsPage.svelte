@@ -1,27 +1,31 @@
 <script lang="ts">
-import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
 import WorkspaceAutomations from '~/lib/features/workspace/ui/WorkspaceAutomations.svelte';
-import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { workspaceName } from '~/lib/features/workspace/model/workspace-view.ts';
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 
 let {
   workspace,
   close,
+  onBusyChange = () => undefined,
 }: {
   workspace: ManagedWorkspace;
   close: () => void;
+  onBusyChange?: (busy: boolean) => void;
 } = $props();
-
 let busy = $state(false);
+
+$effect(() => onBusyChange(busy));
 </script>
 
-<DialogShell
-  eyebrow={workspaceName(workspace)}
+<ManagementSurface
   title="Agent automations"
-  closeLabel="Close agent automations"
+  titleId="workspace-automations-title"
+  eyebrow={workspaceName(workspace)}
   {close}
-  closeDisabled={busy}
-  variant="inspect"
+  closeLabel="Close agent automations"
+  focusOnMount={false}
+  {busy}
 >
   <WorkspaceAutomations workspaceId={workspace.id} onBusyChange={(value) => busy = value} />
-</DialogShell>
+</ManagementSurface>

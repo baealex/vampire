@@ -517,49 +517,55 @@ test('delivers note and widget requests to the existing main agent without expos
 
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Agent automations' }).click();
-  const automationDialog = page.getByRole('dialog', { name: 'Agent automations' });
-  await expect(automationDialog).toBeVisible();
-  await expect(automationDialog.getByLabel('Name')).toBeFocused();
-  await automationDialog.getByLabel('Name').fill('Review project state');
-  await automationDialog.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
-  await automationDialog.getByRole('combobox', { name: 'Schedule' }).selectOption('weekly');
-  await automationDialog.getByRole('textbox', { name: 'Time', exact: true }).fill('09:30');
-  await automationDialog.getByRole('button', { name: 'Add automation' }).click();
-  const savedAutomation = automationDialog.locator('article', { hasText: 'Review project state' });
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}/automations$`));
+  const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
+  await expect(automationPage).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
+  await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await automationPage.getByLabel('Name').fill('Review project state');
+  await automationPage.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
+  await automationPage.getByRole('combobox', { name: 'Schedule' }).selectOption('weekly');
+  await automationPage.getByRole('textbox', { name: 'Time', exact: true }).fill('09:30');
+  await automationPage.getByRole('button', { name: 'Add automation' }).click();
+  const savedAutomation = automationPage.locator('article', { hasText: 'Review project state' });
   await expect(savedAutomation).toBeVisible();
   const browserTimeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   await expect(savedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 9:30 AM (${browserTimeZone})`);
   await savedAutomation.getByRole('button', { name: 'Edit' }).click();
-  await expect(automationDialog.getByLabel('Name')).toBeFocused();
-  await automationDialog.getByLabel('Name').fill('Review project state later');
-  await automationDialog.getByRole('textbox', { name: 'Time', exact: true }).fill('14:30');
-  await automationDialog.getByRole('button', { name: 'Save changes' }).click();
-  const updatedAutomation = automationDialog.locator('article', { hasText: 'Review project state later' });
+  await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await automationPage.getByLabel('Name').fill('Review project state later');
+  await automationPage.getByRole('textbox', { name: 'Time', exact: true }).fill('14:30');
+  await automationPage.getByRole('button', { name: 'Save changes' }).click();
+  const updatedAutomation = automationPage.locator('article', { hasText: 'Review project state later' });
   await expect(updatedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 2:30 PM (${browserTimeZone})`);
   await updatedAutomation.getByRole('button', { name: 'Delete' }).click();
   await expect(updatedAutomation).toBeHidden();
-  await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
+  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
+  await expect(page.getByRole('button', { name: /Workspace actions for/ })).toBeFocused();
 
   const receivedPath = await startWaitingMainAgent(context, workspace);
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
-  const noteDialog = page.getByRole('dialog', { name: 'Workspace note' });
-  await expect(noteDialog).toBeVisible();
-  const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
+  const notePanel = page.locator('.workspace-note-panel');
+  const noteView = notePanel.getByRole('region', { name: 'Workspace note' });
+  await expect(noteView).toBeVisible();
+  const noteInput = noteView.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
-  await expect(noteDialog.getByText('Saved', { exact: true })).toBeVisible();
+  await expect(noteView.getByText('Saved', { exact: true })).toBeVisible();
   const notePath = join(E2E_STATE_DIRECTORY, `${workspace.id}.note.md`);
-  await expect(noteDialog.getByText(notePath, { exact: true })).toHaveCount(0);
-  await noteDialog.getByRole('button', { name: 'Ask agent…' }).click();
-  const noteAgentDialog = page.getByRole('dialog', { name: 'Ask agent about this note' });
-  await expect(noteAgentDialog).toBeVisible();
-  await expect(noteAgentDialog.getByText(notePath, { exact: true })).toBeVisible();
-  await expect(noteAgentDialog).toContainText('codex');
+  await expect(noteView.getByText(notePath, { exact: true })).toHaveCount(0);
+  await noteView.getByRole('button', { name: 'Ask agent…' }).click();
+  const noteAgentView = notePanel.getByRole('region', { name: 'Ask agent about this note' });
+  await expect(noteAgentView).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Ask agent about this note' })).toHaveCount(0);
+  await expect(noteAgentView.getByText(notePath, { exact: true })).toBeVisible();
+  await expect(noteAgentView).toContainText('codex');
   const noteRequest = 'Organize the current context and add the next release step.';
-  await noteAgentDialog.getByRole('textbox', { name: 'What should the agent do?' }).fill(noteRequest);
-  await noteAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(noteAgentDialog).toBeHidden();
-  await expect(noteDialog.getByText('Sent to the main agent session.')).toBeVisible();
+  await noteAgentView.getByRole('textbox', { name: 'What should the agent do?' }).fill(noteRequest);
+  await noteAgentView.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(noteAgentView).toBeHidden();
+  await expect(noteView.getByText('Sent to the main agent session.')).toBeVisible();
 
   await expect.poll(async () => readFile(notePath, 'utf8')).toBe('Existing project context\n');
   const automationsResponse = await context.request.get(
@@ -584,23 +590,28 @@ test('delivers note and widget requests to the existing main agent without expos
     .toContain(noteRequest);
   await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(notePath);
 
-  await noteDialog.getByRole('button', { name: 'Close workspace note' }).click();
+  await noteView.getByRole('button', { name: 'Close workspace note' }).click();
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  const statusDialog = page.getByRole('dialog', { name: 'Status widgets' });
-  await statusDialog.getByRole('button', { name: 'Add widget' }).click();
-  await page.getByRole('menuitem', { name: 'Ask agent…' }).click();
-  const widgetAgentDialog = page.getByRole('dialog', { name: 'Create a status widget with an agent' });
+  await expect(page).toHaveURL(/\/settings\/widgets\?workspace=/);
+  const statusPage = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(statusPage).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
+  await statusPage.getByRole('button', { name: 'Ask agent…' }).click();
+  const widgetAgentView = statusPage.getByRole('heading', { name: 'Create a status widget with an agent' });
   const widgetConfigurationPath = join(E2E_STATE_DIRECTORY, 'status-plugins.json');
   const widgetGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'status-widget.md');
   const widgetValidatorPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'validate-status-widgets.mjs');
-  await expect(widgetAgentDialog.getByText(widgetConfigurationPath, { exact: true })).toBeVisible();
-  await expect(widgetAgentDialog.getByText(widgetGuidePath, { exact: true })).toBeVisible();
-  await expect(widgetAgentDialog).toContainText(widgetValidatorPath);
+  await expect(widgetAgentView).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Create a status widget with an agent' })).toHaveCount(0);
+  await expect(statusPage.getByRole('combobox', { name: 'Send to' })).toHaveValue(workspace.id);
+  await expect(statusPage.getByText(widgetConfigurationPath, { exact: true })).toBeVisible();
+  await expect(statusPage.getByText(widgetGuidePath, { exact: true })).toBeVisible();
+  await expect(statusPage).toContainText(widgetValidatorPath);
   const widgetRequest = 'Create a widget that shows unread pull-request reviews.';
-  await widgetAgentDialog.getByRole('textbox', { name: 'What widget should the agent create?' }).fill(widgetRequest);
-  await widgetAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(widgetAgentDialog).toBeHidden();
-  await expect(statusDialog).toBeHidden();
+  await statusPage.getByRole('textbox', { name: 'What widget should the agent create?' }).fill(widgetRequest);
+  await statusPage.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(widgetAgentView).toBeHidden();
+  await expect(statusPage.getByRole('status')).toContainText('Widget request sent');
 
   const storedWidgetAction = await readStoredAgentAction(workspace.id, 'status-widget');
   expect(storedWidgetAction?.prompt).toContain(widgetConfigurationPath);
@@ -616,23 +627,25 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect.poll(() => pathExists(widgetGuidePath)).toBe(true);
   await expect.poll(() => pathExists(widgetValidatorPath)).toBe(true);
 
+  await statusPage.getByRole('button', { name: 'Close status widget settings' }).click();
+
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Agent automations' }).click();
-  await automationDialog.getByRole('button', { name: 'Ask agent…' }).click();
+  await automationPage.getByRole('button', { name: 'Ask agent…' }).click();
   await expect(page.getByRole('dialog', { name: 'Create an automation with an agent' })).toHaveCount(0);
-  await expect(automationDialog.getByRole('heading', { name: 'Create an automation with an agent' })).toBeVisible();
+  await expect(automationPage.getByRole('heading', { name: 'Create an automation with an agent' })).toBeVisible();
   const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'workspace-automation.md');
   const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'apply-workspace-automation.mjs');
-  await expect(automationDialog.getByText('Prepared when sent', { exact: true })).toBeVisible();
+  await expect(automationPage.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
-  const automationRequestInput = automationDialog.getByRole('textbox', {
+  const automationRequestInput = automationPage.getByRole('textbox', {
     name: 'What should the automation do, and when?',
   });
   await expect(automationRequestInput).toBeFocused();
   await automationRequestInput.fill(automationRequest);
-  await automationDialog.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(automationDialog.getByRole('heading', { name: 'Create an automation with an agent' })).toBeHidden();
-  await expect(automationDialog.getByRole('status')).toContainText('Automation request sent');
+  await automationPage.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(automationPage.getByRole('heading', { name: 'Create an automation with an agent' })).toBeHidden();
+  await expect(automationPage.getByRole('status')).toContainText('Automation request sent');
   const storedAutomationAction = await readStoredAgentAction(workspace.id, 'automation');
   expect(storedAutomationAction?.prompt).toContain(automationGuidePath);
   expect(storedAutomationAction?.prompt).toContain(automationApplyPath);
@@ -662,6 +675,74 @@ test('delivers note and widget requests to the existing main agent without expos
   await rm(receivedPath, { force: true });
 });
 
+test('flushes a workspace note before sidebar navigation replaces its workbench', async ({ context, page }) => {
+  await authenticate(context);
+  const firstWorkspace = await createWorkspace(context);
+  const secondWorkspace = await createWorkspace(context);
+  workspaceId = firstWorkspace.id;
+  let releaseSave!: () => void;
+  let markSaveStarted!: () => void;
+  const saveReleased = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const saveStarted = new Promise<void>((resolve) => {
+    markSaveStarted = resolve;
+  });
+  let failSecondSave = true;
+  await page.route(`**/api/workspaces/${encodeURIComponent(firstWorkspace.id)}/note`, async (route) => {
+    if (route.request().method() !== 'PUT') {
+      await route.continue();
+      return;
+    }
+    markSaveStarted();
+    await saveReleased;
+    await route.continue();
+  });
+  await page.route(`**/api/workspaces/${encodeURIComponent(secondWorkspace.id)}/note`, async (route) => {
+    if (route.request().method() === 'PUT' && failSecondSave) {
+      await route.fulfill({ status: 503, json: { message: 'Note storage is temporarily unavailable.' } });
+      return;
+    }
+    await route.continue();
+  });
+
+  try {
+    await page.goto(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
+    await expectTerminalReady(page);
+    await page.getByRole('button', { name: 'Add workspace note' }).click();
+    await page.getByRole('textbox', { name: 'Workspace note' }).fill('Save this before switching');
+    const secondWorkspaceRow = page.locator('.workspace-row-shell:not(.selected)');
+    await secondWorkspaceRow.getByRole('button', { name: /Open running workspace/ }).click();
+
+    await saveStarted;
+    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
+    releaseSave();
+    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
+    const savedNote = await context.request.get(`/api/workspaces/${encodeURIComponent(firstWorkspace.id)}/note`);
+    expect(savedNote.ok()).toBe(true);
+    await expect(savedNote.json()).resolves.toEqual({ note: 'Save this before switching' });
+
+    await expectTerminalReady(page);
+    await page.getByRole('button', { name: 'Add workspace note' }).click();
+    const secondNote = page.getByRole('textbox', { name: 'Workspace note' });
+    await secondNote.fill('Retry this before browser back');
+    await page.evaluate(() => history.back());
+    await expect(page.getByText('Note storage is temporarily unavailable.')).toBeVisible();
+    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
+    await expect(secondNote).toHaveValue('Retry this before browser back');
+
+    failSecondSave = false;
+    await page.evaluate(() => history.back());
+    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
+    const retriedNote = await context.request.get(`/api/workspaces/${encodeURIComponent(secondWorkspace.id)}/note`);
+    expect(retriedNote.ok()).toBe(true);
+    await expect(retriedNote.json()).resolves.toEqual({ note: 'Retry this before browser back' });
+  } finally {
+    releaseSave();
+    await removeWorkspace(context, secondWorkspace.id);
+  }
+});
+
 test('manages server-wide status plugins and shares their ordered output across tabs', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -670,36 +751,64 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Add widget' }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  const settings = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(settings).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
+  await page.keyboard.press('Alt+1');
+  await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await page.evaluate(() => history.back());
+  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await expect(settings).toBeVisible();
+  await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Codex Limit', exact: true }).click();
-  const codexLimit = dialog.locator('.status-detail-editor');
+  const codexLimit = settings.locator('.status-detail-editor');
   await expect(codexLimit.getByLabel('Command')).toHaveValue(/account\/rateLimits\/read/);
   await expect(codexLimit.getByLabel('Command')).toHaveValue(/\n/);
   await expect(codexLimit.getByLabel('Enabled')).toBeChecked();
   await codexLimit.getByRole('button', { name: 'Remove Codex Limit' }).click();
-  await dialog.getByRole('button', { name: 'Add widget' }).click();
+  await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Command', exact: true }).click();
-  const custom = dialog.locator('.status-detail-editor');
+  const custom = settings.locator('.status-detail-editor');
   await custom.getByLabel('Name').fill('Build');
   await custom.getByLabel('Command').fill("printf 'ready\\nShared result\\n'");
   await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
-  await dialog.getByRole('button', { name: 'Back to status widgets' }).click();
-  await dialog.getByRole('button', { name: 'Actions for Build' }).click();
+  await page.evaluate(() => history.forward());
+  const discardPrompt = page.getByRole('heading', { name: 'Discard unsaved widget changes?' });
+  await expect(discardPrompt).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await settings.getByRole('button', { name: 'Close status widget settings' }).click();
+  await expect(discardPrompt).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(settings).toBeVisible();
+  await page.keyboard.press('Alt+1');
+  await expect(discardPrompt).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(settings).toBeVisible();
+  await page.evaluate(() => history.back());
+  await expect(discardPrompt).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await settings.getByRole('button', { name: 'Back to status widgets' }).click();
+  await settings.getByRole('button', { name: 'Actions for Build' }).click();
   await page.getByRole('menuitem', { name: 'Move Build up' }).click();
-  await dialog.getByRole('button', { name: 'Actions for Build' }).click();
+  await settings.getByRole('button', { name: 'Actions for Build' }).click();
   await page.getByRole('menuitem', { name: 'Move Build up' }).click();
 
-  await dialog.getByRole('button', { name: 'Edit CPU' }).click();
-  const cpu = dialog.locator('.status-detail-editor');
+  await settings.getByRole('button', { name: 'Edit CPU' }).click();
+  const cpu = settings.locator('.status-detail-editor');
   await expect(cpu.getByLabel('Command')).toHaveValue(/^node --input-type=module/);
   await expect(cpu.getByLabel('Command')).toHaveValue(/function snapshot\(\)/);
-  await dialog.getByRole('button', { name: 'Back to status widgets' }).click();
-  await dialog.getByRole('button', { name: 'Actions for CPU' }).click();
+  await settings.getByRole('button', { name: 'Back to status widgets' }).click();
+  await settings.getByRole('button', { name: 'Actions for CPU' }).click();
   await page.getByRole('menuitem', { name: 'Remove CPU' }).click();
-  await dialog.getByRole('button', { name: 'Save changes' }).click();
-  await expect(dialog).toBeHidden();
+  await settings.getByRole('button', { name: 'Save changes' }).click();
+  await expect(settings.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  await settings.getByRole('button', { name: 'Close status widget settings' }).click();
+  await expect(settings).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
+  await expect(page.getByRole('button', { name: 'Manage status widgets' })).toBeFocused();
 
   const firstBar = page.getByRole('region', { name: 'Server status plugins' });
   await expect(firstBar.locator('.status-plugin').first()).toContainText('Build');

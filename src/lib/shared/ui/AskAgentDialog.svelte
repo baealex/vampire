@@ -18,6 +18,8 @@ let {
   onQueued = () => undefined,
   onSubmittingChange = () => undefined,
   embedded = false,
+  showTarget = true,
+  showEmbeddedBack = true,
 }: {
   close: () => void;
   load: () => Promise<WorkspaceAgentActionDescriptor>;
@@ -25,6 +27,8 @@ let {
   onQueued?: (submission: WorkspaceAgentActionSubmission) => void;
   onSubmittingChange?: (submitting: boolean) => void;
   embedded?: boolean;
+  showTarget?: boolean;
+  showEmbeddedBack?: boolean;
 } = $props();
 
 let descriptor = $state<WorkspaceAgentActionDescriptor>();
@@ -75,16 +79,27 @@ onMount(() => {
   }
   void loadDescriptor();
 });
+
+function handleEmbeddedKeydown(event: KeyboardEvent) {
+  if (!embedded || event.key !== 'Escape' || submitting) return;
+  event.preventDefault();
+  event.stopPropagation();
+  close();
+}
 </script>
+
+<svelte:window onkeydown={handleEmbeddedKeydown} />
 
 {#snippet content()}
   <div class="ask-agent" aria-busy={loading}>
     {#if descriptor}
-      <div class="ask-agent__target">
-        <span>Send to</span>
-        <strong>{descriptor.target.agentLabel}</strong>
-        <small>{descriptor.target.workspaceLabel}</small>
-      </div>
+      {#if showTarget}
+        <div class="ask-agent__target">
+          <span>Send to</span>
+          <strong>{descriptor.target.agentLabel}</strong>
+          <small>{descriptor.target.workspaceLabel}</small>
+        </div>
+      {/if}
       <p class="ask-agent__description">{descriptor.description}</p>
       <dl class="ask-agent__context">
         {#each descriptor.context as item (item.label)}
@@ -122,7 +137,9 @@ onMount(() => {
 {/snippet}
 
 {#snippet actions()}
-  <Button variant="ghost" onclick={close} disabled={submitting}>{embedded ? 'Back' : 'Cancel'}</Button>
+  {#if !embedded || showEmbeddedBack}
+    <Button variant="ghost" onclick={close} disabled={submitting}>{embedded ? 'Back' : 'Cancel'}</Button>
+  {/if}
   {#if !descriptor && !loading}
     <Button variant="secondary" onclick={() => void loadDescriptor()}>Retry</Button>
   {:else}

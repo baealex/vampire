@@ -376,10 +376,59 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
-  const notePanel = page.getByRole('dialog', { name: 'Workspace note' });
-  await expect(notePanel).toBeVisible();
+  const notePanel = page.locator('.workspace-note-panel');
+  await expect(notePanel.getByRole('region', { name: 'Workspace note' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Workspace note' })).toHaveCount(0);
   await notePanel.getByRole('button', { name: 'Close workspace note' }).click();
-  await expect(notePanel).toBeHidden();
+  await expect(notePanel).toHaveAttribute('aria-hidden', 'true');
+  await expect(notePanel).toHaveAttribute('inert', '');
+});
+
+test('keeps automation and widget management routable in a narrow viewport', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}/automations`);
+  const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
+  await expect(automationPage).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
+  await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await page.reload();
+  await expect(automationPage).toBeVisible();
+  await expect(automationPage.getByLabel('Name')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
+  await expectTerminalReady(page);
+
+  await page.getByRole('button', { name: 'Open workspaces' }).click();
+  await page.getByRole('button', { name: /Workspace actions for/ }).click();
+  await page.getByRole('menuitem', { name: 'Agent automations' }).click();
+  await expect(automationPage).toBeVisible();
+  await expect(page.locator('.workspace-column')).not.toHaveClass(/mobile-open/);
+  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await expectTerminalReady(page);
+  await expect(page.getByRole('button', { name: 'Open workspaces' })).toBeFocused();
+
+  await page.getByRole('button', { name: 'Manage status widgets' }).click();
+  const statusPage = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(statusPage).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const fitsViewport = await statusPage.evaluate((surface) => {
+    const bounds = surface.getBoundingClientRect();
+    return (
+      bounds.left >= -1 &&
+      bounds.right <= window.innerWidth + 1 &&
+      bounds.top >= -1 &&
+      bounds.bottom <= window.innerHeight + 1
+    );
+  });
+  expect(fitsViewport).toBe(true);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
+  await expectTerminalReady(page);
 });
 
 test('anchors a status popover to the mobile status bar and dismisses it for workspace tools', async ({

@@ -9,21 +9,21 @@ import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin'
 
 let {
   plugins = [],
-  workspaceId,
   onLogout,
   dismissPopovers = false,
+  onManageStatusWidgets = () => undefined,
 }: {
   plugins?: StatusPluginSnapshot[];
-  workspaceId?: string;
   onLogout?: () => void;
   dismissPopovers?: boolean;
+  onManageStatusWidgets?: () => void;
 } = $props();
 let listeningPortsOpen = $state(false);
 </script>
 
 <section class="global-status-shell" aria-label="Server-wide system status">
   <div class="global-status-rail">
-    <StatusPluginBar {plugins} {workspaceId} {dismissPopovers} />
+    <StatusPluginBar {plugins} {dismissPopovers} onManage={onManageStatusWidgets} />
     <div class="global-status-actions">
       <ToolbarButton
         compact

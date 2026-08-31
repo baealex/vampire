@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onDestroy, onMount } from 'svelte';
+import { onDestroy, onMount, tick } from 'svelte';
 import BookOpen from '@lucide/svelte/icons/book-open';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -11,7 +11,6 @@ import Sparkles from '@lucide/svelte/icons/sparkles';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
-import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
@@ -19,7 +18,9 @@ import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import DropdownMenuSeparator from '~/lib/shared/ui/DropdownMenuSeparator.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
+import Select from '~/lib/shared/ui/Select.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
+import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
 import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions.ts';
 import {
@@ -35,17 +36,31 @@ import {
   type StatusPluginPreset,
 } from '~/lib/shared/contracts/status-plugin.ts';
 import StatusWidgetGuide from './StatusWidgetGuide.svelte';
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 
 type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
 type SettingsView = 'list' | 'detail';
-type View = SettingsView | 'guide';
+type View = SettingsView | 'guide' | 'agent';
 const STATUS_PLUGINS_QUERY = 'status/plugins';
-let { close, workspaceId }: { close: () => void; workspaceId?: string } = $props();
+let {
+  close,
+  workspaceId,
+  workspaces = [],
+  onBusyChange = () => undefined,
+  onDirtyChange = () => undefined,
+}: {
+  close: () => void;
+  workspaceId?: string;
+  workspaces?: ManagedWorkspace[];
+  onBusyChange?: (busy: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+} = $props();
 const initialResponse = queryCache.get<StatusPluginResponse>(STATUS_PLUGINS_QUERY);
 let plugins = $state<StatusPlugin[]>(initialResponse ? cloneStatusPlugins(initialResponse.plugins) : []);
 let presets = $state<StatusPluginPreset[]>(initialResponse?.presets ?? []);
 let hasData = $state(initialResponse !== undefined);
-let loadedPlugins = initialResponse ? JSON.stringify(initialResponse.plugins) : '[]';
+let loadedPlugins = $state(initialResponse ? JSON.stringify(initialResponse.plugins) : '[]');
 let loading = $state(initialResponse === undefined);
 let fetching = $state(false);
 let saving = $state(false);
@@ -53,10 +68,35 @@ let errorMessage = $state('');
 let view = $state<View>('list');
 let viewBeforeGuide = $state<SettingsView>('list');
 let selectedPluginId = $state<string>();
-let agentDialogOpen = $state(false);
+let selectedTargetWorkspaceId = $state('');
+let agentSubmitting = $state(false);
+let agentMessage = $state('');
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
 const atCapacity = $derived(plugins.length >= MAX_STATUS_PLUGINS);
 const selectedPlugin = $derived(plugins.find((plugin) => plugin.id === selectedPluginId));
+const agentTargets = $derived(
+  workspaces
+    .flatMap((workspace) => {
+      const main = workspace.terminals.find((terminal) => terminal.index === 0);
+      const process = main?.foregroundProcess;
+      return workspace.state === 'running' &&
+        main?.state === 'running' &&
+        process?.kind === 'command' &&
+        isAgentProcessLabel(process.label)
+        ? [{ workspace, agentLabel: process.label }]
+        : [];
+    })
+    .sort((left, right) => right.workspace.lastActiveAt - left.workspace.lastActiveAt)
+);
+
+$effect(() => onBusyChange(saving || agentSubmitting));
+$effect(() => onDirtyChange(hasUnsavedChanges));
+
+$effect(() => {
+  if (agentTargets.some(({ workspace }) => workspace.id === selectedTargetWorkspaceId)) return;
+  const preferred = agentTargets.find(({ workspace }) => workspace.id === workspaceId) ?? agentTargets[0];
+  selectedTargetWorkspaceId = preferred?.workspace.id ?? '';
+});
 
 $effect(() => {
   if (view === 'detail' && !selectedPlugin) {
@@ -159,6 +199,26 @@ function leaveGuide() {
   view = viewBeforeGuide;
 }
 
+function openAgentView() {
+  if (hasUnsavedChanges) {
+    errorMessage = 'Save your widget changes before asking an agent.';
+    return;
+  }
+  if (!selectedTargetWorkspaceId) {
+    errorMessage = 'Start a supported agent in a workspace before using Ask agent.';
+    return;
+  }
+  agentMessage = '';
+  errorMessage = '';
+  view = 'agent';
+}
+
+async function closeAgentView() {
+  view = 'list';
+  await tick();
+  document.getElementById('status-widget-ask-agent-trigger')?.focus();
+}
+
 function movePlugin(index: number, offset: -1 | 1) {
   const target = index + offset;
   if (target < 0 || target >= plugins.length) return;
@@ -220,7 +280,6 @@ async function save() {
   } finally {
     saving = false;
   }
-  close();
 }
 
 let unsubscribe: (() => void) | undefined;
@@ -233,60 +292,108 @@ onMount(() => {
 onDestroy(() => unsubscribe?.());
 </script>
 
-<DialogShell
+<ManagementSurface
   title={view === 'guide'
     ? 'Status widget guide'
     : view === 'detail' && selectedPlugin
       ? selectedPlugin.name || 'New widget'
       : 'Status widgets'}
+  titleId="status-widget-settings-title"
+  eyebrow="Server settings"
   {close}
-  variant="form"
-  closeDisabled={saving}
-  onBack={view === 'guide' ? leaveGuide : view === 'detail' ? showPluginList : undefined}
+  closeLabel="Close status widget settings"
+  busy={saving || agentSubmitting}
+  showFooter={view !== 'guide' && view !== 'agent'}
+  back={view === 'agent' ? () => void closeAgentView() : view === 'guide' ? leaveGuide : view === 'detail' ? showPluginList : undefined}
   backLabel={view === 'guide' ? 'Back to status widget settings' : 'Back to status widgets'}
-  footerVisible={view !== 'guide'}
 >
   {#snippet children()}
     {#if view === 'guide'}
       <StatusWidgetGuide />
+    {:else if view === 'agent'}
+      <div class="status-agent-view">
+        <label class="status-agent-target">
+          <span>Send to</span>
+          <Select
+            value={selectedTargetWorkspaceId}
+            disabled={agentSubmitting || agentTargets.length === 0}
+            onchange={(event) => selectedTargetWorkspaceId = (event.currentTarget as HTMLSelectElement).value}
+          >
+            {#if agentTargets.length === 0}
+              <option value="">No running main agent</option>
+            {:else}
+              {#each agentTargets as target (target.workspace.id)}
+                <option value={target.workspace.id}>
+                  {target.workspace.workspaceLabel?.trim() || target.workspace.cwd}
+                  · {target.agentLabel}
+                </option>
+              {/each}
+            {/if}
+          </Select>
+          <small>Widget files are global; choose the workspace agent that should update them.</small>
+        </label>
+        {#if selectedTargetWorkspaceId}
+          {#key selectedTargetWorkspaceId}
+            <AskAgentDialog
+              embedded
+              showTarget={false}
+              showEmbeddedBack={false}
+              close={() => void closeAgentView()}
+              load={() => loadWorkspaceAgentAction(selectedTargetWorkspaceId, 'status-widget')}
+              submit={(request) => queueWorkspaceAgentAction(selectedTargetWorkspaceId, 'status-widget', request)}
+              onQueued={() => {
+                agentMessage = 'Widget request sent to the selected main agent.';
+                void load(true);
+              }}
+              onSubmittingChange={(value) => agentSubmitting = value}
+            />
+          {/key}
+        {:else}
+          <DialogEmptyState>Start a supported agent in a workspace to create a widget with Ask Agent.</DialogEmptyState>
+        {/if}
+      </div>
     {:else}
       <div class="status-settings" aria-busy={fetching}>
         {#if view === 'list'}
           <DialogToolbar>
             <span>{plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}</span>
-            <DropdownMenuShell
-              triggerLabel="Add widget"
-              triggerTitle="Add status widget"
-              triggerVariant="primary"
-              align="end"
-            >
-              {#snippet trigger()}
-                <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                <span>Add widget</span>
-              {/snippet}
-
-              {#snippet children()}
-                {#each presets as preset (preset.id)}
-                  <DropdownMenuItem disabled={loading || atCapacity} onSelect={() => addPreset(preset.id)}>
-                    <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                    <span>{preset.name}</span>
-                  </DropdownMenuItem>
-                {/each}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={loading || atCapacity} onSelect={addCommand}>
+            <div class="status-toolbar-actions">
+              <Button
+                id="status-widget-ask-agent-trigger"
+                variant="secondary"
+                size="sm"
+                onclick={openAgentView}
+                disabled={loading || hasUnsavedChanges || !selectedTargetWorkspaceId}
+              >
+                <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
+                <span>Ask agent…</span>
+              </Button>
+              <DropdownMenuShell
+                triggerLabel="Add widget"
+                triggerTitle="Add status widget"
+                triggerVariant="primary"
+                align="end"
+              >
+                {#snippet trigger()}
                   <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                  <span>Command</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={loading || atCapacity || !workspaceId}
-                  onSelect={() => (agentDialogOpen = true)}
-                >
-                  <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
-                  <span>Ask agent…</span>
-                </DropdownMenuItem>
-              {/snippet}
-            </DropdownMenuShell>
+                  <span>Add widget</span>
+                {/snippet}
+
+                {#snippet children()}
+                  {#each presets as preset (preset.id)}
+                    <DropdownMenuItem disabled={loading || atCapacity} onSelect={() => addPreset(preset.id)}>
+                      <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                      <span>{preset.name}</span>
+                    </DropdownMenuItem>
+                  {/each}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={loading || atCapacity} onSelect={addCommand}>
+                    <Plus size={14} strokeWidth={2} aria-hidden="true" />
+                    <span>Command</span>
+                  </DropdownMenuItem>
+                {/snippet}
+              </DropdownMenuShell>
+            </div>
           </DialogToolbar>
 
           {#if loading}
@@ -353,6 +460,16 @@ onDestroy(() => unsubscribe?.());
             </div>
           {:else}
             <DialogEmptyState>No status widgets</DialogEmptyState>
+          {/if}
+          {#if hasUnsavedChanges}
+            <p class="status-agent-hint">
+              Save changes before asking an agent to update the global widget configuration.
+            </p>
+          {:else if !selectedTargetWorkspaceId}
+            <p class="status-agent-hint">Start a supported agent in a workspace to use Ask Agent.</p>
+          {/if}
+          {#if agentMessage}
+            <p class="status-feedback success" role="status">{agentMessage}</p>
           {/if}
         {:else if selectedPlugin}
           <div class="status-detail">
@@ -429,27 +546,20 @@ onDestroy(() => unsubscribe?.());
   {/snippet}
 
   {#snippet footer()}
-    <div class="status-settings-footer">
-      <Button variant="secondary" onclick={showGuide}>
-        <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>Guide</span>
-      </Button>
-      <Button variant="primary" onclick={() => void save()} disabled={loading || saving || !hasUnsavedChanges}>
-        <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>{saving ? 'Saving…' : 'Save changes'}</span>
-      </Button>
-    </div>
+    {#if view !== 'guide' && view !== 'agent'}
+      <div class="status-settings-footer">
+        <Button variant="secondary" onclick={showGuide}>
+          <BookOpen size={15} strokeWidth={1.9} aria-hidden="true" />
+          <span>Guide</span>
+        </Button>
+        <Button variant="primary" onclick={() => void save()} disabled={loading || saving || !hasUnsavedChanges}>
+          <Save size={15} strokeWidth={1.9} aria-hidden="true" />
+          <span>{saving ? 'Saving…' : 'Save changes'}</span>
+        </Button>
+      </div>
+    {/if}
   {/snippet}
-</DialogShell>
-
-{#if agentDialogOpen && workspaceId}
-  <AskAgentDialog
-    close={() => (agentDialogOpen = false)}
-    load={() => loadWorkspaceAgentAction(workspaceId, 'status-widget')}
-    submit={(request) => queueWorkspaceAgentAction(workspaceId, 'status-widget', request)}
-    onQueued={close}
-  />
-{/if}
+</ManagementSurface>
 
 <style>
 .status-settings {
@@ -457,6 +567,37 @@ onDestroy(() => unsubscribe?.());
   align-content: start;
   gap: 0.85rem;
   min-width: 0;
+}
+.status-agent-view {
+  display: grid;
+  width: min(100%, 42rem);
+  margin: 0 auto;
+  gap: 1.25rem;
+}
+.status-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.status-agent-target {
+  display: grid;
+  gap: 0.4rem;
+}
+.status-agent-target > span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.status-agent-target small,
+.status-agent-hint {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.status-feedback.success {
+  color: var(--color-success-text);
 }
 .status-loading {
   margin: 0;

@@ -6,20 +6,18 @@ import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import type { StatusPluginMenuEntry, StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin.ts';
 import PopoverShell from '~/lib/shared/ui/PopoverShell.svelte';
-import StatusPluginSettings from './StatusPluginSettings.svelte';
 
 type StatusPluginItem = Extract<StatusPluginMenuEntry, { type: 'item' }>;
 
 let {
   plugins,
-  workspaceId,
   dismissPopovers = false,
+  onManage = () => undefined,
 }: {
   plugins: StatusPluginSnapshot[];
-  workspaceId?: string;
   dismissPopovers?: boolean;
+  onManage?: () => void;
 } = $props();
-let settingsOpen = $state(false);
 let openPluginId = $state<string>();
 let compactViewport = $state(false);
 let closedByOutsidePointer = false;
@@ -196,9 +194,8 @@ $effect(() => {
       <button
         type="button"
         class="status-plugin-manage"
-        onclick={() => (settingsOpen = true)}
+        onclick={onManage}
         aria-label="Manage status widgets"
-        aria-expanded={settingsOpen}
         title="Manage status widgets"
       >
         <Settings2 size={14} strokeWidth={1.9} aria-hidden="true" />
@@ -206,10 +203,6 @@ $effect(() => {
     </div>
   </div>
 </section>
-
-{#if settingsOpen}
-  <StatusPluginSettings {workspaceId} close={() => (settingsOpen = false)} />
-{/if}
 
 <style>
 .status-plugin-bar {

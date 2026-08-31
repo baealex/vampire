@@ -1,7 +1,7 @@
 <script lang="ts">
 import { dev } from '$app/environment';
-import { pushState } from '$app/navigation';
-import { onMount } from 'svelte';
+import { beforeNavigate, pushState } from '$app/navigation';
+import { onMount, tick } from 'svelte';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import CircleHelp from '@lucide/svelte/icons/circle-help';
 import Keyboard from '@lucide/svelte/icons/keyboard';
@@ -12,6 +12,7 @@ import TmuxSetupScreen from '~/lib/features/system/ui/TmuxSetupScreen.svelte';
 import DropdownMenuShell from '~/lib/shared/ui/DropdownMenuShell.svelte';
 import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
+import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import { WorkspaceConnectionState } from '~/lib/app/model/workspace-connection-state.svelte';
@@ -20,7 +21,8 @@ import type { RepositoryTab } from '~/lib/shared/contracts/repository';
 import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.svelte';
 import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
 import WorkspaceAliasDialog from '~/lib/features/workspace/ui/WorkspaceAliasDialog.svelte';
-import WorkspaceAutomationsDialog from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsDialog.svelte';
+import WorkspaceAutomationsPage from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsPage.svelte';
+import StatusPluginSettings from '~/lib/features/status/ui/StatusPluginSettings.svelte';
 import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
 import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
 import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/workspace';
@@ -28,7 +30,13 @@ import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/mod
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 
-let { initialWorkspaceId = undefined }: { initialWorkspaceId?: string } = $props();
+type ManagementView = 'automations' | 'widgets';
+
+let {
+  initialWorkspaceId = undefined,
+}: {
+  initialWorkspaceId?: string;
+} = $props();
 
 let mobilePanel = $state<MobilePanel | undefined>(undefined);
 let repositoryPanelOpen = $state(false);
@@ -36,13 +44,45 @@ let repositoryTab = $state<RepositoryTab>('files');
 let workspaceSettingsOpen = $state(false);
 let reopenWithOpen = $state(false);
 let workspaceAliasWorkspace = $state<ManagedWorkspace>();
-let workspaceAutomationsWorkspace = $state<ManagedWorkspace>();
+let managementView = $state<ManagementView>();
+let managementOpenedFromApp = false;
+let managementBusy = $state(false);
+let managementDirty = $state(false);
+let managementClosePrompt = $state(false);
+let restoringManagementHistory: 'busy' | 'dirty' | undefined;
+let restoringWorkspaceHistory = false;
+let syncedHistoryIndex: number | undefined;
+let pendingManagementAction: (() => void | Promise<void>) | undefined;
+let workspaceNavigationGuard: (() => Promise<boolean>) | undefined;
 let worktreeSourceWorkspace = $state<ManagedWorkspace>();
 let presentedTerminalWorkspaceId = $state<string | undefined>(undefined);
 let workspaceShortcutModifier = $state('Ctrl');
 let previewTmuxUnavailable = $state(false);
 let useMetaWorkspaceShortcuts = false;
 const REPOSITORY_TAB_KEY = 'vampire:repository-tab';
+
+function historyIndex(state: unknown = history.state): number | undefined {
+  if (!state || typeof state !== 'object') return undefined;
+  const index = (state as Record<string, unknown>)['sveltekit:history'];
+  return typeof index === 'number' ? index : undefined;
+}
+
+function pushApplicationState(path: string) {
+  pushState(path, {});
+  syncedHistoryIndex = historyIndex();
+}
+
+beforeNavigate(({ cancel }) => {
+  if (!managementView) return;
+  if (managementBusy) {
+    cancel();
+    return;
+  }
+  if (managementDirty) {
+    cancel();
+    managementClosePrompt = true;
+  }
+});
 
 const connection = new WorkspaceConnectionState();
 const tmuxStatus = $derived(
@@ -51,7 +91,7 @@ const tmuxStatus = $derived(
     : connection.tmuxStatus
 );
 const workspaceState: WorkspaceState = new WorkspaceState({
-  navigate: (path) => pushState(path, {}),
+  navigate: pushApplicationState,
   onUnauthorized: () => connection.markUnauthenticated(),
   isWorkspaceObserved: (workspaceId) => terminalIsObserved(workspaceId),
 });
@@ -64,7 +104,7 @@ function terminalIsObserved(workspaceId: string): boolean {
     !workspaceSettingsOpen &&
     !workspaceAliasWorkspace &&
     !worktreeSourceWorkspace &&
-    !workspaceAutomationsWorkspace
+    !managementView
   );
 }
 
@@ -120,26 +160,49 @@ async function logout() {
   reopenWithOpen = false;
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
+  managementView = undefined;
+  managementOpenedFromApp = false;
   repositoryPanelOpen = false;
   mobilePanel = 'workspaces';
-  pushState('/', {});
+  pushApplicationState('/');
 }
 
-function openWorkspace(managedWorkspace: ManagedWorkspace) {
+function guardManagementTransition(action: () => void | Promise<void>): boolean {
+  if (!managementView) return false;
+  if (managementBusy) return true;
+  if (managementDirty) {
+    pendingManagementAction = action;
+    managementClosePrompt = true;
+    return true;
+  }
+  managementView = undefined;
+  managementOpenedFromApp = false;
+  managementBusy = false;
+  managementDirty = false;
+  return false;
+}
+
+async function openWorkspace(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openWorkspace(managedWorkspace))) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
+  const alreadySelected = workspaceState.requestedWorkspaceId === managedWorkspace.id;
   workspaceSettingsOpen = false;
   reopenWithOpen = false;
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
-  workspaceState.openWorkspace(managedWorkspace);
+  managementView = undefined;
+  managementOpenedFromApp = false;
+  if (alreadySelected) pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}`);
+  else workspaceState.openWorkspace(managedWorkspace);
   restorePanelAfterWorkspaceChange();
 }
 
-function openStartupProfile(managedWorkspace: ManagedWorkspace) {
+async function openStartupProfile(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openStartupProfile(managedWorkspace))) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
+  managementView = undefined;
   if (workspaceState.requestedWorkspaceId !== managedWorkspace.id) {
     workspaceState.openWorkspace(managedWorkspace);
     restorePanelAfterWorkspaceChange();
@@ -150,17 +213,105 @@ function openStartupProfile(managedWorkspace: ManagedWorkspace) {
 }
 
 function openWorkspaceAlias(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openWorkspaceAlias(managedWorkspace))) return;
   workspaceSettingsOpen = false;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
   workspaceAliasWorkspace = managedWorkspace;
 }
 
-function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace) {
+async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openWorkspaceAutomations(managedWorkspace))) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   workspaceSettingsOpen = false;
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = managedWorkspace;
+  if (workspaceState.requestedWorkspaceId !== managedWorkspace.id) {
+    workspaceState.syncLocation(`/workspaces/${encodeURIComponent(managedWorkspace.id)}`);
+  }
+  managementView = 'automations';
+  managementBusy = false;
+  managementDirty = false;
+  managementOpenedFromApp = true;
+  mobilePanel = undefined;
+  pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}/automations`);
+}
+
+async function openStatusWidgets(workspaceId?: string) {
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
+  workspaceSettingsOpen = false;
+  workspaceAliasWorkspace = undefined;
+  worktreeSourceWorkspace = undefined;
+  managementView = 'widgets';
+  managementBusy = false;
+  managementDirty = false;
+  managementOpenedFromApp = true;
+  mobilePanel = undefined;
+  const target = workspaceId ?? workspaceState.requestedWorkspaceId;
+  pushApplicationState(target ? `/settings/widgets?workspace=${encodeURIComponent(target)}` : '/settings/widgets');
+}
+
+async function restoreManagementTrigger(view: ManagementView) {
+  await tick();
+  let target = document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
+  if (view === 'automations') {
+    const workspaceActions = document.querySelector<HTMLElement>(
+      '.workspace-row-shell.selected [aria-label^="Workspace actions for"]'
+    );
+    const workspaceActionsVisible =
+      isRepositorySplitViewport() &&
+      workspaceActions &&
+      !workspaceActions.closest('[inert]') &&
+      getComputedStyle(workspaceActions).visibility !== 'hidden' &&
+      getComputedStyle(workspaceActions).display !== 'none';
+    target = workspaceActionsVisible
+      ? workspaceActions
+      : document.querySelector<HTMLElement>('[aria-label="Open workspaces"]');
+  }
+  target?.focus();
+}
+
+function finishCloseManagementView() {
+  const previousManagementView = managementView;
+  const workspaceId = workspaceState.requestedWorkspaceId;
+  managementBusy = false;
+  managementDirty = false;
+  managementClosePrompt = false;
+  if (managementOpenedFromApp) {
+    history.back();
+    return;
+  }
+  managementView = undefined;
+  pushApplicationState(workspaceId ? `/workspaces/${encodeURIComponent(workspaceId)}` : '/');
+  if (previousManagementView) void restoreManagementTrigger(previousManagementView);
+}
+
+function closeManagementView() {
+  if (managementBusy) return;
+  if (managementDirty) {
+    managementClosePrompt = true;
+    return;
+  }
+  finishCloseManagementView();
+}
+
+async function discardManagementChanges() {
+  const pendingAction = pendingManagementAction;
+  pendingManagementAction = undefined;
+  if (pendingAction) {
+    managementView = undefined;
+    managementOpenedFromApp = false;
+    managementBusy = false;
+    managementDirty = false;
+    managementClosePrompt = false;
+    await pendingAction();
+    return;
+  }
+  finishCloseManagementView();
+}
+
+function cancelManagementClosePrompt() {
+  pendingManagementAction = undefined;
+  managementClosePrompt = false;
 }
 
 async function saveWorkspaceAlias(alias: string): Promise<{ ok: boolean; error?: string }> {
@@ -170,15 +321,19 @@ async function saveWorkspaceAlias(alias: string): Promise<{ ok: boolean; error?:
 }
 
 function openNewWorktree(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openNewWorktree(managedWorkspace))) return;
   workspaceSettingsOpen = false;
   workspaceAliasWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
+  managementView = undefined;
   worktreeSourceWorkspace = managedWorkspace;
 }
 
 async function createIsolatedWorkspace(name: string): Promise<{ ok: boolean; error?: string }> {
   const source = worktreeSourceWorkspace;
   if (!source) return { ok: false, error: 'Source workspace is no longer available.' };
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) {
+    return { ok: false, error: 'Save the workspace note before creating a worktree.' };
+  }
   const result = await workspaceState.createIsolatedWorkspace(source.id, name, tmuxStatus?.available);
   if (result.ok) {
     worktreeSourceWorkspace = undefined;
@@ -188,6 +343,9 @@ async function createIsolatedWorkspace(name: string): Promise<{ ok: boolean; err
 }
 
 async function createWorkspace() {
+  workspaceState.newWorkspaceOpen = false;
+  if (guardManagementTransition(() => void createWorkspace())) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   if (await workspaceState.createWorkspace(tmuxStatus?.available)) restorePanelAfterWorkspaceChange();
 }
 
@@ -196,7 +354,7 @@ function clearActiveWorkspace() {
   reopenWithOpen = false;
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  workspaceAutomationsWorkspace = undefined;
+  managementView = undefined;
   mobilePanel = 'workspaces';
   workspaceState.clearActiveWorkspace();
 }
@@ -210,9 +368,28 @@ function closeWorkspaceNavigator() {
 }
 
 function syncWorkspaceFromLocation(pathname = location.pathname) {
-  workspaceState.syncLocation(pathname);
+  const previousManagementView = managementView;
+  const automationMatch = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(pathname);
+  if (automationMatch) {
+    managementView = 'automations';
+    workspaceState.syncLocation(`/workspaces/${automationMatch[1]}`);
+  } else if (/^\/settings\/widgets\/?$/.test(pathname)) {
+    managementView = 'widgets';
+    const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
+    if (target) workspaceState.syncLocation(`/workspaces/${encodeURIComponent(target)}`);
+  } else {
+    managementView = undefined;
+    managementBusy = false;
+    managementDirty = false;
+    managementClosePrompt = false;
+    workspaceState.syncLocation(pathname);
+  }
   if (workspaceState.requestedWorkspaceId) restorePanelAfterWorkspaceChange();
-  else mobilePanel = 'workspaces';
+  else mobilePanel = managementView ? undefined : 'workspaces';
+  if (previousManagementView && !managementView && managementOpenedFromApp) {
+    managementOpenedFromApp = false;
+    void restoreManagementTrigger(previousManagementView);
+  }
   markActiveWorkspaceObserved();
 }
 
@@ -220,30 +397,45 @@ async function restartWorkspace(
   managedWorkspace: ManagedWorkspace,
   launchProfileId?: string | null
 ): Promise<{ ok: boolean; error?: string }> {
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) {
+    return { ok: false, error: 'Save the workspace note before reopening this workspace.' };
+  }
   if (!(await workspaceState.restartWorkspace(managedWorkspace, launchProfileId))) {
     return { ok: false, error: workspaceState.workspaceActionError };
   }
   const restartedWorkspace = workspaceState.workspaces.find((candidate) => candidate.id === managedWorkspace.id);
-  if (restartedWorkspace) openWorkspace(restartedWorkspace);
+  if (restartedWorkspace) await openWorkspace(restartedWorkspace);
   return { ok: true };
 }
 
 async function closeWorkspace(managedWorkspace: ManagedWorkspace): Promise<{ ok: boolean; error?: string }> {
+  if (guardManagementTransition(() => void closeWorkspace(managedWorkspace))) {
+    return managementDirty ? { ok: true } : { ok: false, error: 'Wait for the current action to finish.' };
+  }
   const wasActive = workspaceState.requestedWorkspaceId === managedWorkspace.id;
+  if (wasActive && workspaceNavigationGuard && !(await workspaceNavigationGuard())) {
+    return { ok: false, error: 'Save the workspace note before closing this workspace.' };
+  }
   if (!(await workspaceState.closeWorkspace(managedWorkspace))) {
     return { ok: false, error: workspaceState.workspaceActionError };
   }
-  if (workspaceAutomationsWorkspace?.id === managedWorkspace.id) workspaceAutomationsWorkspace = undefined;
+  if (managementView === 'automations' && wasActive) managementView = undefined;
   if (wasActive) mobilePanel = 'workspaces';
   return { ok: true };
 }
 
 async function removeWorkspace(managedWorkspace: ManagedWorkspace): Promise<{ ok: boolean; error?: string }> {
+  if (guardManagementTransition(() => void removeWorkspace(managedWorkspace))) {
+    return managementDirty ? { ok: true } : { ok: false, error: 'Wait for the current action to finish.' };
+  }
   const wasActive = workspaceState.requestedWorkspaceId === managedWorkspace.id;
+  if (wasActive && workspaceNavigationGuard && !(await workspaceNavigationGuard())) {
+    return { ok: false, error: 'Save the workspace note before removing this workspace.' };
+  }
   if (!(await workspaceState.removeWorkspace(managedWorkspace))) {
     return { ok: false, error: workspaceState.workspaceActionError };
   }
-  if (workspaceAutomationsWorkspace?.id === managedWorkspace.id) workspaceAutomationsWorkspace = undefined;
+  if (managementView === 'automations' && wasActive) managementView = undefined;
   if (wasActive) mobilePanel = 'workspaces';
   return { ok: true };
 }
@@ -262,7 +454,7 @@ function handleWorkspaceShortcut(event: KeyboardEvent) {
   if (!targetWorkspace) return;
   event.preventDefault();
   event.stopPropagation();
-  openWorkspace(targetWorkspace);
+  void openWorkspace(targetWorkspace);
 }
 
 function handleOverlayKeydown(event: KeyboardEvent) {
@@ -280,6 +472,7 @@ function handleOverlayKeydown(event: KeyboardEvent) {
 }
 
 onMount(() => {
+  syncedHistoryIndex = historyIndex();
   const initialWorkspacePath = initialWorkspaceId ? `/workspaces/${encodeURIComponent(initialWorkspaceId)}` : '/';
   syncWorkspaceFromLocation(location.pathname || initialWorkspacePath);
   previewTmuxUnavailable = dev && new URLSearchParams(location.search).get('preview') === 'tmux';
@@ -308,7 +501,48 @@ onMount(() => {
       else workspaceState.applyLaunchProfiles(event.launchProfiles);
     },
   });
-  const handlePopState = () => syncWorkspaceFromLocation();
+  const handlePopState = async (event: PopStateEvent) => {
+    const targetHistoryIndex = historyIndex(event.state);
+    if (restoringManagementHistory) {
+      const shouldPrompt = restoringManagementHistory === 'dirty';
+      restoringManagementHistory = undefined;
+      syncedHistoryIndex = targetHistoryIndex;
+      if (shouldPrompt) managementClosePrompt = true;
+      return;
+    }
+    if (restoringWorkspaceHistory) {
+      restoringWorkspaceHistory = false;
+      syncedHistoryIndex = targetHistoryIndex;
+      return;
+    }
+    if (managementView && (managementBusy || managementDirty)) {
+      restoringManagementHistory = managementDirty ? 'dirty' : 'busy';
+      const delta =
+        targetHistoryIndex !== undefined && syncedHistoryIndex !== undefined
+          ? targetHistoryIndex - syncedHistoryIndex
+          : -1;
+      history.go(-delta);
+      return;
+    }
+    const currentWorkspacePath = workspaceState.requestedWorkspaceId
+      ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
+      : '/';
+    const targetPath = location.pathname;
+    if (workspaceNavigationGuard && targetPath !== currentWorkspacePath) {
+      if (!(await workspaceNavigationGuard())) {
+        const delta =
+          targetHistoryIndex !== undefined && syncedHistoryIndex !== undefined
+            ? targetHistoryIndex - syncedHistoryIndex
+            : -1;
+        restoringWorkspaceHistory = true;
+        history.go(-delta);
+        return;
+      }
+      if (location.pathname !== targetPath) return;
+    }
+    syncedHistoryIndex = targetHistoryIndex;
+    syncWorkspaceFromLocation();
+  };
   const handleVisibilityChange = () => {
     const requestedWorkspaceId = workspaceState.requestedWorkspaceId;
     if (
@@ -389,7 +623,15 @@ onMount(() => {
           onCreate={() => void createWorkspace()}
         />
 
-        {#if workspaceState.activeWorkspace?.state === 'missing'}
+        {#if managementView === 'widgets'}
+          <StatusPluginSettings
+            workspaces={workspaceState.workspaces}
+            workspaceId={workspaceState.requestedWorkspaceId}
+            close={closeManagementView}
+            onBusyChange={(value) => managementBusy = value}
+            onDirtyChange={(value) => managementDirty = value}
+          />
+        {:else if workspaceState.activeWorkspace?.state === 'missing'}
           <section class="unavailable-sheet" aria-labelledby="ended-workspace-title">
             <TerminalHeader
               projectName={workspaceName(workspaceState.activeWorkspace)}
@@ -496,32 +738,42 @@ onMount(() => {
           </section>
         {:else if workspaceState.activeWorkspace}
           {#key workspaceState.activeWorkspace.id}
-            <WorkspaceWorkbench
-              workspace={workspaceState.activeWorkspace}
-              onStartBackground={(command) => workspaceState.startBackgroundProcess(workspaceState.activeWorkspace!.id, command)}
-              onStopBackground={(process) => workspaceState.stopBackgroundProcess(workspaceState.activeWorkspace!.id, process.id)}
-              onLoadBackgroundOutput={(processId) => workspaceState.loadBackgroundOutput(workspaceState.activeWorkspace!.id, processId)}
-              onFavoriteBackground={(command) => workspaceState.favoriteBackgroundCommand(workspaceState.activeWorkspace!.id, command)}
-              onRemoveBackgroundFavorite={(command) => workspaceState.removeBackgroundCommandFavorite(workspaceState.activeWorkspace!.id, command)}
-              startingBackground={workspaceState.startingBackgroundWorkspaceId === workspaceState.activeWorkspace.id}
-              stoppingBackgroundProcessId={workspaceState.stoppingBackgroundProcessId}
-              updatingFavoriteCommand={workspaceState.updatingFavoriteCommand}
-              backgroundActionError={workspaceState.backgroundActionErrorWorkspaceId === workspaceState.activeWorkspace.id ? workspaceState.backgroundActionError : ''}
-              onLogout={connection.authenticationRequired ? () => void logout() : undefined}
-              close={openWorkspaceNavigator}
-              onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
-              onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
-              onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
-              onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
-              onTerminalPresentationChange={setTerminalPresentation}
-              {mobilePanel}
-              onMobilePanelChange={setMobilePanel}
-              {repositoryPanelOpen}
-              onRepositoryPanelOpenChange={setRepositoryPanelOpen}
-              {repositoryTab}
-              onRepositoryTabChange={setRepositoryTab}
-              statusPlugins={connection.statusPlugins}
-            />
+            {#if managementView === 'automations'}
+              <WorkspaceAutomationsPage
+                workspace={workspaceState.activeWorkspace}
+                close={closeManagementView}
+                onBusyChange={(value) => managementBusy = value}
+              />
+            {:else}
+              <WorkspaceWorkbench
+                workspace={workspaceState.activeWorkspace}
+                onStartBackground={(command) => workspaceState.startBackgroundProcess(workspaceState.activeWorkspace!.id, command)}
+                onStopBackground={(process) => workspaceState.stopBackgroundProcess(workspaceState.activeWorkspace!.id, process.id)}
+                onLoadBackgroundOutput={(processId) => workspaceState.loadBackgroundOutput(workspaceState.activeWorkspace!.id, processId)}
+                onFavoriteBackground={(command) => workspaceState.favoriteBackgroundCommand(workspaceState.activeWorkspace!.id, command)}
+                onRemoveBackgroundFavorite={(command) => workspaceState.removeBackgroundCommandFavorite(workspaceState.activeWorkspace!.id, command)}
+                startingBackground={workspaceState.startingBackgroundWorkspaceId === workspaceState.activeWorkspace.id}
+                stoppingBackgroundProcessId={workspaceState.stoppingBackgroundProcessId}
+                updatingFavoriteCommand={workspaceState.updatingFavoriteCommand}
+                backgroundActionError={workspaceState.backgroundActionErrorWorkspaceId === workspaceState.activeWorkspace.id ? workspaceState.backgroundActionError : ''}
+                onLogout={connection.authenticationRequired ? () => void logout() : undefined}
+                close={openWorkspaceNavigator}
+                onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
+                onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
+                onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
+                onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
+                onTerminalPresentationChange={setTerminalPresentation}
+                {mobilePanel}
+                onMobilePanelChange={setMobilePanel}
+                {repositoryPanelOpen}
+                onRepositoryPanelOpenChange={setRepositoryPanelOpen}
+                {repositoryTab}
+                onRepositoryTabChange={setRepositoryTab}
+                onNavigationGuardChange={(guard) => workspaceNavigationGuard = guard}
+                onManageStatusWidgets={() => void openStatusWidgets(workspaceState.activeWorkspace?.id)}
+                statusPlugins={connection.statusPlugins}
+              />
+            {/if}
           {/key}
         {:else if workspaceState.requestedWorkspaceId && workspaceState.workspacesLoaded}
           <section class="unavailable-sheet" aria-labelledby="missing-workspace-title">
@@ -545,6 +797,16 @@ onMount(() => {
           </section>
         {/if}
 
+        {#if managementClosePrompt}
+          <ConfirmDialog
+            title="Discard unsaved widget changes?"
+            description="Your widget edits have not been saved. Discard them and leave status widget settings?"
+            confirmLabel="Discard changes"
+            close={cancelManagementClosePrompt}
+            onConfirm={discardManagementChanges}
+          />
+        {/if}
+
         {#if workspaceSettingsOpen && workspaceState.activeWorkspace}
           <WorkspaceSettings
             workspace={workspaceState.activeWorkspace}
@@ -555,13 +817,6 @@ onMount(() => {
 						settings.launchProfiles,
 						settings.startupProfileId
 					)}
-          />
-        {/if}
-
-        {#if workspaceAutomationsWorkspace}
-          <WorkspaceAutomationsDialog
-            workspace={workspaceState.workspaces.find((candidate) => candidate.id === workspaceAutomationsWorkspace?.id) ?? workspaceAutomationsWorkspace}
-            close={() => workspaceAutomationsWorkspace = undefined}
           />
         {/if}
 

@@ -26,6 +26,9 @@ let {
   loadAgentAction = () => loadWorkspaceAgentAction(workspaceId, 'note'),
   queueAgentAction = (request: string) => queueWorkspaceAgentActionRequest(workspaceId, 'note', request),
   panel = false,
+  onBusyChange = () => undefined,
+  onFlushAvailable = () => undefined,
+  onPanelLockChange = () => undefined,
 }: {
   workspaceId: string;
   getNote: (refresh?: boolean) => Promise<string>;
@@ -34,6 +37,9 @@ let {
   loadAgentAction?: () => Promise<WorkspaceAgentActionDescriptor>;
   queueAgentAction?: (request: string) => Promise<WorkspaceAgentActionSubmission>;
   panel?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+  onFlushAvailable?: (flush: (() => Promise<boolean>) | undefined) => void;
+  onPanelLockChange?: (locked: boolean) => void;
 } = $props();
 
 let draft = $state('');
@@ -48,6 +54,7 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let savePromise: Promise<void> | undefined;
 let agentNoteSyncTimer: ReturnType<typeof setInterval> | undefined;
 let agentDialogOpen = $state(false);
+let agentSubmitting = $state(false);
 let agentUpdateQueued = $state(false);
 let agentUpdateMessage = $state('');
 let refreshingAgentNote = false;
@@ -55,6 +62,9 @@ let destroyed = false;
 let saveStatus = $derived(
   saving ? 'Saving…' : saveError ? 'Save failed' : draft === savedNote ? 'Saved' : 'Saving soon…'
 );
+
+$effect(() => onBusyChange(saving || agentSubmitting || (noteLoaded && draft !== savedNote)));
+$effect(() => onPanelLockChange(agentSubmitting));
 
 async function loadNote() {
   noteLoading = true;
@@ -76,6 +86,7 @@ async function loadNote() {
 }
 
 onMount(() => {
+  onFlushAvailable(flushDraftForNavigation);
   void loadNote();
 });
 
@@ -126,6 +137,13 @@ async function saveDraft(): Promise<void> {
   if (draft !== savedNote && !saveError && saveTimer === undefined) scheduleSave();
 }
 
+async function flushDraftForNavigation(): Promise<boolean> {
+  if (agentSubmitting) return false;
+  clearSaveTimer();
+  await saveDraft();
+  return !noteLoaded || draft === savedNote;
+}
+
 async function closeEditor() {
   clearSaveTimer();
   if (!noteLoaded) {
@@ -134,6 +152,7 @@ async function closeEditor() {
   }
   await saveDraft();
   if (draft !== savedNote) return;
+  await tick();
   close();
 }
 
@@ -181,7 +200,13 @@ function handleAgentRequestQueued() {
   startAgentNoteSync();
 }
 
-function handleKeydown(event: KeyboardEvent) {
+async function closeAgentView() {
+  agentDialogOpen = false;
+  await tick();
+  document.getElementById('workspace-note-ask-agent')?.focus();
+}
+
+function handleEditorKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault();
     void closeEditor();
@@ -193,6 +218,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 onDestroy(() => {
+  onFlushAvailable(undefined);
   destroyed = true;
   clearSaveTimer();
   stopAgentNoteSync();
@@ -200,84 +226,94 @@ onDestroy(() => {
 });
 </script>
 
-<div
+<section
   class="note-editor"
   class:panel
-  role="dialog"
-  aria-labelledby="workspace-note-title"
+  aria-label={agentDialogOpen ? 'Ask agent about this note' : undefined}
+  aria-labelledby={agentDialogOpen ? undefined : 'workspace-note-title'}
   tabindex="-1"
-  onkeydown={handleKeydown}
 >
-  {#if panel}
-    <WorkspacePanelHeader
-      title="Workspace note"
-      titleId="workspace-note-title"
-      subtitle="Keep the next step here."
-      close={() => void closeEditor()}
-      closeLabel="Close workspace note"
-    />
-  {:else}
-    <header>
-      <div>
-        <h2 id="workspace-note-title">Workspace note</h2>
-        <p>Keep the next step here.</p>
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        class="close-button"
-        onclick={() => void closeEditor()}
-        ariaLabel="Close workspace note"
-      >
-        <X size={17} strokeWidth={1.9} aria-hidden="true" />
-      </Button>
-    </header>
-  {/if}
-  <form>
-    {#if noteLoading}
-      <p class="note-loading" role="status">Loading note…</p>
-    {:else if !noteLoaded}
-      <p class="note-error" role="alert">{noteLoadError}</p>
-      <Button class="note-retry" size="sm" variant="secondary" onclick={() => void loadNote()}>Retry</Button>
-    {:else}
-      <Textarea
-        bind:element={textarea}
-        bind:value={draft}
-        class="note-textarea"
-        oninput={scheduleSave}
-        placeholder="What is this workspace for? What changed? What comes next?"
-        ariaLabel="Workspace note"
+  {#if agentDialogOpen}
+    <div class="note-agent-view">
+      <AskAgentDialog
+        embedded
+        close={() => void closeAgentView()}
+        load={loadAgentAction}
+        submit={submitAgentRequest}
+        onQueued={handleAgentRequestQueued}
+        onSubmittingChange={(value) => agentSubmitting = value}
       />
-      <div class="note-footer">
-        <span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}
-          >{saveStatus}</span
+    </div>
+  {:else}
+    {#if panel}
+      <WorkspacePanelHeader
+        title="Workspace note"
+        titleId="workspace-note-title"
+        subtitle="Keep the next step here."
+        close={() => void closeEditor()}
+        closeLabel="Close workspace note"
+      />
+    {:else}
+      <header>
+        <div>
+          <h2 id="workspace-note-title">Workspace note</h2>
+          <p>Keep the next step here.</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="close-button"
+          onclick={() => void closeEditor()}
+          ariaLabel="Close workspace note"
         >
-      </div>
-      {#if saveError}
-        <p class="note-error" role="alert">{saveError}</p>
-      {/if}
-      <div class="agent-note-action">
-        <Button variant="secondary" block onclick={() => (agentDialogOpen = true)} disabled={Boolean(saveError)}>
-          <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
-          Ask agent…
+          <X size={17} strokeWidth={1.9} aria-hidden="true" />
         </Button>
-        <p>Give the note path to the current main agent and describe what you want.</p>
-      </div>
-      {#if agentUpdateMessage}
-        <p class="note-agent-status" role="status">{agentUpdateMessage}</p>
-      {/if}
+      </header>
     {/if}
-  </form>
-</div>
-
-{#if agentDialogOpen}
-  <AskAgentDialog
-    close={() => (agentDialogOpen = false)}
-    load={loadAgentAction}
-    submit={submitAgentRequest}
-    onQueued={handleAgentRequestQueued}
-  />
-{/if}
+    <form>
+      {#if noteLoading}
+        <p class="note-loading" role="status">Loading note…</p>
+      {:else if !noteLoaded}
+        <p class="note-error" role="alert">{noteLoadError}</p>
+        <Button class="note-retry" size="sm" variant="secondary" onclick={() => void loadNote()}>Retry</Button>
+      {:else}
+        <Textarea
+          bind:element={textarea}
+          bind:value={draft}
+          class="note-textarea"
+          oninput={scheduleSave}
+          onkeydown={handleEditorKeydown}
+          placeholder="What is this workspace for? What changed? What comes next?"
+          ariaLabel="Workspace note"
+        />
+        <div class="note-footer">
+          <span class:error={Boolean(saveError)} class="note-save-status" role={saveError ? 'alert' : 'status'}
+            >{saveStatus}</span
+          >
+        </div>
+        {#if saveError}
+          <p class="note-error" role="alert">{saveError}</p>
+        {/if}
+        <div class="agent-note-action">
+          <Button
+            id="workspace-note-ask-agent"
+            variant="secondary"
+            block
+            onclick={() => (agentDialogOpen = true)}
+            disabled={Boolean(saveError)}
+          >
+            <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+            Ask agent…
+          </Button>
+          <p>Send this note and your request to this workspace's main agent.</p>
+        </div>
+        {#if agentUpdateMessage}
+          <p class="note-agent-status" role="status">{agentUpdateMessage}</p>
+        {/if}
+      {/if}
+    </form>
+  {/if}
+</section>
 
 <style>
 .note-editor {
@@ -309,6 +345,12 @@ onDestroy(() => {
   flex-direction: column;
   min-height: 0;
   gap: 0.65rem;
+  padding: 1rem;
+}
+.note-agent-view {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
   padding: 1rem;
 }
 header {

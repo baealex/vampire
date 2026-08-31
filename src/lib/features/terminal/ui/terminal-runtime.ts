@@ -369,6 +369,8 @@ export class TerminalRuntime {
           if (desktopInput && this.#canClaimControl()) {
             requestAnimationFrame(() => {
               if (this.#destroyed) return;
+              const activeElement = document.activeElement;
+              if (activeElement && activeElement !== document.body) return;
               terminal.focus();
               this.#updateState({ directInputFocused: true });
             });

@@ -38,6 +38,7 @@ let {
   onExternalFileDrop = async () => [],
   statusPlugins = [],
   dismissStatusPopovers = false,
+  onManageStatusWidgets = () => undefined,
   children,
 }: {
   workspace: ManagedWorkspace;
@@ -67,6 +68,7 @@ let {
   onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
   statusPlugins?: StatusPluginSnapshot[];
   dismissStatusPopovers?: boolean;
+  onManageStatusWidgets?: () => void;
   children?: Snippet;
 } = $props();
 
@@ -112,9 +114,9 @@ onMount(() => {
   <div class="terminal-topbar">
     <GlobalStatusBar
       plugins={statusPlugins}
-      workspaceId={workspace.id}
       {onLogout}
       dismissPopovers={dismissStatusPopovers}
+      {onManageStatusWidgets}
     />
     <TerminalHeader
       {projectName}

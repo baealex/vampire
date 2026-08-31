@@ -355,6 +355,7 @@ let unsubscribe: (() => void) | undefined;
 onMount(() => {
   timeZone = localTimeZone();
   resetRunAt();
+  void tick().then(() => nameInput?.focus());
   unsubscribe = queryCache.subscribe(automationsQuery, applyQuerySnapshot);
   void loadAutomations(false, true);
   refreshTimer = setInterval(() => {
