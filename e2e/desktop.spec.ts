@@ -536,8 +536,8 @@ test('delivers note and widget requests to the existing main agent without expos
   const receivedPath = await startWaitingMainAgent(context, workspace);
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
-  await expect(page.getByRole('button', { name: 'Close workspace note' })).toBeVisible();
   const noteDialog = page.getByRole('dialog', { name: 'Workspace note' });
+  await expect(noteDialog).toBeVisible();
   const noteInput = noteDialog.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
   await expect(noteDialog.getByText('Saved', { exact: true })).toBeVisible();
@@ -577,7 +577,7 @@ test('delivers note and widget requests to the existing main agent without expos
     .toContain(noteRequest);
   await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(notePath);
 
-  await page.getByRole('button', { name: 'Close workspace note' }).click();
+  await noteDialog.getByRole('button', { name: 'Close workspace note' }).click();
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
   const statusDialog = page.getByRole('dialog', { name: 'Status widgets' });
   await statusDialog.getByRole('button', { name: 'Add widget' }).click();
