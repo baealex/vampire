@@ -4,6 +4,7 @@ import {
   deleteManagedWorkspaceAutomation,
   WorkspaceAutomationMutationError,
   setManagedWorkspaceAutomationEnabled,
+  updateManagedWorkspaceAutomation,
 } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 
 function automationError(cause: WorkspaceAutomationMutationError): never {
@@ -31,10 +32,24 @@ export const PATCH: RequestHandler = async (event) => {
   const body: unknown = await event.request.json().catch(() => undefined);
   const enabled =
     body && typeof body === 'object' && !Array.isArray(body) && 'enabled' in body ? body.enabled : undefined;
-  if (typeof enabled !== 'boolean') throw error(400, 'Enabled must be a boolean.');
+  if (enabled !== undefined && typeof enabled !== 'boolean') throw error(400, 'Enabled must be a boolean.');
+  if (
+    typeof enabled === 'boolean' &&
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    ('name' in body || 'prompt' in body || 'schedule' in body)
+  ) {
+    throw error(400, 'Enabled and automation settings must be updated separately.');
+  }
   try {
+    if (typeof enabled === 'boolean') {
+      return json({
+        automation: await setManagedWorkspaceAutomationEnabled(workspaceId, automationId, enabled),
+      });
+    }
     return json({
-      automation: await setManagedWorkspaceAutomationEnabled(workspaceId, automationId, enabled),
+      automation: await updateManagedWorkspaceAutomation(workspaceId, automationId, body),
     });
   } catch (cause) {
     if (cause instanceof WorkspaceAutomationMutationError) automationError(cause);

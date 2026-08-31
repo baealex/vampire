@@ -301,6 +301,40 @@ export async function setManagedWorkspaceAutomationEnabled(
   });
 }
 
+export async function updateManagedWorkspaceAutomation(
+  workspaceId: string,
+  automationId: string,
+  value: unknown,
+  now = Date.now()
+): Promise<WorkspaceAutomation> {
+  const input = normalizeCreateInput(value);
+  return withWorkspaceStoreMutation(async () => {
+    const state = await readWorkspaceStore();
+    const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
+    const current = stored.automations.find(
+      (automation) => automation.id === automationId && automation.kind === 'custom'
+    );
+    if (!current) {
+      throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
+    }
+    const scheduled = automationFromInput(input, now);
+    const automation: WorkspaceAutomation = {
+      ...current,
+      name: input.name,
+      prompt: input.prompt,
+      schedule: { ...input.schedule },
+      nextRunAt: scheduled.nextRunAt,
+      updatedAt: now,
+      lastOutcome: null,
+      lastError: null,
+    };
+    const updated = replaceStoredAutomation(stored, automation);
+    await writeWorkspaceStore({ ...state, workspaces: replaceStoredWorkspace(state.workspaces, updated) });
+    return automation;
+  });
+}
+
 export async function deleteManagedWorkspaceAutomation(workspaceId: string, automationId: string): Promise<void> {
   await withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();

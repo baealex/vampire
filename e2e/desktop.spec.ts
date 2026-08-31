@@ -529,8 +529,15 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect(savedAutomation).toBeVisible();
   const browserTimeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   await expect(savedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 9:30 AM (${browserTimeZone})`);
-  await savedAutomation.getByRole('button', { name: 'Delete' }).click();
-  await expect(savedAutomation).toBeHidden();
+  await savedAutomation.getByRole('button', { name: 'Edit' }).click();
+  await expect(automationDialog.getByLabel('Name')).toBeFocused();
+  await automationDialog.getByLabel('Name').fill('Review project state later');
+  await automationDialog.getByRole('textbox', { name: 'Time', exact: true }).fill('14:30');
+  await automationDialog.getByRole('button', { name: 'Save changes' }).click();
+  const updatedAutomation = automationDialog.locator('article', { hasText: 'Review project state later' });
+  await expect(updatedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 2:30 PM (${browserTimeZone})`);
+  await updatedAutomation.getByRole('button', { name: 'Delete' }).click();
+  await expect(updatedAutomation).toBeHidden();
   await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
 
   const receivedPath = await startWaitingMainAgent(context, workspace);
@@ -612,17 +619,20 @@ test('delivers note and widget requests to the existing main agent without expos
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Agent automations' }).click();
   await automationDialog.getByRole('button', { name: 'Ask agent…' }).click();
-  const automationAgentDialog = page.getByRole('dialog', { name: 'Create an automation with an agent' });
+  await expect(page.getByRole('dialog', { name: 'Create an automation with an agent' })).toHaveCount(0);
+  await expect(automationDialog.getByRole('heading', { name: 'Create an automation with an agent' })).toBeVisible();
   const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'workspace-automation.md');
   const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'apply-workspace-automation.mjs');
-  await expect(automationAgentDialog.getByText('Prepared when sent', { exact: true })).toBeVisible();
+  await expect(automationDialog.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
-  await automationAgentDialog
-    .getByRole('textbox', { name: 'What should the automation do, and when?' })
-    .fill(automationRequest);
-  await automationAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(automationAgentDialog).toBeHidden();
-  await expect(automationDialog.getByRole('status')).toContainText('Automation request queued');
+  const automationRequestInput = automationDialog.getByRole('textbox', {
+    name: 'What should the automation do, and when?',
+  });
+  await expect(automationRequestInput).toBeFocused();
+  await automationRequestInput.fill(automationRequest);
+  await automationDialog.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(automationDialog.getByRole('heading', { name: 'Create an automation with an agent' })).toBeHidden();
+  await expect(automationDialog.getByRole('status')).toContainText('Automation request sent');
   const storedAutomationAction = await readStoredAgentAction(workspace.id, 'automation');
   expect(storedAutomationAction?.prompt).toContain(automationGuidePath);
   expect(storedAutomationAction?.prompt).toContain(automationApplyPath);

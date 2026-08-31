@@ -11,6 +11,8 @@ let {
   workspace: ManagedWorkspace;
   close: () => void;
 } = $props();
+
+let busy = $state(false);
 </script>
 
 <DialogShell
@@ -18,7 +20,8 @@ let {
   title="Agent automations"
   closeLabel="Close agent automations"
   {close}
+  closeDisabled={busy}
   variant="inspect"
 >
-  <WorkspaceAutomations workspaceId={workspace.id} />
+  <WorkspaceAutomations workspaceId={workspace.id} onBusyChange={(value) => busy = value} />
 </DialogShell>

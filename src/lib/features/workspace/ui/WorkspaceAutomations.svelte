@@ -1,9 +1,10 @@
 <script lang="ts">
-import { onDestroy, onMount, untrack } from 'svelte';
+import { onDestroy, onMount, tick, untrack } from 'svelte';
 import Clock3 from '@lucide/svelte/icons/clock-3';
 import Pause from '@lucide/svelte/icons/pause';
 import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
+import Pencil from '@lucide/svelte/icons/pencil';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import Sparkles from '@lucide/svelte/icons/sparkles';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
@@ -28,7 +29,13 @@ import Textarea from '~/lib/shared/ui/Textarea.svelte';
 
 const REFRESH_INTERVAL_MS = 5_000;
 
-let { workspaceId }: { workspaceId: string } = $props();
+let {
+  workspaceId,
+  onBusyChange = () => undefined,
+}: {
+  workspaceId: string;
+  onBusyChange?: (busy: boolean) => void;
+} = $props();
 
 type WorkspaceAutomationsResponse = { automations: WorkspaceAutomation[] };
 const automationsQuery = untrack(() => `workspace/${workspaceId}/automations`);
@@ -42,12 +49,14 @@ let loadError = $state('');
 let mutationError = $state('');
 let creating = $state(false);
 let updatingId = $state<string>();
+let editingId = $state<string>();
+let agentSubmitting = $state(false);
 let name = $state('');
 let prompt = $state('');
 let scheduleType = $state<WorkspaceAutomationSchedule['type']>('once');
 let runAt = $state('');
 let intervalValue = $state(60);
-let intervalUnit = $state<'minutes' | 'hours' | 'days'>('minutes');
+let intervalUnit = $state<'milliseconds' | 'seconds' | 'minutes' | 'hours' | 'days'>('minutes');
 let weeklyTime = $state('09:00');
 let weekdays = $state<WorkspaceAutomationWeekday[]>([1, 2, 3, 4, 5]);
 let timeZone = $state('UTC');
@@ -55,6 +64,14 @@ let askAgentOpen = $state(false);
 let agentMessage = $state('');
 let now = $state(Date.now());
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
+let nameInput = $state<HTMLInputElement>();
+const mutationBusy = $derived(creating || Boolean(updatingId));
+
+$effect(() => onBusyChange(mutationBusy || agentSubmitting));
+
+function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
 
 function localDateTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -69,7 +86,16 @@ function resetRunAt() {
 }
 
 function intervalMilliseconds(): number {
-  const multiplier = intervalUnit === 'days' ? 24 * 60 * 60_000 : intervalUnit === 'hours' ? 60 * 60_000 : 60_000;
+  const multiplier =
+    intervalUnit === 'days'
+      ? 24 * 60 * 60_000
+      : intervalUnit === 'hours'
+        ? 60 * 60_000
+        : intervalUnit === 'minutes'
+          ? 60_000
+          : intervalUnit === 'seconds'
+            ? 1_000
+            : 1;
   return intervalValue * multiplier;
 }
 
@@ -144,7 +170,7 @@ async function loadAutomations(quiet = false, force = true) {
 }
 
 async function createAutomation() {
-  if (creating) return;
+  if (creating || updatingId) return;
   const schedule = scheduleInput();
   if (!name.trim() || !prompt.trim() || !schedule) {
     mutationError = 'Enter a name, prompt, and valid schedule.';
@@ -154,9 +180,11 @@ async function createAutomation() {
   mutationError = '';
   try {
     const data = await requestJson<{ automation: WorkspaceAutomation }>(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
+      editingId
+        ? `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(editingId)}`
+        : `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
       {
-        method: 'POST',
+        method: editingId ? 'PATCH' : 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name, prompt, schedule }),
       },
@@ -164,9 +192,12 @@ async function createAutomation() {
     );
     automations = [data.automation, ...automations.filter((item) => item.id !== data.automation.id)];
     queryCache.set(automationsQuery, { automations });
-    name = '';
-    prompt = '';
-    resetRunAt();
+    if (editingId) cancelEditing();
+    else {
+      name = '';
+      prompt = '';
+      resetRunAt();
+    }
   } catch (error) {
     mutationError = error instanceof Error ? error.message : 'Unable to save the automation';
   } finally {
@@ -174,8 +205,65 @@ async function createAutomation() {
   }
 }
 
+async function editAutomation(automation: WorkspaceAutomation) {
+  if (creating || updatingId) return;
+  editingId = automation.id;
+  name = automation.name;
+  prompt = automation.prompt;
+  scheduleType = automation.schedule.type;
+  weekdays = [1, 2, 3, 4, 5];
+  timeZone = localTimeZone();
+  if (automation.schedule.type === 'once') {
+    runAt = localDateTime(automation.schedule.runAt);
+  } else if (automation.schedule.type === 'interval') {
+    const intervalMs = automation.schedule.intervalMs;
+    if (intervalMs % (24 * 60 * 60_000) === 0) {
+      intervalValue = intervalMs / (24 * 60 * 60_000);
+      intervalUnit = 'days';
+    } else if (intervalMs % (60 * 60_000) === 0) {
+      intervalValue = intervalMs / (60 * 60_000);
+      intervalUnit = 'hours';
+    } else if (intervalMs % 60_000 === 0) {
+      intervalValue = intervalMs / 60_000;
+      intervalUnit = 'minutes';
+    } else if (intervalMs % 1_000 === 0) {
+      intervalValue = intervalMs / 1_000;
+      intervalUnit = 'seconds';
+    } else {
+      intervalValue = intervalMs;
+      intervalUnit = 'milliseconds';
+    }
+    runAt = localDateTime(
+      automation.nextRunAt && automation.nextRunAt > Date.now() ? automation.nextRunAt : Date.now() + 5 * 60_000
+    );
+  } else {
+    weekdays = [...automation.schedule.weekdays];
+    weeklyTime = `${String(automation.schedule.hour).padStart(2, '0')}:${String(automation.schedule.minute).padStart(2, '0')}`;
+    timeZone = automation.schedule.timeZone;
+  }
+  mutationError = '';
+  await tick();
+  nameInput?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  nameInput?.focus({ preventScroll: true });
+}
+
+function cancelEditing() {
+  editingId = undefined;
+  name = '';
+  prompt = '';
+  scheduleType = 'once';
+  timeZone = localTimeZone();
+  resetRunAt();
+}
+
+async function closeAskAgent() {
+  askAgentOpen = false;
+  await tick();
+  document.getElementById('automation-ask-agent-trigger')?.focus();
+}
+
 async function setEnabled(automation: WorkspaceAutomation, enabled: boolean) {
-  if (updatingId) return;
+  if (creating || updatingId) return;
   updatingId = automation.id;
   mutationError = '';
   try {
@@ -198,7 +286,7 @@ async function setEnabled(automation: WorkspaceAutomation, enabled: boolean) {
 }
 
 async function deleteAutomation(automation: WorkspaceAutomation) {
-  if (updatingId) return;
+  if (creating || updatingId) return;
   updatingId = automation.id;
   mutationError = '';
   try {
@@ -209,6 +297,7 @@ async function deleteAutomation(automation: WorkspaceAutomation) {
     );
     automations = automations.filter((item) => item.id !== automation.id);
     queryCache.set(automationsQuery, { automations });
+    if (editingId === automation.id) cancelEditing();
   } catch (error) {
     mutationError = error instanceof Error ? error.message : 'Unable to delete the automation';
   } finally {
@@ -228,7 +317,9 @@ function formatTimestamp(timestamp: number): string {
 function formatInterval(intervalMs: number): string {
   if (intervalMs % (24 * 60 * 60_000) === 0) return `${intervalMs / (24 * 60 * 60_000)}d`;
   if (intervalMs % (60 * 60_000) === 0) return `${intervalMs / (60 * 60_000)}h`;
-  return `${intervalMs / 60_000}m`;
+  if (intervalMs % 60_000 === 0) return `${intervalMs / 60_000}m`;
+  if (intervalMs % 1_000 === 0) return `${intervalMs / 1_000}s`;
+  return `${intervalMs}ms`;
 }
 
 function scheduleLabel(automation: WorkspaceAutomation): string {
@@ -251,7 +342,7 @@ function statusLabel(automation: WorkspaceAutomation): string {
   if (!automation.enabled) {
     return automation.schedule.type === 'once' && automation.lastOutcome === 'submitted' ? 'Sent' : 'Paused';
   }
-  if (automation.nextRunAt !== null && automation.nextRunAt <= now) return 'Waiting for agent';
+  if (automation.nextRunAt !== null && automation.nextRunAt <= now) return 'Pending delivery';
   return automation.nextRunAt === null ? 'Paused' : `Next ${formatTimestamp(automation.nextRunAt)}`;
 }
 
@@ -262,7 +353,7 @@ function resumeLabel(automation: WorkspaceAutomation): string {
 let unsubscribe: (() => void) | undefined;
 
 onMount(() => {
-  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  timeZone = localTimeZone();
   resetRunAt();
   unsubscribe = queryCache.subscribe(automationsQuery, applyQuerySnapshot);
   void loadAutomations(false, true);
@@ -278,172 +369,196 @@ onDestroy(() => {
 });
 </script>
 
-<div class="automation-panel" aria-busy={fetching}>
-  <div class="automation-intro">
-    <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
-    <Button variant="primary" size="sm" onclick={() => { agentMessage = ''; askAgentOpen = true; }}>
-      <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
-      Ask agent…
-    </Button>
-  </div>
-
-  {#if agentMessage}
-    <p class="automation-agent-message" role="status">{agentMessage}</p>
-  {/if}
-
-  <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
-    <Field label="Name">
-      <Input
-        bind:value={name}
-        maxlength={WORKSPACE_AUTOMATION_NAME_MAX_LENGTH}
-        placeholder="Daily project check"
-        required
-      />
-    </Field>
-    <Field label="Prompt">
-      <Textarea
-        bind:value={prompt}
-        maxlength={WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH}
-        rows={4}
-        placeholder="Review the current work and take the next useful step…"
-        required
-      />
-    </Field>
-    <div class="schedule-row">
-      <Field label="Schedule">
-        <Select
-          value={scheduleType}
-          onchange={(event) => scheduleType = (event.currentTarget as HTMLSelectElement).value as WorkspaceAutomationSchedule['type']}
-        >
-          <option value="once">One time</option>
-          <option value="interval">Every interval</option>
-          <option value="weekly">Weekly</option>
-        </Select>
-      </Field>
-      {#if scheduleType !== 'weekly'}
-        <Field label={scheduleType === 'once' ? 'Run at' : 'First run'}>
-          <Input type="datetime-local" bind:value={runAt} required />
-        </Field>
-      {:else}
-        <Field label="Time">
-          <Input type="time" bind:value={weeklyTime} required />
-        </Field>
-      {/if}
-    </div>
-    {#if scheduleType === 'interval'}
-      <div class="interval-row">
-        <Field label="Repeat every">
-          <Input
-            type="number"
-            value={String(intervalValue)}
-            min={1}
-            step={1}
-            required
-            oninput={(event) => intervalValue = (event.currentTarget as HTMLInputElement).valueAsNumber}
-          />
-        </Field>
-        <Field label="Unit">
-          <Select
-            value={intervalUnit}
-            onchange={(event) => intervalUnit = (event.currentTarget as HTMLSelectElement).value as typeof intervalUnit}
-          >
-            <option value="minutes">Minutes</option>
-            <option value="hours">Hours</option>
-            <option value="days">Days</option>
-          </Select>
-        </Field>
-      </div>
-    {:else if scheduleType === 'weekly'}
-      <fieldset class="weekday-field">
-        <legend>Days</legend>
-        <div class="weekday-options">
-          {#each ([0, 1, 2, 3, 4, 5, 6] as WorkspaceAutomationWeekday[]) as weekday}
-            <Button
-              size="sm"
-              class={weekdays.includes(weekday) ? 'weekday-selected' : undefined}
-              ariaPressed={weekdays.includes(weekday)}
-              onclick={() => toggleWeekday(weekday)}
-            >
-              {new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' }).format(Date.UTC(2026, 7, 30 + weekday))}
-            </Button>
-          {/each}
-        </div>
-        <small>{timeZone}</small>
-      </fieldset>
-    {/if}
-    <Button variant="primary" class="create-button" type="submit" disabled={creating}>
-      <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
-      {creating ? 'Saving…' : 'Add automation'}
-    </Button>
-  </form>
-
-  {#if mutationError}
-    <p class="automation-error" role="alert">{mutationError}</p>
-  {/if}
-
-  <div class="automation-list" aria-live="polite">
-    {#if loading}
-      <DialogEmptyState>Loading automations…</DialogEmptyState>
-    {:else if loadError}
-      <DialogEmptyState as="div" class="automation-empty">
-        <p role="alert">{loadError}</p>
-        <Button size="sm" onclick={() => void loadAutomations(false, true)}>Retry</Button>
-      </DialogEmptyState>
-    {:else if automations.length === 0}
-      <DialogEmptyState>No automations yet.</DialogEmptyState>
-    {:else}
-      {#each automations as automation (automation.id)}
-        <article class:paused={!automation.enabled}>
-          <div class="automation-heading">
-            <div>
-              <strong>{automation.name}</strong>
-              <span>{scheduleLabel(automation)} · {statusLabel(automation)}</span>
-            </div>
-            <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
-          </div>
-          <p class="automation-prompt">{automation.prompt}</p>
-          {#if automation.lastRunAt}
-            <p class="automation-meta">Last sent {formatTimestamp(automation.lastRunAt)}</p>
-          {/if}
-          {#if automation.lastError}
-            <p class="automation-error" role="alert">{automation.lastError}</p>
-          {/if}
-          <div class="automation-actions">
-            <Button
-              size="sm"
-              disabled={Boolean(updatingId)}
-              onclick={() => void setEnabled(automation, !automation.enabled)}
-            >
-              {#if automation.enabled}
-                <Pause size={14} strokeWidth={1.9} aria-hidden="true" />
-                Pause
-              {:else}
-                <Play size={14} strokeWidth={1.9} aria-hidden="true" /> {resumeLabel(automation)}
-              {/if}
-            </Button>
-            <Button
-              variant="danger-outline"
-              size="sm"
-              disabled={Boolean(updatingId)}
-              onclick={() => void deleteAutomation(automation)}
-            >
-              <Trash2 size={14} strokeWidth={1.9} aria-hidden="true" />
-              Delete
-            </Button>
-          </div>
-        </article>
-      {/each}
-    {/if}
-  </div>
-</div>
-
 {#if askAgentOpen}
   <AskAgentDialog
-    close={() => askAgentOpen = false}
+    embedded
+    close={() => void closeAskAgent()}
     load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
     submit={(request) => queueWorkspaceAgentAction(workspaceId, 'automation', request)}
-    onQueued={() => agentMessage = 'Automation request queued. It will appear here after the agent validates it.'}
+    onQueued={() => agentMessage = 'Automation request sent. It will appear here after the agent validates it.'}
+    onSubmittingChange={(value) => agentSubmitting = value}
   />
+{:else}
+  <div class="automation-panel" aria-busy={fetching}>
+    <div class="automation-intro">
+      <p class="automation-description">Prompts are sent directly to the recognized main agent.</p>
+      <Button
+        id="automation-ask-agent-trigger"
+        variant="primary"
+        size="sm"
+        disabled={mutationBusy}
+        onclick={() => { agentMessage = ''; askAgentOpen = true; }}
+      >
+        <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
+        Ask agent…
+      </Button>
+    </div>
+
+    {#if agentMessage}
+      <p class="automation-agent-message" role="status">{agentMessage}</p>
+    {/if}
+
+    <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
+      <Field label="Name">
+        <Input
+          bind:element={nameInput}
+          bind:value={name}
+          maxlength={WORKSPACE_AUTOMATION_NAME_MAX_LENGTH}
+          placeholder="Daily project check"
+          required
+        />
+      </Field>
+      <Field label="Prompt">
+        <Textarea
+          bind:value={prompt}
+          maxlength={WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH}
+          rows={4}
+          placeholder="Review the current work and take the next useful step…"
+          required
+        />
+      </Field>
+      <div class="schedule-row">
+        <Field label="Schedule">
+          <Select
+            value={scheduleType}
+            onchange={(event) => scheduleType = (event.currentTarget as HTMLSelectElement).value as WorkspaceAutomationSchedule['type']}
+          >
+            <option value="once">One time</option>
+            <option value="interval">Every interval</option>
+            <option value="weekly">Weekly</option>
+          </Select>
+        </Field>
+        {#if scheduleType !== 'weekly'}
+          <Field label={scheduleType === 'once' ? 'Run at' : 'First run'}>
+            <Input type="datetime-local" bind:value={runAt} required />
+          </Field>
+        {:else}
+          <Field label="Time">
+            <Input type="time" bind:value={weeklyTime} required />
+          </Field>
+        {/if}
+      </div>
+      {#if scheduleType === 'interval'}
+        <div class="interval-row">
+          <Field label="Repeat every">
+            <Input
+              type="number"
+              value={String(intervalValue)}
+              min={1}
+              step={1}
+              required
+              oninput={(event) => intervalValue = (event.currentTarget as HTMLInputElement).valueAsNumber}
+            />
+          </Field>
+          <Field label="Unit">
+            <Select
+              value={intervalUnit}
+              onchange={(event) => intervalUnit = (event.currentTarget as HTMLSelectElement).value as typeof intervalUnit}
+            >
+              <option value="days">Days</option>
+              <option value="hours">Hours</option>
+              <option value="minutes">Minutes</option>
+              <option value="seconds">Seconds</option>
+              <option value="milliseconds">Milliseconds</option>
+            </Select>
+          </Field>
+        </div>
+      {:else if scheduleType === 'weekly'}
+        <fieldset class="weekday-field">
+          <legend>Days</legend>
+          <div class="weekday-options">
+            {#each ([0, 1, 2, 3, 4, 5, 6] as WorkspaceAutomationWeekday[]) as weekday}
+              <Button
+                size="sm"
+                class={weekdays.includes(weekday) ? 'weekday-selected' : undefined}
+                ariaPressed={weekdays.includes(weekday)}
+                onclick={() => toggleWeekday(weekday)}
+              >
+                {new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' }).format(Date.UTC(2026, 7, 30 + weekday))}
+              </Button>
+            {/each}
+          </div>
+          <small>{timeZone}</small>
+        </fieldset>
+      {/if}
+      <div class="form-actions">
+        {#if editingId}
+          <Button type="button" onclick={cancelEditing} disabled={mutationBusy}>Cancel</Button>
+        {/if}
+        <Button variant="primary" class="create-button" type="submit" disabled={mutationBusy}>
+          {#if editingId}
+            <Pencil size={16} strokeWidth={1.9} aria-hidden="true" />
+          {:else}
+            <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
+          {/if}
+          {creating ? 'Saving…' : editingId ? 'Save changes' : 'Add automation'}
+        </Button>
+      </div>
+    </form>
+
+    {#if mutationError}
+      <p class="automation-error" role="alert">{mutationError}</p>
+    {/if}
+
+    <div class="automation-list" aria-live="polite">
+      {#if loading}
+        <DialogEmptyState>Loading automations…</DialogEmptyState>
+      {:else if loadError}
+        <DialogEmptyState as="div" class="automation-empty">
+          <p role="alert">{loadError}</p>
+          <Button size="sm" onclick={() => void loadAutomations(false, true)}>Retry</Button>
+        </DialogEmptyState>
+      {:else if automations.length === 0}
+        <DialogEmptyState>No automations yet.</DialogEmptyState>
+      {:else}
+        {#each automations as automation (automation.id)}
+          <article class:paused={!automation.enabled}>
+            <div class="automation-heading">
+              <div>
+                <strong>{automation.name}</strong>
+                <span>{scheduleLabel(automation)} · {statusLabel(automation)}</span>
+              </div>
+              <Clock3 size={16} strokeWidth={1.8} aria-hidden="true" />
+            </div>
+            <p class="automation-prompt">{automation.prompt}</p>
+            {#if automation.lastRunAt}
+              <p class="automation-meta">Last sent {formatTimestamp(automation.lastRunAt)}</p>
+            {/if}
+            {#if automation.lastError}
+              <p class="automation-error" role="alert">{automation.lastError}</p>
+            {/if}
+            <div class="automation-actions">
+              <Button size="sm" disabled={mutationBusy} onclick={() => void editAutomation(automation)}>
+                <Pencil size={14} strokeWidth={1.9} aria-hidden="true" />
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                disabled={mutationBusy}
+                onclick={() => void setEnabled(automation, !automation.enabled)}
+              >
+                {#if automation.enabled}
+                  <Pause size={14} strokeWidth={1.9} aria-hidden="true" />
+                  Pause
+                {:else}
+                  <Play size={14} strokeWidth={1.9} aria-hidden="true" /> {resumeLabel(automation)}
+                {/if}
+              </Button>
+              <Button
+                variant="danger-outline"
+                size="sm"
+                disabled={mutationBusy}
+                onclick={() => void deleteAutomation(automation)}
+              >
+                <Trash2 size={14} strokeWidth={1.9} aria-hidden="true" />
+                Delete
+              </Button>
+            </div>
+          </article>
+        {/each}
+      {/if}
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -514,6 +629,11 @@ form {
 }
 :global(.create-button) {
   justify-self: end;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 .automation-list {
   display: grid;

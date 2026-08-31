@@ -11,6 +11,7 @@ import {
   listManagedWorkspaceAutomations,
   queueManagedWorkspaceAgentPrompt,
   setManagedWorkspaceAutomationEnabled,
+  updateManagedWorkspaceAutomation,
 } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import { readWorkspaceStore, WORKSPACE_STATE_VERSION } from '~/lib/features/workspace/server/workspace-store.server.ts';
 
@@ -231,4 +232,71 @@ test('pause, resume, delete, and failed delivery remain durable', async (t) => {
   await deleteManagedWorkspaceAutomation('workspace-1', automation.id);
   assert.deepEqual(await listManagedWorkspaceAutomations('workspace-1'), []);
   assert.deepEqual((await readWorkspaceStore()).workspaces[0]?.automations, []);
+});
+
+test('editing an automation replaces its settings and recomputes the next run', async (t) => {
+  await createStoredWorkspace(t);
+  const now = Date.UTC(2026, 7, 20, 9, 0, 0);
+  const automation = await createManagedWorkspaceAutomation(
+    'workspace-1',
+    {
+      name: 'Old name',
+      prompt: 'Old prompt.',
+      schedule: { type: 'once', runAt: now + 60_000 },
+    },
+    now
+  );
+
+  const updated = await updateManagedWorkspaceAutomation(
+    'workspace-1',
+    automation.id,
+    {
+      name: 'Weekday review',
+      prompt: 'Review the current work.',
+      schedule: {
+        type: 'weekly',
+        weekdays: [1, 3, 5],
+        hour: 10,
+        minute: 30,
+        timeZone: 'Asia/Seoul',
+        startAt: now,
+      },
+    },
+    now
+  );
+
+  assert.equal(updated.id, automation.id);
+  assert.equal(updated.name, 'Weekday review');
+  assert.equal(updated.prompt, 'Review the current work.');
+  assert.deepEqual(updated.schedule, {
+    type: 'weekly',
+    weekdays: [1, 3, 5],
+    hour: 10,
+    minute: 30,
+    timeZone: 'Asia/Seoul',
+    startAt: now,
+  });
+  assert.equal(updated.nextRunAt, Date.UTC(2026, 7, 21, 1, 30));
+});
+
+test('editing a paused automation preserves its new future run when resumed', async (t) => {
+  await createStoredWorkspace(t);
+  const created = await createManagedWorkspaceAutomation(
+    'workspace-1',
+    { name: 'Paused task', prompt: 'Wait for the chosen time.', schedule: { type: 'once', runAt: 100 } },
+    1
+  );
+  await setManagedWorkspaceAutomationEnabled('workspace-1', created.id, false, 2);
+
+  const updated = await updateManagedWorkspaceAutomation(
+    'workspace-1',
+    created.id,
+    { name: 'Rescheduled task', prompt: 'Run at the new time.', schedule: { type: 'once', runAt: 10_000 } },
+    3
+  );
+  assert.equal(updated.enabled, false);
+  assert.equal(updated.nextRunAt, 10_000);
+
+  const resumed = await setManagedWorkspaceAutomationEnabled('workspace-1', created.id, true, 4);
+  assert.equal(resumed.nextRunAt, 10_000);
 });

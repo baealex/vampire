@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onMount, tick } from 'svelte';
 import Send from '@lucide/svelte/icons/send';
 import Button from './Button.svelte';
 import DialogShell from './DialogShell.svelte';
@@ -16,11 +16,15 @@ let {
   load,
   submit,
   onQueued = () => undefined,
+  onSubmittingChange = () => undefined,
+  embedded = false,
 }: {
   close: () => void;
   load: () => Promise<WorkspaceAgentActionDescriptor>;
   submit: (request: string) => Promise<WorkspaceAgentActionSubmission>;
   onQueued?: (submission: WorkspaceAgentActionSubmission) => void;
+  onSubmittingChange?: (submitting: boolean) => void;
+  embedded?: boolean;
 } = $props();
 
 let descriptor = $state<WorkspaceAgentActionDescriptor>();
@@ -28,6 +32,8 @@ let request = $state('');
 let loading = $state(true);
 let submitting = $state(false);
 let errorMessage = $state('');
+let requestElement = $state<HTMLTextAreaElement>();
+let embeddedElement = $state<HTMLElement>();
 
 async function loadDescriptor() {
   loading = true;
@@ -35,6 +41,10 @@ async function loadDescriptor() {
   try {
     descriptor = await load();
     request = descriptor.defaultRequest;
+    if (embedded) {
+      await tick();
+      requestElement?.focus();
+    }
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : 'The agent request could not be prepared.';
   } finally {
@@ -45,6 +55,7 @@ async function loadDescriptor() {
 async function submitRequest() {
   if (!descriptor || !request.trim() || submitting) return;
   submitting = true;
+  onSubmittingChange(true);
   errorMessage = '';
   try {
     const submission = await submit(request.trim());
@@ -54,84 +65,133 @@ async function submitRequest() {
     errorMessage = error instanceof Error ? error.message : 'The agent request could not be queued.';
   } finally {
     submitting = false;
+    onSubmittingChange(false);
   }
 }
 
-onMount(() => void loadDescriptor());
+onMount(() => {
+  if (embedded) {
+    void tick().then(() => embeddedElement?.focus());
+  }
+  void loadDescriptor();
+});
 </script>
 
-<DialogShell
-  eyebrow="Ask agent"
-  title={descriptor?.title ?? 'Prepare agent request'}
-  {close}
-  closeDisabled={submitting}
-  variant="form"
->
-  {#snippet children()}
-    <div class="ask-agent" aria-busy={loading}>
-      {#if descriptor}
-        <div class="ask-agent__target">
-          <span>Send to</span>
-          <strong>{descriptor.target.agentLabel}</strong>
-          <small>{descriptor.target.workspaceLabel}</small>
-        </div>
-        <p class="ask-agent__description">{descriptor.description}</p>
-        <dl class="ask-agent__context">
-          {#each descriptor.context as item (item.label)}
-            <div>
-              <dt>{item.label}</dt>
-              <dd><code>{item.value}</code></dd>
-              {#if item.description}
-                <small>{item.description}</small>
-              {/if}
-            </div>
-          {/each}
-        </dl>
-        <Field
-          label={descriptor.requestLabel}
-          description="Vampire prepares the required context and sends the request to the visible main session."
-        >
-          <Textarea
-            bind:value={request}
-            rows={6}
-            maxlength={WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH}
-            placeholder={descriptor.requestPlaceholder}
-            ariaLabel={descriptor.requestLabel}
-            disabled={submitting}
-          />
-        </Field>
-      {:else if loading}
-        <p class="ask-agent__loading" role="status">Preparing agent context…</p>
-      {/if}
-
-      {#if errorMessage}
-        <p class="ask-agent__error" role="alert">{errorMessage}</p>
-      {/if}
-    </div>
-  {/snippet}
-
-  {#snippet footer()}
-    <Button variant="ghost" onclick={close} disabled={submitting}>Cancel</Button>
-    {#if !descriptor && !loading}
-      <Button variant="secondary" onclick={() => void loadDescriptor()}>Retry</Button>
-    {:else}
-      <Button
-        variant="primary"
-        onclick={() => void submitRequest()}
-        disabled={!descriptor || !request.trim() || loading || submitting}
+{#snippet content()}
+  <div class="ask-agent" aria-busy={loading}>
+    {#if descriptor}
+      <div class="ask-agent__target">
+        <span>Send to</span>
+        <strong>{descriptor.target.agentLabel}</strong>
+        <small>{descriptor.target.workspaceLabel}</small>
+      </div>
+      <p class="ask-agent__description">{descriptor.description}</p>
+      <dl class="ask-agent__context">
+        {#each descriptor.context as item (item.label)}
+          <div>
+            <dt>{item.label}</dt>
+            <dd><code>{item.value}</code></dd>
+            {#if item.description}
+              <small>{item.description}</small>
+            {/if}
+          </div>
+        {/each}
+      </dl>
+      <Field
+        label={descriptor.requestLabel}
+        description="Vampire prepares the required context and sends the request to the visible main session."
       >
-        <Send size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>{submitting ? 'Queuing…' : 'Send to agent'}</span>
-      </Button>
+        <Textarea
+          bind:element={requestElement}
+          bind:value={request}
+          rows={6}
+          maxlength={WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH}
+          placeholder={descriptor.requestPlaceholder}
+          ariaLabel={descriptor.requestLabel}
+          disabled={submitting}
+        />
+      </Field>
+    {:else if loading}
+      <p class="ask-agent__loading" role="status">Preparing agent context…</p>
     {/if}
-  {/snippet}
-</DialogShell>
+
+    {#if errorMessage}
+      <p class="ask-agent__error" role="alert">{errorMessage}</p>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet actions()}
+  <Button variant="ghost" onclick={close} disabled={submitting}>{embedded ? 'Back' : 'Cancel'}</Button>
+  {#if !descriptor && !loading}
+    <Button variant="secondary" onclick={() => void loadDescriptor()}>Retry</Button>
+  {:else}
+    <Button
+      variant="primary"
+      onclick={() => void submitRequest()}
+      disabled={!descriptor || !request.trim() || loading || submitting}
+    >
+      <Send size={15} strokeWidth={1.9} aria-hidden="true" />
+      <span>{submitting ? 'Queuing…' : 'Send to agent'}</span>
+    </Button>
+  {/if}
+{/snippet}
+
+{#if embedded}
+  <section bind:this={embeddedElement} class="ask-agent-embedded" tabindex="-1">
+    <header>
+      <span>Ask agent</span>
+      <h2>{descriptor?.title ?? 'Prepare agent request'}</h2>
+    </header>
+    {@render content()}
+    <footer>{@render actions()}</footer>
+  </section>
+{:else}
+  <DialogShell
+    eyebrow="Ask agent"
+    title={descriptor?.title ?? 'Prepare agent request'}
+    {close}
+    closeDisabled={submitting}
+    variant="form"
+  >
+    {#snippet children()}
+      {@render content()}
+    {/snippet}
+    {#snippet footer()}
+      {@render actions()}
+    {/snippet}
+  </DialogShell>
+{/if}
 
 <style>
 .ask-agent {
   display: grid;
   gap: 0.85rem;
   min-width: 0;
+}
+.ask-agent-embedded {
+  display: grid;
+  gap: 1rem;
+}
+.ask-agent-embedded header {
+  display: grid;
+  gap: 0.18rem;
+}
+.ask-agent-embedded header span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+}
+.ask-agent-embedded h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-title);
+}
+.ask-agent-embedded footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 .ask-agent__target {
   display: flex;
