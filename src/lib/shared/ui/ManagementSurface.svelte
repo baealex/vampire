@@ -30,14 +30,36 @@ let {
   footer?: Snippet;
 } = $props();
 let titleElement = $state<HTMLHeadingElement>();
+let viewportStyle = $state('');
 
 onMount(() => {
-  if (!focusOnMount) return;
-  void tick().then(() => titleElement?.focus());
+  if (focusOnMount) void tick().then(() => titleElement?.focus());
+
+  const updateViewport = () => {
+    if (window.matchMedia?.('(min-width: 64rem)').matches) {
+      viewportStyle = '';
+      return;
+    }
+    const viewport = window.visualViewport;
+    const height = Math.round(viewport?.height ?? window.innerHeight);
+    const top = Math.round(viewport?.offsetTop ?? 0);
+    viewportStyle = `--management-viewport-height: ${height}px; --management-viewport-top: ${top}px;`;
+  };
+
+  updateViewport();
+  window.addEventListener('resize', updateViewport);
+  window.visualViewport?.addEventListener('resize', updateViewport);
+  window.visualViewport?.addEventListener('scroll', updateViewport);
+
+  return () => {
+    window.removeEventListener('resize', updateViewport);
+    window.visualViewport?.removeEventListener('resize', updateViewport);
+    window.visualViewport?.removeEventListener('scroll', updateViewport);
+  };
 });
 </script>
 
-<section class="management-surface" aria-labelledby={titleId}>
+<section class="management-surface" style={viewportStyle} aria-labelledby={titleId}>
   <header class="management-header">
     <div class="management-header-inner">
       <button
@@ -169,10 +191,18 @@ footer {
     padding-left: max(1rem, env(safe-area-inset-left));
   }
 }
-@media (max-width: 32rem) {
+@media (max-width: 63.999rem) {
   .management-surface {
-    min-height: 100dvh;
+    position: fixed;
+    z-index: 30;
+    top: var(--management-viewport-top, 0);
+    left: 0;
+    width: 100%;
+    height: var(--management-viewport-height, 100dvh);
+    min-height: 0;
   }
+}
+@media (max-width: 32rem) {
   .management-header-inner {
     min-height: 4.25rem;
     padding-right: max(0.8rem, env(safe-area-inset-right));

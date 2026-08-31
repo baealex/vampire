@@ -129,7 +129,7 @@ test('keeps terminal IME input visible and focused while the mobile viewport res
   await expect(terminalInput).toBeFocused();
 });
 
-test('keeps terminal geometry stable while the mobile composer changes the viewport height', async ({
+test('keeps server terminal geometry stable while the mobile composer fits the visible viewport', async ({
   context,
   page,
 }) => {
@@ -157,6 +157,12 @@ test('keeps terminal geometry stable while the mobile composer changes the viewp
     await page.setViewportSize({ width: viewport!.width, height });
     await page.waitForTimeout(250);
     await expect(composer).toBeFocused();
+    const terminalFits = await page.locator('.terminal-frame').evaluate((frame) => {
+      const frameBounds = frame.getBoundingClientRect();
+      const screenBounds = frame.querySelector('.xterm-screen')?.getBoundingClientRect();
+      return Boolean(screenBounds && screenBounds.bottom <= frameBounds.bottom + 1);
+    });
+    expect(terminalFits).toBe(true);
   }
 
   expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
@@ -406,6 +412,18 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await expect(automationPage.getByRole('heading', { name: 'Agent automations' })).toBeFocused();
   await automationPage.getByRole('button', { name: 'New automation' }).click();
   await expect(automationPage.getByLabel('Name')).toBeFocused();
+  const automationPrompt = automationPage.getByLabel('Prompt');
+  await automationPrompt.focus();
+  await page.setViewportSize({ width: 412, height: 500 });
+  await expect(automationPrompt).toBeFocused();
+  const managementScrolls = await automationPage.evaluate((surface) => {
+    const element = surface as HTMLElement;
+    element.scrollTop = element.scrollHeight;
+    return element.scrollHeight > element.clientHeight && element.scrollTop > 0;
+  });
+  expect(managementScrolls).toBe(true);
+  await expect(automationPage.getByRole('button', { name: 'Add automation' })).toBeInViewport();
+  await page.setViewportSize({ width: 412, height: 915 });
   await automationPage.getByRole('button', { name: 'Back to automations' }).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await automationPage.getByRole('button', { name: 'Close agent automations' }).click();

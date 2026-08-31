@@ -692,6 +692,13 @@ export class TerminalRuntime {
     if (!proposed) return;
     const mobileInputSize = this.#mobileInputSize;
     const preserveMobileRows = mobileInputSize !== undefined && proposed.columns === mobileInputSize.columns;
+    if (preserveMobileRows) {
+      const terminal = this.#terminal;
+      if (terminal && (terminal.cols !== proposed.columns || terminal.rows !== proposed.rows)) {
+        resizeTerminalWithoutReflow(terminal, proposed.columns, proposed.rows);
+        this.#scheduleDisplayRefresh();
+      }
+    }
     const dimensions = preserveMobileRows
       ? mobileInputSize
       : connection && this.#compatibilityGeometryConnectionId === connection.connectionId
