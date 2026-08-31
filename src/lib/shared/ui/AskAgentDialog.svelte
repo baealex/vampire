@@ -89,7 +89,7 @@ onMount(() => void loadDescriptor());
         </dl>
         <Field
           label={descriptor.requestLabel}
-          description="Vampire adds the context above and sends the request to the visible main session."
+          description="Vampire prepares the required context and sends the request to the visible main session."
         >
           <Textarea
             bind:value={request}

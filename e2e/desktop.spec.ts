@@ -522,10 +522,13 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect(automationDialog.getByLabel('Name')).toBeFocused();
   await automationDialog.getByLabel('Name').fill('Review project state');
   await automationDialog.getByLabel('Prompt').fill('Review the current work and identify the next useful step.');
+  await automationDialog.getByRole('combobox', { name: 'Schedule' }).selectOption('weekly');
+  await automationDialog.getByRole('textbox', { name: 'Time', exact: true }).fill('09:30');
   await automationDialog.getByRole('button', { name: 'Add automation' }).click();
   const savedAutomation = automationDialog.locator('article', { hasText: 'Review project state' });
   await expect(savedAutomation).toBeVisible();
-  await expect(savedAutomation).toContainText('One time');
+  const browserTimeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  await expect(savedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 9:30 AM (${browserTimeZone})`);
   await savedAutomation.getByRole('button', { name: 'Delete' }).click();
   await expect(savedAutomation).toBeHidden();
   await automationDialog.getByRole('button', { name: 'Close agent automations' }).click();
@@ -605,6 +608,30 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect.poll(() => pathExists(widgetConfigurationPath)).toBe(true);
   await expect.poll(() => pathExists(widgetGuidePath)).toBe(true);
   await expect.poll(() => pathExists(widgetValidatorPath)).toBe(true);
+
+  await page.getByRole('button', { name: /Workspace actions for/ }).click();
+  await page.getByRole('menuitem', { name: 'Agent automations' }).click();
+  await automationDialog.getByRole('button', { name: 'Ask agent…' }).click();
+  const automationAgentDialog = page.getByRole('dialog', { name: 'Create an automation with an agent' });
+  const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'workspace-automation.md');
+  const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'apply-workspace-automation.mjs');
+  await expect(automationAgentDialog.getByText('Prepared when sent', { exact: true })).toBeVisible();
+  const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
+  await automationAgentDialog
+    .getByRole('textbox', { name: 'What should the automation do, and when?' })
+    .fill(automationRequest);
+  await automationAgentDialog.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(automationAgentDialog).toBeHidden();
+  await expect(automationDialog.getByRole('status')).toContainText('Automation request queued');
+  const storedAutomationAction = await readStoredAgentAction(workspace.id, 'automation');
+  expect(storedAutomationAction?.prompt).toContain(automationGuidePath);
+  expect(storedAutomationAction?.prompt).toContain(automationApplyPath);
+  expect(storedAutomationAction?.prompt).toContain(automationRequest);
+  await expect
+    .poll(async () => (await readStoredAgentAction(workspace.id, 'automation'))?.lastOutcome, {
+      timeout: 10_000,
+    })
+    .toBe('submitted');
 
   const removeResponse = await context.request.delete(
     `/api/workspaces/${encodeURIComponent(workspace.id)}?terminate=true`

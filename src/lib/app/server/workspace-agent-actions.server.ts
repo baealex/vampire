@@ -5,6 +5,11 @@ import {
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
 import { queueManagedWorkspaceAgentPrompt } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import { ensureStatusWidgetAgentSupport } from '~/lib/features/status/server/status-widget-agent-support.server.ts';
+import {
+  assertWorkspaceAutomationAgentCapacity,
+  discardWorkspaceAutomationAgentSupport,
+  reserveWorkspaceAutomationAgentSupport,
+} from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
 import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 import {
   WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
@@ -39,11 +44,13 @@ type PreparedAgentAction = {
   descriptor: WorkspaceAgentActionDescriptor;
   name: string;
   prompt: (request: string) => string;
+  discard?: () => Promise<void>;
 };
 
 type PrepareAgentAction = (
   target: AgentTarget,
-  dependencies: WorkspaceAgentActionDependencies
+  dependencies: WorkspaceAgentActionDependencies,
+  materialize: boolean
 ) => Promise<PreparedAgentAction>;
 
 export type WorkspaceAgentActionDependencies = {
@@ -51,6 +58,8 @@ export type WorkspaceAgentActionDependencies = {
   ensureNoteFile: typeof ensureManagedWorkspaceNoteFile;
   notePath: typeof managedWorkspaceNotePath;
   ensureStatusWidgetSupport: typeof ensureStatusWidgetAgentSupport;
+  ensureAutomationSupport: typeof reserveWorkspaceAutomationAgentSupport;
+  assertAutomationCapacity: typeof assertWorkspaceAutomationAgentCapacity;
   queuePrompt: typeof queueManagedWorkspaceAgentPrompt;
 };
 
@@ -59,6 +68,8 @@ const defaultDependencies: WorkspaceAgentActionDependencies = {
   ensureNoteFile: ensureManagedWorkspaceNoteFile,
   notePath: managedWorkspaceNotePath,
   ensureStatusWidgetSupport: ensureStatusWidgetAgentSupport,
+  ensureAutomationSupport: reserveWorkspaceAutomationAgentSupport,
+  assertAutomationCapacity: assertWorkspaceAutomationAgentCapacity,
   queuePrompt: queueManagedWorkspaceAgentPrompt,
 };
 
@@ -175,20 +186,80 @@ async function prepareStatusWidgetAction(
   };
 }
 
+function automationPrompt(
+  support: Awaited<ReturnType<typeof reserveWorkspaceAutomationAgentSupport>>,
+  request: string
+): string {
+  return [
+    'Create one Vampire workspace automation using the supported request files below.',
+    '',
+    `Draft request: ${JSON.stringify(support.requestPath)}`,
+    `Current guide: ${JSON.stringify(support.guidePath)}`,
+    `Apply command: ${support.applyCommand}`,
+    '',
+    'Read the guide, edit only the supplied draft, run the apply command, and report the automation you staged.',
+    '',
+    'User request:',
+    request,
+  ].join('\n');
+}
+
+async function prepareAutomationAction(
+  target: AgentTarget,
+  dependencies: WorkspaceAgentActionDependencies,
+  materialize: boolean
+): Promise<PreparedAgentAction> {
+  if (!materialize) await dependencies.assertAutomationCapacity(target.workspaceId);
+  const support = materialize ? await dependencies.ensureAutomationSupport(target.workspaceId) : undefined;
+  return {
+    descriptor: {
+      id: 'automation',
+      title: 'Create an automation with an agent',
+      description:
+        'Vampire supplies an isolated request file, the current schedule contract, and a safe apply command.',
+      target,
+      context: support
+        ? [
+            { label: 'Automation request', value: support.requestPath },
+            { label: 'Automation guide', value: support.guidePath },
+            { label: 'Apply command', value: support.applyCommand },
+          ]
+        : [
+            {
+              label: 'Agent support',
+              value: 'Prepared when sent',
+              description: 'Vampire creates an isolated request, the current schedule guide, and a safe apply command.',
+            },
+          ],
+      requestLabel: 'What should the automation do, and when?',
+      requestPlaceholder: 'For example: every weekday at 9 AM, review open work and continue the next useful task.',
+      defaultRequest: '',
+    },
+    name: 'Workspace automation request',
+    prompt: (request) => {
+      if (!support) throw new Error('Automation agent support was not prepared.');
+      return automationPrompt(support, request);
+    },
+    ...(support ? { discard: () => discardWorkspaceAutomationAgentSupport(support) } : {}),
+  };
+}
+
 const AGENT_ACTION_PREPARERS = {
   note: prepareNoteAction,
   'status-widget': prepareStatusWidgetAction,
+  automation: prepareAutomationAction,
 } satisfies Record<WorkspaceAgentActionId, PrepareAgentAction>;
 
 async function prepareAgentAction(
   workspaceId: string,
   actionId: WorkspaceAgentActionId,
-  dependencies: WorkspaceAgentActionDependencies
+  dependencies: WorkspaceAgentActionDependencies,
+  materialize = false
 ): Promise<PreparedAgentAction> {
   const target = await requireAgentTarget(workspaceId, dependencies);
   const prepare = AGENT_ACTION_PREPARERS[actionId];
   if (!prepare) throw new WorkspaceAgentActionError('unsupported-action', 'Agent action is not supported.');
-  return prepare(target, dependencies);
+  return prepare(target, dependencies, materialize);
 }
 
 function normalizeRequest(value: unknown): string {
@@ -218,16 +289,21 @@ export async function queueWorkspaceAgentAction(
   dependencies: WorkspaceAgentActionDependencies = defaultDependencies
 ): Promise<WorkspaceAgentActionSubmission> {
   const request = normalizeRequest(value);
-  const action = await prepareAgentAction(workspaceId, actionId, dependencies);
+  const action = await prepareAgentAction(workspaceId, actionId, dependencies, true);
   const prompt = action.prompt(request);
-  await dependencies.queuePrompt(
-    workspaceId,
-    {
-      actionId,
-      name: action.name,
-      prompt,
-    },
-    now
-  );
+  try {
+    await dependencies.queuePrompt(
+      workspaceId,
+      {
+        actionId,
+        name: action.name,
+        prompt,
+      },
+      now
+    );
+  } catch (error) {
+    await action.discard?.().catch(() => undefined);
+    throw error;
+  }
   return { actionId, status: 'queued', queuedAt: now, prompt };
 }

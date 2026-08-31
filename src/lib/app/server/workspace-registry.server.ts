@@ -20,6 +20,7 @@ import {
   writeManagedWorkspaceNoteFile,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
 import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
+import { prepareWorkspaceAutomationRequestRemoval } from '~/lib/features/workspace/server/workspace-automation-request-files.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
@@ -779,9 +780,10 @@ export async function removeManagedWorkspace(id: string): Promise<void> {
     }
 
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
+    const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await removeNote();
+    await Promise.all([removeNote(), removeAutomationRequests()]);
   });
 }
 
@@ -792,9 +794,10 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
+    const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
     await killTmuxSession(stored.tmuxSession);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await removeNote();
+    await Promise.all([removeNote(), removeAutomationRequests()]);
   });
 }

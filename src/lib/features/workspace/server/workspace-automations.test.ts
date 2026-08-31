@@ -163,6 +163,40 @@ test('a recurring automation coalesces missed intervals and never catches up rep
   assert.equal((await listDueManagedWorkspaceAutomations(attemptedAt)).length, 0);
 });
 
+test('a weekly automation runs only on selected local weekdays and keeps its wall-clock time', async (t) => {
+  await createStoredWorkspace(t);
+  const createdAt = Date.UTC(2026, 7, 31, 0, 0);
+  const automation = await createManagedWorkspaceAutomation(
+    'workspace-1',
+    {
+      name: 'Monday and Wednesday review',
+      prompt: 'Review current work.',
+      schedule: {
+        type: 'weekly',
+        weekdays: [1, 3],
+        hour: 9,
+        minute: 30,
+        timeZone: 'Asia/Seoul',
+        startAt: createdAt,
+      },
+    },
+    createdAt
+  );
+
+  assert.equal(automation.nextRunAt, Date.UTC(2026, 7, 31, 0, 30));
+  assert.equal(
+    await dispatchManagedWorkspaceAutomation(
+      'workspace-1',
+      automation.id,
+      Date.UTC(2026, 7, 31, 0, 30),
+      async () => async () => undefined
+    ),
+    'submitted'
+  );
+  const [saved] = await listManagedWorkspaceAutomations('workspace-1');
+  assert.equal(saved?.nextRunAt, Date.UTC(2026, 8, 2, 0, 30));
+});
+
 test('pause, resume, delete, and failed delivery remain durable', async (t) => {
   await createStoredWorkspace(t);
   const now = Date.UTC(2026, 7, 20, 9, 0, 0);

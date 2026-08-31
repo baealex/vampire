@@ -35,7 +35,7 @@ let {
   value?: string;
   element?: HTMLInputElement;
   class?: string;
-  type?: 'text' | 'password' | 'search' | 'number' | 'datetime-local';
+  type?: 'text' | 'password' | 'search' | 'number' | 'datetime-local' | 'time';
   id?: string;
   name?: string;
   placeholder?: string;

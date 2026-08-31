@@ -13,6 +13,7 @@ import {
 } from '~/lib/features/terminal/server/tmux.server.ts';
 import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
+import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
 
 const AUTOMATION_POLL_INTERVAL_MS = 2_000;
 
@@ -65,6 +66,7 @@ export async function prepareAutomationSubmission(
 }
 
 export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void> {
+  await importWorkspaceAutomationAgentRequests();
   const due = await listDueManagedWorkspaceAutomations(now);
   for (const candidate of due) {
     try {

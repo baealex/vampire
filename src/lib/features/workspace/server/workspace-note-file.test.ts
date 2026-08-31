@@ -12,6 +12,7 @@ import {
   managedWorkspaceNotePath,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
 import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.server.ts';
+import { ensureWorkspaceAutomationAgentSupport } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
 import {
   findManagedWorkspaceNote,
   removeManagedWorkspace,
@@ -194,7 +195,7 @@ test('a compatibility JSON note blocks migration when its note file cannot be cr
   assert.equal(raw.sessions[0]?.note, 'Compatibility value');
 });
 
-test('removing a workspace deletes its note only after the registry update can proceed', async (t) => {
+test('removing a workspace deletes its note and pending automation requests', async (t) => {
   const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-removal-');
   const storedWorkspace = {
     id: 'workspace-remove-note',
@@ -213,11 +214,13 @@ test('removing a workspace deletes its note only after the registry update can p
   });
   await updateManagedWorkspaceNote(storedWorkspace.id, 'Delete this note with the workspace.');
   const notePath = managedWorkspaceNotePath(storedWorkspace.id);
+  const automationSupport = await ensureWorkspaceAutomationAgentSupport(storedWorkspace.id);
 
   await removeManagedWorkspace(storedWorkspace.id);
 
   assert.equal((await readWorkspaceStore()).workspaces.length, 0);
   await assert.rejects(readFile(notePath, 'utf8'), { code: 'ENOENT' });
+  await assert.rejects(readFile(automationSupport.requestPath, 'utf8'), { code: 'ENOENT' });
 
   await writeWorkspaceStore({
     version: WORKSPACE_STATE_VERSION,

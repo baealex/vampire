@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
+import { WorkspaceAutomationMutationError } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import type { ManagedWorkspace } from './workspace-registry.server.ts';
 import {
   describeWorkspaceAgentAction,
@@ -45,7 +46,11 @@ function workspace(): ManagedWorkspace {
   };
 }
 
-function queuedAutomation(actionId: 'note' | 'status-widget', prompt: string, now: number): WorkspaceAutomation {
+function queuedAutomation(
+  actionId: 'note' | 'status-widget' | 'automation',
+  prompt: string,
+  now: number
+): WorkspaceAutomation {
   return {
     id: 'request-1',
     kind: 'agent-action',
@@ -75,6 +80,14 @@ function dependencies(overrides: Partial<WorkspaceAgentActionDependencies> = {})
       validatorPath: '/state/agent-guides/validate-status-widgets.mjs',
       validationCommand: "node '/state/agent-guides/validate-status-widgets.mjs' '/state/status-plugins.json'",
     }),
+    ensureAutomationSupport: async () => ({
+      requestPath: '/state/automation-requests/workspace-1.draft.json',
+      guidePath: '/state/agent-guides/workspace-automation.md',
+      applyPath: '/state/agent-guides/apply-workspace-automation.mjs',
+      applyCommand:
+        "node '/state/agent-guides/apply-workspace-automation.mjs' '/state/automation-requests/workspace-1.draft.json' '/state/automation-requests/workspace-1.ready.json'",
+    }),
+    assertAutomationCapacity: async () => undefined,
     queuePrompt: async (_workspaceId, input, now) => queuedAutomation(input.actionId, input.prompt, now ?? 0),
     ...overrides,
   };
@@ -143,6 +156,44 @@ test('supplies the current widget configuration, guide, and validator to the mai
   assert.match(submission.prompt, /Show unread GitHub notifications\./);
 });
 
+test('supplies an isolated automation request, guide, and apply command to the main agent', async () => {
+  const descriptor = await describeWorkspaceAgentAction('workspace-1', 'automation', dependencies());
+  assert.deepEqual(
+    descriptor.context.map((item) => item.value),
+    ['Prepared when sent']
+  );
+
+  const submission = await queueWorkspaceAgentAction(
+    'workspace-1',
+    'automation',
+    'Every weekday at 9 AM, review open work.',
+    3_000,
+    dependencies()
+  );
+  assert.match(submission.prompt, /workspace-automation\.md/);
+  assert.match(submission.prompt, /apply-workspace-automation\.mjs/);
+  assert.match(submission.prompt, /Every weekday at 9 AM/);
+});
+
+test('materializes automation support only when the request is submitted', async () => {
+  let materializations = 0;
+  const support = dependencies({
+    ensureAutomationSupport: async () => {
+      materializations += 1;
+      return {
+        requestPath: '/state/automation-requests/request.draft.json',
+        guidePath: '/state/agent-guides/workspace-automation.md',
+        applyPath: '/state/agent-guides/apply-workspace-automation.mjs',
+        applyCommand: "node 'apply' 'draft' 'ready'",
+      };
+    },
+  });
+  await describeWorkspaceAgentAction('workspace-1', 'automation', support);
+  assert.equal(materializations, 0);
+  await queueWorkspaceAgentAction('workspace-1', 'automation', 'Create a daily review.', 4_000, support);
+  assert.equal(materializations, 1);
+});
+
 test('rejects stopped, shell-only, and empty agent requests before queuing', async () => {
   const stopped = workspace();
   stopped.state = 'missing';
@@ -161,5 +212,20 @@ test('rejects stopped, shell-only, and empty agent requests before queuing', asy
   await assert.rejects(
     queueWorkspaceAgentAction('workspace-1', 'note', '   ', 1, dependencies()),
     (error) => error instanceof WorkspaceAgentActionError && error.reason === 'invalid-request'
+  );
+});
+
+test('rejects automation agent requests before queuing when all custom slots are full', async () => {
+  await assert.rejects(
+    describeWorkspaceAgentAction(
+      'workspace-1',
+      'automation',
+      dependencies({
+        assertAutomationCapacity: async () => {
+          throw new WorkspaceAutomationMutationError('limit', 'A workspace can save up to 32 automations.');
+        },
+      })
+    ),
+    (error) => error instanceof WorkspaceAutomationMutationError && error.reason === 'limit'
   );
 });

@@ -5,8 +5,10 @@ import Pause from '@lucide/svelte/icons/pause';
 import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import Sparkles from '@lucide/svelte/icons/sparkles';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
+import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions';
 import {
   MAX_AUTOMATION_INTERVAL_MS,
   MIN_AUTOMATION_INTERVAL_MS,
@@ -14,7 +16,9 @@ import {
   WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH,
   type WorkspaceAutomation,
   type WorkspaceAutomationSchedule,
+  type WorkspaceAutomationWeekday,
 } from '~/lib/shared/contracts/workspace-automations';
+import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import Field from '~/lib/shared/ui/Field.svelte';
@@ -40,10 +44,15 @@ let creating = $state(false);
 let updatingId = $state<string>();
 let name = $state('');
 let prompt = $state('');
-let scheduleType = $state<'once' | 'interval'>('once');
+let scheduleType = $state<WorkspaceAutomationSchedule['type']>('once');
 let runAt = $state('');
 let intervalValue = $state(60);
 let intervalUnit = $state<'minutes' | 'hours' | 'days'>('minutes');
+let weeklyTime = $state('09:00');
+let weekdays = $state<WorkspaceAutomationWeekday[]>([1, 2, 3, 4, 5]);
+let timeZone = $state('UTC');
+let askAgentOpen = $state(false);
+let agentMessage = $state('');
 let now = $state(Date.now());
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -54,7 +63,9 @@ function localDateTime(timestamp: number): string {
 }
 
 function resetRunAt() {
-  runAt = localDateTime(Date.now() + 5 * 60_000);
+  const defaultRunAt = Date.now() + 5 * 60_000;
+  runAt = localDateTime(defaultRunAt);
+  weeklyTime = localDateTime(defaultRunAt).slice(11);
 }
 
 function intervalMilliseconds(): number {
@@ -63,6 +74,22 @@ function intervalMilliseconds(): number {
 }
 
 function scheduleInput(): WorkspaceAutomationSchedule | undefined {
+  if (scheduleType === 'weekly') {
+    const [hourText, minuteText] = weeklyTime.split(':');
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    if (
+      weekdays.length === 0 ||
+      !Number.isInteger(hour) ||
+      hour < 0 ||
+      hour > 23 ||
+      !Number.isInteger(minute) ||
+      minute < 0 ||
+      minute > 59
+    )
+      return undefined;
+    return { type: 'weekly', weekdays: [...weekdays].sort(), hour, minute, timeZone, startAt: Date.now() };
+  }
   const timestamp = new Date(runAt).getTime();
   if (!Number.isFinite(timestamp)) return undefined;
   if (scheduleType === 'once') return { type: 'once', runAt: timestamp };
@@ -74,6 +101,12 @@ function scheduleInput(): WorkspaceAutomationSchedule | undefined {
   )
     return undefined;
   return { type: 'interval', intervalMs, startAt: timestamp };
+}
+
+function toggleWeekday(weekday: WorkspaceAutomationWeekday) {
+  weekdays = weekdays.includes(weekday)
+    ? weekdays.filter((candidate) => candidate !== weekday)
+    : [...weekdays, weekday];
 }
 
 function applyQuerySnapshot(snapshot: QuerySnapshot<WorkspaceAutomationsResponse>) {
@@ -199,9 +232,17 @@ function formatInterval(intervalMs: number): string {
 }
 
 function scheduleLabel(automation: WorkspaceAutomation): string {
-  return automation.schedule.type === 'interval'
-    ? `Every ${formatInterval(automation.schedule.intervalMs)}`
-    : 'One time';
+  if (automation.schedule.type === 'once') return 'One time';
+  if (automation.schedule.type === 'interval') return `Every ${formatInterval(automation.schedule.intervalMs)}`;
+  const labels = automation.schedule.weekdays.map((weekday) =>
+    new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' }).format(Date.UTC(2026, 7, 30 + weekday))
+  );
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: automation.schedule.timeZone,
+  }).format(automation.nextRunAt ?? automation.schedule.startAt);
+  return `${labels.join(', ')} at ${time} (${automation.schedule.timeZone})`;
 }
 
 function statusLabel(automation: WorkspaceAutomation): string {
@@ -221,6 +262,7 @@ function resumeLabel(automation: WorkspaceAutomation): string {
 let unsubscribe: (() => void) | undefined;
 
 onMount(() => {
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   resetRunAt();
   unsubscribe = queryCache.subscribe(automationsQuery, applyQuerySnapshot);
   void loadAutomations(false, true);
@@ -237,7 +279,17 @@ onDestroy(() => {
 </script>
 
 <div class="automation-panel" aria-busy={fetching}>
-  <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
+  <div class="automation-intro">
+    <p class="automation-description">Prompts wait until the recognized main agent is ready for input.</p>
+    <Button variant="primary" size="sm" onclick={() => { agentMessage = ''; askAgentOpen = true; }}>
+      <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
+      Ask agent…
+    </Button>
+  </div>
+
+  {#if agentMessage}
+    <p class="automation-agent-message" role="status">{agentMessage}</p>
+  {/if}
 
   <form onsubmit={(event) => { event.preventDefault(); void createAutomation(); }}>
     <Field label="Name">
@@ -261,15 +313,22 @@ onDestroy(() => {
       <Field label="Schedule">
         <Select
           value={scheduleType}
-          onchange={(event) => scheduleType = (event.currentTarget as HTMLSelectElement).value as 'once' | 'interval'}
+          onchange={(event) => scheduleType = (event.currentTarget as HTMLSelectElement).value as WorkspaceAutomationSchedule['type']}
         >
           <option value="once">One time</option>
-          <option value="interval">Repeat</option>
+          <option value="interval">Every interval</option>
+          <option value="weekly">Weekly</option>
         </Select>
       </Field>
-      <Field label={scheduleType === 'once' ? 'Run at' : 'First run'}>
-        <Input type="datetime-local" bind:value={runAt} required />
-      </Field>
+      {#if scheduleType !== 'weekly'}
+        <Field label={scheduleType === 'once' ? 'Run at' : 'First run'}>
+          <Input type="datetime-local" bind:value={runAt} required />
+        </Field>
+      {:else}
+        <Field label="Time">
+          <Input type="time" bind:value={weeklyTime} required />
+        </Field>
+      {/if}
     </div>
     {#if scheduleType === 'interval'}
       <div class="interval-row">
@@ -294,6 +353,23 @@ onDestroy(() => {
           </Select>
         </Field>
       </div>
+    {:else if scheduleType === 'weekly'}
+      <fieldset class="weekday-field">
+        <legend>Days</legend>
+        <div class="weekday-options">
+          {#each ([0, 1, 2, 3, 4, 5, 6] as WorkspaceAutomationWeekday[]) as weekday}
+            <Button
+              size="sm"
+              class={weekdays.includes(weekday) ? 'weekday-selected' : undefined}
+              ariaPressed={weekdays.includes(weekday)}
+              onclick={() => toggleWeekday(weekday)}
+            >
+              {new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' }).format(Date.UTC(2026, 7, 30 + weekday))}
+            </Button>
+          {/each}
+        </div>
+        <small>{timeZone}</small>
+      </fieldset>
     {/if}
     <Button variant="primary" class="create-button" type="submit" disabled={creating}>
       <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
@@ -361,6 +437,15 @@ onDestroy(() => {
   </div>
 </div>
 
+{#if askAgentOpen}
+  <AskAgentDialog
+    close={() => askAgentOpen = false}
+    load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
+    submit={(request) => queueWorkspaceAgentAction(workspaceId, 'automation', request)}
+    onQueued={() => agentMessage = 'Automation request queued. It will appear here after the agent validates it.'}
+  />
+{/if}
+
 <style>
 .automation-panel {
   display: grid;
@@ -374,6 +459,18 @@ onDestroy(() => {
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }
+.automation-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.automation-agent-message {
+  margin: 0;
+  color: var(--color-success-text);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
 form {
   display: grid;
   gap: 0.7rem;
@@ -383,6 +480,34 @@ form {
   display: grid;
   grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
   gap: 0.65rem;
+}
+.weekday-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weekday-field legend {
+  margin-bottom: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.weekday-field small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.weekday-options {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+:global(.weekday-options .weekday-selected) {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 .interval-row {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -466,9 +591,15 @@ form {
 }
 
 @media (max-width: 32rem) {
+  .automation-intro {
+    align-items: flex-start;
+  }
   .schedule-row,
   .interval-row {
     grid-template-columns: 1fr;
+  }
+  .weekday-options {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 </style>

@@ -1,6 +1,6 @@
 export const WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH = 4_000;
 
-export const WORKSPACE_AGENT_ACTION_IDS = ['note', 'status-widget'] as const;
+export const WORKSPACE_AGENT_ACTION_IDS = ['note', 'status-widget', 'automation'] as const;
 
 export type WorkspaceAgentActionId = (typeof WORKSPACE_AGENT_ACTION_IDS)[number];
 
