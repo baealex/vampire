@@ -203,7 +203,9 @@ async function renderedTerminalRows(page: Page): Promise<string[]> {
   await page.locator('.xterm-viewport').evaluate((viewport) => {
     viewport.scrollTop = viewport.scrollHeight;
   });
-  return normalizeTerminalRows(await page.locator('.xterm-rows > div').allTextContents());
+  return normalizeTerminalRows(
+    await page.locator('.xterm-screen > .xterm-rows:not(.terminal-render-shield) > div').allTextContents()
+  );
 }
 
 function terminalRowsMismatch(expected: string[], rendered: string[], device: number): string {
@@ -217,20 +219,58 @@ function terminalRowsMismatch(expected: string[], rendered: string[], device: nu
 }
 
 async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]): Promise<void> {
+  let matchedPreviousSample = false;
   await expect
     .poll(async () => {
       const [expected, ...rendered] = await Promise.all([
         tmuxPaneRows(tmuxSession),
         ...pages.map(renderedTerminalRows),
       ]);
-      return rendered
+      const mismatch = rendered
         .map((rows, index) => terminalRowsMismatch(expected, rows, index + 1))
         .filter(Boolean)
         .join('\n');
+      if (mismatch) {
+        matchedPreviousSample = false;
+        return mismatch;
+      }
+      if (!matchedPreviousSample) {
+        matchedPreviousSample = true;
+        return 'waiting for a stable terminal frame';
+      }
+      return '';
     })
     .toBe('');
-  const expected = await tmuxPaneRows(tmuxSession);
-  for (const page of pages) expect(await renderedTerminalRows(page)).toEqual(expected);
+}
+
+async function observeBlankTerminalFrames(page: Page): Promise<() => Promise<number>> {
+  await page.evaluate(() => {
+    const target = window as typeof window & {
+      __vampireTerminalFrameObservation?: { animationFrame: number; blankFrames: number };
+    };
+    const observation = { animationFrame: 0, blankFrames: 0 };
+    target.__vampireTerminalFrameObservation = observation;
+    const sample = () => {
+      const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
+      const rows =
+        terminal?.querySelector<HTMLElement>('.terminal-render-shield') ??
+        terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+      if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
+      observation.animationFrame = requestAnimationFrame(sample);
+    };
+    observation.animationFrame = requestAnimationFrame(sample);
+  });
+  return () =>
+    page.evaluate(() => {
+      const target = window as typeof window & {
+        __vampireTerminalFrameObservation?: { animationFrame: number; blankFrames: number };
+      };
+      const observation = target.__vampireTerminalFrameObservation;
+      if (!observation) return -1;
+      cancelAnimationFrame(observation.animationFrame);
+      delete target.__vampireTerminalFrameObservation;
+      return observation.blankFrames;
+    });
 }
 
 async function activateTerminal(page: Page): Promise<void> {
@@ -1500,7 +1540,8 @@ test('keeps the desktop font default on a wide touch display', async ({ browser 
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
-    await expect(page.getByRole('group', { name: 'Mobile input mode' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
+    await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
     await expect(
       page.getByRole('application', { name: 'Interactive shell terminal' }).locator('.xterm-helper-textarea')
     ).toHaveAttribute('readonly', '');
@@ -1626,7 +1667,8 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
   const composer = page.getByPlaceholder('Send to shell…');
   await composer.fill(`node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`);
   await composer.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_FRAME_');
+  const terminalRows = page.locator('.xterm-rows:not(.terminal-render-shield)');
+  await expect(terminalRows).toContainText('VAMP_FRAME_');
 
   for (const viewport of [
     { width: 1_100, height: 720 },
@@ -1643,7 +1685,7 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
     await page.waitForTimeout(120);
   }
 
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_STRESS_DONE', { timeout: 15_000 });
+  await expect(terminalRows).toContainText('VAMP_STRESS_DONE', { timeout: 15_000 });
   await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
   const renderedText = (await renderedTerminalRows(page)).join('\n');
   expect(renderedText.match(/VAMP_STRESS_DONE/gu)).toHaveLength(1);
@@ -1747,6 +1789,7 @@ test('hands terminal layout between entered devices and restores it on disconnec
     expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
     const desktopComposer = desktopPage.getByPlaceholder('Send to shell…');
+    const stopBlankFrameObservation = await observeBlankTerminalFrames(desktopPage);
     const alternateScreenCommand =
       "printf '\\033[?1049h\\033[2J\\033[8;20HVAMP_TUI_READY\\033[12;7H'; IFS= read -r value; printf '\\033[?1049lVAMP_TUI_INPUT=%s\\n' \"$value\"";
     await desktopComposer.fill(alternateScreenCommand);
@@ -1757,6 +1800,7 @@ test('hands terminal layout between entered devices and restores it on disconnec
       )
       .toBe(true);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
+    expect(await stopBlankFrameObservation()).toBe(0);
 
     await phonePage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(phonePage);

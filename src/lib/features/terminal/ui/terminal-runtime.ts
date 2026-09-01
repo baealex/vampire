@@ -99,6 +99,94 @@ interface TerminalScreenAnchor {
   distanceFromBottom: number;
 }
 
+const TERMINAL_BUFFER_SWITCH_TAIL_LENGTH = 16;
+
+class TerminalRenderShield {
+  #alternateScreen = false;
+  #cancelFrame: (frame: number) => void;
+  #element: HTMLElement;
+  #generation = 0;
+  #overlay: HTMLElement | undefined;
+  #releaseFrame: number | undefined;
+  #requestFrame: (callback: () => void) => number;
+  #sequenceTail = '';
+
+  constructor(element: HTMLElement) {
+    this.#element = element;
+    this.#requestFrame = (callback) => requestAnimationFrame(callback);
+    this.#cancelFrame = (frame) => cancelAnimationFrame(frame);
+  }
+
+  begin(data: string): number | undefined {
+    if (!this.#switchesBuffer(data) || !this.#element.classList.contains('screen-ready')) return undefined;
+    const generation = ++this.#generation;
+    this.#cancelRelease();
+    if (this.#overlay) return generation;
+    const rows = this.#element.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+    const screen = rows?.parentElement;
+    if (!rows || !screen) return undefined;
+    const overlay = rows.cloneNode(true) as HTMLElement;
+    overlay.classList.add('terminal-render-shield');
+    overlay.dataset.terminalRenderShield = '';
+    overlay.style.position = 'absolute';
+    overlay.style.inset = '0';
+    overlay.style.zIndex = '4';
+    overlay.style.overflow = 'hidden';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.backgroundColor = getComputedStyle(
+      this.#element.querySelector('.xterm-viewport') ?? screen
+    ).backgroundColor;
+    screen.appendChild(overlay);
+    this.#overlay = overlay;
+    return generation;
+  }
+
+  settle(generation: number | undefined): void {
+    if (generation === undefined || generation !== this.#generation || !this.#overlay) return;
+    // xterm's DOM renderer clears immediately when the active buffer changes,
+    // then repaints on its next animation frame. Keep the last complete frame
+    // above it until that repaint has itself reached a paint boundary.
+    this.#releaseFrame = this.#requestFrame(() => {
+      this.#releaseFrame = this.#requestFrame(() => {
+        this.#releaseFrame = undefined;
+        if (generation !== this.#generation) return;
+        this.#overlay?.remove();
+        this.#overlay = undefined;
+      });
+    });
+  }
+
+  dispose(): void {
+    this.#generation += 1;
+    this.#cancelRelease();
+    this.#overlay?.remove();
+    this.#overlay = undefined;
+    this.#alternateScreen = false;
+    this.#sequenceTail = '';
+  }
+
+  #cancelRelease(): void {
+    if (this.#releaseFrame !== undefined) this.#cancelFrame(this.#releaseFrame);
+    this.#releaseFrame = undefined;
+  }
+
+  #switchesBuffer(data: string): boolean {
+    const previousLength = this.#sequenceTail.length;
+    const combined = this.#sequenceTail + data;
+    const pattern = /\u001b\[\?(?:47|1047|1049)[hl]/gu;
+    let switches = false;
+    for (const match of combined.matchAll(pattern)) {
+      if ((match.index ?? 0) + match[0].length <= previousLength) continue;
+      const alternateScreen = match[0].endsWith('h');
+      if (alternateScreen === this.#alternateScreen) continue;
+      this.#alternateScreen = alternateScreen;
+      switches = true;
+    }
+    this.#sequenceTail = combined.slice(-TERMINAL_BUFFER_SWITCH_TAIL_LENGTH);
+    return switches;
+  }
+}
+
 export class TerminalRuntime {
   #entryClaimPending = true;
   #composing = false;
@@ -135,6 +223,7 @@ export class TerminalRuntime {
   #removeInputLifecycle: () => void = () => undefined;
   #removeTouchScroll: () => void = () => undefined;
   #requestedSize: TerminalSize | undefined;
+  #renderShield: TerminalRenderShield | undefined;
   #resizeFrame: number | undefined;
   #resizeTimer: ReturnType<typeof setTimeout> | undefined;
   #screenSync: TerminalScreenSync | undefined;
@@ -296,6 +385,7 @@ export class TerminalRuntime {
     this.#scrollDisposable?.dispose();
     this.#connection?.stop();
     this.#screenSync?.dispose();
+    this.#renderShield?.dispose();
     this.#terminal?.dispose();
   }
 
@@ -342,11 +432,19 @@ export class TerminalRuntime {
     this.#fit = fitAddon;
     terminal.loadAddon(fitAddon);
     terminal.open(this.#options.element);
+    this.#renderShield = new TerminalRenderShield(this.#options.element);
     this.#attachInputLifecycle(terminal, desktopInput);
 
     this.#screenSync = new TerminalScreenSync({
       reset: () => terminal.reset(),
-      write: (data, complete) => terminal.write(data, complete),
+      write: (data, complete) => {
+        const renderShield = this.#renderShield;
+        const shieldGeneration = renderShield?.begin(data);
+        terminal.write(data, () => {
+          renderShield?.settle(shieldGeneration);
+          complete();
+        });
+      },
       refresh: () => this.#refreshTerminalDisplay(),
       onReadyChange: (ready) => {
         this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
