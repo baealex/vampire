@@ -9,6 +9,7 @@ type TerminalTouchScrollOptions = {
   onScrollAttempt?: (lines: number) => void;
   onScrollStart?: () => void;
   onTap?: () => void;
+  useNativeInteraction?: () => boolean;
 };
 
 const SCROLL_INTENT_THRESHOLD_PX = 8;
@@ -49,6 +50,12 @@ export function installTerminalTouchScroll(
 
   const handlePointerDown = (event: PointerEvent) => {
     if (event.pointerType !== 'touch' || !event.isPrimary || isScrollbar(event.target)) return;
+    if (options.useNativeInteraction?.()) return;
+    // xterm focuses its hidden textarea from the compatibility mousedown that
+    // follows a touch pointerdown. Suppress that synthetic mouse event so the
+    // visible mobile composer remains the sole IME owner. Pointer events keep
+    // flowing, so the custom terminal scroll gesture still works normally.
+    event.preventDefault();
     pointerId = event.pointerId;
     startY = event.clientY;
     lastY = event.clientY;

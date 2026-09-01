@@ -13,17 +13,23 @@ import {
   TERMINAL_PROTOCOL_VERSION,
   TERMINAL_SCROLLBACK_LINES,
   type TerminalHistoryState,
+  type TerminalServerMessage,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT, TerminalScreenSync } from './screen-sync.ts';
 import { installTerminalTouchScroll } from './touch-scroll.ts';
-import { COMPACT_MEDIA_QUERY, isDesktopViewport } from '~/lib/shared/ui/layout';
+import { TerminalOutputSequence } from './output-sequence.ts';
+import {
+  COMPACT_RESIZE_INITIAL_CADENCE_MS,
+  compactTerminalResizeSettleDelay,
+  nextTerminalResizeCadence,
+} from './resize-scheduling.ts';
+import { COMPACT_MEDIA_QUERY, isDesktopInteractionViewport } from '~/lib/shared/ui/layout';
 
 const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
 const DESKTOP_RESIZE_SETTLE_MS = 80;
-const COMPACT_RESIZE_SETTLE_MS = 180;
 const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
 
 function resizeTerminalWithoutReflow(terminal: Terminal, columns: number, rows: number): void {
@@ -38,6 +44,7 @@ function resizeTerminalWithoutReflow(terminal: Terminal, columns: number, rows: 
 }
 
 export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
+type TerminalMobileInputOwner = 'composer' | 'terminal';
 
 export interface TerminalRuntimeState {
   connected: boolean;
@@ -73,7 +80,11 @@ interface DeferredTerminalSnapshot {
   context: TerminalConnectionContext;
   data: string;
   history?: TerminalHistoryState;
+  snapshotId?: number;
   output: string;
+  screenReplacement?: string;
+  screenReplacementHistory?: TerminalHistoryState;
+  screenReplacementReset?: boolean;
   screenReady: boolean;
 }
 
@@ -84,10 +95,13 @@ interface TerminalHistoryAnchor {
   toTop: boolean;
 }
 
+interface TerminalScreenAnchor {
+  distanceFromBottom: number;
+}
+
 export class TerminalRuntime {
   #entryClaimPending = true;
   #composing = false;
-  #composerFocused = false;
   #compositionSettleTimer: ReturnType<typeof setTimeout> | undefined;
   #connection: TerminalConnection | undefined;
   #deferredSnapshot: DeferredTerminalSnapshot | undefined;
@@ -111,8 +125,10 @@ export class TerminalRuntime {
   #lastOutputActivityNotice = 0;
   #lastSentSize = '';
   #compatibilityGeometryConnectionId = 0;
-  #mobileInputSize: TerminalSize | undefined;
+  #mobileInputOwner: TerminalMobileInputOwner = 'terminal';
   #openingDelay: ReturnType<typeof setTimeout> | undefined;
+  #observedResizeCadenceMs = COMPACT_RESIZE_INITIAL_CADENCE_MS;
+  #observedResizeAt = 0;
   #options: TerminalRuntimeOptions;
   #outputActive = false;
   #outputActivityTimer: ReturnType<typeof setTimeout> | undefined;
@@ -122,6 +138,8 @@ export class TerminalRuntime {
   #resizeFrame: number | undefined;
   #resizeTimer: ReturnType<typeof setTimeout> | undefined;
   #screenSync: TerminalScreenSync | undefined;
+  #outputSequence = new TerminalOutputSequence();
+  #screenReplacementAnchor: TerminalScreenAnchor | undefined;
   #scrollDisposable: { dispose(): void } | undefined;
   #sentSizeConnection = 0;
   #sharedGeometry: TerminalSize | undefined;
@@ -171,7 +189,8 @@ export class TerminalRuntime {
           this.#requestHistory({ revealLines: lines });
         }
       },
-      onTap: () => this.focus(),
+      onTap: () => this.#activateTerminalInput(),
+      useNativeInteraction: () => this.#mobileInputOwner === 'terminal',
     });
     void this.#openTerminal();
   }
@@ -186,11 +205,26 @@ export class TerminalRuntime {
     this.#terminal?.focus();
   }
 
-  setComposerFocused(focused: boolean): void {
-    this.#composerFocused = focused;
+  #activateTerminalInput(): void {
+    const terminal = this.#terminal;
+    if (!terminal) return;
+    if (!this.#touchLayout) {
+      this.focus();
+      return;
+    }
+    this.#mobileInputOwner = 'terminal';
+    terminal.options.disableStdin = false;
     this.#updateState({ directInputFocused: false });
-    if (focused) this.#lockMobileInputSize();
-    else this.#releaseMobileInputSize();
+    terminal.focus();
+  }
+
+  setComposerFocused(focused: boolean): void {
+    if (focused && this.#touchLayout) {
+      this.#mobileInputOwner = 'composer';
+      if (this.#terminal) this.#terminal.options.disableStdin = true;
+    }
+    this.#updateState({ directInputFocused: false });
+    if (!focused) this.#scheduleResize();
   }
 
   scrollToTop(): void {
@@ -268,9 +302,10 @@ export class TerminalRuntime {
   async #openTerminal(): Promise<void> {
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
     if (this.#destroyed) return;
-    const desktopInput = isDesktopViewport();
+    const desktopInput = isDesktopInteractionViewport();
     const compactLayout = window.matchMedia(COMPACT_MEDIA_QUERY).matches;
-    this.#touchLayout = window.matchMedia(`${COMPACT_MEDIA_QUERY}, (pointer: coarse)`).matches;
+    this.#touchLayout = window.matchMedia('(pointer: coarse)').matches;
+    this.#mobileInputOwner = this.#touchLayout ? 'composer' : 'terminal';
     const scrollback = this.#touchLayout ? TERMINAL_SCROLLBACK_LINES.reduced : TERMINAL_SCROLLBACK_LINES.standard;
     this.#historyMaximum = scrollback;
     this.#historyChunkLines = this.#touchLayout
@@ -290,7 +325,10 @@ export class TerminalRuntime {
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
-      disableStdin: false,
+      // Mobile input defaults to the visible composer. xterm's hidden textarea
+      // has inconsistent Android IME composition feedback, so it only owns the
+      // soft keyboard after a deliberate tap on the terminal surface.
+      disableStdin: this.#touchLayout,
       fontSize: this.#fontSize,
       lineHeight: 1.2,
       fontFamily: this.#options.getFontFamily(),
@@ -319,6 +357,7 @@ export class TerminalRuntime {
         this.#openingDelay = undefined;
       },
       onWriteComplete: () => undefined,
+      onScreenReplaced: () => this.#restoreScreenReplacementAnchor(),
       onOverflow: () => this.#pauseOutput(),
     });
     terminal.attachCustomKeyEventHandler((event) => {
@@ -356,6 +395,7 @@ export class TerminalRuntime {
       {
         onOpen: () => {
           if (this.#destroyed) return;
+          this.#outputSequence.reset();
           this.#sharedGeometry = undefined;
           this.#updateState({
             connected: true,
@@ -387,17 +427,19 @@ export class TerminalRuntime {
           } else if (message.type === 'request-terminal-theme') {
             this.#reportTerminalTheme();
           } else if (message.type === 'snapshot') {
+            this.#outputSequence.establish(context.id, message.throughSequence);
             this.#updateState({ openingVisible: true, openingStage: 'restoring' });
             if (this.#composing) {
               this.#deferredSnapshot = {
                 context,
                 data: message.data,
                 history: message.history,
+                snapshotId: message.snapshotId,
                 output: '',
                 screenReady: false,
               };
             } else {
-              this.#beginSnapshot(message.data, context, message.history);
+              this.#beginSnapshot(message.data, context, message.history, message.snapshotId);
             }
           } else if (message.type === 'screen-ready') {
             this.#connection?.markReady(context);
@@ -412,11 +454,16 @@ export class TerminalRuntime {
             if (deferred?.context.id === context.id) deferred.screenReady = true;
             else this.#screenSync?.markScreenReady();
           } else if (message.type === 'output') {
+            if (!this.#acceptOutputSequence(message, context)) return;
             if (message.activity && message.activityAt !== null) this.#markOutputActivity(message.activityAt);
             const deferred = this.#deferredSnapshot;
-            if (deferred?.context.id === context.id) this.#bufferDeferredOutput(deferred, message.data);
-            else if (message.screenSync) this.#screenSync?.replaceScreen(message.data);
-            else this.#screenSync?.pushOutput(message.data);
+            if (deferred?.context.id === context.id)
+              this.#bufferDeferredOutput(deferred, message.data, message.screenSync, message.reset, message.history);
+            else if (message.screenSync) {
+              this.#updateHistoryState(message.history);
+              if (message.reset) this.#rememberScreenReplacementAnchor();
+              this.#screenSync?.replaceScreen(message.data, message.reset);
+            } else this.#screenSync?.pushOutput(message.data);
           } else if (message.type === 'repository-status') {
             this.#options.onRepositoryStatus(message.changeCount, message.worktreeCount, message.branch);
           } else if (message.type === 'error') {
@@ -424,8 +471,10 @@ export class TerminalRuntime {
           }
         },
         onDisconnect: (event, retrying) => {
+          this.#outputSequence.reset();
           this.#setOutputActive(false);
           this.#deferredSnapshot = undefined;
+          this.#screenReplacementAnchor = undefined;
           this.#resetHistoryLoading();
           this.#screenSync?.disconnect();
           if (this.#destroyed) return;
@@ -454,7 +503,7 @@ export class TerminalRuntime {
     );
     this.#connection.setRetryEnabled(document.visibilityState === 'visible');
     this.#connection.start();
-    this.#resizeObserver = new ResizeObserver(() => this.#scheduleResize());
+    this.#resizeObserver = new ResizeObserver(() => this.#handleObservedResize());
     this.#resizeObserver.observe(this.#options.element);
   }
 
@@ -463,17 +512,16 @@ export class TerminalRuntime {
     if (!textarea) return;
     const handleFocus = () => {
       this.#terminalInputFocused = true;
-      this.#lockMobileInputSize();
-      if (desktopInput) this.#updateState({ directInputFocused: true });
+      if (desktopInput || this.#mobileInputOwner === 'terminal') this.#updateState({ directInputFocused: true });
     };
     const handleBlur = () => {
       this.#terminalInputFocused = false;
-      this.#releaseMobileInputSize();
       this.#updateState({ directInputFocused: false });
       this.#finishComposition();
     };
     const handleCompositionStart = () => {
       this.#composing = true;
+      this.#screenSync?.setRenderingPaused(true);
       if (this.#compositionSettleTimer) clearTimeout(this.#compositionSettleTimer);
       this.#compositionSettleTimer = undefined;
       this.#cancelScheduledResize();
@@ -483,12 +531,12 @@ export class TerminalRuntime {
     };
     textarea.addEventListener('focus', handleFocus);
     textarea.addEventListener('blur', handleBlur);
-    textarea.addEventListener('compositionstart', handleCompositionStart);
+    textarea.addEventListener('compositionstart', handleCompositionStart, true);
     textarea.addEventListener('compositionend', handleCompositionEnd);
     this.#removeInputLifecycle = () => {
       textarea.removeEventListener('focus', handleFocus);
       textarea.removeEventListener('blur', handleBlur);
-      textarea.removeEventListener('compositionstart', handleCompositionStart);
+      textarea.removeEventListener('compositionstart', handleCompositionStart, true);
       textarea.removeEventListener('compositionend', handleCompositionEnd);
     };
   }
@@ -505,6 +553,7 @@ export class TerminalRuntime {
         this.#applyGeometry(geometry);
       }
       this.#flushDeferredSnapshot();
+      this.#screenSync?.setRenderingPaused(false);
       if (this.#displayRefreshPendingComposition) {
         this.#displayRefreshPendingComposition = false;
         this.#scheduleDisplayRefresh();
@@ -574,6 +623,13 @@ export class TerminalRuntime {
     this.#historyLoadPending = false;
   }
 
+  #updateHistoryState(history: TerminalHistoryState | undefined): void {
+    if (!history) return;
+    this.#historyEnabled = true;
+    this.#historyLoaded = history.loaded;
+    this.#historyAvailable = history.available;
+  }
+
   #resetHistoryLoading(): void {
     this.#historyAnchor = undefined;
     this.#historyAvailable = 0;
@@ -582,8 +638,33 @@ export class TerminalRuntime {
     this.#historyLoaded = 0;
   }
 
-  #beginSnapshot(data: string, context: TerminalConnectionContext, history?: TerminalHistoryState): void {
+  #acceptOutputSequence(
+    message: Extract<TerminalServerMessage, { type: 'output' }>,
+    context: TerminalConnectionContext
+  ): boolean {
+    if (this.#outputSequence.accept(context.id, message)) return true;
+    this.#handleOutputSequenceGap(context);
+    return false;
+  }
+
+  #handleOutputSequenceGap(context: TerminalConnectionContext): void {
     if (!context.isCurrent()) return;
+    this.#outputSequence.reset();
+    this.#deferredSnapshot = undefined;
+    this.#resetHistoryLoading();
+    this.#screenSync?.disconnect();
+    this.#updateState({ connected: false, controlsTerminal: undefined, error: '', reconnecting: true });
+    this.#connection?.restart('terminal output sequence gap');
+  }
+
+  #beginSnapshot(
+    data: string,
+    context: TerminalConnectionContext,
+    history?: TerminalHistoryState,
+    snapshotId?: number
+  ): void {
+    if (!context.isCurrent()) return;
+    this.#screenReplacementAnchor = undefined;
     const anchor = this.#historyAnchor;
     const buffer = this.#terminal?.buffer.active;
     if (
@@ -599,17 +680,30 @@ export class TerminalRuntime {
       if (anchor.toTop) this.#terminal?.scrollToTop();
       this.#historyAnchor = undefined;
       this.#historyLoadPending = false;
-      context.send({ type: 'snapshot-ready' });
+      context.send({ type: 'snapshot-ready', ...(snapshotId === undefined ? {} : { snapshotId }) });
       return;
     }
     this.#screenSync?.beginSnapshot(data, {
       isCurrent: context.isCurrent,
-      acknowledge: () => context.send({ type: 'snapshot-ready' }),
+      acknowledge: () => context.send({ type: 'snapshot-ready', ...(snapshotId === undefined ? {} : { snapshotId }) }),
       onRestored: () => this.#restoreHistorySnapshot(history),
     });
   }
 
-  #bufferDeferredOutput(snapshot: DeferredTerminalSnapshot, output: string): void {
+  #bufferDeferredOutput(
+    snapshot: DeferredTerminalSnapshot,
+    output: string,
+    replaceScreen = false,
+    reset = false,
+    history?: TerminalHistoryState
+  ): void {
+    if (replaceScreen) {
+      snapshot.screenReplacement = output;
+      snapshot.screenReplacementHistory = history;
+      snapshot.screenReplacementReset = reset;
+      snapshot.output = '';
+      return;
+    }
     if (snapshot.output.length + output.length > TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT) {
       this.#deferredSnapshot = undefined;
       this.#pauseOutput();
@@ -622,7 +716,12 @@ export class TerminalRuntime {
     const snapshot = this.#deferredSnapshot;
     this.#deferredSnapshot = undefined;
     if (!snapshot?.context.isCurrent()) return;
-    this.#beginSnapshot(snapshot.data, snapshot.context, snapshot.history);
+    this.#beginSnapshot(snapshot.data, snapshot.context, snapshot.history, snapshot.snapshotId);
+    if (snapshot.screenReplacement !== undefined) {
+      this.#updateHistoryState(snapshot.screenReplacementHistory);
+      if (snapshot.screenReplacementReset) this.#rememberScreenReplacementAnchor();
+      this.#screenSync?.replaceScreen(snapshot.screenReplacement, snapshot.screenReplacementReset);
+    }
     if (snapshot.output) this.#screenSync?.pushOutput(snapshot.output);
     if (snapshot.screenReady) this.#screenSync?.markScreenReady();
   }
@@ -632,6 +731,22 @@ export class TerminalRuntime {
     if (now - this.#inputNoticeAt < INPUT_ACTIVITY_NOTICE_MS) return;
     this.#inputNoticeAt = now;
     this.#options.onInputActivity(this.#options.workspaceId, now);
+  }
+
+  #rememberScreenReplacementAnchor(): void {
+    if (this.#screenReplacementAnchor) return;
+    const buffer = this.#terminal?.buffer.active;
+    if (!buffer || buffer.type !== 'normal') return;
+    this.#screenReplacementAnchor = { distanceFromBottom: buffer.baseY - buffer.viewportY };
+  }
+
+  #restoreScreenReplacementAnchor(): void {
+    const anchor = this.#screenReplacementAnchor;
+    this.#screenReplacementAnchor = undefined;
+    const terminal = this.#terminal;
+    const buffer = terminal?.buffer.active;
+    if (!anchor || !terminal || !buffer || buffer.type !== 'normal') return;
+    terminal.scrollToLine(Math.max(0, buffer.baseY - anchor.distanceFromBottom));
   }
 
   #setOutputActive(active: boolean, timestamp?: number): void {
@@ -690,25 +805,14 @@ export class TerminalRuntime {
     const connection = this.#connection;
     const proposed = terminalSizeForVisibleArea(fitAddon);
     if (!proposed) return;
-    const mobileInputSize = this.#mobileInputSize;
-    const preserveMobileRows = mobileInputSize !== undefined && proposed.columns === mobileInputSize.columns;
-    if (preserveMobileRows) {
-      const terminal = this.#terminal;
-      if (terminal && (terminal.cols !== proposed.columns || terminal.rows !== proposed.rows)) {
-        resizeTerminalWithoutReflow(terminal, proposed.columns, proposed.rows);
-        this.#scheduleDisplayRefresh();
-      }
-    }
-    const dimensions = preserveMobileRows
-      ? mobileInputSize
-      : connection && this.#compatibilityGeometryConnectionId === connection.connectionId
+    const dimensions =
+      connection && this.#compatibilityGeometryConnectionId === connection.connectionId
         ? fitTerminalToVisibleArea(fitAddon, (columns, rows) => {
             const terminal = this.#terminal;
             if (terminal) resizeTerminalWithoutReflow(terminal, columns, rows);
           })
         : proposed;
     if (!dimensions) return;
-    if (this.#mobileInputSize && !preserveMobileRows) this.#mobileInputSize = { ...dimensions };
     this.#requestedSize = dimensions;
     this.#updateControlSizeMismatch();
     const key = `${dimensions.columns}x${dimensions.rows}`;
@@ -719,16 +823,29 @@ export class TerminalRuntime {
     }
   }
 
-  #scheduleResize(delay = this.#resizeSettleDelay()): void {
+  #scheduleResize(delay?: number): void {
     this.#cancelScheduledResize();
     if (this.#composing) return;
+    const settleDelay =
+      delay ??
+      (this.#touchLayout || this.#terminalInputFocused
+        ? compactTerminalResizeSettleDelay(this.#observedResizeCadenceMs)
+        : DESKTOP_RESIZE_SETTLE_MS);
     this.#resizeTimer = setTimeout(() => {
       this.#resizeTimer = undefined;
       this.#resizeFrame = requestAnimationFrame(() => {
         this.#resizeFrame = undefined;
         if (!this.#destroyed) this.#sendSize();
       });
-    }, delay);
+    }, settleDelay);
+  }
+
+  #handleObservedResize(): void {
+    const now = performance.now();
+    const interval = now - this.#observedResizeAt;
+    this.#observedResizeAt = now;
+    this.#observedResizeCadenceMs = nextTerminalResizeCadence(this.#observedResizeCadenceMs, interval);
+    this.#scheduleResize();
   }
 
   #cancelScheduledResize(): void {
@@ -736,28 +853,6 @@ export class TerminalRuntime {
     if (this.#resizeFrame !== undefined) cancelAnimationFrame(this.#resizeFrame);
     this.#resizeTimer = undefined;
     this.#resizeFrame = undefined;
-  }
-
-  #resizeSettleDelay(): number {
-    return this.#touchLayout || this.#terminalInputFocused ? COMPACT_RESIZE_SETTLE_MS : DESKTOP_RESIZE_SETTLE_MS;
-  }
-
-  #lockMobileInputSize(): void {
-    if (!this.#touchLayout || this.#mobileInputSize) return;
-    const terminal = this.#terminal;
-    const size =
-      this.#requestedSize ??
-      (terminal && terminal.cols > 0 && terminal.rows > 0
-        ? { columns: terminal.cols, rows: terminal.rows }
-        : undefined);
-    if (size) this.#mobileInputSize = { ...size };
-    this.#cancelScheduledResize();
-  }
-
-  #releaseMobileInputSize(): void {
-    if (!this.#touchLayout || this.#terminalInputFocused || this.#composerFocused) return;
-    this.#mobileInputSize = undefined;
-    this.#scheduleResize();
   }
 
   #refreshTerminalDisplay(clearTextureAtlas = false): void {

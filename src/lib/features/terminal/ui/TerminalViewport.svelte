@@ -9,7 +9,7 @@ import ShellOpening from './ShellOpening.svelte';
 import { TerminalImagePasteState } from './image-paste-state.svelte';
 import { TerminalRuntime, type TerminalOpeningStage, type TerminalRuntimeState } from './terminal-runtime.ts';
 import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '~/lib/shared/theme/theme.svelte';
-import { isDesktopViewport } from '~/lib/shared/ui/layout';
+import { isDesktopInteractionViewport } from '~/lib/shared/ui/layout';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
@@ -46,6 +46,7 @@ let {
 } = $props();
 
 let terminalElement: HTMLDivElement;
+let composerElement = $state<HTMLTextAreaElement>();
 let runtime = $state<TerminalRuntime>();
 let terminalError = $state('');
 let connected = $state(false);
@@ -87,7 +88,7 @@ function changeTerminalFontSize(delta: number) {
 function handleTerminalPointerDown(event: PointerEvent) {
   if (event.pointerType === 'touch') return;
   runtime?.focus();
-  if (isDesktopViewport()) directInputFocused = true;
+  if (isDesktopInteractionViewport()) directInputFocused = true;
 }
 
 function dataTransferTypes(event: DragEvent): string[] {
@@ -270,6 +271,7 @@ onMount(() => {
   {/if}
 
   <TerminalInputDock
+    bind:composerElement
     {connected}
     send={(data) => runtime?.send(data)}
     submit={(data) => runtime?.submit(data) ?? false}
@@ -309,7 +311,7 @@ onMount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0.35rem;
+  padding: 0.35rem max(0.35rem, env(safe-area-inset-right)) 0.35rem max(0.35rem, env(safe-area-inset-left));
   touch-action: none;
 }
 .terminal.path-drop-target {

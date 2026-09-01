@@ -11,6 +11,7 @@ const SOCKET_CLOSED = 3;
 const MAXIMUM_RECONNECT_DELAY_MS = 30_000;
 const MAXIMUM_RECONNECT_ATTEMPTS = 5;
 export const TERMINAL_READY_TIMEOUT_MS = 15_000;
+export const TERMINAL_STABLE_READY_MS = 5_000;
 const TERMINAL_READY_TIMEOUT_CLOSE_CODE = 4_000;
 const TERMINAL_READY_TIMEOUT_REASON = 'terminal ready timeout';
 
@@ -54,6 +55,7 @@ export function terminalReconnectDelay(attempt: number): number {
 }
 
 export function terminalCloseIsRetryable(event: { code: number; reason: string }): boolean {
+  if (event.code === 1009 && event.reason === 'terminal screen exceeds limit') return false;
   if (event.code !== 1008) return true;
   return !['authentication expired', 'authentication revoked', 'message rate exceeded'].includes(event.reason);
 }
@@ -69,6 +71,7 @@ export class TerminalConnection {
   #retryEnabled = true;
   #setTimeout: (callback: () => void, delay: number) => Timer;
   #socket: TerminalSocket | undefined;
+  #stableReadyTimer: Timer | undefined;
   #stopped = true;
   #url: () => string;
 
@@ -99,6 +102,7 @@ export class TerminalConnection {
     this.#stopped = true;
     this.#clearReconnectTimer();
     this.#clearReadyTimer();
+    this.#clearStableReadyTimer();
     this.#reconnectAttempt = 0;
     const socket = this.#socket;
     this.#socket = undefined;
@@ -112,6 +116,23 @@ export class TerminalConnection {
     if (resetAttempts) this.#reconnectAttempt = 0;
     this.#callbacks.onRetrying?.(0);
     this.#connect();
+  }
+
+  restart(reason = 'terminal stream restart'): void {
+    if (this.#stopped) return;
+    this.#clearReconnectTimer();
+    this.#clearReadyTimer();
+    this.#clearStableReadyTimer();
+    const socket = this.#socket;
+    this.#socket = undefined;
+    if (socket && socket.readyState !== SOCKET_CLOSED) {
+      try {
+        socket.close(4_001, reason);
+      } catch {
+        // Some browsers reject close() while the handshake is still pending.
+      }
+    }
+    if (this.#retryEnabled) this.#scheduleReconnect();
   }
 
   setRetryEnabled(enabled: boolean): void {
@@ -129,7 +150,11 @@ export class TerminalConnection {
   markReady(context: TerminalConnectionContext): void {
     if (!context.isCurrent()) return;
     this.#clearReadyTimer();
-    this.#reconnectAttempt = 0;
+    this.#clearStableReadyTimer();
+    this.#stableReadyTimer = this.#setTimeout(() => {
+      this.#stableReadyTimer = undefined;
+      if (context.isCurrent()) this.#reconnectAttempt = 0;
+    }, TERMINAL_STABLE_READY_MS);
   }
 
   send(message: TerminalClientMessage): boolean {
@@ -171,6 +196,7 @@ export class TerminalConnection {
     socket.onclose = (event) => {
       if (!context.isCurrent()) return;
       this.#clearReadyTimer();
+      this.#clearStableReadyTimer();
       this.#socket = undefined;
       const retrying = terminalCloseIsRetryable(event);
       this.#callbacks.onDisconnect?.(event, retrying);
@@ -225,6 +251,12 @@ export class TerminalConnection {
     if (this.#readyTimer === undefined) return;
     this.#clearTimeout(this.#readyTimer);
     this.#readyTimer = undefined;
+  }
+
+  #clearStableReadyTimer(): void {
+    if (this.#stableReadyTimer === undefined) return;
+    this.#clearTimeout(this.#stableReadyTimer);
+    this.#stableReadyTimer = undefined;
   }
 
   #sendToSocket(socket: TerminalSocket, message: TerminalClientMessage): boolean {

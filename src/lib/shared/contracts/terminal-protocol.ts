@@ -7,7 +7,7 @@ export interface TerminalHistoryState {
 
 export type TerminalClientMessage =
   | { type: 'activate' }
-  | { type: 'snapshot-ready' }
+  | { type: 'snapshot-ready'; snapshotId?: number }
   | { type: 'load-history'; lines: number }
   | { type: 'input'; data: string }
   | { type: 'submit'; data: string; bracketedPaste: boolean }
@@ -15,15 +15,35 @@ export type TerminalClientMessage =
   | { type: 'resize'; columns: number; rows: number };
 
 export type TerminalServerMessage =
-  | { type: 'snapshot'; data: string; history?: TerminalHistoryState }
+  | {
+      type: 'snapshot';
+      data: string;
+      history?: TerminalHistoryState;
+      snapshotId?: number;
+      throughSequence?: number;
+    }
   | { type: 'geometry'; columns: number; rows: number; active?: boolean }
   | { type: 'request-terminal-theme' }
   | { type: 'screen-ready' }
-  | { type: 'output'; data: string; activity: boolean; activityAt: number | null; screenSync?: boolean }
+  | {
+      type: 'output';
+      data: string;
+      activity: boolean;
+      activityAt: number | null;
+      screenSync?: boolean;
+      reset?: boolean;
+      history?: TerminalHistoryState;
+      sequence?: number;
+      throughSequence?: number;
+    }
   | { type: 'repository-status'; changeCount: number; worktreeCount: number; branch?: string }
   | { type: 'error'; message: string };
 
-export const TERMINAL_PROTOCOL_VERSION = 2;
+export const TERMINAL_GEOMETRY_PROTOCOL_VERSION = 2;
+export const TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION = 3;
+export const TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION = 4;
+export const TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION = 5;
+export const TERMINAL_PROTOCOL_VERSION = 5;
 
 export const TERMINAL_SIZE_LIMITS = {
   minimumColumns: 20,
@@ -59,7 +79,14 @@ function isIntegerBetween(value: unknown, minimum: number, maximum: number): boo
 
 export function parseTerminalClientMessage(value: unknown): TerminalClientMessage | undefined {
   if (!isRecord(value)) return undefined;
-  if (value.type === 'activate' || value.type === 'snapshot-ready') return { type: value.type };
+  if (value.type === 'activate') return { type: value.type };
+  if (
+    value.type === 'snapshot-ready' &&
+    (value.snapshotId === undefined || isIntegerBetween(value.snapshotId, 1, Number.MAX_SAFE_INTEGER))
+  )
+    return value.snapshotId === undefined
+      ? { type: 'snapshot-ready' }
+      : { type: 'snapshot-ready', snapshotId: Number(value.snapshotId) };
   if (value.type === 'load-history' && isIntegerBetween(value.lines, 1, TERMINAL_SCROLLBACK_LINES.standard))
     return { type: 'load-history', lines: Number(value.lines) };
   if (value.type === 'input' && typeof value.data === 'string') return { type: 'input', data: value.data };
@@ -82,7 +109,14 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
 export function parseTerminalServerMessage(value: unknown): TerminalServerMessage | undefined {
   if (!isRecord(value)) return undefined;
   if (value.type === 'snapshot' && typeof value.data === 'string') {
-    if (value.history === undefined) return { type: 'snapshot', data: value.data };
+    if (value.snapshotId !== undefined && !isIntegerBetween(value.snapshotId, 1, Number.MAX_SAFE_INTEGER))
+      return undefined;
+    const snapshotId = value.snapshotId === undefined ? {} : { snapshotId: Number(value.snapshotId) };
+    if (value.throughSequence !== undefined && !isIntegerBetween(value.throughSequence, 0, Number.MAX_SAFE_INTEGER))
+      return undefined;
+    const throughSequence =
+      value.throughSequence === undefined ? {} : { throughSequence: Number(value.throughSequence) };
+    if (value.history === undefined) return { type: 'snapshot', data: value.data, ...snapshotId, ...throughSequence };
     if (
       !isRecord(value.history) ||
       !isIntegerBetween(value.history.loaded, 0, TERMINAL_SCROLLBACK_LINES.standard) ||
@@ -93,6 +127,8 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
     return {
       type: 'snapshot',
       data: value.data,
+      ...snapshotId,
+      ...throughSequence,
       history: {
         loaded: Number(value.history.loaded),
         available: Number(value.history.available),
@@ -114,15 +150,35 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
     typeof value.data === 'string' &&
     typeof value.activity === 'boolean' &&
     (value.screenSync === undefined || typeof value.screenSync === 'boolean') &&
+    (value.reset === undefined || typeof value.reset === 'boolean') &&
     ((value.activity && typeof value.activityAt === 'number' && Number.isFinite(value.activityAt)) ||
       (!value.activity && value.activityAt === null))
   ) {
+    if (value.sequence !== undefined && !isIntegerBetween(value.sequence, 1, Number.MAX_SAFE_INTEGER)) return undefined;
+    if (value.throughSequence !== undefined && !isIntegerBetween(value.throughSequence, 0, Number.MAX_SAFE_INTEGER))
+      return undefined;
+    if (value.sequence !== undefined && value.throughSequence !== undefined) return undefined;
+    if (value.throughSequence !== undefined && value.screenSync !== true) return undefined;
+    const history = value.history;
+    if ((value.reset === true || history !== undefined) && value.screenSync !== true) return undefined;
+    if (
+      history !== undefined &&
+      (!isRecord(history) ||
+        !isIntegerBetween(history.loaded, 0, TERMINAL_SCROLLBACK_LINES.standard) ||
+        !isIntegerBetween(history.available, 0, TERMINAL_SCROLLBACK_LINES.standard) ||
+        Number(history.loaded) > Number(history.available))
+    )
+      return undefined;
     return {
       type: 'output',
       data: value.data,
       activity: value.activity,
       activityAt: value.activityAt,
       ...(value.screenSync === true ? { screenSync: true } : {}),
+      ...(value.reset === true ? { reset: true } : {}),
+      ...(history ? { history: { loaded: Number(history.loaded), available: Number(history.available) } } : {}),
+      ...(value.sequence === undefined ? {} : { sequence: Number(value.sequence) }),
+      ...(value.throughSequence === undefined ? {} : { throughSequence: Number(value.throughSequence) }),
     };
   }
   if (

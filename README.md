@@ -1,6 +1,6 @@
 # Vampire
 
-**A self-hosted browser workspace for persistent terminal workspaces.**
+**A self-hosted web workspace for terminal-based coding agents.**
 
 <table>
   <tr>
@@ -13,15 +13,22 @@
   </tr>
 </table>
 
-Vampire runs your terminal workspaces in tmux and lets you reconnect from a desktop or mobile browser. Your credentials, project files, and running processes stay on your machine.
+Vampire keeps Codex, Claude Code, and other CLI coding agents running in persistent tmux workspaces. Monitor several agents, reconnect from desktop or mobile, inspect the repository, and send notes or scheduled work to the active agent. Vampire runs on your machine, alongside your project files and processes.
 
-## Features
+## Built for agent work
 
-- Persistent tmux-backed terminal workspaces for Codex, Claude Code, and any shell command.
-- Browser workspaces for multiple projects, with desktop and mobile support.
-- At-a-glance workspace status, so you can see what needs your attention.
-- Context-aware **Ask agent…** actions that give the existing main agent the right note or widget contract while you describe the outcome.
-- Local-first and self-hosted, with frictionless loopback access and token-protected external sharing.
+- **Keep agents running.** Codex, Claude Code, and ordinary shells stay alive in tmux when the browser disconnects.
+- **See what needs attention.** Monitor multiple workspaces and return to the right agent without hunting through terminal tabs.
+- **Step in from any screen.** Use the full terminal on desktop or the mobile composer and terminal controls when you are away from your desk.
+- **Work with the repository.** Browse and edit files, inspect Git changes, and manage isolated worktrees beside the live terminal.
+- **Hand work back to the agent.** Keep workspace notes, schedule recurring prompts, and ask the visible main agent to create status widgets.
+- **Keep control of the host.** Vampire is local-first and self-hosted, with frictionless loopback access and authenticated remote deployments.
+
+### Schedule work for the active agent
+
+<img src="docs/images/vampire-automations.png" alt="Vampire agent automations page" />
+
+Automations deliver a saved prompt to the workspace's main agent session on a one-time or recurring schedule. They use the same persistent workspace instead of starting a separate hidden agent.
 
 ## Quick start
 
@@ -36,7 +43,7 @@ Install tmux with your operating system's package manager, then run:
 npx vampire
 ```
 
-Open the printed URL (`http://localhost:7677` by default), choose a project directory, and create a workspace. Start the CLI or shell you want to use inside it:
+Open the printed URL (`http://localhost:7677` by default), choose a project directory, and create a workspace. Start your coding agent or shell inside it:
 
 ```bash
 codex

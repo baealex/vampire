@@ -16,6 +16,7 @@ export interface TerminalAttachmentState<T extends ManagedTerminalAttachment> {
   activationQueue: Promise<void>;
   controlHistory: T[];
   geometry?: TerminalGeometry;
+  operationQueue: Promise<void>;
 }
 
 export function createTerminalAttachmentState<T extends ManagedTerminalAttachment>(): TerminalAttachmentState<T> {
@@ -25,7 +26,41 @@ export function createTerminalAttachmentState<T extends ManagedTerminalAttachmen
     activationQueue: Promise.resolve(),
     controlHistory: [],
     geometry: undefined,
+    operationQueue: Promise.resolve(),
   };
+}
+
+export function runTerminalOperation<T extends ManagedTerminalAttachment, R>(
+  state: TerminalAttachmentState<T>,
+  operation: () => Promise<R>
+): Promise<R> {
+  const result = state.operationQueue.catch(() => undefined).then(operation);
+  state.operationQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
+export async function synchronizeTerminalAttachments<T extends ManagedTerminalAttachment>(
+  state: TerminalAttachmentState<T>,
+  geometry: TerminalGeometry | undefined,
+  excluded?: T
+): Promise<void> {
+  await Promise.all(
+    [...state.attachments]
+      .filter((candidate) => candidate !== excluded && !candidate.released && Boolean(candidate.synchronizeScreen))
+      .map(async (candidate) => {
+        try {
+          await candidate.synchronizeScreen?.(geometry);
+        } catch {
+          // A subscriber that cannot accept the authoritative frame must start
+          // a fresh connection. Do not leave its delivery fence permanently
+          // paused, and do not let it roll back the shared pane geometry.
+          candidate.terminate?.();
+        }
+      })
+  );
 }
 
 export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
@@ -71,14 +106,7 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
       if (attachment.released || state.activeAttachment !== attachment) return false;
       // A browser that misses a redraw can recover independently. Layout
       // ownership must survive a transient synchronization failure.
-      await Promise.allSettled(
-        [...state.attachments]
-          .filter(
-            (candidate) =>
-              candidate !== unhealthyPrevious && !candidate.released && Boolean(candidate.synchronizeScreen)
-          )
-          .map((candidate) => candidate.synchronizeScreen?.(state.geometry))
-      );
+      await synchronizeTerminalAttachments(state, state.geometry, unhealthyPrevious);
       if (attachment.released || state.activeAttachment !== attachment) return false;
       state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
       state.controlHistory.push(attachment);

@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  MAX_TERMINAL_SCREEN_FRAME_BYTES,
+  MAX_TERMINAL_ENCODED_SCREEN_DATA_BYTES,
+  MAX_TERMINAL_SOCKET_BACKLOG_BYTES,
   decodeTmuxControlValue,
   isTerminalOutputActivity,
   parseTmuxControlOutput,
+  sendTerminalMessage,
   terminalAlternateScreenExitState,
   terminalColorControlCommand,
   terminalActivityTimestamp,
   terminalAvailableHistoryLines,
+  terminalGeometryIsColumnJitter,
   terminalInputControlCommands,
   terminalPaneState,
   terminalScreenData,
@@ -15,8 +20,51 @@ import {
   terminalSubmissionSettleMs,
   terminalSnapshotData,
   terminalSnapshotHistoryLines,
+  terminalScreenMessageExceedsBackpressure,
+  terminalEncodedScreenDataBytes,
   tmuxSupportsTerminalColorReports,
 } from '~/lib/features/terminal/server/terminal.server.ts';
+
+test('filters one-column measurement jitter without hiding real layout changes', () => {
+  assert.equal(terminalGeometryIsColumnJitter({ columns: 263, rows: 61 }, { columns: 262, rows: 61 }), true);
+  assert.equal(terminalGeometryIsColumnJitter({ columns: 263, rows: 61 }, { columns: 261, rows: 61 }), false);
+  assert.equal(terminalGeometryIsColumnJitter({ columns: 263, rows: 61 }, { columns: 262, rows: 60 }), false);
+});
+
+test('bounds terminal screen frames and slow-subscriber backlogs by bytes', () => {
+  assert.equal(terminalScreenMessageExceedsBackpressure(MAX_TERMINAL_SOCKET_BACKLOG_BYTES, 1), false);
+  assert.equal(terminalScreenMessageExceedsBackpressure(MAX_TERMINAL_SOCKET_BACKLOG_BYTES + 1, 1), true);
+  assert.equal(terminalScreenMessageExceedsBackpressure(0, MAX_TERMINAL_SCREEN_FRAME_BYTES), false);
+  assert.equal(terminalScreenMessageExceedsBackpressure(0, MAX_TERMINAL_SCREEN_FRAME_BYTES + 1), true);
+  assert.equal(
+    terminalScreenMessageExceedsBackpressure(MAX_TERMINAL_SOCKET_BACKLOG_BYTES, MAX_TERMINAL_SCREEN_FRAME_BYTES),
+    true
+  );
+});
+
+test('measures terminal data after JSON control-sequence expansion', () => {
+  assert.equal(terminalEncodedScreenDataBytes('plain'), 5);
+  assert.equal(terminalEncodedScreenDataBytes('\u001b\n'), Buffer.byteLength('\\u001b\\n'));
+  assert.ok(MAX_TERMINAL_ENCODED_SCREEN_DATA_BYTES < MAX_TERMINAL_SCREEN_FRAME_BYTES);
+});
+
+test('disconnects only a slow terminal screen subscriber at the high-water mark', () => {
+  const events: string[] = [];
+  const socket = {
+    readyState: 1,
+    bufferedAmount: MAX_TERMINAL_SOCKET_BACKLOG_BYTES + 1,
+    close: (code: number) => events.push(`close:${code}`),
+    once: () => undefined,
+    send: () => events.push('send'),
+    terminate: () => events.push('terminate'),
+  } as unknown as Parameters<typeof sendTerminalMessage>[0];
+
+  assert.equal(sendTerminalMessage(socket, { type: 'output', data: 'late', activity: false, activityAt: null }), false);
+  assert.deepEqual(events, ['close:1013']);
+
+  assert.equal(sendTerminalMessage(socket, { type: 'screen-ready' }), true);
+  assert.deepEqual(events, ['close:1013', 'send']);
+});
 
 test('converts an exact tmux activity watermark without inventing a future window', () => {
   assert.equal(terminalActivityTimestamp('1786280522\n'), 1_786_280_522_000);

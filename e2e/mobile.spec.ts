@@ -53,13 +53,7 @@ test('keeps a terminal connection failure inside the mobile viewport', async ({ 
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('keeps terminal IME input visible and focused while the mobile viewport resizes', async ({ context, page }) => {
-  test.setTimeout(60_000);
-  const sentTerminalMessages: Array<string | Buffer> = [];
-  page.on('websocket', (socket) => {
-    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
-    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
-  });
+test('routes mobile input ownership to the surface the user taps', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -67,69 +61,76 @@ test('keeps terminal IME input visible and focused while the mobile viewport res
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  await terminal.tap({ position: { x: 96, y: 96 } });
-  const terminalInput = terminal.locator('.xterm-helper-textarea');
-  const composition = terminal.locator('.composition-view');
-  await expect(terminalInput).toBeFocused();
+  const composer = page.getByPlaceholder('Send to shell…');
+  const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+  await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
+  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
 
-  await terminalInput.evaluate((input) => {
+  await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
+  await expect(hiddenTerminalInput).toBeFocused();
+  await hiddenTerminalInput.pressSequentially("printf 'DIRECT-TERMINAL-TAP\\n'");
+  await hiddenTerminalInput.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('DIRECT-TERMINAL-TAP');
+
+  await composer.focus();
+  await expect(composer).toBeFocused();
+  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
+
+  const updates = ['ㅎ', '하', '한', '한그', '한글'];
+  await composer.evaluate((input) => {
     input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
   });
-  await expect(composition).toHaveClass(/active/);
-  await page.waitForTimeout(50);
-  sentTerminalMessages.length = 0;
-
-  const updates = ['ㅁ', '모', '모바', '모바일', 'printf 모바일-IME-확인'];
-  const heights = [720, 640, 760, 700, 680];
-  for (const [index, value] of updates.entries()) {
-    await terminalInput.evaluate((input, compositionValue) => {
+  await composer.evaluate((input) => {
+    const textarea = input as HTMLTextAreaElement;
+    textarea.value = 'composition pending';
+    textarea.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'composition pending',
+        inputType: 'insertCompositionText',
+        isComposing: true,
+      })
+    );
+  });
+  await composer.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  await composer.evaluate((input) => {
+    const event = new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' });
+    Object.defineProperty(event, 'keyCode', { value: 229 });
+    input.dispatchEvent(event);
+  });
+  await expect(composer).toHaveValue('composition pending');
+  for (const value of updates) {
+    await composer.evaluate((input, compositionValue) => {
       const textarea = input as HTMLTextAreaElement;
       textarea.value = compositionValue;
       textarea.dispatchEvent(
-        new CompositionEvent('compositionupdate', {
+        new InputEvent('input', {
           bubbles: true,
           data: compositionValue,
+          inputType: 'insertCompositionText',
+          isComposing: true,
         })
       );
+      textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: compositionValue }));
     }, value);
-    await expect(composition).toHaveText(value);
-    const height = heights[index];
-    if (height === undefined) throw new Error('Missing mobile viewport test height.');
-    await page.setViewportSize({ width: 412, height });
-    await page.waitForTimeout(60);
+    await expect(composer).toHaveValue(value);
   }
-  await page.waitForTimeout(250);
+  await composer.evaluate((input, value) => {
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }));
+  }, updates.at(-1));
+  await expect(composer).toHaveValue('한글');
 
-  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
-  await expect(terminalInput).toBeFocused();
-  await expect(composition).toHaveClass(/active/);
-  await expect(composition).toHaveText('printf 모바일-IME-확인');
-  await expect(terminal).toHaveClass(/screen-ready/);
-  await expect
-    .poll(() =>
-      terminal.evaluate((element) => {
-        const screen = element.querySelector<HTMLElement>('.xterm-screen');
-        const bounds = screen?.getBoundingClientRect();
-        return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
-      })
-    )
-    .toBe(true);
-
-  await terminalInput.evaluate((input, value) => {
-    (input as HTMLTextAreaElement).dispatchEvent(
-      new CompositionEvent('compositionend', { bubbles: true, data: value })
-    );
-  }, 'printf 모바일-IME-확인');
-  await page.waitForTimeout(50);
-  await expect(composition).not.toHaveClass(/active/);
-  await terminalInput.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText('모바일-IME-확인');
-  await page.waitForTimeout(250);
-  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
-  await expect(terminalInput).toBeFocused();
+  await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
+  await expect(composer).not.toBeFocused();
+  await expect(hiddenTerminalInput).toBeFocused();
+  await composer.focus();
+  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
+  await expect(composer).toBeFocused();
 });
 
-test('keeps server terminal geometry stable while the mobile composer fits the visible viewport', async ({
+test('keeps mobile composition visible while terminal output and viewport geometry change', async ({
   context,
   page,
 }) => {
@@ -145,30 +146,257 @@ test('keeps server terminal geometry stable while the mobile composer fits the v
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const composer = page.getByPlaceholder('Send to shell…');
+  await composer.focus();
+  await composer.evaluate((input) => {
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+  });
+  sentTerminalMessages.length = 0;
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT-DURING-MOBILE-IME\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect(page.locator('.xterm-rows')).toContainText('OUTPUT-DURING-MOBILE-IME');
+
+  const updates = ['ㅁ', '모', '모바', '모바일', 'printf 모바일-IME-확인'];
+  const heights = [720, 640, 760, 700, 680];
+  for (const [index, value] of updates.entries()) {
+    await composer.evaluate((input, compositionValue) => {
+      const textarea = input as HTMLTextAreaElement;
+      textarea.value = compositionValue;
+      textarea.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          data: compositionValue,
+          inputType: 'insertCompositionText',
+          isComposing: true,
+        })
+      );
+      textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: compositionValue }));
+    }, value);
+    await expect(composer).toHaveValue(value);
+    const height = heights[index];
+    if (height === undefined) throw new Error('Missing mobile viewport test height.');
+    await page.setViewportSize({ width: 412, height });
+    await page.waitForTimeout(60);
+  }
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('printf 모바일-IME-확인');
+  await expect(terminal).toHaveClass(/screen-ready/);
+
+  await composer.evaluate((input, value) => {
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }));
+  }, 'printf 모바일-IME-확인');
+  await composer.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('모바일-IME-확인');
+  await expect
+    .poll(() => sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize').length)
+    .toBeGreaterThan(0);
+  await expect(composer).toBeFocused();
+});
+
+test('keeps terminal rendering coherent while mobile geometry is delayed', async ({ context, page }) => {
+  test.setTimeout(60_000);
+  const sentTerminalMessages: Array<string | Buffer> = [];
+  let delayServerMessages = false;
+  page.on('websocket', (socket) => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
+    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
+  });
+  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    const delayedMessages: Array<string | Buffer> = [];
+    let flushScheduled = false;
+    server.onMessage((message) => {
+      if (delayServerMessages) {
+        delayedMessages.push(message);
+        if (!flushScheduled) {
+          flushScheduled = true;
+          setTimeout(() => {
+            flushScheduled = false;
+            for (const delayed of delayedMessages.splice(0)) socket.send(delayed);
+          }, 700);
+        }
+        return;
+      }
+      socket.send(message);
+    });
+  });
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
-  const composer = page.getByRole('textbox', { name: 'Terminal input' });
+  const composer = page.getByPlaceholder('Send to shell…');
   await composer.focus();
   await expect(composer).toBeFocused();
   await page.waitForTimeout(250);
   sentTerminalMessages.length = 0;
+  const initialScreenHeight = await page
+    .locator('.xterm-screen')
+    .evaluate((screen) => screen.getBoundingClientRect().height);
 
-  for (const height of [viewport!.height - 280, viewport!.height, viewport!.height - 320, viewport!.height]) {
-    await page.setViewportSize({ width: viewport!.width, height });
-    await page.waitForTimeout(250);
-    await expect(composer).toBeFocused();
-    const terminalFits = await page.locator('.terminal-frame').evaluate((frame) => {
-      const frameBounds = frame.getBoundingClientRect();
-      const screenBounds = frame.querySelector('.xterm-screen')?.getBoundingClientRect();
-      return Boolean(screenBounds && screenBounds.bottom <= frameBounds.bottom + 1);
-    });
-    expect(terminalFits).toBe(true);
-  }
+  delayServerMessages = true;
+  await page.setViewportSize({ width: viewport!.width, height: viewport!.height - 320 });
+  await page.waitForTimeout(250);
+  await expect(composer).toBeFocused();
+  const pendingScreenHeight = await page
+    .locator('.xterm-screen')
+    .evaluate((screen) => screen.getBoundingClientRect().height);
+  expect(pendingScreenHeight).toBeCloseTo(initialScreenHeight, 0);
+  expect(sentTerminalMessages.map(websocketMessageType)).toContain('resize');
 
-  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
+  await expect
+    .poll(() =>
+      page.locator('.terminal-frame').evaluate((frame) => {
+        const frameBounds = frame.getBoundingClientRect();
+        const screenBounds = frame.querySelector('.xterm-screen')?.getBoundingClientRect();
+        return Boolean(screenBounds && screenBounds.bottom <= frameBounds.bottom + 1);
+      })
+    )
+    .toBe(true);
+
+  delayServerMessages = false;
+  await page.setViewportSize({ width: viewport!.width, height: viewport!.height });
+  await expect(composer).toBeFocused();
 });
 
-test('defers a reconnect snapshot until terminal IME composition finishes', async ({ context, page }) => {
+test('coalesces 60, 90, and 120Hz mobile viewport animations into one resize each', async ({ context, page }) => {
+  const sentTerminalMessages: Array<string | Buffer> = [];
+  page.on('websocket', (socket) => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
+    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
+  });
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByPlaceholder('Send to shell…');
+  await composer.focus();
+  for (const [cadence, heights] of [
+    [17, [860, 820, 780, 740, 700]],
+    [11, [690, 650, 610, 570, 530]],
+    [8, [540, 580, 620, 660, 700]],
+  ] as const) {
+    sentTerminalMessages.length = 0;
+    for (const height of heights) {
+      await page.setViewportSize({ width: 412, height });
+      await page.waitForTimeout(cadence);
+    }
+    await expect
+      .poll(() => sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize').length)
+      .toBe(1);
+    await page.waitForTimeout(100);
+    expect(sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize')).toHaveLength(1);
+  }
+});
+
+test('keeps a usable terminal and composer in an extreme keyboard-height viewport', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await page.setViewportSize({ width: 320, height: 280 });
+
+  const composer = page.getByPlaceholder('Send to shell…');
+  await expect(composer).toBeVisible();
+  await composer.fill('extreme viewport input');
+  await expect(composer).toHaveValue('extreme viewport input');
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>('.terminal-frame');
+        const screen = document.querySelector<HTMLElement>('.xterm-screen');
+        const rows = document.querySelector<HTMLElement>('.xterm-rows');
+        const composerElement = document.querySelector<HTMLElement>('.composer');
+        const viewport = window.visualViewport;
+        if (!frame || !screen || !rows || !composerElement) return undefined;
+        const frameBounds = frame.getBoundingClientRect();
+        const screenBounds = screen.getBoundingClientRect();
+        const composerBounds = composerElement.getBoundingClientRect();
+        const viewportTop = viewport?.offsetTop ?? 0;
+        const viewportBottom = viewportTop + (viewport?.height ?? innerHeight);
+        return {
+          composerFits: composerBounds.top >= viewportTop && composerBounds.bottom <= viewportBottom + 1,
+          frameFits: screenBounds.bottom <= frameBounds.bottom + 1,
+          usableRows: rows.childElementCount >= 5,
+          scrollFits: document.documentElement.scrollWidth <= innerWidth,
+        };
+      })
+    )
+    .toEqual({ composerFits: true, frameFits: true, usableRows: true, scrollFits: true });
+});
+
+test('keeps numbered normal-screen rows unique through repeated mobile resizes', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByPlaceholder('Send to shell…');
+  await composer.fill(`for i in $(seq 1 5); do printf 'VAMPIRE_UNIQUE_%04d\\n' "$i"; done`);
+  await composer.press('Enter');
+  const terminalRows = page.locator('.xterm-rows');
+  await expect(terminalRows).toContainText('VAMPIRE_UNIQUE_0005');
+
+  for (const height of [620, 860, 540, 915]) {
+    await page.setViewportSize({ width: 412, height });
+    await expect(terminalRows).toContainText('VAMPIRE_UNIQUE_0005');
+  }
+
+  const renderedText = await terminalRows.innerText();
+  for (let index = 1; index <= 5; index += 1) {
+    const marker = `VAMPIRE_UNIQUE_${String(index).padStart(4, '0')}`;
+    expect(renderedText.split(marker)).toHaveLength(2);
+  }
+});
+
+test('keeps a full-screen TUI coherent through repeated mobile resizes', async ({ context, page }) => {
+  test.setTimeout(60_000);
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByPlaceholder('Send to shell…');
+  const tuiCommand = `node -e "const draw=()=>process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b[48;5;22m TUI-READY '+process.stdout.columns+'x'+process.stdout.rows+' \\x1b[0m');process.on('SIGWINCH',draw);process.on('SIGINT',()=>{process.stdout.write('\\x1b[?1049l');process.exit(0)});draw();setInterval(()=>{},1000)"`;
+  await composer.fill(tuiCommand);
+  await composer.press('Enter');
+  const terminalRows = page.locator('.xterm-rows');
+  await expect(terminalRows).toContainText('TUI-READY');
+
+  for (const height of [620, 860, 540, 915]) {
+    await page.setViewportSize({ width: 412, height });
+    await expect(terminalRows).toContainText('TUI-READY');
+    await expect
+      .poll(() =>
+        page.locator('.terminal-frame').evaluate((frame) => {
+          const frameBounds = frame.getBoundingClientRect();
+          const screenBounds = frame.querySelector('.xterm-screen')?.getBoundingClientRect();
+          return Boolean(
+            screenBounds &&
+              screenBounds.width > 0 &&
+              screenBounds.height > 0 &&
+              screenBounds.right <= frameBounds.right + 1 &&
+              screenBounds.bottom <= frameBounds.bottom + 1
+          );
+        })
+      )
+      .toBe(true);
+  }
+
+  await page.getByRole('button', { name: 'Ctrl+C' }).click();
+});
+
+test('preserves mobile composition through a reconnect snapshot', async ({ context, page }) => {
   test.setTimeout(60_000);
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -202,38 +430,37 @@ test('defers a reconnect snapshot until terminal IME composition finishes', asyn
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await firstConnectionOpened;
   await expectTerminalReady(page);
-  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  await terminal.tap({ position: { x: 96, y: 96 } });
-  const terminalInput = terminal.locator('.xterm-helper-textarea');
-  const composition = terminal.locator('.composition-view');
-  await expect(terminalInput).toBeFocused();
+  const composer = page.getByPlaceholder('Send to shell…');
+  await composer.focus();
 
-  await terminalInput.evaluate((input, value) => {
+  await composer.evaluate((input, value) => {
     const textarea = input as HTMLTextAreaElement;
     textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
     textarea.value = value;
+    textarea.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        data: value,
+        inputType: 'insertCompositionText',
+        isComposing: true,
+      })
+    );
     textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: value }));
   }, 'printf 재연결-IME-확인');
-  await expect(composition).toHaveClass(/active/);
-  await expect(composition).toHaveText('printf 재연결-IME-확인');
+  await expect(composer).toHaveValue('printf 재연결-IME-확인');
 
   await firstConnection!.close({ code: 1012, reason: 'mobile IME reconnect test' });
   await secondSnapshotReceived;
-  await page.waitForTimeout(100);
-  await expect(terminalInput).toBeFocused();
-  await expect(composition).toHaveClass(/active/);
-  await expect(composition).toHaveText('printf 재연결-IME-확인');
-
-  await terminalInput.evaluate((input, value) => {
-    (input as HTMLTextAreaElement).dispatchEvent(
-      new CompositionEvent('compositionend', { bubbles: true, data: value })
-    );
-  }, 'printf 재연결-IME-확인');
-  await page.waitForTimeout(50);
-  await terminalInput.press('Enter');
   await expectTerminalReady(page);
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('printf 재연결-IME-확인');
+
+  await composer.evaluate((input, value) => {
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value }));
+  }, 'printf 재연결-IME-확인');
+  await composer.press('Enter');
   await expect(page.locator('.xterm-rows')).toContainText('재연결-IME-확인');
-  await expect(terminalInput).toBeFocused();
+  await expect(composer).toBeFocused();
   expect(connectionCount).toBe(2);
 });
 
@@ -284,7 +511,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.locator('.xterm-rows')).toContainText(
     '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀'
   );
-  await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
+  await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal top' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal bottom' })).toBeVisible();
 
@@ -385,7 +612,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
   await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
-  await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
+  await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
   const notePanel = page.locator('.workspace-note-panel');

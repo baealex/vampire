@@ -12,7 +12,7 @@ const nextTheme = $derived(themeState.current === 'dark' ? 'light' : 'dark');
 </script>
 
 <nav class="app-sidebar-actions" aria-label="Application tools">
-  <strong>Vampire</strong>
+  <img class="app-sidebar-logo" src="/icon.svg" alt="Vampire">
   <div class="app-sidebar-action-buttons">
     <button
       type="button"
@@ -57,12 +57,12 @@ const nextTheme = $derived(themeState.current === 'dark' ? 'light' : 'dark');
   border-bottom: 1px solid var(--color-border);
   background: var(--color-panel);
 }
-.app-sidebar-actions > strong {
+.app-sidebar-logo {
+  display: block;
+  width: 1.9rem;
+  height: 1.9rem;
   margin-right: auto;
-  color: var(--color-text);
-  font-size: var(--text-label);
-  font-weight: var(--weight-strong);
-  letter-spacing: 0.01em;
+  border-radius: 0.5rem;
 }
 .app-sidebar-action-buttons {
   display: flex;

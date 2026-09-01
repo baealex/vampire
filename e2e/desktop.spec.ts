@@ -1249,6 +1249,73 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
   expect(connectionCount).toBe(2);
 });
 
+test('orders a resize reset ahead of output queued before snapshot acknowledgement', async ({ context, page }) => {
+  test.setTimeout(60_000);
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  const serverMessages: Array<{ screenSync: boolean; type?: string }> = [];
+  let connectionCount = 0;
+  let heldAcknowledgement: { message: string | Buffer; server: WebSocketRoute } | undefined;
+  let acknowledgementReleased = false;
+  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    connectionCount += 1;
+    socket.onMessage((message) => {
+      let type: string | undefined;
+      try {
+        const value = JSON.parse(message.toString()) as { type?: unknown };
+        if (typeof value.type === 'string') type = value.type;
+      } catch {
+        // Forward malformed frames so the real protocol remains responsible.
+      }
+      if (type === 'snapshot-ready' && !acknowledgementReleased) {
+        heldAcknowledgement = { message, server };
+        return;
+      }
+      server.send(message);
+    });
+    server.onMessage((message) => {
+      try {
+        const value = JSON.parse(message.toString()) as { screenSync?: unknown; type?: unknown };
+        serverMessages.push({
+          screenSync: value.screenSync === true,
+          ...(typeof value.type === 'string' ? { type: value.type } : {}),
+        });
+      } catch {
+        serverMessages.push({ screenSync: false });
+      }
+      socket.send(message);
+    });
+  });
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await expect.poll(() => Boolean(heldAcknowledgement)).toBe(true);
+  const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
+
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_ACK_FENCE\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect.poll(async () => (await tmuxPaneRows(workspace.tmuxSession)).includes('VAMP_ACK_FENCE')).toBe(true);
+
+  await page.setViewportSize({ width: 820, height: 620 });
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).not.toEqual(initialGeometry);
+  await page.waitForTimeout(500);
+  expect(serverMessages.filter((message) => message.screenSync)).toHaveLength(0);
+
+  acknowledgementReleased = true;
+  heldAcknowledgement!.server.send(heldAcknowledgement!.message);
+  await expect.poll(() => serverMessages.filter((message) => message.screenSync).length).toBeGreaterThan(0);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ACK_FENCE');
+
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_AFTER_ACK_FENCE\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_AFTER_ACK_FENCE');
+  await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
+  expect(connectionCount).toBe(1);
+});
+
 test('loads retained terminal history only after an upward scroll', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -1432,6 +1499,11 @@ test('keeps the desktop font default on a wide touch display', async ({ browser 
     const page = await context.newPage();
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
+    await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
+    await expect(page.getByRole('group', { name: 'Mobile input mode' })).toBeVisible();
+    await expect(
+      page.getByRole('application', { name: 'Interactive shell terminal' }).locator('.xterm-helper-textarea')
+    ).toHaveAttribute('readonly', '');
     const fontSize = await page
       .getByRole('application', { name: 'Interactive shell terminal' })
       .locator('.xterm-rows')
@@ -1519,6 +1591,63 @@ test('publishes output sent immediately after terminal resize to other devices',
     await removeWorkspace(observerContext, createdWorkspace?.id);
     await Promise.all([observerContext.close(), controllerContext.close()]);
   }
+});
+
+test('keeps rapid full-screen redraws coherent through committed terminal resizes', async ({ context, page }) => {
+  test.setTimeout(60_000);
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const source = [
+    `let frame = 0;`,
+    `let timer;`,
+    `const payload = Array.from({ length: 24 }, (_, row) => String(row).padStart(2, '0') + ':' + '.'.repeat(90)).join('\\r\\n');`,
+    `const finish = () => {`,
+    `  if (!timer) return;`,
+    `  clearInterval(timer);`,
+    `  timer = undefined;`,
+    `  process.off('SIGWINCH', draw);`,
+    `  process.stdout.write('\\x1b[?1049lVAMP_STRESS_DONE\\r\\n');`,
+    `};`,
+    `const draw = () => {`,
+    `  if (!timer) return;`,
+    `  frame += 1;`,
+    `  process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H' + 'VAMP_FRAME_' + String(frame).padStart(4, '0') + ' ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n' + payload);`,
+    `  if (frame >= 240) finish();`,
+    `};`,
+    `process.on('SIGWINCH', draw);`,
+    `timer = setInterval(draw, 5);`,
+    `draw();`,
+  ].join('');
+  const encodedSource = Buffer.from(source).toString('base64');
+  const composer = page.getByPlaceholder('Send to shell…');
+  await composer.fill(`node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`);
+  await composer.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_FRAME_');
+
+  for (const viewport of [
+    { width: 1_100, height: 720 },
+    { width: 860, height: 620 },
+    { width: 1_200, height: 760 },
+    { width: 900, height: 640 },
+    { width: 1_280, height: 800 },
+    { width: 760, height: 600 },
+    { width: 1_050, height: 700 },
+    { width: 820, height: 640 },
+    { width: 1_280, height: 850 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(120);
+  }
+
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_STRESS_DONE', { timeout: 15_000 });
+  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+  const renderedText = (await renderedTerminalRows(page)).join('\n');
+  expect(renderedText.match(/VAMP_STRESS_DONE/gu)).toHaveLength(1);
+  await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
 });
 
 test('restores a pending-autowrap cursor before the next terminal character', async ({ browser }) => {

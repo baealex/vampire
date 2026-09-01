@@ -1,6 +1,7 @@
 <script lang="ts">
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
+import { onDestroy } from 'svelte';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
@@ -20,6 +21,7 @@ let {
   maximumFontSize,
   decreaseFontSize,
   increaseFontSize,
+  composerElement = $bindable(),
 }: {
   connected: boolean;
   send: (data: string) => void;
@@ -33,12 +35,18 @@ let {
   maximumFontSize: number;
   decreaseFontSize: () => void;
   increaseFontSize: () => void;
+  composerElement?: HTMLTextAreaElement;
 } = $props();
 
-let composerElement: HTMLTextAreaElement;
 let imageInputElement: HTMLInputElement;
 let composerMessage = $state('');
 let composerDropActive = $state(false);
+let composerResizeFrame: number | undefined;
+const nativeFieldSizing = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
+
+onDestroy(() => {
+  if (composerResizeFrame !== undefined) cancelAnimationFrame(composerResizeFrame);
+});
 
 function preventButtonFocus(event: PointerEvent) {
   event.preventDefault();
@@ -59,9 +67,14 @@ function sendComposerMessage() {
 }
 
 function resizeComposer() {
-  if (!composerElement) return;
-  composerElement.style.height = 'auto';
-  composerElement.style.height = `${Math.min(composerElement.scrollHeight, 128)}px`;
+  if (!composerElement || nativeFieldSizing || composerResizeFrame !== undefined) return;
+  composerResizeFrame = requestAnimationFrame(() => {
+    composerResizeFrame = undefined;
+    if (!composerElement) return;
+    composerElement.style.height = 'auto';
+    const nextHeight = Math.min(composerElement.scrollHeight, 128);
+    composerElement.style.height = `${nextHeight}px`;
+  });
 }
 
 function hasWorkspaceEntry(event: DragEvent): boolean {
@@ -87,8 +100,8 @@ function handleComposerDrop(event: DragEvent) {
   if (!entries?.length) return;
   event.preventDefault();
   const insertion = entries.map(workspaceEntryDragText).join(' ');
-  const start = composerElement.selectionStart ?? composerMessage.length;
-  const end = composerElement.selectionEnd ?? start;
+  const start = composerElement?.selectionStart ?? composerMessage.length;
+  const end = composerElement?.selectionEnd ?? start;
   composerMessage = `${composerMessage.slice(0, start)}${insertion}${composerMessage.slice(end)}`;
   const caretPosition = start + insertion.length;
   requestAnimationFrame(() => {
@@ -99,6 +112,7 @@ function handleComposerDrop(event: DragEvent) {
 }
 
 function handleComposerKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return;
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     sendComposerMessage();
@@ -114,7 +128,7 @@ function handleImageSelection(event: Event) {
 </script>
 
 <div class="input-dock">
-  <div class="touch-toolbar" aria-label="Terminal controls">
+  <div class="touch-toolbar" role="group" aria-label="Terminal controls">
     <button
       type="button"
       disabled={!connected}
@@ -256,7 +270,6 @@ function handleImageSelection(event: Event) {
       autocapitalize="off"
       autocomplete="off"
       spellcheck="false"
-      disabled={!connected}
     ></textarea>
     <button
       class="image-button"
@@ -297,7 +310,7 @@ function handleImageSelection(event: Event) {
   gap: 0.3rem;
   min-width: 0;
   overflow-x: auto;
-  padding: 0.45rem var(--dock-inline-end) 0.25rem var(--dock-inline-start);
+  padding: 0.35rem var(--dock-inline-end) 0.15rem var(--dock-inline-start);
   scrollbar-width: none;
 }
 .touch-toolbar::-webkit-scrollbar {
@@ -390,6 +403,7 @@ function handleImageSelection(event: Event) {
   font: inherit;
   font-size: 1rem;
   line-height: var(--leading-ui);
+  field-sizing: content;
 }
 .composer textarea::placeholder {
   color: var(--color-field-placeholder);
@@ -430,7 +444,7 @@ function handleImageSelection(event: Event) {
   cursor: default;
 }
 
-@media (min-width: 64rem) {
+@media (min-width: 64rem) and (pointer: fine) {
   .input-dock {
     --dock-inline-start: 0.75rem;
     --dock-inline-end: 0.75rem;

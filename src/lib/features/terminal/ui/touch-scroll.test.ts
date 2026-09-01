@@ -13,7 +13,7 @@ test.after(() => {
 
 type Listener = (event: any) => void;
 
-function fixture() {
+function fixture(useNativeInteraction = false) {
   const listeners = new Map<string, Listener[]>();
   const scrollLines: number[] = [];
   const scrollAttempts: number[] = [];
@@ -60,6 +60,7 @@ function fixture() {
       onTap: () => {
         tapped += 1;
       },
+      useNativeInteraction: () => useNativeInteraction,
     }
   );
   const fire = (name: string, event: any): void => {
@@ -111,11 +112,13 @@ function pointer(overrides: Partial<FakePointer> = {}): FakePointer {
 
 test('keeps a short terminal touch available as a tap', () => {
   const target = fixture();
-  target.fire('pointerdown', pointer());
+  const down = pointer();
+  target.fire('pointerdown', down);
   const move = pointer({ clientY: 75 });
   target.fire('pointermove', move);
   target.fire('pointerup', pointer({ clientY: 75 }));
 
+  assert.equal(down.defaultPrevented, true);
   assert.equal(move.defaultPrevented, false);
   assert.equal(target.tapped, 1);
   assert.equal(target.scrollStarted, 0);
@@ -164,4 +167,15 @@ test('reports a downward drag as an attempt to reveal older terminal rows', () =
   assert.equal(drag.defaultPrevented, true);
   assert.deepEqual(target.scrollAttempts, [-2]);
   assert.deepEqual(target.scrollLines, [-2]);
+});
+
+test('leaves touch events to xterm while native terminal interaction is enabled', () => {
+  const target = fixture(true);
+  const down = pointer();
+  target.fire('pointerdown', down);
+  target.fire('pointerup', pointer());
+
+  assert.equal(down.defaultPrevented, false);
+  assert.equal(target.tapped, 0);
+  assert.deepEqual(target.scrollLines, []);
 });

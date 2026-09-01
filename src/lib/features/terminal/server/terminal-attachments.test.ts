@@ -4,10 +4,35 @@ import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
   releaseTerminalAttachment,
+  runTerminalOperation,
   terminalAttachmentKey,
   updateTerminalGeometry,
   type ManagedTerminalAttachment,
 } from '~/lib/features/terminal/server/terminal-attachments.server.ts';
+
+test('serializes terminal operations from multiple attachments', async () => {
+  const state = createTerminalAttachmentState<ManagedTerminalAttachment>();
+  const events: string[] = [];
+  let releaseFirst!: () => void;
+  const firstBlocked = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const first = runTerminalOperation(state, async () => {
+    events.push('submit:start');
+    await firstBlocked;
+    events.push('submit:end');
+  });
+  const second = runTerminalOperation(state, async () => {
+    events.push('interrupt');
+  });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['submit:start']);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(events, ['submit:start', 'submit:end', 'interrupt']);
+});
 
 function attachment(name: string, events: string[]): ManagedTerminalAttachment & { name: string } {
   return {
@@ -185,6 +210,32 @@ test('does not roll back layout ownership when a screen redraw fails', async () 
 
   assert.equal(await activateTerminalAttachment(state, controller), true);
   assert.equal(state.activeAttachment, controller);
+});
+
+test('terminates only the attachment whose authoritative redraw fails', async () => {
+  const events: string[] = [];
+  const state = createTerminalAttachmentState<ManagedTerminalAttachment>();
+  const controller: ManagedTerminalAttachment = {
+    released: false,
+    setIgnoreSize: async () => undefined,
+    synchronizeScreen: async () => {
+      events.push('controller:sync');
+    },
+  };
+  const brokenViewer: ManagedTerminalAttachment = {
+    released: false,
+    synchronizeScreen: async () => {
+      events.push('viewer:sync');
+      throw new Error('viewer cannot accept reset');
+    },
+    terminate: () => events.push('viewer:terminated'),
+  };
+  state.attachments.add(controller);
+  state.attachments.add(brokenViewer);
+
+  assert.equal(await activateTerminalAttachment(state, controller), true);
+  assert.equal(state.activeAttachment, controller);
+  assert.deepEqual(events, ['controller:sync', 'viewer:sync', 'viewer:terminated']);
 });
 
 test('accepts geometry only from the controller once one exists', async () => {

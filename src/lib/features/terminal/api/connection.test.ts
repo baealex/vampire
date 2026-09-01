@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   TerminalConnection,
   TERMINAL_READY_TIMEOUT_MS,
+  TERMINAL_STABLE_READY_MS,
   terminalCloseIsRetryable,
   type TerminalConnectionContext,
   type TerminalSocket,
@@ -156,10 +157,43 @@ test('reconnects after transient closes and ignores messages from replaced socke
   harness.connection.stop();
 });
 
+test('restarts a gapped stream through the bounded reconnect backoff', () => {
+  const harness = createHarness();
+  harness.connection.start();
+  const firstSocket = harness.sockets[0];
+  firstSocket.open();
+
+  harness.connection.restart('terminal output sequence gap');
+
+  assert.equal(firstSocket.readyState, 3);
+  assert.equal(harness.sockets.length, 1);
+  assert.deepEqual(harness.retryDelays, [500]);
+  harness.scheduler.advance(500);
+  assert.equal(harness.sockets.length, 2);
+  assert.deepEqual(harness.disconnects, []);
+  harness.connection.stop();
+});
+
+test('does not restart a gapped stream while retry is suspended', () => {
+  const harness = createHarness();
+  harness.connection.start();
+  harness.sockets[0].open();
+  harness.connection.setRetryEnabled(false);
+
+  harness.connection.restart('terminal output sequence gap');
+  harness.scheduler.advance(60_000);
+  assert.equal(harness.sockets.length, 1);
+
+  harness.connection.setRetryEnabled(true);
+  assert.equal(harness.sockets.length, 2);
+  harness.connection.stop();
+});
+
 test('does not reconnect after authentication or rate-limit policy closes', () => {
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'authentication expired' }), false);
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'authentication revoked' }), false);
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'message rate exceeded' }), false);
+  assert.equal(terminalCloseIsRetryable({ code: 1009, reason: 'terminal screen exceeds limit' }), false);
   assert.equal(terminalCloseIsRetryable({ code: 1008, reason: 'other policy' }), true);
 
   const harness = createHarness();
@@ -245,7 +279,7 @@ test('resets reconnect backoff only after the terminal screen is ready', () => {
   harness.scheduler.advance(1_000);
   harness.sockets[2].open();
   harness.connection.markReady(harness.opened.at(-1)!);
-  harness.scheduler.advance(TERMINAL_READY_TIMEOUT_MS);
+  harness.scheduler.advance(TERMINAL_STABLE_READY_MS);
   assert.equal(harness.sockets[2].readyState, 1);
   harness.sockets[2].disconnect(1011, 'temporary failure');
 

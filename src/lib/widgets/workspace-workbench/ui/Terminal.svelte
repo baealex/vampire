@@ -7,7 +7,7 @@ import GlobalStatusBar from './GlobalStatusBar.svelte';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 import TerminalViewport from '~/lib/features/terminal/ui/TerminalViewport.svelte';
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';
-import { isDesktopViewport } from '~/lib/shared/ui/layout';
+import { isDesktopInteractionViewport } from '~/lib/shared/ui/layout';
 import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
 
 let {
@@ -71,6 +71,8 @@ let {
 } = $props();
 
 let viewportStyle = $state('');
+let visualViewportConstrained = $state(false);
+let compactViewport = $state(false);
 let terminalFontSize = $state(14);
 let backgroundOpen = $state(false);
 const minimumFontSize = 10;
@@ -84,15 +86,25 @@ const backgroundPanelId = $derived(`background-manager-${workspace.id}`);
 const backgroundTriggerId = $derived(`background-trigger-${workspace.id}`);
 
 onMount(() => {
-  const updateViewport = () => {
-    if (isDesktopViewport()) {
+  let viewportFrame: number | undefined;
+  const applyViewport = () => {
+    viewportFrame = undefined;
+    const viewport = window.visualViewport;
+    const keyboardConstrained = Boolean(viewport && viewport.height + 1 < window.innerHeight);
+    visualViewportConstrained = !isDesktopInteractionViewport() || keyboardConstrained;
+    if (!visualViewportConstrained) {
+      compactViewport = false;
       viewportStyle = '';
       return;
     }
-    const viewport = window.visualViewport;
     const height = Math.round(viewport?.height ?? window.innerHeight);
     const top = Math.round(viewport?.offsetTop ?? 0);
+    compactViewport = height <= 360;
     viewportStyle = `--terminal-viewport-height: ${height}px; --terminal-viewport-top: ${top}px;`;
+  };
+  const updateViewport = () => {
+    if (viewportFrame !== undefined) return;
+    viewportFrame = requestAnimationFrame(applyViewport);
   };
 
   updateViewport();
@@ -101,6 +113,7 @@ onMount(() => {
   window.visualViewport?.addEventListener('scroll', updateViewport);
 
   return () => {
+    if (viewportFrame !== undefined) cancelAnimationFrame(viewportFrame);
     window.removeEventListener('resize', updateViewport);
     window.visualViewport?.removeEventListener('resize', updateViewport);
     window.visualViewport?.removeEventListener('scroll', updateViewport);
@@ -108,7 +121,13 @@ onMount(() => {
 });
 </script>
 
-<section class="terminal-sheet" style={viewportStyle} aria-label={`Terminal for ${projectName}`}>
+<section
+  class="terminal-sheet"
+  class:visual-viewport-constrained={visualViewportConstrained}
+  class:compact-viewport={compactViewport}
+  style={viewportStyle}
+  aria-label={`Terminal for ${projectName}`}
+>
   <div class="terminal-topbar">
     <GlobalStatusBar plugins={statusPlugins} dismissPopovers={dismissStatusPopovers} {onManageStatusWidgets} />
     <TerminalHeader
@@ -199,9 +218,21 @@ onMount(() => {
   min-height: 0;
   overflow: hidden;
 }
+.terminal-sheet.compact-viewport .terminal-topbar :global(.global-status-shell) {
+  display: none;
+}
+.terminal-sheet.compact-viewport .terminal-topbar :global(.terminal-header) {
+  padding-block: max(0.15rem, env(safe-area-inset-top)) 0.15rem;
+}
+.terminal-sheet.compact-viewport .main-workspace-terminal :global(.terminal) {
+  padding-block: 0.1rem;
+}
+.terminal-sheet.compact-viewport .main-workspace-terminal :global(.xterm) {
+  padding-block: 0.1rem;
+}
 
 @media (min-width: 64rem) {
-  .terminal-sheet {
+  .terminal-sheet:not(.visual-viewport-constrained) {
     position: relative;
     z-index: 1;
     top: auto;

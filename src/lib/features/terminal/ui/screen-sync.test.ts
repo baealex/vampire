@@ -54,6 +54,7 @@ function createHarness() {
   let resets = 0;
   let refreshes = 0;
   let completedWrites = 0;
+  let replacedScreens = 0;
   let overflows = 0;
   const sync = new TerminalScreenSync(
     {
@@ -67,6 +68,9 @@ function createHarness() {
       onReadyChange: (ready) => readyStates.push(ready),
       onWriteComplete: () => {
         completedWrites += 1;
+      },
+      onScreenReplaced: () => {
+        replacedScreens += 1;
       },
       onOverflow: () => {
         overflows += 1;
@@ -92,6 +96,9 @@ function createHarness() {
     },
     get completedWrites() {
       return completedWrites;
+    },
+    get replacedScreens() {
+      return replacedScreens;
     },
     get overflows() {
       return overflows;
@@ -155,7 +162,15 @@ test('ignores completion work from a snapshot replaced by a newer connection', (
     },
   });
 
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['first']
+  );
   harness.writes[0].complete();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['first', 'second']
+  );
   harness.writes[1].complete();
   harness.scheduler.flushFrame();
   harness.scheduler.flushFrame();
@@ -174,11 +189,19 @@ test('does not let output completion from an old snapshot settle a newer snapsho
   harness.sync.pushOutput('old output');
   harness.scheduler.flushFrame();
   harness.sync.beginSnapshot('second', { isCurrent: () => true, acknowledge: () => true });
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['first', 'old output']
+  );
+  harness.writes[1].complete();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['first', 'old output', 'second']
+  );
   harness.writes[2].complete();
   harness.sync.pushOutput('new output');
   harness.sync.markScreenReady();
 
-  harness.writes[1].complete();
   harness.scheduler.flushFrame();
   harness.writes[3].complete();
   harness.scheduler.flushFrame();
@@ -210,6 +233,101 @@ test('batches rapid output by frame and waits for the active xterm write', () =>
   );
 });
 
+test('holds terminal rendering during IME composition and resumes in order', () => {
+  const harness = createHarness();
+  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
+  harness.writes[0].complete();
+  harness.sync.setRenderingPaused(true);
+  harness.sync.pushOutput('first');
+  harness.sync.pushOutput(' second');
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot']
+  );
+
+  harness.sync.setRenderingPaused(false);
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'first second']
+  );
+});
+
+test('cancels a scheduled render frame when IME composition starts', () => {
+  const harness = createHarness();
+  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
+  harness.writes[0].complete();
+  harness.sync.pushOutput('scheduled');
+  harness.sync.setRenderingPaused(true);
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot']
+  );
+
+  harness.sync.setRenderingPaused(false);
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'scheduled']
+  );
+});
+
+test('keeps only the latest synchronized screen while rendering is paused', () => {
+  const harness = createHarness();
+  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
+  harness.writes[0].complete();
+  harness.sync.setRenderingPaused(true);
+  harness.sync.pushOutput('discarded before redraw');
+  harness.sync.replaceScreen('redraw');
+  harness.sync.pushOutput(' after redraw');
+  harness.sync.setRenderingPaused(false);
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'redraw']
+  );
+  harness.writes[1].complete();
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'redraw', ' after redraw']
+  );
+});
+
+test('applies a synchronized redraw received while a snapshot is restoring', () => {
+  const harness = createHarness();
+  let acknowledgements = 0;
+  harness.sync.beginSnapshot('snapshot', {
+    isCurrent: () => true,
+    acknowledge: () => {
+      acknowledgements += 1;
+      return true;
+    },
+  });
+  harness.sync.pushOutput('discarded before redraw');
+  harness.sync.replaceScreen('redraw');
+  harness.sync.pushOutput(' after redraw');
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot']
+  );
+
+  harness.writes[0].complete();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'redraw']
+  );
+  harness.writes[1].complete();
+  harness.scheduler.flushFrame();
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'redraw', ' after redraw']
+  );
+  harness.scheduler.flushFrame();
+  assert.equal(acknowledgements, 1);
+});
+
 test('replaces a synchronized screen in one write without clearing scrollback', () => {
   const harness = createHarness();
   harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
@@ -228,6 +346,41 @@ test('replaces a synchronized screen in one write without clearing scrollback', 
 
   harness.writes[1].complete();
   assert.deepEqual(harness.readyStates, [false, true, false, true]);
+});
+
+test('resets stale scrollback before an authoritative synchronized snapshot', () => {
+  const harness = createHarness();
+  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
+  harness.writes[0].complete();
+
+  harness.sync.replaceScreen('authoritative snapshot', true);
+  assert.equal(harness.resets, 2);
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'authoritative snapshot']
+  );
+  harness.writes[1].complete();
+  assert.equal(harness.replacedScreens, 1);
+});
+
+test('applies the latest synchronized snapshot that arrives during a replacement write', () => {
+  const harness = createHarness();
+  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
+  harness.writes[0].complete();
+
+  harness.sync.replaceScreen('first replacement', true);
+  harness.sync.replaceScreen('latest replacement', true);
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'first replacement']
+  );
+
+  harness.writes[1].complete();
+  assert.equal(harness.resets, 3);
+  assert.deepEqual(
+    harness.writes.map(({ data }) => data),
+    ['snapshot', 'first replacement', 'latest replacement']
+  );
 });
 
 test('limits each render batch while preserving queued output order', () => {

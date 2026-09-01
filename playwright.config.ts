@@ -42,6 +42,11 @@ export default defineConfig({
         userAgent: 'Mozilla/5.0 (Android 15; Mobile; rv:141.0) Gecko/141.0 Firefox/141.0',
       },
     },
+    {
+      name: 'mobile-webkit',
+      testMatch: '**/mobile.spec.ts',
+      use: { ...devices['iPhone 15 Pro'] },
+    },
   ],
   webServer: {
     command: 'node tools/e2e-server.ts',

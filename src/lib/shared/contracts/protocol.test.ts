@@ -78,6 +78,10 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
     lines: 500,
   });
   assert.deepEqual(
+    decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'snapshot-ready', snapshotId: 7 })),
+    { type: 'snapshot-ready', snapshotId: 7 }
+  );
+  assert.deepEqual(
     decodeTerminalClientMessage(
       encodeTerminalClientMessage({
         type: 'terminal-color',
@@ -94,6 +98,7 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
   assert.equal(decodeTerminalClientMessage('{"type":"input","data":12}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello"}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
+  assert.equal(decodeTerminalClientMessage('{"type":"snapshot-ready","snapshotId":0}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"terminal-color","slot":9,"color":"#fbfafa"}'), undefined);
   assert.equal(
     decodeTerminalClientMessage('{"type":"terminal-color","slot":11,"color":"red; kill-server"}'),
@@ -108,9 +113,17 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
         type: 'snapshot',
         data: 'screen',
         history: { loaded: 500, available: 1_200 },
+        snapshotId: 9,
+        throughSequence: 41,
       })
     ),
-    { type: 'snapshot', data: 'screen', history: { loaded: 500, available: 1_200 } }
+    {
+      type: 'snapshot',
+      data: 'screen',
+      history: { loaded: 500, available: 1_200 },
+      snapshotId: 9,
+      throughSequence: 41,
+    }
   );
   assert.deepEqual(decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'request-terminal-theme' })), {
     type: 'request-terminal-theme',
@@ -127,9 +140,15 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
-      encodeTerminalServerMessage({ type: 'output', data: 'ready', activity: true, activityAt: 4_000 })
+      encodeTerminalServerMessage({
+        type: 'output',
+        data: 'ready',
+        activity: true,
+        activityAt: 4_000,
+        sequence: 42,
+      })
     ),
-    { type: 'output', data: 'ready', activity: true, activityAt: 4_000 }
+    { type: 'output', data: 'ready', activity: true, activityAt: 4_000, sequence: 42 }
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
@@ -139,9 +158,21 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
         activity: false,
         activityAt: null,
         screenSync: true,
+        reset: true,
+        history: { loaded: 250, available: 900 },
+        throughSequence: 46,
       })
     ),
-    { type: 'output', data: 'screen', activity: false, activityAt: null, screenSync: true }
+    {
+      type: 'output',
+      data: 'screen',
+      activity: false,
+      activityAt: null,
+      screenSync: true,
+      reset: true,
+      history: { loaded: 250, available: 900 },
+      throughSequence: 46,
+    }
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
@@ -156,6 +187,7 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
     { type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' }
   );
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
+  assert.equal(decodeTerminalServerMessage('{"type":"snapshot","data":"screen","snapshotId":0}'), undefined);
   assert.equal(
     decodeTerminalServerMessage('{"type":"snapshot","data":"screen","history":{"loaded":6,"available":5}}'),
     undefined
@@ -164,6 +196,20 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
   assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":120,"rows":40,"active":"yes"}'), undefined);
   assert.equal(
     decodeTerminalServerMessage('{"type":"output","data":"ready","activity":true,"activityAt":null}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage('{"type":"output","data":"screen","activity":false,"activityAt":null,"reset":true}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage('{"type":"output","data":"screen","activity":false,"activityAt":null,"sequence":0}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage(
+      '{"type":"output","data":"screen","activity":false,"activityAt":null,"throughSequence":4}'
+    ),
     undefined
   );
   assert.equal(

@@ -23,6 +23,7 @@ export interface TerminalScreenAdapter {
   refresh: () => void;
   onReadyChange: (ready: boolean) => void;
   onWriteComplete: () => void;
+  onScreenReplaced?: () => void;
   onOverflow?: () => void;
 }
 
@@ -45,8 +46,11 @@ export class TerminalScreenSync {
   #outputFrame: number | undefined;
   #outputOverflowed = false;
   #outputWriteInFlight = false;
+  #physicalWriteInFlight = false;
   #pendingOutput = '';
   #pendingSnapshot = '';
+  #pendingSnapshotStart: { version: number; context: TerminalSnapshotContext } | undefined;
+  #renderingPaused = false;
   #requestFrame: (callback: () => void) => number;
   #revealDeadline: Timer | undefined;
   #revealFrame: number | undefined;
@@ -54,8 +58,10 @@ export class TerminalScreenSync {
   #screenReady = false;
   #setTimeout: (callback: () => void, delay: number) => Timer;
   #snapshotFrame: number | undefined;
+  #snapshotAcknowledgementVersion = 0;
   #snapshotVersion = 0;
   #snapshotWriteInFlight = false;
+  #screenReplacementReset = false;
   #terminalReady = false;
 
   constructor(adapter: TerminalScreenAdapter, dependencies: TerminalScreenDependencies = {}) {
@@ -69,6 +75,7 @@ export class TerminalScreenSync {
   beginSnapshot(snapshot: string, context: TerminalSnapshotContext): void {
     if (this.#disposed) return;
     const version = ++this.#snapshotVersion;
+    this.#snapshotAcknowledgementVersion += 1;
     this.#cancelPendingFrames();
     this.#cancelRevealDeadline();
     this.#screenReady = false;
@@ -78,11 +85,12 @@ export class TerminalScreenSync {
     this.#outputWriteInFlight = false;
     this.#pendingOutput = '';
     this.#screenReplacement = undefined;
+    this.#screenReplacementReset = false;
     this.#pendingSnapshot = snapshot;
     this.#snapshotWriteInFlight = false;
     this.#adapter.onReadyChange(false);
-    this.#adapter.reset();
-    this.#writeSnapshotBatch(version, context);
+    this.#pendingSnapshotStart = { version, context };
+    this.#startPendingSnapshot();
   }
 
   pushOutput(output: string): boolean {
@@ -101,9 +109,19 @@ export class TerminalScreenSync {
     return true;
   }
 
-  replaceScreen(screen: string): void {
-    if (this.#disposed || !this.#terminalReady) return;
+  setRenderingPaused(paused: boolean): void {
+    if (this.#disposed || this.#renderingPaused === paused) return;
+    this.#renderingPaused = paused;
+    if (paused) return;
+    if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
+    else this.#scheduleOutputWrite();
+  }
+
+  replaceScreen(screen: string, reset = false): void {
+    if (this.#disposed || (!this.#terminalReady && !this.#snapshotWriteInFlight && this.#pendingSnapshot.length === 0))
+      return;
     this.#screenReplacement = screen;
+    this.#screenReplacementReset = reset;
     this.#pendingOutput = '';
     this.#outputOverflowed = false;
     if (this.#outputFrame !== undefined) this.#cancelFrame(this.#outputFrame);
@@ -120,13 +138,16 @@ export class TerminalScreenSync {
   disconnect(): void {
     if (this.#disposed) return;
     this.#snapshotVersion += 1;
+    this.#snapshotAcknowledgementVersion += 1;
     this.#terminalReady = false;
     this.#initialScreenSettled = false;
     this.#outputOverflowed = false;
     this.#outputWriteInFlight = false;
     this.#pendingOutput = '';
     this.#screenReplacement = undefined;
+    this.#screenReplacementReset = false;
     this.#pendingSnapshot = '';
+    this.#pendingSnapshotStart = undefined;
     this.#snapshotWriteInFlight = false;
     this.#cancelPendingFrames();
     this.#cancelRevealDeadline();
@@ -142,7 +163,9 @@ export class TerminalScreenSync {
     if (
       this.#disposed ||
       this.#outputOverflowed ||
+      this.#renderingPaused ||
       !this.#terminalReady ||
+      this.#physicalWriteInFlight ||
       this.#outputWriteInFlight ||
       this.#outputFrame !== undefined ||
       !this.#pendingOutput
@@ -155,7 +178,8 @@ export class TerminalScreenSync {
   }
 
   #writeSnapshotBatch(version: number, context: TerminalSnapshotContext): void {
-    if (!this.#snapshotIsCurrent(version, context) || this.#snapshotWriteInFlight) return;
+    if (!this.#snapshotIsCurrent(version, context) || this.#snapshotWriteInFlight || this.#physicalWriteInFlight)
+      return;
     if (!this.#pendingSnapshot) {
       this.#finishSnapshotWrite(version, context);
       return;
@@ -164,7 +188,7 @@ export class TerminalScreenSync {
     const batch = this.#pendingSnapshot.slice(0, batchEnd);
     this.#pendingSnapshot = this.#pendingSnapshot.slice(batchEnd);
     this.#snapshotWriteInFlight = true;
-    this.#adapter.write(batch, () => {
+    this.#writePhysical(batch, () => {
       if (!this.#snapshotIsCurrent(version, context)) return;
       this.#snapshotWriteInFlight = false;
       if (!this.#pendingSnapshot) {
@@ -182,19 +206,28 @@ export class TerminalScreenSync {
     if (!this.#snapshotIsCurrent(version, context)) return;
     context.onRestored?.();
     this.#terminalReady = true;
-    this.#scheduleOutputWrite();
+    if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
+    else this.#scheduleOutputWrite();
     this.#revealSettledTerminal();
-    this.#scheduleAcknowledgement(version, context);
+    this.#scheduleAcknowledgement(this.#snapshotAcknowledgementVersion, context);
   }
 
   #writeOutputBatch(): void {
-    if (this.#disposed || this.#outputOverflowed || this.#outputWriteInFlight || !this.#pendingOutput) return;
+    if (
+      this.#disposed ||
+      this.#outputOverflowed ||
+      this.#renderingPaused ||
+      this.#outputWriteInFlight ||
+      this.#physicalWriteInFlight ||
+      !this.#pendingOutput
+    )
+      return;
     const version = this.#snapshotVersion;
     const batchEnd = terminalBatchEnd(this.#pendingOutput);
     const batch = this.#pendingOutput.slice(0, batchEnd);
     this.#pendingOutput = this.#pendingOutput.slice(batchEnd);
     this.#outputWriteInFlight = true;
-    this.#adapter.write(batch, () => {
+    this.#writePhysical(batch, () => {
       if (this.#disposed || version !== this.#snapshotVersion) return;
       this.#outputWriteInFlight = false;
       this.#adapter.onWriteComplete();
@@ -210,37 +243,69 @@ export class TerminalScreenSync {
   #startScreenReplacement(): void {
     if (
       this.#disposed ||
+      this.#renderingPaused ||
       this.#outputWriteInFlight ||
       this.#snapshotWriteInFlight ||
+      this.#physicalWriteInFlight ||
       this.#screenReplacement === undefined
     )
       return;
     const screen = this.#screenReplacement;
+    const reset = this.#screenReplacementReset;
     this.#screenReplacement = undefined;
+    this.#screenReplacementReset = false;
     const version = ++this.#snapshotVersion;
     this.#cancelRevealDeadline();
     this.#terminalReady = false;
     this.#screenReady = false;
     this.#adapter.onReadyChange(false);
+    if (reset) this.#adapter.reset();
     this.#snapshotWriteInFlight = true;
-    this.#adapter.write(screen, () => {
+    this.#writePhysical(screen, () => {
       if (this.#disposed || version !== this.#snapshotVersion) return;
       this.#snapshotWriteInFlight = false;
       this.#terminalReady = true;
       this.#screenReady = true;
+      this.#adapter.onScreenReplaced?.();
       this.#adapter.refresh();
       this.#adapter.onReadyChange(true);
-      this.#scheduleOutputWrite();
+      if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
+      else this.#scheduleOutputWrite();
     });
   }
 
-  #scheduleAcknowledgement(version: number, context: TerminalSnapshotContext): void {
+  #startPendingSnapshot(): void {
+    if (this.#disposed || this.#physicalWriteInFlight || !this.#pendingSnapshotStart) return;
+    const pending = this.#pendingSnapshotStart;
+    this.#pendingSnapshotStart = undefined;
+    if (!this.#snapshotIsCurrent(pending.version, pending.context)) return;
+    this.#adapter.reset();
+    this.#writeSnapshotBatch(pending.version, pending.context);
+  }
+
+  #writePhysical(data: string, complete: () => void): void {
+    if (this.#physicalWriteInFlight) throw new Error('Terminal writes must be serialized.');
+    this.#physicalWriteInFlight = true;
+    this.#adapter.write(data, () => {
+      this.#physicalWriteInFlight = false;
+      if (this.#disposed) return;
+      if (this.#pendingSnapshotStart) {
+        this.#startPendingSnapshot();
+        return;
+      }
+      complete();
+    });
+  }
+
+  #scheduleAcknowledgement(acknowledgementVersion: number, context: TerminalSnapshotContext): void {
+    const acknowledgementIsCurrent = () =>
+      !this.#disposed && acknowledgementVersion === this.#snapshotAcknowledgementVersion && context.isCurrent();
     this.#acknowledgementFrame = this.#requestFrame(() => {
-      if (!this.#snapshotIsCurrent(version, context)) return;
+      if (!acknowledgementIsCurrent()) return;
       this.#adapter.refresh();
       this.#acknowledgementFrame = this.#requestFrame(() => {
         this.#acknowledgementFrame = undefined;
-        if (!this.#snapshotIsCurrent(version, context)) return;
+        if (!acknowledgementIsCurrent()) return;
         this.#adapter.refresh();
         if (context.acknowledge()) this.#startRevealDeadline();
       });

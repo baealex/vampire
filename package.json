@@ -1,7 +1,7 @@
 {
   "name": "vampire",
   "version": "0.18.0",
-  "description": "Self-hosted browser workspace for Codex, Claude Code, and persistent tmux-backed terminals.",
+  "description": "Self-hosted web workspace for running Codex, Claude Code, and other terminal-based coding agents.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -25,9 +25,15 @@
   "keywords": [
     "codex",
     "claude-code",
+    "coding-agent",
+    "ai-agent",
+    "agentic-coding",
     "tmux",
     "terminal",
-    "remote-development"
+    "browser-terminal",
+    "self-hosted",
+    "remote-development",
+    "developer-tools"
   ],
   "packageManager": "pnpm@10.33.2",
   "engines": {
@@ -53,6 +59,8 @@
     "@codemirror/commands": "^6.10.4",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
     "ws": "^8.21.1"
   },
   "devDependencies": {
