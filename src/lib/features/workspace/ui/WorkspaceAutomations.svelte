@@ -33,11 +33,13 @@ export type AutomationEditorMode = 'create' | 'edit';
 
 let {
   workspaceId,
+  initialAutomationId,
   onBusyChange = () => undefined,
   editorMode = $bindable(),
   showEditorHeader = true,
 }: {
   workspaceId: string;
+  initialAutomationId?: string;
   onBusyChange?: (busy: boolean) => void;
   editorMode?: AutomationEditorMode;
   showEditorHeader?: boolean;
@@ -71,6 +73,7 @@ let agentMessage = $state('');
 let now = $state(Date.now());
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let nameInput = $state<HTMLInputElement>();
+let initialEditHandled = false;
 const mutationBusy = $derived(creating || Boolean(updatingId));
 const editingAutomation = $derived(automations.find((automation) => automation.id === editingId));
 
@@ -146,7 +149,16 @@ function applyQuerySnapshot(snapshot: QuerySnapshot<WorkspaceAutomationsResponse
   hasData = snapshot.data !== undefined;
   fetching = snapshot.isFetching;
   loading = !hasData && snapshot.isFetching;
-  if (snapshot.data) automations = snapshot.data.automations;
+  if (snapshot.data) {
+    automations = snapshot.data.automations;
+    const initialAutomation = initialAutomationId
+      ? snapshot.data.automations.find((automation) => automation.id === initialAutomationId)
+      : undefined;
+    if (initialAutomation && !initialEditHandled) {
+      initialEditHandled = true;
+      void editAutomation(initialAutomation);
+    }
+  }
   if (snapshot.error && !hasData) {
     loadError = snapshot.error instanceof Error ? snapshot.error.message : 'Unable to load automations';
   } else if (!snapshot.error) {

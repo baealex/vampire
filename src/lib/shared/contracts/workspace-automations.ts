@@ -56,6 +56,11 @@ export type CreateWorkspaceAutomationInput = {
   schedule: WorkspaceAutomationSchedule;
 };
 
+export type WorkspaceAutomationGroup = {
+  workspaceId: string;
+  automations: WorkspaceAutomation[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

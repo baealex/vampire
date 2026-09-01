@@ -1,5 +1,6 @@
 <script lang="ts">
 import LogOut from '@lucide/svelte/icons/log-out';
+import Clock3 from '@lucide/svelte/icons/clock-3';
 import Network from '@lucide/svelte/icons/network';
 import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
@@ -25,6 +26,7 @@ let {
   workspaces,
   close,
   onSaveLaunchProfiles,
+  onManageAutomations,
   onManageWidgets,
   onLogout,
   onBusyChange = () => undefined,
@@ -39,6 +41,7 @@ let {
     defaultProfileId: string | null,
     applyDefaultToAll: boolean
   ) => Promise<{ ok: boolean; error?: string }>;
+  onManageAutomations: () => void;
   onManageWidgets: () => void;
   onLogout?: () => void;
   onBusyChange?: (busy: boolean) => void;
@@ -364,10 +367,20 @@ async function saveLaunchProfiles() {
         <div class="settings-rows">
           <div class="settings-row">
             <span>
+              <strong>Automations</strong>
+              <small>Review and control scheduled prompts across every workspace.</small>
+            </span>
+            <Button variant="secondary" size="sm" ariaLabel="Manage all automations" onclick={onManageAutomations}>
+              <Clock3 size={15} strokeWidth={1.8} aria-hidden="true" />
+              <span>Manage</span>
+            </Button>
+          </div>
+          <div class="settings-row">
+            <span>
               <strong>Status widgets</strong>
               <small>Configure the information shown above every workspace terminal.</small>
             </span>
-            <Button variant="secondary" size="sm" onclick={onManageWidgets}>
+            <Button variant="secondary" size="sm" ariaLabel="Manage status widgets" onclick={onManageWidgets}>
               <Settings2 size={15} strokeWidth={1.8} aria-hidden="true" />
               <span>Manage</span>
             </Button>

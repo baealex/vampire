@@ -30,10 +30,11 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
+import AppAutomationsPage from './AppAutomationsPage.svelte';
 import AppSettingsPage from './AppSettingsPage.svelte';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 
-type ManagementView = 'automations' | 'settings' | 'widgets';
+type ManagementView = 'automations' | 'server-automations' | 'settings' | 'widgets';
 
 let {
   initialWorkspaceId = undefined,
@@ -48,6 +49,7 @@ let workspaceSettingsOpen = $state(false);
 let reopenWithOpen = $state(false);
 let workspaceAliasWorkspace = $state<ManagedWorkspace>();
 let managementView = $state<ManagementView>();
+let automationEditId = $state<string>();
 let managementOpenedFromApp = false;
 let managementBusy = $state(false);
 let managementDirty = $state(false);
@@ -224,8 +226,8 @@ function openWorkspaceAlias(managedWorkspace: ManagedWorkspace) {
   workspaceAliasWorkspace = managedWorkspace;
 }
 
-async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace) {
-  if (guardManagementTransition(() => openWorkspaceAutomations(managedWorkspace))) return;
+async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace, automationId?: string) {
+  if (guardManagementTransition(() => openWorkspaceAutomations(managedWorkspace, automationId))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   workspaceSettingsOpen = false;
   workspaceAliasWorkspace = undefined;
@@ -234,11 +236,13 @@ async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace) {
     workspaceState.syncLocation(`/workspaces/${encodeURIComponent(managedWorkspace.id)}`);
   }
   managementView = 'automations';
+  automationEditId = automationId;
   managementBusy = false;
   managementDirty = false;
   managementOpenedFromApp = true;
   mobilePanel = undefined;
-  pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}/automations`);
+  const editQuery = automationId ? `?edit=${encodeURIComponent(automationId)}` : '';
+  pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}/automations${editQuery}`);
 }
 
 async function openApplicationSettings() {
@@ -248,12 +252,31 @@ async function openApplicationSettings() {
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = 'settings';
+  automationEditId = undefined;
   managementBusy = false;
   managementDirty = false;
   managementOpenedFromApp = true;
   mobilePanel = undefined;
   const workspaceId = workspaceState.requestedWorkspaceId;
   pushApplicationState(workspaceId ? '/settings?workspace=' + encodeURIComponent(workspaceId) : '/settings');
+}
+
+async function openServerAutomations(workspaceId?: string) {
+  if (guardManagementTransition(() => openServerAutomations(workspaceId))) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
+  workspaceSettingsOpen = false;
+  workspaceAliasWorkspace = undefined;
+  worktreeSourceWorkspace = undefined;
+  managementView = 'server-automations';
+  automationEditId = undefined;
+  managementBusy = false;
+  managementDirty = false;
+  managementOpenedFromApp = true;
+  mobilePanel = undefined;
+  const target = workspaceId ?? workspaceState.requestedWorkspaceId;
+  pushApplicationState(
+    target ? `/settings/automations?workspace=${encodeURIComponent(target)}` : '/settings/automations'
+  );
 }
 
 async function openStatusWidgets(workspaceId?: string) {
@@ -263,6 +286,7 @@ async function openStatusWidgets(workspaceId?: string) {
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = 'widgets';
+  automationEditId = undefined;
   managementBusy = false;
   managementDirty = false;
   managementOpenedFromApp = true;
@@ -290,8 +314,15 @@ async function restoreManagementTrigger(view: ManagementView) {
     target = workspaceActionsVisible
       ? workspaceActions
       : document.querySelector<HTMLElement>('[aria-label="Open workspaces"]');
+  } else if (view === 'server-automations') {
+    target =
+      document.querySelector<HTMLElement>('[aria-label="Manage all automations"]') ??
+      document.querySelector<HTMLElement>('[aria-label="Open settings"]');
   }
-  target?.focus();
+  if (target) {
+    target.dataset.terminalAutofocus = 'preserve';
+    target.focus();
+  }
 }
 
 function finishCloseManagementView() {
@@ -396,17 +427,24 @@ function syncWorkspaceFromLocation(pathname = location.pathname) {
   const automationMatch = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(pathname);
   if (automationMatch) {
     managementView = 'automations';
+    automationEditId = new URLSearchParams(location.search).get('edit') ?? undefined;
     workspaceState.syncLocation(`/workspaces/${automationMatch[1]}`);
   } else if (/^\/settings\/?$/.test(pathname)) {
     managementView = 'settings';
     const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
     if (target) workspaceState.syncLocation('/workspaces/' + encodeURIComponent(target));
+  } else if (/^\/settings\/automations\/?$/.test(pathname)) {
+    managementView = 'server-automations';
+    automationEditId = undefined;
+    const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
+    if (target) workspaceState.syncLocation(`/workspaces/${encodeURIComponent(target)}`);
   } else if (/^\/settings\/widgets\/?$/.test(pathname)) {
     managementView = 'widgets';
     const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
     if (target) workspaceState.syncLocation(`/workspaces/${encodeURIComponent(target)}`);
   } else {
     managementView = undefined;
+    automationEditId = undefined;
     managementBusy = false;
     managementDirty = false;
     managementClosePrompt = false;
@@ -672,10 +710,18 @@ onMount(() => {
             close={closeManagementView}
             onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
               workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
+            onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
             onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
             onLogout={connection.authenticationRequired ? () => void logout() : undefined}
             onBusyChange={(value) => managementBusy = value}
             onDirtyChange={(value) => managementDirty = value}
+          />
+        {:else if managementView === 'server-automations'}
+          <AppAutomationsPage
+            workspaces={workspaceState.workspaces}
+            close={closeManagementView}
+            onManage={(workspace, automationId) => void openWorkspaceAutomations(workspace, automationId)}
+            onBusyChange={(value) => managementBusy = value}
           />
         {:else if managementView === 'widgets'}
           <StatusPluginSettings
@@ -685,6 +731,15 @@ onMount(() => {
             onBusyChange={(value) => managementBusy = value}
             onDirtyChange={(value) => managementDirty = value}
           />
+        {:else if managementView === 'automations' && workspaceState.activeWorkspace}
+          {#key `${workspaceState.activeWorkspace.id}:${automationEditId ?? ''}`}
+            <WorkspaceAutomationsPage
+              workspace={workspaceState.activeWorkspace}
+              initialAutomationId={automationEditId}
+              close={closeManagementView}
+              onBusyChange={(value) => managementBusy = value}
+            />
+          {/key}
         {:else if workspaceState.activeWorkspace?.state === 'missing'}
           <section class="unavailable-sheet" aria-labelledby="ended-workspace-title">
             <TerminalHeader
@@ -792,41 +847,33 @@ onMount(() => {
           </section>
         {:else if workspaceState.activeWorkspace}
           {#key workspaceState.activeWorkspace.id}
-            {#if managementView === 'automations'}
-              <WorkspaceAutomationsPage
-                workspace={workspaceState.activeWorkspace}
-                close={closeManagementView}
-                onBusyChange={(value) => managementBusy = value}
-              />
-            {:else}
-              <WorkspaceWorkbench
-                workspace={workspaceState.activeWorkspace}
-                onStartBackground={(command) => workspaceState.startBackgroundProcess(workspaceState.activeWorkspace!.id, command)}
-                onStopBackground={(process) => workspaceState.stopBackgroundProcess(workspaceState.activeWorkspace!.id, process.id)}
-                onLoadBackgroundOutput={(processId) => workspaceState.loadBackgroundOutput(workspaceState.activeWorkspace!.id, processId)}
-                onFavoriteBackground={(command) => workspaceState.favoriteBackgroundCommand(workspaceState.activeWorkspace!.id, command)}
-                onRemoveBackgroundFavorite={(command) => workspaceState.removeBackgroundCommandFavorite(workspaceState.activeWorkspace!.id, command)}
-                startingBackground={workspaceState.startingBackgroundWorkspaceId === workspaceState.activeWorkspace.id}
-                stoppingBackgroundProcessId={workspaceState.stoppingBackgroundProcessId}
-                updatingFavoriteCommand={workspaceState.updatingFavoriteCommand}
-                backgroundActionError={workspaceState.backgroundActionErrorWorkspaceId === workspaceState.activeWorkspace.id ? workspaceState.backgroundActionError : ''}
-                close={openWorkspaceNavigator}
-                onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
-                onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
-                onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
-                onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
-                onTerminalPresentationChange={setTerminalPresentation}
-                {mobilePanel}
-                onMobilePanelChange={setMobilePanel}
-                {repositoryPanelOpen}
-                onRepositoryPanelOpenChange={setRepositoryPanelOpen}
-                {repositoryTab}
-                onRepositoryTabChange={setRepositoryTab}
-                onNavigationGuardChange={(guard) => workspaceNavigationGuard = guard}
-                onManageStatusWidgets={() => void openStatusWidgets(workspaceState.activeWorkspace?.id)}
-                statusPlugins={connection.statusPlugins}
-              />
-            {/if}
+            <WorkspaceWorkbench
+              workspace={workspaceState.activeWorkspace}
+              onStartBackground={(command) => workspaceState.startBackgroundProcess(workspaceState.activeWorkspace!.id, command)}
+              onStopBackground={(process) => workspaceState.stopBackgroundProcess(workspaceState.activeWorkspace!.id, process.id)}
+              onLoadBackgroundOutput={(processId) => workspaceState.loadBackgroundOutput(workspaceState.activeWorkspace!.id, processId)}
+              onFavoriteBackground={(command) => workspaceState.favoriteBackgroundCommand(workspaceState.activeWorkspace!.id, command)}
+              onRemoveBackgroundFavorite={(command) => workspaceState.removeBackgroundCommandFavorite(workspaceState.activeWorkspace!.id, command)}
+              startingBackground={workspaceState.startingBackgroundWorkspaceId === workspaceState.activeWorkspace.id}
+              stoppingBackgroundProcessId={workspaceState.stoppingBackgroundProcessId}
+              updatingFavoriteCommand={workspaceState.updatingFavoriteCommand}
+              backgroundActionError={workspaceState.backgroundActionErrorWorkspaceId === workspaceState.activeWorkspace.id ? workspaceState.backgroundActionError : ''}
+              close={openWorkspaceNavigator}
+              onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
+              onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
+              onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
+              onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
+              onTerminalPresentationChange={setTerminalPresentation}
+              {mobilePanel}
+              onMobilePanelChange={setMobilePanel}
+              {repositoryPanelOpen}
+              onRepositoryPanelOpenChange={setRepositoryPanelOpen}
+              {repositoryTab}
+              onRepositoryTabChange={setRepositoryTab}
+              onNavigationGuardChange={(guard) => workspaceNavigationGuard = guard}
+              onManageStatusWidgets={() => void openStatusWidgets(workspaceState.activeWorkspace?.id)}
+              statusPlugins={connection.statusPlugins}
+            />
           {/key}
         {:else if workspaceState.requestedWorkspaceId && workspaceState.workspacesLoaded}
           <section class="unavailable-sheet" aria-labelledby="missing-workspace-title">

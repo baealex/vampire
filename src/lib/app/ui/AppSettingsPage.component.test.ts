@@ -32,20 +32,32 @@ const workspace: ManagedWorkspace = {
 };
 
 function renderSettings(onSaveLaunchProfiles = vi.fn(async () => ({ ok: true }))) {
+  const onManageAutomations = vi.fn();
   return {
     onSaveLaunchProfiles,
+    onManageAutomations,
     view: render(AppSettingsPage, {
       launchProfiles: profiles,
       defaultStartupProfileId: 'codex',
       workspaces: [workspace],
       close: vi.fn(),
       onSaveLaunchProfiles,
+      onManageAutomations,
       onManageWidgets: vi.fn(),
       onBusyChange: vi.fn(),
       onDirtyChange: vi.fn(),
     }),
   };
 }
+
+test('opens server-wide automation management from Server tools', async () => {
+  const user = userEvent.setup();
+  const { onManageAutomations } = renderSettings();
+
+  await user.click(screen.getByRole('button', { name: 'Manage all automations' }));
+
+  expect(onManageAutomations).toHaveBeenCalledOnce();
+});
 
 beforeEach(() => {
   window.localStorage.clear();

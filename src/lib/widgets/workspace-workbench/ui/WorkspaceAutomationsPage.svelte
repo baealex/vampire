@@ -8,10 +8,12 @@ import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 
 let {
   workspace,
+  initialAutomationId,
   close,
   onBusyChange = () => undefined,
 }: {
   workspace: ManagedWorkspace;
+  initialAutomationId?: string;
   close: () => void;
   onBusyChange?: (busy: boolean) => void;
 } = $props();
@@ -33,6 +35,7 @@ $effect(() => onBusyChange(busy));
 >
   <WorkspaceAutomations
     workspaceId={workspace.id}
+    {initialAutomationId}
     bind:editorMode
     showEditorHeader={false}
     onBusyChange={(value) => busy = value}

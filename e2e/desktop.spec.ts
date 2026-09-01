@@ -665,6 +665,25 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expect(page.getByRole('button', { name: /Workspace actions for/ })).toBeFocused();
 
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('button', { name: 'Manage all automations' }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings/automations\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  const allAutomationsPage = page.locator('section[aria-labelledby="application-automations-title"]');
+  await expect(allAutomationsPage.getByRole('heading', { name: 'Automations' })).toBeVisible();
+  await expect(allAutomationsPage).toContainText('1 active · 1 of 1 workspace configured.');
+  await allAutomationsPage.getByRole('button', { name: 'Edit Review project state later' }).click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}/automations\\?edit=`));
+  await expect(automationPage.locator('#workspace-automations-title')).toHaveText('Edit automation');
+  await expect(automationPage.getByLabel('Name')).toHaveValue('Review project state later');
+  await automationPage.getByRole('button', { name: 'Back to automations' }).click();
+  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await expect(allAutomationsPage).toBeVisible();
+  await allAutomationsPage.getByRole('button', { name: 'Close all automations' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
+
   const receivedPath = await startWaitingMainAgent(context, workspace);
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();

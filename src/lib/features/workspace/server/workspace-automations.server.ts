@@ -10,6 +10,7 @@ import {
   WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH,
   type CreateWorkspaceAutomationInput,
   type WorkspaceAutomation,
+  type WorkspaceAutomationGroup,
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import type { WorkspaceAgentActionId } from '~/lib/shared/contracts/workspace-agent-actions.ts';
 import {
@@ -140,13 +141,25 @@ function replaceStoredWorkspace(workspaces: StoredWorkspace[], updated: StoredWo
   return workspaces.map((workspace) => (workspace.id === updated.id ? updated : workspace));
 }
 
-export async function listManagedWorkspaceAutomations(id: string): Promise<WorkspaceAutomation[]> {
-  const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === id);
-  if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
-  return stored.automations
+function customAutomations(workspace: StoredWorkspace): WorkspaceAutomation[] {
+  return workspace.automations
     .filter((automation) => automation.kind === 'custom')
     .map((automation) => ({ ...automation, schedule: { ...automation.schedule } }))
     .sort((left, right) => right.createdAt - left.createdAt);
+}
+
+export async function listManagedWorkspaceAutomations(id: string): Promise<WorkspaceAutomation[]> {
+  const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === id);
+  if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
+  return customAutomations(stored);
+}
+
+export async function listManagedWorkspaceAutomationGroups(): Promise<WorkspaceAutomationGroup[]> {
+  const state = await readWorkspaceStore();
+  return state.workspaces.map((workspace) => ({
+    workspaceId: workspace.id,
+    automations: customAutomations(workspace),
+  }));
 }
 
 export async function queueManagedWorkspaceAgentPrompt(

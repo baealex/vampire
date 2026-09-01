@@ -70,6 +70,13 @@ const imagePaste = new TerminalImagePasteState(
   () => connected
 );
 
+function preserveRestoredFocus(): boolean {
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement) || activeElement.dataset.terminalAutofocus !== 'preserve') return false;
+  delete activeElement.dataset.terminalAutofocus;
+  return true;
+}
+
 function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   const becameConnected = state.connected && !connected;
   connected = state.connected;
@@ -81,7 +88,7 @@ function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   terminalError = state.error;
   terminalOutputPaused = state.outputPaused;
   terminalReconnecting = state.reconnecting;
-  if (becameConnected && inputOwner === 'compose' && hasFinePointer()) {
+  if (becameConnected && inputOwner === 'compose' && hasFinePointer() && !preserveRestoredFocus()) {
     requestAnimationFrame(() => {
       composerElement?.focus({ preventScroll: true });
     });
@@ -195,7 +202,7 @@ onMount(() => {
     themeChangeEvent: THEME_CHANGE_EVENT,
     getFontFamily: terminalFontFamily,
     getTheme: terminalTheme,
-    shouldAutoFocus: () => inputOwner === 'terminal',
+    shouldAutoFocus: () => inputOwner === 'terminal' && !preserveRestoredFocus(),
     onFontSizeChange: (size) => (fontSize = size),
     onInputActivity,
     onOutputActivity,

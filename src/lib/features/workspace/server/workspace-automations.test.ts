@@ -8,6 +8,7 @@ import {
   deleteManagedWorkspaceAutomation,
   dispatchManagedWorkspaceAutomation,
   listDueManagedWorkspaceAutomations,
+  listManagedWorkspaceAutomationGroups,
   listManagedWorkspaceAutomations,
   queueManagedWorkspaceAgentPrompt,
   setManagedWorkspaceAutomationEnabled,
@@ -130,6 +131,32 @@ test('agent actions reuse one hidden queue slot without appearing as saved autom
   assert.equal(stored[0]?.prompt, 'Latest request');
   assert.deepEqual(await listDueManagedWorkspaceAutomations(16_000), [
     { workspaceId: 'workspace-1', automationId: first.id, dueAt: 16_000 },
+  ]);
+});
+
+test('lists custom automations across workspaces without exposing internal delivery jobs', async (t) => {
+  await createStoredWorkspace(t);
+  const custom = await createManagedWorkspaceAutomation(
+    'workspace-1',
+    {
+      name: 'Visible review',
+      prompt: 'Review the visible work.',
+      schedule: { type: 'once', runAt: 20_000 },
+    },
+    10_000
+  );
+  await queueManagedWorkspaceAgentPrompt(
+    'workspace-1',
+    {
+      actionId: 'note',
+      name: 'Internal note delivery',
+      prompt: 'Update the workspace note.',
+    },
+    11_000
+  );
+
+  assert.deepEqual(await listManagedWorkspaceAutomationGroups(), [
+    { workspaceId: 'workspace-1', automations: [custom] },
   ]);
 });
 
