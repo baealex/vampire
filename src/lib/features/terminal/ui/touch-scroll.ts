@@ -6,7 +6,7 @@ interface TouchScrollableTerminal {
 }
 
 type TerminalTouchScrollOptions = {
-  onScrollAttempt?: (lines: number) => void;
+  onScrollAttempt?: (lines: number) => boolean | void;
   onScrollStart?: () => void;
   onTap?: () => void;
   useNativeInteraction?: () => boolean;
@@ -50,12 +50,11 @@ export function installTerminalTouchScroll(
 
   const handlePointerDown = (event: PointerEvent) => {
     if (event.pointerType !== 'touch' || !event.isPrimary || isScrollbar(event.target)) return;
-    if (options.useNativeInteraction?.()) return;
-    // xterm focuses its hidden textarea from the compatibility mousedown that
-    // follows a touch pointerdown. Suppress that synthetic mouse event so the
-    // visible mobile composer remains the sole IME owner. Pointer events keep
-    // flowing, so the custom terminal scroll gesture still works normally.
-    event.preventDefault();
+    const preserveNativeTap = Boolean(options.useNativeInteraction?.());
+    // While the composer owns input, suppress xterm's compatibility mousedown.
+    // Direct-input mode keeps a native tap, but both modes continue tracking so
+    // an intentional drag always reaches the reliable scroll path below.
+    if (!preserveNativeTap) event.preventDefault();
     pointerId = event.pointerId;
     startY = event.clientY;
     lastY = event.clientY;
@@ -73,15 +72,21 @@ export function installTerminalTouchScroll(
     if (!scrolling) {
       if (Math.abs(startY - event.clientY) < SCROLL_INTENT_THRESHOLD_PX) return;
       scrolling = true;
-      element.setPointerCapture(event.pointerId);
+      suppressCompatibilityMouseUntil = Date.now() + COMPATIBILITY_MOUSE_SUPPRESSION_MS;
+      try {
+        element.setPointerCapture(event.pointerId);
+      } catch {
+        // A browser can retire the native pointer just before this listener
+        // claims it. The element still receives the current drag event.
+      }
       terminal.clearSelection();
       options.onScrollStart?.();
     }
     const lines = Math.trunc(remainder / rowHeight);
     if (lines !== 0) {
       remainder -= lines * rowHeight;
-      options.onScrollAttempt?.(lines);
-      terminal.scrollLines(lines);
+      const handled = options.onScrollAttempt?.(lines) === true;
+      if (!handled) terminal.scrollLines(lines);
     }
     event.preventDefault();
   };

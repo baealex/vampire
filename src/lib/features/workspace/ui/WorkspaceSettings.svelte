@@ -1,52 +1,33 @@
 <script lang="ts">
-import Plus from '@lucide/svelte/icons/plus';
+import Settings2 from '@lucide/svelte/icons/settings-2';
 import Save from '@lucide/svelte/icons/save';
-import Trash2 from '@lucide/svelte/icons/trash-2';
 import { untrack } from 'svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
 import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
-import Input from '~/lib/shared/ui/Input.svelte';
-import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { workspaceName as getWorkspaceName } from '../model/workspace-view.ts';
-
-type WorkspaceStartupSettings = {
-  launchProfiles: LaunchProfile[];
-  startupProfileId: string | null;
-};
 
 let {
   workspace,
   profiles,
   onClose,
   onSave,
+  onManageProfiles,
 }: {
   workspace: ManagedWorkspace;
   profiles: LaunchProfile[];
   onClose: () => void;
-  onSave: (settings: WorkspaceStartupSettings) => Promise<{ ok: boolean; error?: string }>;
+  onSave: (startupProfileId: string | null) => Promise<{ ok: boolean; error?: string }>;
+  onManageProfiles: () => void;
 } = $props();
 
-let editableProfiles = $state<LaunchProfile[]>(untrack(() => profiles.map((profile) => ({ ...profile }))));
 let selectedProfileId = $state<string | null>(untrack(() => workspace.startupProfileId));
-let syncedProfiles = JSON.stringify(untrack(() => profiles));
-let syncedSelection = untrack(() => workspace.startupProfileId);
+let syncedSelection = $state(untrack(() => workspace.startupProfileId));
 let saving = $state(false);
 let savingError = $state('');
 const workspaceName = $derived(getWorkspaceName(workspace));
-const hasUnsavedChanges = $derived(
-  JSON.stringify(editableProfiles) !== JSON.stringify(profiles) || selectedProfileId !== workspace.startupProfileId
-);
-
-$effect(() => {
-  const incoming = JSON.stringify(profiles);
-  if (incoming === syncedProfiles) return;
-  const local = untrack(() => JSON.stringify(editableProfiles));
-  if (local !== syncedProfiles) return;
-  editableProfiles = profiles.map((profile) => ({ ...profile }));
-  syncedProfiles = incoming;
-});
+const hasUnsavedChanges = $derived(selectedProfileId !== workspace.startupProfileId);
 
 $effect(() => {
   const incoming = workspace.startupProfileId;
@@ -56,52 +37,17 @@ $effect(() => {
   syncedSelection = incoming;
 });
 
-function addProfile() {
-  if (editableProfiles.length >= MAX_LAUNCH_PROFILES) return;
-  const profile: LaunchProfile = {
-    id: globalThis.crypto?.randomUUID?.() ?? `profile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    name: `Profile ${editableProfiles.length + 1}`,
-    command: '',
-  };
-  editableProfiles = [...editableProfiles, profile];
-  selectedProfileId = profile.id;
-  savingError = '';
-}
-
-function removeProfile(profileId: string) {
-  editableProfiles = editableProfiles.filter((profile) => profile.id !== profileId);
-  if (selectedProfileId === profileId) selectedProfileId = null;
-}
-
-function validate(): string | undefined {
-  const names = new Set<string>();
-  for (const profile of editableProfiles) {
-    profile.name = profile.name.trim();
-    profile.command = profile.command.trim();
-    if (!profile.name) return 'Give every launch profile a name.';
-    if (!profile.command) return 'Give every launch profile a command.';
-    const normalizedName = profile.name.toLocaleLowerCase();
-    if (names.has(normalizedName)) return 'Launch profile names must be unique.';
-    names.add(normalizedName);
-    if (/[\0\r\n\t]/.test(profile.name) || /[\0\r\n\t]/.test(profile.command)) {
-      return 'Names and commands must stay on one line.';
-    }
-  }
-  if (selectedProfileId && !editableProfiles.some((profile) => profile.id === selectedProfileId)) {
+$effect(() => {
+  if (selectedProfileId && !profiles.some((profile) => profile.id === selectedProfileId)) {
     selectedProfileId = null;
   }
-  return undefined;
-}
+});
 
 async function save() {
-  savingError = validate() ?? '';
-  if (savingError) return;
   saving = true;
+  savingError = '';
   try {
-    const result = await onSave({
-      launchProfiles: editableProfiles.map((profile) => ({ ...profile })),
-      startupProfileId: selectedProfileId,
-    });
+    const result = await onSave(selectedProfileId);
     if (!result.ok) {
       savingError = result.error ?? 'Unable to save the startup profile.';
       return;
@@ -125,76 +71,47 @@ async function save() {
     <div class="startup-profile-dialog">
       <div class="dialog-intro">
         <div>
-          <strong>Start this workspace your way</strong>
-          <p>
-            Create a command here or reuse one saved from another workspace. Profiles are shared on this Vampire server;
-            only the startup selection belongs to this workspace.
-          </p>
+          <strong>Choose how this workspace starts</strong>
+          <p>The selected command runs the next time this shell is opened. Running terminals are not changed.</p>
         </div>
-        <Button
-          class="add-button"
-          variant="secondary"
-          onclick={addProfile}
-          disabled={editableProfiles.length >= MAX_LAUNCH_PROFILES}
-        >
-          <Plus size={15} strokeWidth={2} aria-hidden="true" />
-          <span>Add profile</span>
+        <Button variant="secondary" size="sm" onclick={onManageProfiles} disabled={saving}>
+          <Settings2 size={15} strokeWidth={1.8} aria-hidden="true" />
+          <span>Manage</span>
         </Button>
       </div>
 
-      <label class:selected={selectedProfileId === null} class="no-startup-option">
-        <input
-          type="radio"
-          name="startup-profile"
-          checked={selectedProfileId === null}
-          onchange={() => selectedProfileId = null}
-        >
-        <span>
-          <strong>No startup profile</strong>
-          <small>Open a regular shell without running a saved command.</small>
-        </span>
-      </label>
+      <div class="profile-options" role="radiogroup" aria-label="Startup profile">
+        <label class:selected={selectedProfileId === null} class="profile-option">
+          <input
+            type="radio"
+            name="startup-profile"
+            checked={selectedProfileId === null}
+            onchange={() => selectedProfileId = null}
+          >
+          <span>
+            <strong>No startup profile</strong>
+            <small>Open a regular shell without running a saved command.</small>
+          </span>
+        </label>
 
-      {#if editableProfiles.length > 0}
-        <div class="profile-list">
-          {#each editableProfiles as profile, index (profile.id)}
-            <article class:selected={selectedProfileId === profile.id} class="profile-card">
-              <div class="profile-card__top">
-                <label class="profile-field">
-                  <span>Name</span>
-                  <Input bind:value={profile.name} size="sm" maxlength={80} />
-                </label>
-                <Button
-                  variant="danger-outline"
-                  class="icon-danger"
-                  size="sm"
-                  onclick={() => removeProfile(profile.id)}
-                  ariaLabel={`Remove ${profile.name || `profile ${index + 1}`}`}
-                >
-                  <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
-                </Button>
-              </div>
-              <label class="profile-field">
-                <span>Command</span>
-                <Input bind:value={profile.command} size="sm" mono maxlength={1000} spellcheck={false} />
-              </label>
-              <div class="profile-card__footer">
-                <span
-                  >{selectedProfileId === profile.id ? 'Selected for this workspace' : 'Reusable in any workspace'}</span
-                >
-                <label class="profile-selection">
-                  <input
-                    type="radio"
-                    name="startup-profile"
-                    checked={selectedProfileId === profile.id}
-                    onchange={() => selectedProfileId = profile.id}
-                  >
-                  <span>Use here</span>
-                </label>
-              </div>
-            </article>
-          {/each}
-        </div>
+        {#each profiles as profile (profile.id)}
+          <label class:selected={selectedProfileId === profile.id} class="profile-option">
+            <input
+              type="radio"
+              name="startup-profile"
+              checked={selectedProfileId === profile.id}
+              onchange={() => selectedProfileId = profile.id}
+            >
+            <span>
+              <strong>{profile.name}</strong>
+              <code>{profile.command}</code>
+            </span>
+          </label>
+        {/each}
+      </div>
+
+      {#if profiles.length === 0}
+        <p class="empty-message">Create a shared launch profile in Settings to make it available here.</p>
       {/if}
 
       {#if savingError}
@@ -207,7 +124,7 @@ async function save() {
     <DialogActions>
       <Button variant="primary" onclick={() => void save()} disabled={saving}>
         <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-        <span>{saving ? 'Saving…' : 'Save changes'}</span>
+        <span>{saving ? 'Saving…' : 'Save selection'}</span>
       </Button>
     </DialogActions>
   {/snippet}
@@ -238,115 +155,79 @@ async function save() {
   font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
-:global(.add-button) {
+.dialog-intro :global(.vampire-button) {
   flex: 0 0 auto;
+  white-space: nowrap;
 }
-.no-startup-option {
+.profile-options {
+  display: grid;
+  gap: 0.55rem;
+}
+.profile-option {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
-  gap: 0.65rem;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  cursor: pointer;
-}
-.no-startup-option.selected {
-  border-color: var(--color-accent);
-  background: var(--color-surface-selected);
-}
-.no-startup-option input {
-  margin-top: 0.18rem;
-  accent-color: var(--color-accent);
-}
-.no-startup-option > span {
-  display: grid;
-  gap: 0.2rem;
-}
-.no-startup-option strong {
-  color: var(--color-text);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-.no-startup-option small {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-}
-.profile-list {
-  display: grid;
-  gap: 0.65rem;
-}
-.profile-card {
-  display: grid;
   gap: 0.65rem;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
+  cursor: pointer;
 }
-.profile-card.selected {
-  border-color: var(--color-accent);
+.profile-option.selected {
+  border-color: var(--color-visual-accent-border);
+  background: var(--color-surface-selected);
 }
-.profile-card__top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 0.55rem;
+.profile-option input {
+  margin-top: 0.18rem;
+  accent-color: var(--color-accent);
 }
-.profile-field {
-  display: grid;
-  gap: 0.3rem;
-  min-width: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-nano);
-  font-weight: var(--weight-medium);
-}
-.profile-selection input:focus-visible,
-.no-startup-option input:focus-visible {
+.profile-option input:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
-:global(.icon-danger) {
-  width: 2.3rem;
-  min-width: 2.3rem;
-  height: 2.3rem;
-  padding: 0;
+.profile-option > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
 }
-.profile-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+.profile-option strong {
+  color: var(--color-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.profile-option small,
+.profile-option code {
+  overflow: hidden;
   color: var(--color-text-tertiary);
   font-size: var(--text-nano);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.profile-selection {
-  display: inline-flex !important;
-  grid-template-columns: none !important;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.4rem !important;
-  color: var(--color-text-secondary) !important;
-  cursor: pointer;
+.profile-option code {
+  font-family: var(--font-mono);
 }
-.profile-selection input {
-  accent-color: var(--color-accent);
-}
+.empty-message,
 .feedback {
   margin: 0;
   padding: 0.65rem 0.75rem;
   border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+}
+.empty-message {
+  background: var(--color-control-background);
+  color: var(--color-text-tertiary);
+}
+.feedback {
   background: var(--color-danger-surface-hover);
   color: var(--color-danger-text);
-  font-size: var(--text-caption);
 }
 @media (max-width: 38rem) {
   .dialog-intro {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
   }
-  :global(.add-button) {
+  .dialog-intro :global(.vampire-button) {
     align-self: flex-start;
   }
 }

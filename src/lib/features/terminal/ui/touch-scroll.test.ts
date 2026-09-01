@@ -13,7 +13,7 @@ test.after(() => {
 
 type Listener = (event: any) => void;
 
-function fixture(useNativeInteraction = false) {
+function fixture(useNativeInteraction = false, handleScrollAttempt = false) {
   const listeners = new Map<string, Listener[]>();
   const scrollLines: number[] = [];
   const scrollAttempts: number[] = [];
@@ -53,7 +53,10 @@ function fixture(useNativeInteraction = false) {
         scrollLines(lines: number): void;
       },
     {
-      onScrollAttempt: (lines) => scrollAttempts.push(lines),
+      onScrollAttempt: (lines) => {
+        scrollAttempts.push(lines);
+        return handleScrollAttempt;
+      },
       onScrollStart: () => {
         scrollStarted += 1;
       },
@@ -169,13 +172,26 @@ test('reports a downward drag as an attempt to reveal older terminal rows', () =
   assert.deepEqual(target.scrollLines, [-2]);
 });
 
-test('leaves touch events to xterm while native terminal interaction is enabled', () => {
+test('preserves a native terminal tap but takes ownership once it becomes a drag', () => {
   const target = fixture(true);
   const down = pointer();
   target.fire('pointerdown', down);
-  target.fire('pointerup', pointer());
+  const drag = pointer({ clientY: 58 });
+  target.fire('pointermove', drag);
+  target.fire('pointerup', pointer({ clientY: 58 }));
 
   assert.equal(down.defaultPrevented, false);
+  assert.equal(drag.defaultPrevented, true);
   assert.equal(target.tapped, 0);
+  assert.equal(target.scrollStarted, 1);
+  assert.deepEqual(target.scrollLines, [2]);
+});
+
+test('does not also move scrollback when the app handles a TUI scroll gesture', () => {
+  const target = fixture(false, true);
+  target.fire('pointerdown', pointer());
+  target.fire('pointermove', pointer({ clientY: 58 }));
+
+  assert.deepEqual(target.scrollAttempts, [2]);
   assert.deepEqual(target.scrollLines, []);
 });

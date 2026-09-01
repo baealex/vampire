@@ -42,7 +42,7 @@ import {
 } from '~/lib/features/repository/server/git-worktree.server.ts';
 import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
-import type { LaunchProfile, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type { LaunchProfile, LaunchProfileSettings, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
 
 export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
@@ -248,6 +248,14 @@ export async function readManagedLaunchProfiles(): Promise<LaunchProfile[]> {
   return (await readState()).launchProfiles;
 }
 
+export async function readManagedLaunchProfileSettings(): Promise<LaunchProfileSettings> {
+  const state = await readState();
+  return {
+    launchProfiles: state.launchProfiles,
+    defaultStartupProfileId: state.defaultStartupProfileId ?? null,
+  };
+}
+
 export async function updateManagedWorkspacePreferences(input: WorkspacePreferences): Promise<WorkspacePreferences> {
   return exclusively(async () => {
     const state = await readState();
@@ -266,6 +274,7 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
   return exclusively(async () => {
     const cwd = await validateCwd(input.cwd);
     const gitRepository = await detectGitRepository(cwd);
+    const current = await readState();
     const id = randomUUID();
     const stored: StoredWorkspace = {
       id,
@@ -276,10 +285,9 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       lastActiveAt: Date.now(),
       automations: [],
       favoriteCommands: [],
-      startupProfileId: null,
+      startupProfileId: current.defaultStartupProfileId ?? null,
     };
     await initializeManagedWorkspaceNote(stored);
-    const current = await readState();
     await writeState({ ...current, workspaces: [...current.workspaces, stored] });
 
     let tmux;
@@ -292,6 +300,13 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
         workspaces: afterFailure.workspaces.filter((workspace) => workspace.id !== stored.id),
       });
       throw new WorkspaceLaunchError('tmux-launch-failed', 'tmux could not start the shell workspace.');
+    }
+    if (stored.startupProfileId) {
+      try {
+        await sendLaunchProfile(stored.tmuxSession, tmux, current.launchProfiles, stored.startupProfileId);
+      } catch {
+        // Keep the new shell available when an optional auto-start command cannot be sent.
+      }
     }
 
     return {
@@ -501,26 +516,47 @@ function validateLaunchProfiles(input: LaunchProfile[]): LaunchProfile[] {
 
 export type LaunchProfileUpdate = {
   launchProfiles: LaunchProfile[];
+  defaultStartupProfileId: string | null;
   clearedWorkspaceIds: string[];
+  workspaceStartupUpdates: Array<{ id: string; startupProfileId: string | null }>;
 };
 
 export type WorkspaceStartupUpdate = LaunchProfileUpdate & {
   startupProfileId: string | null;
 };
 
-export async function updateManagedLaunchProfiles(input: LaunchProfile[]): Promise<LaunchProfileUpdate> {
+export async function updateManagedLaunchProfiles(
+  input: LaunchProfile[],
+  options: { defaultStartupProfileId?: string | null; applyDefaultToAll?: boolean } = {}
+): Promise<LaunchProfileUpdate> {
   return exclusively(async () => {
     const launchProfiles = validateLaunchProfiles(input);
     const state = await readState();
     const profileIds = new Set(launchProfiles.map((profile) => profile.id));
+    const explicitDefault = options.defaultStartupProfileId;
+    let defaultStartupProfileId =
+      explicitDefault === undefined ? (state.defaultStartupProfileId ?? null) : (explicitDefault?.trim() ?? null);
+    if (defaultStartupProfileId && !profileIds.has(defaultStartupProfileId)) {
+      if (explicitDefault !== undefined) {
+        throw new WorkspaceMutationError('invalid-startup-profile', 'The default startup profile was not found.');
+      }
+      defaultStartupProfileId = null;
+    }
     const clearedWorkspaceIds: string[] = [];
+    const workspaceStartupUpdates: Array<{ id: string; startupProfileId: string | null }> = [];
     const workspaces = state.workspaces.map((workspace) => {
-      if (!workspace.startupProfileId || profileIds.has(workspace.startupProfileId)) return workspace;
-      clearedWorkspaceIds.push(workspace.id);
-      return { ...workspace, startupProfileId: null };
+      const startupProfileId = options.applyDefaultToAll
+        ? defaultStartupProfileId
+        : workspace.startupProfileId && profileIds.has(workspace.startupProfileId)
+          ? workspace.startupProfileId
+          : null;
+      if (startupProfileId === workspace.startupProfileId) return workspace;
+      if (startupProfileId === null) clearedWorkspaceIds.push(workspace.id);
+      workspaceStartupUpdates.push({ id: workspace.id, startupProfileId });
+      return { ...workspace, startupProfileId };
     });
-    await writeState({ ...state, launchProfiles, workspaces });
-    return { launchProfiles, clearedWorkspaceIds };
+    await writeState({ ...state, launchProfiles, defaultStartupProfileId, workspaces });
+    return { launchProfiles, defaultStartupProfileId, clearedWorkspaceIds, workspaceStartupUpdates };
   });
 }
 
@@ -557,14 +593,31 @@ export async function updateManagedWorkspaceStartup(
     }
 
     const clearedWorkspaceIds: string[] = [];
+    const workspaceStartupUpdates: Array<{ id: string; startupProfileId: string | null }> = [];
     const workspaces = state.workspaces.map((workspace) => {
-      if (workspace.id === id) return { ...workspace, startupProfileId };
+      if (workspace.id === id) {
+        if (workspace.startupProfileId !== startupProfileId) {
+          workspaceStartupUpdates.push({ id: workspace.id, startupProfileId });
+        }
+        return { ...workspace, startupProfileId };
+      }
       if (!workspace.startupProfileId || profileIds.has(workspace.startupProfileId)) return workspace;
       clearedWorkspaceIds.push(workspace.id);
+      workspaceStartupUpdates.push({ id: workspace.id, startupProfileId: null });
       return { ...workspace, startupProfileId: null };
     });
-    await writeState({ ...state, launchProfiles, workspaces });
-    return { launchProfiles, startupProfileId, clearedWorkspaceIds };
+    const defaultStartupProfileId =
+      state.defaultStartupProfileId && profileIds.has(state.defaultStartupProfileId)
+        ? state.defaultStartupProfileId
+        : null;
+    await writeState({ ...state, launchProfiles, defaultStartupProfileId, workspaces });
+    return {
+      launchProfiles,
+      defaultStartupProfileId,
+      startupProfileId,
+      clearedWorkspaceIds,
+      workspaceStartupUpdates,
+    };
   });
 }
 

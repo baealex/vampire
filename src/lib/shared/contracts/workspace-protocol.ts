@@ -16,13 +16,18 @@ export type WorkspaceServerMessage =
       workspaces: ManagedWorkspace[];
       preferences?: WorkspacePreferences | null;
       launchProfiles?: LaunchProfile[];
+      defaultStartupProfileId?: string | null;
     }
   | { type: 'status-plugins-snapshot'; plugins: StatusPluginSnapshot[] }
   | { type: 'workspace-added'; workspace: ManagedWorkspace }
   | { type: 'workspace-updated'; id: string; changes: WorkspaceChanges }
   | { type: 'workspace-removed'; id: string }
   | { type: 'workspace-preferences-updated'; preferences: WorkspacePreferences | null }
-  | { type: 'launch-profiles-updated'; launchProfiles: LaunchProfile[] }
+  | {
+      type: 'launch-profiles-updated';
+      launchProfiles: LaunchProfile[];
+      defaultStartupProfileId?: string | null;
+    }
   | { type: 'error'; message: string };
 
 const WORKSPACE_CHANGE_FIELDS = new Set([
@@ -210,13 +215,19 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
     value.workspaces.every(isManagedWorkspaceMessage) &&
     (value.preferences === undefined || value.preferences === null || isWorkspacePreferences(value.preferences)) &&
     (value.launchProfiles === undefined ||
-      (Array.isArray(value.launchProfiles) && value.launchProfiles.every(isLaunchProfile)))
+      (Array.isArray(value.launchProfiles) && value.launchProfiles.every(isLaunchProfile))) &&
+    (value.defaultStartupProfileId === undefined ||
+      value.defaultStartupProfileId === null ||
+      typeof value.defaultStartupProfileId === 'string')
   ) {
     return {
       type: 'workspaces-snapshot',
       workspaces: value.workspaces,
       ...(value.preferences !== undefined ? { preferences: value.preferences } : {}),
       ...(value.launchProfiles !== undefined ? { launchProfiles: value.launchProfiles } : {}),
+      ...(value.defaultStartupProfileId !== undefined
+        ? { defaultStartupProfileId: value.defaultStartupProfileId }
+        : {}),
     };
   }
   if (value.type === 'status-plugins-snapshot' && isStatusPluginSnapshotList(value.plugins)) {
@@ -240,9 +251,18 @@ export function parseWorkspaceServerMessage(value: unknown): WorkspaceServerMess
   if (
     value.type === 'launch-profiles-updated' &&
     Array.isArray(value.launchProfiles) &&
-    value.launchProfiles.every(isLaunchProfile)
+    value.launchProfiles.every(isLaunchProfile) &&
+    (value.defaultStartupProfileId === undefined ||
+      value.defaultStartupProfileId === null ||
+      typeof value.defaultStartupProfileId === 'string')
   ) {
-    return { type: 'launch-profiles-updated', launchProfiles: value.launchProfiles };
+    return {
+      type: 'launch-profiles-updated',
+      launchProfiles: value.launchProfiles,
+      ...(value.defaultStartupProfileId !== undefined
+        ? { defaultStartupProfileId: value.defaultStartupProfileId }
+        : {}),
+    };
   }
   if (value.type === 'error' && typeof value.message === 'string') {
     return { type: 'error', message: value.message };

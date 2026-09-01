@@ -32,6 +32,7 @@ const COMPATIBILITY_SESSION_ORDER_MODE_KEY = 'vampire:session-order-mode';
 export class WorkspaceState {
   workspaces = $state<ManagedWorkspace[]>([]);
   launchProfiles = $state<LaunchProfile[]>([]);
+  defaultStartupProfileId = $state<string | null>(null);
   cwd = $state('');
   loading = $state(false);
   starting = $state(false);
@@ -133,9 +134,15 @@ export class WorkspaceState {
     this.applyWorkspaces(workspaces);
   }
 
-  applyLaunchProfiles(launchProfiles: LaunchProfile[]) {
+  applyLaunchProfiles(launchProfiles: LaunchProfile[], defaultStartupProfileId?: string | null) {
     this.launchProfiles = launchProfiles.map((profile) => ({ ...profile }));
     const profileIds = new Set(this.launchProfiles.map((profile) => profile.id));
+    if (defaultStartupProfileId !== undefined) {
+      this.defaultStartupProfileId =
+        defaultStartupProfileId && profileIds.has(defaultStartupProfileId) ? defaultStartupProfileId : null;
+    } else if (this.defaultStartupProfileId && !profileIds.has(this.defaultStartupProfileId)) {
+      this.defaultStartupProfileId = null;
+    }
     this.workspaces = this.workspaces.map((workspace) =>
       workspace.startupProfileId && !profileIds.has(workspace.startupProfileId)
         ? { ...workspace, startupProfileId: null }
@@ -225,11 +232,13 @@ export class WorkspaceState {
           workspaces: ManagedWorkspace[];
           preferences?: WorkspacePreferences | null;
           launchProfiles?: LaunchProfile[];
+          defaultStartupProfileId?: string | null;
         }>('/api/workspaces');
         if (requestVersion !== this.#workspacesVersion) continue;
         this.applyWorkspaces(data.workspaces);
         if (data.preferences !== undefined) this.applyWorkspacePreferences(data.preferences);
-        if (data.launchProfiles !== undefined) this.applyLaunchProfiles(data.launchProfiles);
+        if (data.launchProfiles !== undefined)
+          this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
       } catch (error) {
         if (requestVersion !== this.#workspacesVersion) continue;
         if (isUnauthorized(error)) this.#options.onUnauthorized();
@@ -411,6 +420,7 @@ export class WorkspaceState {
     try {
       const data = await requestJson<{
         launchProfiles: LaunchProfile[];
+        defaultStartupProfileId: string | null;
         startupProfileId: string | null;
         clearedWorkspaceIds: string[];
       }>(
@@ -422,7 +432,7 @@ export class WorkspaceState {
         },
         'Unable to save the startup profile'
       );
-      this.applyLaunchProfiles(data.launchProfiles);
+      this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
       const clearedWorkspaceIds = new Set(data.clearedWorkspaceIds);
       this.workspaces = this.workspaces.map((workspace) =>
         workspace.id === workspaceId
@@ -435,6 +445,37 @@ export class WorkspaceState {
     } catch (error) {
       if (isUnauthorized(error)) this.#options.onUnauthorized();
       return { ok: false, error: error instanceof Error ? error.message : 'Unable to save the startup profile' };
+    }
+  }
+
+  async updateLaunchProfileSettings(
+    launchProfiles: LaunchProfile[],
+    defaultStartupProfileId: string | null,
+    applyDefaultToAll: boolean
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const data = await requestJson<{
+        launchProfiles: LaunchProfile[];
+        defaultStartupProfileId: string | null;
+        workspaceStartupUpdates: Array<{ id: string; startupProfileId: string | null }>;
+      }>(
+        '/api/launch-profiles',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ launchProfiles, defaultStartupProfileId, applyDefaultToAll }),
+        },
+        'Unable to save launch profiles'
+      );
+      this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
+      const updates = new Map(data.workspaceStartupUpdates.map((update) => [update.id, update.startupProfileId]));
+      this.workspaces = this.workspaces.map((workspace) =>
+        updates.has(workspace.id) ? { ...workspace, startupProfileId: updates.get(workspace.id) ?? null } : workspace
+      );
+      return { ok: true };
+    } catch (error) {
+      if (isUnauthorized(error)) this.#options.onUnauthorized();
+      return { ok: false, error: error instanceof Error ? error.message : 'Unable to save launch profiles' };
     }
   }
 
@@ -781,6 +822,7 @@ export class WorkspaceState {
     this.#backgroundTerminals.clear();
     this.workspaces = [];
     this.launchProfiles = [];
+    this.defaultStartupProfileId = null;
     this.requestedWorkspaceId = undefined;
     this.#workspaceNotes.clear();
     this.#workspaceNoteRequests.clear();

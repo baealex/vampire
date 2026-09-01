@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, readdir, rename, unlink } from 'node:fs/promises';
+import { lstat, readFile, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
 import { vampireStateDirectory } from '~/lib/server/state-path.ts';
@@ -19,13 +19,16 @@ function requestEntry(workspaceId: string, entry: string): { requestId: string; 
   return { requestId: match[1], state: match[2] as 'draft' | 'ready' };
 }
 
-export async function pendingWorkspaceAutomationRequestCount(workspaceId: string, now = Date.now()): Promise<number> {
+async function pendingWorkspaceAutomationRequests(
+  workspaceId: string,
+  now: number
+): Promise<Map<string, Set<'draft' | 'ready'>>> {
   const directory = join(vampireStateDirectory(), WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME);
   let entries: string[];
   try {
     entries = await readdir(directory);
   } catch (error) {
-    if (errorHasCode(error, 'ENOENT')) return 0;
+    if (errorHasCode(error, 'ENOENT')) return new Map();
     throw error;
   }
   const requests = new Map<string, Set<'draft' | 'ready'>>();
@@ -75,7 +78,57 @@ export async function pendingWorkspaceAutomationRequestCount(workspaceId: string
       }
     }
   }
-  return requests.size;
+  return requests;
+}
+
+export async function pendingWorkspaceAutomationRequestCount(workspaceId: string, now = Date.now()): Promise<number> {
+  return (await pendingWorkspaceAutomationRequests(workspaceId, now)).size;
+}
+
+async function requestReservesCreateSlot(
+  workspaceId: string,
+  requestId: string,
+  states: Set<'draft' | 'ready'>
+): Promise<boolean> {
+  const state = states.has('ready') ? 'ready' : 'draft';
+  const path = join(
+    vampireStateDirectory(),
+    WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME,
+    `${workspaceAutomationRequestKey(workspaceId)}.${requestId}.${state}.json`
+  );
+  try {
+    const request = JSON.parse(await readFile(path, 'utf8')) as unknown;
+    if (!request || typeof request !== 'object' || Array.isArray(request)) return true;
+    const envelope = request as Record<string, unknown>;
+    if (envelope.version === 1) return true;
+    if (envelope.version !== 2) return true;
+    const operation = envelope.operation;
+    return Boolean(
+      operation &&
+        typeof operation === 'object' &&
+        !Array.isArray(operation) &&
+        (operation as Record<string, unknown>).type === 'create'
+    );
+  } catch (error) {
+    if (errorHasCode(error, 'ENOENT')) return false;
+    // A partially edited or malformed request must not let a competing manual
+    // create consume the slot before the request is validated or rejected.
+    return true;
+  }
+}
+
+export async function pendingWorkspaceAutomationCreateRequestCount(
+  workspaceId: string,
+  throughRequestId?: string,
+  now = Date.now()
+): Promise<number> {
+  const requests = await pendingWorkspaceAutomationRequests(workspaceId, now);
+  let count = 0;
+  for (const [requestId, states] of [...requests].sort(([left], [right]) => left.localeCompare(right))) {
+    if (throughRequestId !== undefined && requestId.localeCompare(throughRequestId) > 0) continue;
+    if (await requestReservesCreateSlot(workspaceId, requestId, states)) count += 1;
+  }
+  return count;
 }
 
 export async function prepareWorkspaceAutomationRequestRemoval(workspaceId: string): Promise<() => Promise<void>> {

@@ -156,8 +156,10 @@ test('supplies the current widget configuration, guide, and validator to the mai
   assert.match(submission.prompt, /Show unread GitHub notifications\./);
 });
 
-test('supplies an isolated automation request, guide, and apply command to the main agent', async () => {
+test('supplies an isolated automation management request, guide, and apply command to the main agent', async () => {
   const descriptor = await describeWorkspaceAgentAction('workspace-1', 'automation', dependencies());
+  assert.equal(descriptor.title, 'Manage automations with an agent');
+  assert.equal(descriptor.requestLabel, 'What should the agent create or change?');
   assert.deepEqual(
     descriptor.context.map((item) => item.value),
     ['Prepared when sent']
@@ -170,6 +172,8 @@ test('supplies an isolated automation request, guide, and apply command to the m
     3_000,
     dependencies()
   );
+  assert.match(submission.prompt, /Create or update one Vampire workspace automation/);
+  assert.match(submission.prompt, /currentAutomations snapshot/);
   assert.match(submission.prompt, /workspace-automation\.md/);
   assert.match(submission.prompt, /apply-workspace-automation\.mjs/);
   assert.match(submission.prompt, /Every weekday at 9 AM/);
@@ -215,14 +219,17 @@ test('rejects stopped, shell-only, and empty agent requests before queuing', asy
   );
 });
 
-test('rejects automation agent requests before queuing when all custom slots are full', async () => {
+test('rejects automation agent requests before queuing when pending request capacity is full', async () => {
   await assert.rejects(
     describeWorkspaceAgentAction(
       'workspace-1',
       'automation',
       dependencies({
         assertAutomationCapacity: async () => {
-          throw new WorkspaceAutomationMutationError('limit', 'A workspace can save up to 32 automations.');
+          throw new WorkspaceAutomationMutationError(
+            'limit',
+            'A workspace can have up to 32 pending automation agent requests.'
+          );
         },
       })
     ),

@@ -6,6 +6,11 @@ export type LaunchProfile = {
   command: string;
 };
 
+export type LaunchProfileSettings = {
+  launchProfiles: LaunchProfile[];
+  defaultStartupProfileId: string | null;
+};
+
 export type WorkspaceProcess = {
   kind: 'shell' | 'command';
   label: string;

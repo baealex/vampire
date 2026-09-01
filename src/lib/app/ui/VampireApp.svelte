@@ -30,8 +30,10 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
+import AppSettingsPage from './AppSettingsPage.svelte';
+import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 
-type ManagementView = 'automations' | 'widgets';
+type ManagementView = 'automations' | 'settings' | 'widgets';
 
 let {
   initialWorkspaceId = undefined,
@@ -50,6 +52,7 @@ let managementOpenedFromApp = false;
 let managementBusy = $state(false);
 let managementDirty = $state(false);
 let managementClosePrompt = $state(false);
+let listeningPortsOpen = $state(false);
 let restoringManagementHistory: 'busy' | 'dirty' | undefined;
 let restoringWorkspaceHistory = false;
 let syncedHistoryIndex: number | undefined;
@@ -162,6 +165,7 @@ async function logout() {
   workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = undefined;
+  listeningPortsOpen = false;
   managementOpenedFromApp = false;
   repositoryPanelOpen = false;
   mobilePanel = 'workspaces';
@@ -237,7 +241,23 @@ async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace) {
   pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}/automations`);
 }
 
+async function openApplicationSettings() {
+  if (guardManagementTransition(() => openApplicationSettings())) return;
+  if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
+  workspaceSettingsOpen = false;
+  workspaceAliasWorkspace = undefined;
+  worktreeSourceWorkspace = undefined;
+  managementView = 'settings';
+  managementBusy = false;
+  managementDirty = false;
+  managementOpenedFromApp = true;
+  mobilePanel = undefined;
+  const workspaceId = workspaceState.requestedWorkspaceId;
+  pushApplicationState(workspaceId ? '/settings?workspace=' + encodeURIComponent(workspaceId) : '/settings');
+}
+
 async function openStatusWidgets(workspaceId?: string) {
+  if (guardManagementTransition(() => openStatusWidgets(workspaceId))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   workspaceSettingsOpen = false;
   workspaceAliasWorkspace = undefined;
@@ -253,7 +273,10 @@ async function openStatusWidgets(workspaceId?: string) {
 
 async function restoreManagementTrigger(view: ManagementView) {
   await tick();
-  let target = document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
+  let target =
+    view === 'settings'
+      ? document.querySelector<HTMLElement>('[aria-label="Open settings"]')
+      : document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
   if (view === 'automations') {
     const workspaceActions = document.querySelector<HTMLElement>(
       '.workspace-row-shell.selected [aria-label^="Workspace actions for"]'
@@ -374,6 +397,10 @@ function syncWorkspaceFromLocation(pathname = location.pathname) {
   if (automationMatch) {
     managementView = 'automations';
     workspaceState.syncLocation(`/workspaces/${automationMatch[1]}`);
+  } else if (/^\/settings\/?$/.test(pathname)) {
+    managementView = 'settings';
+    const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
+    if (target) workspaceState.syncLocation('/workspaces/' + encodeURIComponent(target));
   } else if (/^\/settings\/widgets\/?$/.test(pathname)) {
     managementView = 'widgets';
     const target = new URLSearchParams(location.search).get('workspace') ?? initialWorkspaceId;
@@ -489,17 +516,19 @@ onMount(() => {
       if (event.type === 'workspaces-snapshot') {
         workspaceState.applyWorkspaceSnapshot(event.workspaces);
         if (event.preferences !== undefined) workspaceState.applyWorkspacePreferences(event.preferences);
-        if (event.launchProfiles !== undefined) workspaceState.applyLaunchProfiles(event.launchProfiles);
+        if (event.launchProfiles !== undefined)
+          workspaceState.applyLaunchProfiles(event.launchProfiles, event.defaultStartupProfileId);
         if (event.preferences !== undefined) {
           workspaceState.applyWorkspacePreferences(event.preferences, { initialSnapshot: true });
         }
-        if (event.launchProfiles !== undefined) workspaceState.applyLaunchProfiles(event.launchProfiles);
+        if (event.launchProfiles !== undefined)
+          workspaceState.applyLaunchProfiles(event.launchProfiles, event.defaultStartupProfileId);
       } else if (event.type === 'workspace-added') workspaceState.applyWorkspaceAdded(event.workspace);
       else if (event.type === 'workspace-updated') workspaceState.applyWorkspaceUpdated(event.id, event.changes);
       else if (event.type === 'workspace-removed') workspaceState.applyWorkspaceRemoved(event.id);
       else if (event.type === 'workspace-preferences-updated')
         workspaceState.applyWorkspacePreferences(event.preferences);
-      else workspaceState.applyLaunchProfiles(event.launchProfiles);
+      else workspaceState.applyLaunchProfiles(event.launchProfiles, event.defaultStartupProfileId);
     },
   });
   const handlePopState = async (event: PopStateEvent) => {
@@ -628,11 +657,27 @@ onMount(() => {
           onCreate={() => void createWorkspace()}
         >
           {#snippet tools()}
-            <AppSidebarActions onLogout={connection.authenticationRequired ? () => void logout() : undefined} />
+            <AppSidebarActions
+              onPorts={() => listeningPortsOpen = true}
+              onSettings={() => void openApplicationSettings()}
+            />
           {/snippet}
         </WorkspaceNavigator>
 
-        {#if managementView === 'widgets'}
+        {#if managementView === 'settings'}
+          <AppSettingsPage
+            launchProfiles={workspaceState.launchProfiles}
+            defaultStartupProfileId={workspaceState.defaultStartupProfileId}
+            workspaces={workspaceState.workspaces}
+            close={closeManagementView}
+            onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
+              workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
+            onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
+            onLogout={connection.authenticationRequired ? () => void logout() : undefined}
+            onBusyChange={(value) => managementBusy = value}
+            onDirtyChange={(value) => managementDirty = value}
+          />
+        {:else if managementView === 'widgets'}
           <StatusPluginSettings
             workspaces={workspaceState.workspaces}
             workspaceId={workspaceState.requestedWorkspaceId}
@@ -807,8 +852,10 @@ onMount(() => {
 
         {#if managementClosePrompt}
           <ConfirmDialog
-            title="Discard unsaved widget changes?"
-            description="Your widget edits have not been saved. Discard them and leave status widget settings?"
+            title={managementView === 'settings' ? 'Discard unsaved profile changes?' : 'Discard unsaved widget changes?'}
+            description={managementView === 'settings'
+              ? 'Your launch profile edits have not been saved. Discard them and leave settings?'
+              : 'Your widget edits have not been saved. Discard them and leave status widget settings?'}
             confirmLabel="Discard changes"
             close={cancelManagementClosePrompt}
             onConfirm={discardManagementChanges}
@@ -820,12 +867,21 @@ onMount(() => {
             workspace={workspaceState.activeWorkspace}
             profiles={workspaceState.launchProfiles}
             onClose={() => workspaceSettingsOpen = false}
-            onSave={(settings) => workspaceState.updateWorkspaceStartup(
-						workspaceState.activeWorkspace!.id,
-						settings.launchProfiles,
-						settings.startupProfileId
-					)}
+            onSave={(startupProfileId) =>
+              workspaceState.updateWorkspaceStartup(
+                workspaceState.activeWorkspace!.id,
+                workspaceState.launchProfiles,
+                startupProfileId
+              )}
+            onManageProfiles={() => {
+              workspaceSettingsOpen = false;
+              void openApplicationSettings();
+            }}
           />
+        {/if}
+
+        {#if listeningPortsOpen}
+          <ListeningPortsDialog close={() => listeningPortsOpen = false} />
         {/if}
 
         {#if worktreeSourceWorkspace}

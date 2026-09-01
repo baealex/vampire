@@ -210,88 +210,23 @@ test('does not let output completion from an old snapshot settle a newer snapsho
   assert.deepEqual(harness.readyStates, [false, false, true]);
 });
 
-test('batches rapid output by frame and waits for the active xterm write', () => {
+test('writes output immediately and serializes anything received during the active xterm write', () => {
   const harness = createHarness();
   harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
   harness.writes[0].complete();
   harness.sync.pushOutput('first');
   harness.sync.pushOutput(' second');
-  harness.scheduler.flushFrame();
   assert.deepEqual(
     harness.writes.map(({ data }) => data),
-    ['snapshot', 'first second']
+    ['snapshot', 'first']
   );
 
   harness.sync.pushOutput(' third');
-  harness.scheduler.flushFrame();
   assert.equal(harness.writes.length, 2);
   harness.writes[1].complete();
-  harness.scheduler.flushFrame();
   assert.deepEqual(
     harness.writes.map(({ data }) => data),
-    ['snapshot', 'first second', ' third']
-  );
-});
-
-test('holds terminal rendering during IME composition and resumes in order', () => {
-  const harness = createHarness();
-  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
-  harness.writes[0].complete();
-  harness.sync.setRenderingPaused(true);
-  harness.sync.pushOutput('first');
-  harness.sync.pushOutput(' second');
-  harness.scheduler.flushFrame();
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot']
-  );
-
-  harness.sync.setRenderingPaused(false);
-  harness.scheduler.flushFrame();
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot', 'first second']
-  );
-});
-
-test('cancels a scheduled render frame when IME composition starts', () => {
-  const harness = createHarness();
-  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
-  harness.writes[0].complete();
-  harness.sync.pushOutput('scheduled');
-  harness.sync.setRenderingPaused(true);
-  harness.scheduler.flushFrame();
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot']
-  );
-
-  harness.sync.setRenderingPaused(false);
-  harness.scheduler.flushFrame();
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot', 'scheduled']
-  );
-});
-
-test('keeps only the latest synchronized screen while rendering is paused', () => {
-  const harness = createHarness();
-  harness.sync.beginSnapshot('snapshot', { isCurrent: () => true, acknowledge: () => true });
-  harness.writes[0].complete();
-  harness.sync.setRenderingPaused(true);
-  harness.sync.pushOutput('discarded before redraw');
-  harness.sync.replaceScreen('redraw');
-  harness.sync.pushOutput(' after redraw');
-  harness.sync.setRenderingPaused(false);
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot', 'redraw']
-  );
-  harness.writes[1].complete();
-  harness.scheduler.flushFrame();
-  assert.deepEqual(
-    harness.writes.map(({ data }) => data),
-    ['snapshot', 'redraw', ' after redraw']
+    ['snapshot', 'first', ' second third']
   );
 });
 

@@ -3,19 +3,19 @@ import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts
 import {
   createManagedWorkspace,
   listManagedWorkspaces,
-  readManagedLaunchProfiles,
+  readManagedLaunchProfileSettings,
   readManagedWorkspacePreferences,
   WorkspaceLaunchError,
 } from '~/lib/app/server/workspace-registry.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);
-  const [workspaces, preferences, launchProfiles] = await Promise.all([
+  const [workspaces, preferences, profileSettings] = await Promise.all([
     listManagedWorkspaces(),
     readManagedWorkspacePreferences(),
-    readManagedLaunchProfiles(),
+    readManagedLaunchProfileSettings(),
   ]);
-  return json({ workspaces, preferences, launchProfiles }, { headers: { 'cache-control': 'no-store' } });
+  return json({ workspaces, preferences, ...profileSettings }, { headers: { 'cache-control': 'no-store' } });
 };
 
 export const POST: RequestHandler = async (event) => {

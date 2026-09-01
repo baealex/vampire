@@ -1,4 +1,5 @@
 export type AppTheme = 'dark' | 'light';
+export type AppThemePreference = AppTheme | 'system';
 
 export const THEME_STORAGE_KEY = 'vampire:theme';
 export const THEME_CHANGE_EVENT = 'vampire:theme-change';
@@ -26,9 +27,10 @@ function storedTheme(): AppTheme | undefined {
   }
 }
 
-function storeTheme(theme: AppTheme) {
+function storeTheme(theme: AppThemePreference) {
   try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    if (theme === 'system') window.localStorage.removeItem(THEME_STORAGE_KEY);
+    else window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     // The active theme still works when storage is unavailable.
   }
@@ -73,12 +75,14 @@ export function terminalTheme() {
 
 export class ThemeState {
   current = $state<AppTheme>(initialTheme());
+  preference = $state<AppThemePreference>('system');
 
   #followsSystem = false;
 
   start(): () => void {
     const savedTheme = storedTheme();
     this.#followsSystem = savedTheme === undefined;
+    this.preference = savedTheme ?? 'system';
     const documentTheme = document.documentElement.dataset.theme;
     this.current = isAppTheme(documentTheme) ? documentTheme : (savedTheme ?? preferredTheme());
     this.#applyTheme();
@@ -96,9 +100,14 @@ export class ThemeState {
 
   toggle() {
     const nextTheme: AppTheme = this.current === 'dark' ? 'light' : 'dark';
-    this.#followsSystem = false;
-    storeTheme(nextTheme);
+    this.setPreference(nextTheme);
+  }
 
+  setPreference(preference: AppThemePreference) {
+    this.preference = preference;
+    this.#followsSystem = preference === 'system';
+    storeTheme(preference);
+    const nextTheme = preference === 'system' ? preferredTheme() : preference;
     const update = () => {
       this.current = nextTheme;
       this.#applyTheme();

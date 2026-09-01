@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  readManagedLaunchProfileSettings,
   readManagedLaunchProfiles,
   WorkspaceMutationError,
   updateManagedLaunchProfiles,
@@ -46,7 +47,9 @@ test('deleting a global profile clears workspace selections without blocking the
   const update = await updateManagedLaunchProfiles([{ id: 'claude', name: 'Claude', command: 'claude' }]);
   assert.deepEqual(update, {
     launchProfiles: [{ id: 'claude', name: 'Claude', command: 'claude' }],
+    defaultStartupProfileId: null,
     clearedWorkspaceIds: ['workspace-1'],
+    workspaceStartupUpdates: [{ id: 'workspace-1', startupProfileId: null }],
   });
   assert.deepEqual(await readManagedLaunchProfiles(), update.launchProfiles);
   assert.equal((await readWorkspaceStore()).workspaces[0]?.startupProfileId, null);
@@ -89,8 +92,13 @@ test('saving from a workspace updates the shared cache and its local selection a
   });
   assert.deepEqual(update, {
     launchProfiles: [{ id: 'new', name: 'New profile', command: 'new-command' }],
+    defaultStartupProfileId: null,
     startupProfileId: 'new',
     clearedWorkspaceIds: ['workspace-2'],
+    workspaceStartupUpdates: [
+      { id: 'workspace-1', startupProfileId: 'new' },
+      { id: 'workspace-2', startupProfileId: null },
+    ],
   });
   const stored = await readWorkspaceStore();
   assert.deepEqual(stored.launchProfiles, update.launchProfiles);
@@ -106,4 +114,56 @@ test('saving from a workspace updates the shared cache and its local selection a
     (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile'
   );
   assert.deepEqual(await readWorkspaceStore(), stored);
+});
+
+test('changes the shared default atomically for every registered workspace', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-default-profile-'));
+  const previousStateDirectory = process.env.VAMPIRE_STATE_DIR;
+  process.env.VAMPIRE_STATE_DIR = directory;
+  t.after(async () => {
+    if (previousStateDirectory === undefined) delete process.env.VAMPIRE_STATE_DIR;
+    else process.env.VAMPIRE_STATE_DIR = previousStateDirectory;
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const launchProfiles = [
+    { id: 'codex', name: 'Codex', command: 'codex' },
+    { id: 'claude', name: 'Claude', command: 'claude' },
+  ];
+  await writeWorkspaceStore({
+    version: WORKSPACE_STATE_VERSION,
+    launchProfiles,
+    defaultStartupProfileId: 'codex',
+    workspaces: ['workspace-1', 'workspace-2'].map((id, index) => ({
+      id,
+      tmuxSession: 'vampire-workspace-' + (index + 1),
+      cwd: tmpdir(),
+      createdAt: index + 1,
+      lastActiveAt: index + 1,
+      automations: [],
+      favoriteCommands: [],
+      startupProfileId: index === 0 ? 'codex' : null,
+    })),
+  });
+
+  const update = await updateManagedLaunchProfiles(launchProfiles, {
+    defaultStartupProfileId: 'claude',
+    applyDefaultToAll: true,
+  });
+
+  assert.equal(update.defaultStartupProfileId, 'claude');
+  assert.deepEqual(update.workspaceStartupUpdates, [
+    { id: 'workspace-1', startupProfileId: 'claude' },
+    { id: 'workspace-2', startupProfileId: 'claude' },
+  ]);
+  const stored = await readWorkspaceStore();
+  assert.equal(stored.defaultStartupProfileId, 'claude');
+  assert.deepEqual(
+    stored.workspaces.map((workspace) => workspace.startupProfileId),
+    ['claude', 'claude']
+  );
+  assert.deepEqual(await readManagedLaunchProfileSettings(), {
+    launchProfiles,
+    defaultStartupProfileId: 'claude',
+  });
 });

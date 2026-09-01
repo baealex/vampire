@@ -191,13 +191,13 @@ function automationPrompt(
   request: string
 ): string {
   return [
-    'Create one Vampire workspace automation using the supported request files below.',
+    'Create or update one Vampire workspace automation using the supported request files below.',
     '',
     `Draft request: ${JSON.stringify(support.requestPath)}`,
     `Current guide: ${JSON.stringify(support.guidePath)}`,
     `Apply command: ${support.applyCommand}`,
     '',
-    'Read the guide, edit only the supplied draft, run the apply command, and report the automation you staged.',
+    'Read the guide and currentAutomations snapshot, edit only the operation field in the supplied draft, run the apply command, and report the automation you staged.',
     '',
     'User request:',
     request,
@@ -214,9 +214,9 @@ async function prepareAutomationAction(
   return {
     descriptor: {
       id: 'automation',
-      title: 'Create an automation with an agent',
+      title: 'Manage automations with an agent',
       description:
-        'Vampire supplies an isolated request file, the current schedule contract, and a safe apply command.',
+        'Vampire supplies the current automation snapshot, an isolated operation draft, and a safe apply command.',
       target,
       context: support
         ? [
@@ -228,11 +228,12 @@ async function prepareAutomationAction(
             {
               label: 'Agent support',
               value: 'Prepared when sent',
-              description: 'Vampire creates an isolated request, the current schedule guide, and a safe apply command.',
+              description:
+                'Vampire snapshots the current automations and creates an isolated create-or-update request.',
             },
           ],
-      requestLabel: 'What should the automation do, and when?',
-      requestPlaceholder: 'For example: every weekday at 9 AM, review open work and continue the next useful task.',
+      requestLabel: 'What should the agent create or change?',
+      requestPlaceholder: 'For example: change “Daily review” to weekdays at 9 AM, or create a weekly project check.',
       defaultRequest: '',
     },
     name: 'Workspace automation request',

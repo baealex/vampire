@@ -1,51 +1,19 @@
 <script lang="ts">
-import LogOut from '@lucide/svelte/icons/log-out';
-import Moon from '@lucide/svelte/icons/moon';
 import Network from '@lucide/svelte/icons/network';
-import Sun from '@lucide/svelte/icons/sun';
-import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
-import { themeState } from '~/lib/shared/theme/theme.svelte';
+import Settings2 from '@lucide/svelte/icons/settings-2';
 
-let { onLogout }: { onLogout?: () => void } = $props();
-let listeningPortsOpen = $state(false);
-const nextTheme = $derived(themeState.current === 'dark' ? 'light' : 'dark');
+let { onPorts, onSettings }: { onPorts: () => void; onSettings: () => void } = $props();
 </script>
 
-<nav class="app-sidebar-actions" aria-label="Application tools">
+<nav class="app-sidebar-actions" aria-label="Application">
   <img class="app-sidebar-logo" src="/icon.svg" alt="Vampire">
-  <div class="app-sidebar-action-buttons">
-    <button
-      type="button"
-      aria-label="Inspect listening ports"
-      title="Inspect listening ports"
-      aria-expanded={listeningPortsOpen}
-      onclick={() => listeningPortsOpen = true}
-    >
-      <Network size={17} strokeWidth={1.8} aria-hidden="true" />
-    </button>
-    <button
-      type="button"
-      aria-label={`Switch to ${nextTheme} theme`}
-      title={`Switch to ${nextTheme} theme`}
-      onclick={() => themeState.toggle()}
-    >
-      {#if themeState.current === 'dark'}
-        <Sun size={17} strokeWidth={1.8} aria-hidden="true" />
-      {:else}
-        <Moon size={17} strokeWidth={1.8} aria-hidden="true" />
-      {/if}
-    </button>
-    {#if onLogout}
-      <button type="button" aria-label="Sign out" title="Sign out" onclick={onLogout}>
-        <LogOut size={17} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-    {/if}
-  </div>
+  <button type="button" aria-label="Inspect listening ports" title="Listening ports" onclick={onPorts}>
+    <Network size={17} strokeWidth={1.8} aria-hidden="true" />
+  </button>
+  <button type="button" aria-label="Open settings" title="Settings" onclick={onSettings}>
+    <Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />
+  </button>
 </nav>
-
-{#if listeningPortsOpen}
-  <ListeningPortsDialog close={() => listeningPortsOpen = false} />
-{/if}
 
 <style>
 .app-sidebar-actions {
@@ -63,11 +31,6 @@ const nextTheme = $derived(themeState.current === 'dark' ? 'light' : 'dark');
   height: 1.9rem;
   margin-right: auto;
   border-radius: 0.5rem;
-}
-.app-sidebar-action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
 }
 .app-sidebar-actions button {
   display: grid;

@@ -9,7 +9,6 @@ import ShellOpening from './ShellOpening.svelte';
 import { TerminalImagePasteState } from './image-paste-state.svelte';
 import { TerminalRuntime, type TerminalOpeningStage, type TerminalRuntimeState } from './terminal-runtime.ts';
 import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '~/lib/shared/theme/theme.svelte';
-import { isDesktopInteractionViewport } from '~/lib/shared/ui/layout';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
@@ -18,6 +17,8 @@ import {
   type WorkspaceEntryDragData,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import '@xterm/xterm/css/xterm.css';
+import { terminalInputPreferences, type TerminalInputMode } from '../model/input-preferences.svelte.ts';
+import { hasFinePointer } from '~/lib/shared/ui/layout';
 
 let {
   workspaceId,
@@ -48,6 +49,8 @@ let {
 let terminalElement: HTMLDivElement;
 let composerElement = $state<HTMLTextAreaElement>();
 let runtime = $state<TerminalRuntime>();
+let preferredFocusFrame: number | undefined;
+let inputOwner = $state<TerminalInputMode>('terminal');
 let terminalError = $state('');
 let connected = $state(false);
 let controlSizeMismatch = $state(false);
@@ -57,7 +60,6 @@ let terminalOutputPaused = $state(false);
 let screenReady = $state(false);
 let openingVisible = $state(false);
 let openingStage = $state<TerminalOpeningStage>('opening');
-let directInputFocused = $state(false);
 let terminalDropKind = $state<'' | 'path' | 'files'>('');
 let addingDroppedFiles = $state(false);
 let droppedFileError = $state('');
@@ -69,26 +71,52 @@ const imagePaste = new TerminalImagePasteState(
 );
 
 function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
+  const becameConnected = state.connected && !connected;
   connected = state.connected;
   controlSizeMismatch = state.controlSizeMismatch;
   controlsTerminal = state.controlsTerminal;
-  directInputFocused = state.directInputFocused;
   openingStage = state.openingStage;
   openingVisible = state.openingVisible;
   screenReady = state.screenReady;
   terminalError = state.error;
   terminalOutputPaused = state.outputPaused;
   terminalReconnecting = state.reconnecting;
+  if (becameConnected && inputOwner === 'compose' && hasFinePointer()) {
+    requestAnimationFrame(() => {
+      composerElement?.focus({ preventScroll: true });
+    });
+  }
 }
 
 function changeTerminalFontSize(delta: number) {
   fontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, fontSize + delta));
 }
 
-function handleTerminalPointerDown(event: PointerEvent) {
-  if (event.pointerType === 'touch') return;
+function focusPreferredInputAfterTerminalTap() {
+  if (
+    terminalInputPreferences.mode === 'compose' &&
+    inputOwner === 'compose' &&
+    !runtime?.shouldPreserveDirectFocus()
+  ) {
+    if (preferredFocusFrame !== undefined) cancelAnimationFrame(preferredFocusFrame);
+    preferredFocusFrame = requestAnimationFrame(() => {
+      preferredFocusFrame = undefined;
+      if (
+        terminalInputPreferences.mode !== 'compose' ||
+        inputOwner !== 'compose' ||
+        runtime?.shouldPreserveDirectFocus()
+      )
+        return;
+      composerElement?.focus({ preventScroll: true });
+    });
+    return;
+  }
+  inputOwner = 'terminal';
   runtime?.focus();
-  if (isDesktopInteractionViewport()) directInputFocused = true;
+}
+
+function claimTerminalInput() {
+  inputOwner = 'terminal';
 }
 
 function dataTransferTypes(event: DragEvent): string[] {
@@ -150,10 +178,13 @@ $effect(() => {
 });
 
 onMount(() => {
+  const stopInputPreferences = terminalInputPreferences.start();
+  inputOwner = terminalInputPreferences.mode;
   const handleClipboardPaste = (event: ClipboardEvent) => {
     void imagePaste.handleClipboardPaste(event);
   };
   window.addEventListener('paste', handleClipboardPaste, true);
+  terminalElement.addEventListener('click', focusPreferredInputAfterTerminalTap);
   const terminalRuntime = new TerminalRuntime({
     element: terminalElement,
     workspaceId,
@@ -164,18 +195,24 @@ onMount(() => {
     themeChangeEvent: THEME_CHANGE_EVENT,
     getFontFamily: terminalFontFamily,
     getTheme: terminalTheme,
+    shouldAutoFocus: () => inputOwner === 'terminal',
     onFontSizeChange: (size) => (fontSize = size),
     onInputActivity,
     onOutputActivity,
     onRepositoryStatus,
     onStateChange: applyRuntimeState,
+    onTerminalInteraction: claimTerminalInput,
+    onTerminalTap: focusPreferredInputAfterTerminalTap,
   });
   runtime = terminalRuntime;
   terminalRuntime.start();
 
   return () => {
     window.removeEventListener('paste', handleClipboardPaste, true);
+    terminalElement.removeEventListener('click', focusPreferredInputAfterTerminalTap);
+    if (preferredFocusFrame !== undefined) cancelAnimationFrame(preferredFocusFrame);
     terminalRuntime.dispose();
+    stopInputPreferences();
     imagePaste.dispose();
     if (runtime === terminalRuntime) runtime = undefined;
   };
@@ -187,10 +224,8 @@ onMount(() => {
     <div
       class="terminal"
       class:path-drop-target={Boolean(terminalDropKind)}
-      class:direct-input={directInputFocused}
       class:screen-ready={screenReady}
       bind:this={terminalElement}
-      onpointerdown={handleTerminalPointerDown}
       ondragenter={handleTerminalDragOver}
       ondragover={handleTerminalDragOver}
       ondragleave={handleTerminalDragLeave}
@@ -272,18 +307,27 @@ onMount(() => {
 
   <TerminalInputDock
     bind:composerElement
+    {workspaceId}
+    {terminalId}
     {connected}
     send={(data) => runtime?.send(data)}
     submit={(data) => runtime?.submit(data) ?? false}
+    scrollPageUp={() => runtime?.scrollPageUp()}
+    scrollPageDown={() => runtime?.scrollPageDown()}
     scrollToTop={() => runtime?.scrollToTop()}
     scrollToBottom={() => runtime?.scrollToBottom()}
-    onComposerFocusChange={(focused) => runtime?.setComposerFocused(focused)}
     onImageSelected={(image) => void imagePaste.paste(image)}
     {fontSize}
     {minimumFontSize}
     {maximumFontSize}
     decreaseFontSize={() => changeTerminalFontSize(-1)}
     increaseFontSize={() => changeTerminalFontSize(1)}
+    handoffToTerminal={(data) => {
+      inputOwner = 'terminal';
+      runtime?.focus();
+      runtime?.send(data);
+    }}
+    onComposerFocus={() => inputOwner = 'compose'}
   />
   {#if children}
     {@render children()}
@@ -316,9 +360,6 @@ onMount(() => {
 }
 .terminal.path-drop-target {
   box-shadow: inset 0 0 0 2px var(--color-accent);
-}
-.terminal.direct-input {
-  box-shadow: inset 0 0 0 1px var(--color-visual-accent-glow);
 }
 .terminal :global(.xterm) {
   height: 100%;

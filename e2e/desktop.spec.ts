@@ -210,9 +210,7 @@ async function renderedTerminalRows(page: Page): Promise<string[]> {
   await page.locator('.xterm-viewport').evaluate((viewport) => {
     viewport.scrollTop = viewport.scrollHeight;
   });
-  return normalizeTerminalRows(
-    await page.locator('.xterm-screen > .xterm-rows:not(.terminal-render-shield) > div').allTextContents()
-  );
+  return normalizeTerminalRows(await page.locator('.xterm-screen > .xterm-rows > div').allTextContents());
 }
 
 function terminalRowsMismatch(expected: string[], rendered: string[], device: number): string {
@@ -265,9 +263,7 @@ async function observeTerminalFrames(
     target.__vampireTerminalFrameObservation = observation;
     const sample = () => {
       const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
-      const rows =
-        terminal?.querySelector<HTMLElement>('.terminal-render-shield') ??
-        terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+      const rows = terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
       if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
       if (terminal && terminal.querySelectorAll('.xterm-screen > .xterm-rows').length !== 1) {
         observation.invalidRowContainerFrames += 1;
@@ -337,6 +333,7 @@ async function fillTerminalWithNumberedRows(tmuxSession: string, count = 300): P
 }
 
 interface ObservedTerminalMessage {
+  data?: string;
   direction: 'client' | 'server';
   historyAvailable?: number;
   historyLoaded?: number;
@@ -360,6 +357,7 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
         };
         messages.push({
           direction,
+          ...(value.type === 'input' && typeof value.data === 'string' ? { data: value.data } : {}),
           ...(typeof value.history?.available === 'number' ? { historyAvailable: value.history.available } : {}),
           ...(typeof value.history?.loaded === 'number' ? { historyLoaded: value.history.loaded } : {}),
           ...(typeof value.lines === 'number' ? { lines: value.lines } : {}),
@@ -381,6 +379,46 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
     });
   });
 }
+
+test('focuses the selected input surface and keeps Shift+Enter distinct in the terminal', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const messages: ObservedTerminalMessage[] = [];
+  await observeTerminalMessages(page, messages);
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+
+  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('radio', { name: /Compose first/ }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expectTerminalReady(page);
+  const composer = page.getByPlaceholder('Send to shell…');
+  await expect(composer).toBeFocused();
+  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
+  await page.getByRole('application', { name: 'Interactive shell terminal' }).click({ position: { x: 80, y: 80 } });
+  await expect(composer).toBeFocused();
+  await composer.pressSequentially('/');
+  await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+  await expect
+    .poll(() => messages.some((message) => message.direction === 'client' && message.data === '/'))
+    .toBe(true);
+
+  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('radio', { name: /Terminal first/ }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expectTerminalReady(page);
+  const terminalInput = page.locator('.xterm-helper-textarea');
+  await expect(terminalInput).toBeFocused();
+  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeHidden();
+
+  await terminalInput.press('Shift+Enter');
+  await expect
+    .poll(() => messages.some((message) => message.direction === 'client' && message.data === '\u001b[13;2u'))
+    .toBe(true);
+});
 
 async function dropWorkspaceEntry(target: Locator, entry: { path: string; kind: 'file' | 'directory' }): Promise<void> {
   await target.evaluate((element, value) => {
@@ -551,8 +589,8 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
   await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
-  await expect(workspaceList.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
-  await workspaceList.getByRole('button', { name: 'Inspect listening ports' }).click();
+  const inspectPorts = workspaceList.getByRole('button', { name: 'Inspect listening ports' });
+  await inspectPorts.click();
   const portsDialog = page.getByRole('dialog', { name: 'Listening ports' });
   await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeVisible();
   await expect(portsDialog.getByRole('searchbox', { name: 'Filter listening ports' })).toBeFocused();
@@ -570,7 +608,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   expect(portsRequests).toBe(1);
   await portsDialog.getByRole('button', { name: 'Close' }).click();
   await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeHidden();
-  await page.getByRole('button', { name: 'Inspect listening ports' }).click();
+  await inspectPorts.click();
   await expect(page.getByText('2 ports')).toBeVisible();
   await expect.poll(() => portsRequests).toBe(2);
   releaseRevalidation!();
@@ -623,8 +661,6 @@ test('delivers note and widget requests to the existing main agent without expos
   await automationPage.getByRole('button', { name: 'Save changes' }).click();
   const updatedAutomation = automationPage.locator('article', { hasText: 'Review project state later' });
   await expect(updatedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 2:30 PM (${browserTimeZone})`);
-  await updatedAutomation.getByRole('button', { name: 'Delete' }).click();
-  await expect(updatedAutomation).toBeHidden();
   await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expect(page.getByRole('button', { name: /Workspace actions for/ })).toBeFocused();
@@ -658,9 +694,14 @@ test('delivers note and widget requests to the existing main agent without expos
   );
   expect(automationsResponse.ok()).toBe(true);
   const automationsBody = (await automationsResponse.json()) as {
-    automations: Array<{ kind: string; prompt: string }>;
+    automations: Array<{ kind: string; name: string; prompt: string }>;
   };
-  expect(automationsBody.automations).toEqual([]);
+  expect(automationsBody.automations).toHaveLength(1);
+  expect(automationsBody.automations[0]).toMatchObject({
+    kind: 'custom',
+    name: 'Review project state later',
+    prompt: 'Review the current work and identify the next useful step.',
+  });
   const storedNoteAction = await readStoredAgentAction(workspace.id, 'note');
   expect(storedNoteAction?.prompt).toBe(
     `Vampire workspace note: ${JSON.stringify(notePath)}\n\nUser request:\n${noteRequest}`
@@ -717,24 +758,71 @@ test('delivers note and widget requests to the existing main agent without expos
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Agent automations' }).click();
   await automationPage.getByRole('button', { name: 'Ask agent…' }).click();
-  await expect(page.getByRole('dialog', { name: 'Create an automation with an agent' })).toHaveCount(0);
-  await expect(automationPage.getByRole('heading', { name: 'Create an automation with an agent' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Manage automations with an agent' })).toHaveCount(0);
+  await expect(automationPage.getByRole('heading', { name: 'Manage automations with an agent' })).toBeVisible();
   const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'workspace-automation.md');
   const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'apply-workspace-automation.mjs');
   await expect(automationPage.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
   const automationRequestInput = automationPage.getByRole('textbox', {
-    name: 'What should the automation do, and when?',
+    name: 'What should the agent create or change?',
   });
   await expect(automationRequestInput).toBeFocused();
   await automationRequestInput.fill(automationRequest);
   await automationPage.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(automationPage.getByRole('heading', { name: 'Create an automation with an agent' })).toBeHidden();
+  await expect(automationPage.getByRole('heading', { name: 'Manage automations with an agent' })).toBeHidden();
   await expect(automationPage.getByRole('status')).toContainText('Automation request sent');
   const storedAutomationAction = await readStoredAgentAction(workspace.id, 'automation');
   expect(storedAutomationAction?.prompt).toContain(automationGuidePath);
   expect(storedAutomationAction?.prompt).toContain(automationApplyPath);
   expect(storedAutomationAction?.prompt).toContain(automationRequest);
+  const draftPath = storedAutomationAction?.prompt.match(/Draft request: "([^"]+)"/)?.[1];
+  expect(draftPath).toBeTruthy();
+  const draft = JSON.parse(await readFile(draftPath!, 'utf8')) as {
+    version: number;
+    workspaceId: string;
+    currentAutomations: Array<{
+      id: string;
+      updatedAt: number;
+      name: string;
+      prompt: string;
+      enabled: boolean;
+      schedule: unknown;
+    }>;
+    operation: unknown;
+  };
+  expect(draft).toMatchObject({
+    version: 2,
+    workspaceId: workspace.id,
+    operation: null,
+  });
+  expect(draft.currentAutomations).toHaveLength(1);
+  const updateTarget = draft.currentAutomations[0]!;
+  expect(updateTarget).toMatchObject({
+    name: 'Review project state later',
+    prompt: 'Review the current work and identify the next useful step.',
+    enabled: true,
+  });
+  draft.operation = {
+    type: 'update',
+    automationId: updateTarget.id,
+    expectedUpdatedAt: updateTarget.updatedAt,
+    automation: {
+      name: 'Agent-managed project review',
+      prompt: 'Review project state from the agent-managed automation.',
+      enabled: true,
+      schedule: { type: 'once', runAt: Date.now() + 10 * 60_000 },
+    },
+  };
+  await writeFile(draftPath!, `${JSON.stringify(draft, null, 2)}\n`);
+  const applyArguments = storedAutomationAction?.prompt.match(/Apply command: node '([^']+)' '([^']+)' '([^']+)'/);
+  expect(applyArguments).toBeTruthy();
+  await run(process.execPath, [applyArguments![1], applyArguments![2], applyArguments![3]]);
+  const agentManagedAutomation = automationPage.locator('article', { hasText: 'Agent-managed project review' });
+  await expect(agentManagedAutomation).toBeVisible({ timeout: 10_000 });
+  await expect(agentManagedAutomation).toContainText('One time');
+  await agentManagedAutomation.getByRole('button', { name: 'Delete' }).click();
+  await expect(agentManagedAutomation).toBeHidden();
   await expect
     .poll(async () => (await readStoredAgentAction(workspace.id, 'automation'))?.lastOutcome, {
       timeout: 10_000,
@@ -917,10 +1005,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await secondPage.close();
 });
 
-test('adds a startup profile inline, reuses it elsewhere, and runs the workspace selection', async ({
-  context,
-  page,
-}) => {
+test('manages a shared default launch profile and keeps workspace overrides available', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -928,17 +1013,17 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  let actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
-  await actions.click();
-  await page.getByRole('menuitem', { name: 'Startup profile' }).click();
-  await expect(page.getByRole('menu')).toBeHidden();
+  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
+  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await page.getByRole('button', { name: 'Add profile' }).click();
   const profileCard = page.locator('.profile-card').last();
   await profileCard.getByLabel('Name').fill('Codex');
   await profileCard.getByLabel('Command').fill(profileCommand);
-  await expect(profileCard.getByRole('radio', { name: 'Use here' })).toBeChecked();
-  await page.getByRole('button', { name: 'Save changes' }).click();
-  await expect(page.getByRole('heading', { name: 'Startup profile' })).toBeHidden();
+  await page.getByRole('button', { name: 'Save profiles' }).click();
+  await expect(page.getByText('Default updated for 1 workspace.')).toBeVisible();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expectTerminalReady(page);
 
   const profilesResponse = await context.request.get('/api/launch-profiles');
   expect(profilesResponse.ok()).toBe(true);
@@ -949,20 +1034,21 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   expect(profilesBody.launchProfiles[0]).toMatchObject({ name: 'Codex', command: profileCommand });
 
   const reuseWorkspace = await createWorkspace(context);
+  expect(reuseWorkspace.startupProfileId).toBe(profilesBody.launchProfiles[0]!.id);
   await page.goto(`/workspaces/${encodeURIComponent(reuseWorkspace.id)}`);
   await expectTerminalReady(page);
-  actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
-  await actions.click();
+  await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
+  const reuseActions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
+  await reuseActions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
-  await expect(page.locator('.profile-card').getByLabel('Command')).toHaveValue(profileCommand);
-  await expect(page.getByRole('radio', { name: /No startup profile/ })).toBeChecked();
-  await page.locator('.profile-card').getByRole('radio', { name: 'Use here' }).click();
-  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
+  await page.getByRole('radio', { name: /No startup profile/ }).click();
+  await page.getByRole('button', { name: 'Save selection' }).click();
   const reuseWorkspacesResponse = await context.request.get('/api/workspaces');
   const reuseWorkspacesBody = (await reuseWorkspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
-  expect(reuseWorkspacesBody.workspaces.find((candidate) => candidate.id === reuseWorkspace.id)?.startupProfileId).toBe(
-    profilesBody.launchProfiles[0]!.id
-  );
+  expect(
+    reuseWorkspacesBody.workspaces.find((candidate) => candidate.id === reuseWorkspace.id)?.startupProfileId
+  ).toBeNull();
   await removeWorkspace(context, reuseWorkspace.id);
 
   const closeResponse = await context.request.post(`/api/workspaces/${encodeURIComponent(workspace.id)}/close`);
@@ -976,7 +1062,7 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   await endedActions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
   await expect(page.getByRole('heading', { name: 'Startup profile' })).toBeVisible();
-  await expect(page.locator('.profile-card').getByRole('radio', { name: 'Use here' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   const startupDialog = page.getByRole('dialog', { name: 'Startup profile' });
   await expect(startupDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
   await expect(startupDialog.locator('.vampire-dialog-footer')).toHaveCount(0);
@@ -988,11 +1074,11 @@ test('adds a startup profile inline, reuses it elsewhere, and runs the workspace
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
-  actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
+  const actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole('menuitem', { name: 'Startup profile' }).click();
-  await expect(page.locator('.profile-card').getByRole('radio', { name: 'Use here' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 });
 
@@ -1564,7 +1650,109 @@ test('ignores transient terminal container collapse until a usable size returns'
   await expect(terminal.locator('.xterm-rows')).toContainText('stable-terminal-size');
 });
 
-test('keeps the desktop font default on a wide touch display', async ({ browser }) => {
+test('paints native IME composition without leaving a stale terminal overlay', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+  const compositionView = terminal.locator('.composition-view');
+  const composer = page.getByPlaceholder('Send to shell…');
+  const cdp = await context.newCDPSession(page);
+
+  await hiddenTerminalInput.focus();
+  for (const text of ['ㅎ', '하', '한', '한ㄱ', '한그', '한글']) {
+    await cdp.send('Input.imeSetComposition', {
+      text,
+      selectionStart: text.length,
+      selectionEnd: text.length,
+    });
+    await expect(compositionView).toHaveText(text);
+    await expect
+      .poll(() =>
+        compositionView.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return style.display !== 'none' && style.visibility === 'visible' && bounds.width > 0 && bounds.height > 0;
+        })
+      )
+      .toBe(true);
+  }
+  await cdp.send('Input.insertText', { text: '한글' });
+  await expect(compositionView).not.toHaveClass(/active/);
+  await expect(compositionView).toBeHidden();
+
+  await composer.focus();
+  for (const text of ['ㅌ', '테', '테스', '테스트']) {
+    await cdp.send('Input.imeSetComposition', {
+      text,
+      selectionStart: text.length,
+      selectionEnd: text.length,
+    });
+    await expect(composer).toHaveValue(text);
+    await expect(page.getByRole('button', { name: 'Send to shell' })).toBeEnabled();
+  }
+  await cdp.send('Input.insertText', { text: '테스트' });
+  await expect(composer).toHaveValue('테스트');
+});
+
+test('keeps terminal output moving while native IME composition is active', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+  const compositionView = terminal.locator('.composition-view');
+  const composer = page.getByPlaceholder('Send to shell…');
+  const cdp = await context.newCDPSession(page);
+  await hiddenTerminalInput.focus();
+  await cdp.send('Input.imeSetComposition', {
+    text: '우',
+    selectionStart: 1,
+    selectionEnd: 1,
+  });
+  await expect(compositionView).toHaveText('우');
+
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT_DURING_NATIVE_IME\\n'"]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect(terminal.locator('.xterm-rows')).toContainText('OUTPUT_DURING_NATIVE_IME');
+
+  await cdp.send('Input.insertText', { text: '우' });
+  await expect(compositionView).not.toHaveClass(/active/);
+  await composer.fill("printf 'DESKTOP_INPUT_AFTER_IME\\n'");
+  await composer.press('Enter');
+  await expect(terminal.locator('.xterm-rows')).toContainText('DESKTOP_INPUT_AFTER_IME');
+});
+
+test('restores an unsent composer draft across reloads and clears it after submission', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  let composer = page.getByPlaceholder('Send to shell…');
+  await composer.fill("printf 'COMPOSER_DRAFT_SENT\\n'");
+
+  await page.reload();
+  await expectTerminalReady(page);
+  composer = page.getByPlaceholder('Send to shell…');
+  await expect(composer).toHaveValue("printf 'COMPOSER_DRAFT_SENT\\n'");
+  await composer.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('COMPOSER_DRAFT_SENT');
+
+  await page.reload();
+  await expectTerminalReady(page);
+  await expect(page.getByPlaceholder('Send to shell…')).toHaveValue('');
+});
+
+test('keeps keyboard terminal input available on a wide touch display', async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     hasTouch: true,
@@ -1580,13 +1768,15 @@ test('keeps the desktop font default on a wide touch display', async ({ browser 
     await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
     await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
     await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
-    await expect(
-      page.getByRole('application', { name: 'Interactive shell terminal' }).locator('.xterm-helper-textarea')
-    ).toHaveAttribute('readonly', '');
-    const fontSize = await page
-      .getByRole('application', { name: 'Interactive shell terminal' })
-      .locator('.xterm-rows')
-      .evaluate((rows) => getComputedStyle(rows).fontSize);
+    const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+    const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+    await terminal.click({ position: { x: 96, y: 96 } });
+    await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
+    await expect(hiddenTerminalInput).toBeFocused();
+    await page.keyboard.type("printf 'WIDE_TOUCH_KEYBOARD_INPUT\\n'");
+    await page.keyboard.press('Enter');
+    await expect(terminal.locator('.xterm-rows')).toContainText('WIDE_TOUCH_KEYBOARD_INPUT');
+    const fontSize = await terminal.locator('.xterm-rows').evaluate((rows) => getComputedStyle(rows).fontSize);
     expect(fontSize).toBe('14px');
   } finally {
     await removeWorkspace(context, createdWorkspaceId);
@@ -1707,7 +1897,7 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
   const composer = page.getByPlaceholder('Send to shell…');
   await composer.fill(`node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`);
   await composer.press('Enter');
-  const terminalRows = page.locator('.xterm-rows:not(.terminal-render-shield)');
+  const terminalRows = page.locator('.xterm-rows');
   await expect(terminalRows).toContainText('VAMP_FRAME_');
 
   for (const viewport of [

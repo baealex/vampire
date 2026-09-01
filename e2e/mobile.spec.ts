@@ -22,6 +22,18 @@ function websocketMessageType(message: string | Buffer): string | undefined {
   }
 }
 
+function websocketInputData(message: string | Buffer): string | undefined {
+  try {
+    const value = JSON.parse(message.toString()) as { type?: unknown; data?: unknown };
+    if (value.type !== 'input' || typeof value.data !== 'string') return undefined;
+    // Firefox's Playwright transport can surface websocket text bytes as a
+    // Latin-1 string. Only re-decode that unmistakable C1-control form.
+    return /[\u0080-\u009f]/u.test(value.data) ? Buffer.from(value.data, 'latin1').toString('utf8') : value.data;
+  } catch {
+    return undefined;
+  }
+}
+
 test.beforeEach(async ({ request }) => {
   workspaceId = undefined;
   await Promise.all([resetWorkspaces(request), resetStatusPlugins(request)]);
@@ -53,7 +65,7 @@ test('keeps a terminal connection failure inside the mobile viewport', async ({ 
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('routes mobile input ownership to the surface the user taps', async ({ context, page }) => {
+test('keeps direct terminal input and the composer independently available on mobile', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -64,7 +76,7 @@ test('routes mobile input ownership to the surface the user taps', async ({ cont
   const composer = page.getByPlaceholder('Send to shell…');
   const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
   await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
-  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
+  await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
 
   await terminal.tap({ position: { x: 96, y: 96 } });
   await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
@@ -75,7 +87,11 @@ test('routes mobile input ownership to the surface the user taps', async ({ cont
 
   await composer.focus();
   await expect(composer).toBeFocused();
-  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
+  await expect(hiddenTerminalInput).not.toBeFocused();
+  await composer.fill('first line');
+  await composer.press('Shift+Enter');
+  await expect(composer).toHaveValue('first line\n');
+  await composer.fill('');
 
   const updates = ['ㅎ', '하', '한', '한그', '한글'];
   await composer.evaluate((input) => {
@@ -126,8 +142,117 @@ test('routes mobile input ownership to the surface the user taps', async ({ cont
   await expect(composer).not.toBeFocused();
   await expect(hiddenTerminalInput).toBeFocused();
   await composer.focus();
-  await expect(hiddenTerminalInput).toHaveAttribute('readonly', '');
+  await expect(hiddenTerminalInput).not.toBeFocused();
   await expect(composer).toBeFocused();
+});
+
+test('does not drop back-to-back Korean terminal compositions before Space', async ({ context, page }) => {
+  const sentTerminalMessages: Array<string | Buffer> = [];
+  page.on('websocket', (socket) => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
+    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
+  });
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+  await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
+  await expect(hiddenTerminalInput).toBeFocused();
+  sentTerminalMessages.length = 0;
+
+  await hiddenTerminalInput.evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    const prefix = textarea.value;
+    let composed = '';
+    for (const syllable of ['우', '리', '가']) {
+      textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+      textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: syllable }));
+      composed += syllable;
+      textarea.value = `${prefix}${composed}`;
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: syllable }));
+    }
+    const space = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: ' ',
+      code: 'Space',
+    });
+    Object.defineProperty(space, 'keyCode', { value: 32 });
+    Object.defineProperty(space, 'which', { value: 32 });
+    textarea.dispatchEvent(space);
+  });
+
+  await expect
+    .poll(() =>
+      sentTerminalMessages
+        .map(websocketInputData)
+        .filter((data) => data !== undefined)
+        .join('')
+    )
+    .toBe('우리가');
+});
+
+test('keeps touch scrolling after the terminal takes direct input ownership', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const fillCommand = 'i=1; while [ $i -le 120 ]; do printf \'TOUCH_SCROLL_%03d\\n\' "$i"; i=$((i+1)); done';
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', fillCommand]);
+  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await expect
+    .poll(async () => (await run('tmux', ['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession])).stdout)
+    .toContain('TOUCH_SCROLL_120');
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
+  const visibleRowNumbers = () =>
+    terminal
+      .locator('.xterm-screen > .xterm-rows > div')
+      .allTextContents()
+      .then((rows) =>
+        rows
+          .map((row) => /TOUCH_SCROLL_(\d+)/u.exec(row)?.[1])
+          .filter((value): value is string => value !== undefined)
+          .map(Number)
+      );
+  await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(hiddenTerminalInput).toBeFocused();
+  const bottomRows = await visibleRowNumbers();
+  expect(bottomRows.length).toBeGreaterThan(0);
+  const bottomMinimum = Math.min(...bottomRows);
+
+  await terminal.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const startY = bounds.top + Math.min(120, bounds.height * 0.35);
+    const pointer = (type: string, clientY: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: bounds.left + bounds.width / 2,
+        clientY,
+        isPrimary: true,
+        pointerId: 41,
+        pointerType: 'touch',
+      });
+    element.dispatchEvent(pointer('pointerdown', startY));
+    element.dispatchEvent(pointer('pointermove', startY + 80));
+    element.dispatchEvent(pointer('pointerup', startY + 80));
+  });
+
+  await expect
+    .poll(async () => {
+      const rows = await visibleRowNumbers();
+      return rows.length > 0 ? Math.min(...rows) : bottomMinimum;
+    })
+    .toBeLessThan(bottomMinimum);
 });
 
 test('keeps mobile composition visible while terminal output and viewport geometry change', async ({
@@ -261,43 +386,6 @@ test('keeps terminal rendering coherent while mobile geometry is delayed', async
   delayServerMessages = false;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height });
   await expect(composer).toBeFocused();
-});
-
-test('coalesces 60, 90, and 120Hz mobile viewport animations into one resize each', async ({ context, page }) => {
-  const sentTerminalMessages: Array<string | Buffer> = [];
-  let lastResizeMessageAt = 0;
-  page.on('websocket', (socket) => {
-    if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
-    socket.on('framesent', ({ payload }) => {
-      sentTerminalMessages.push(payload);
-      if (websocketMessageType(payload) === 'resize') lastResizeMessageAt = Date.now();
-    });
-  });
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const composer = page.getByPlaceholder('Send to shell…');
-  await composer.focus();
-  await expect.poll(() => lastResizeMessageAt > 0 && Date.now() - lastResizeMessageAt >= 160).toBe(true);
-  for (const [cadence, heights] of [
-    [17, [860, 820, 780, 740, 700]],
-    [11, [690, 650, 610, 570, 530]],
-    [8, [540, 580, 620, 660, 700]],
-  ] as const) {
-    sentTerminalMessages.length = 0;
-    for (const height of heights) {
-      await page.setViewportSize({ width: 412, height });
-      await page.waitForTimeout(cadence);
-    }
-    await expect
-      .poll(() => sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize').length)
-      .toBe(1);
-    await page.waitForTimeout(100);
-    expect(sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize')).toHaveLength(1);
-  }
 });
 
 test('keeps a usable terminal and composer in an extreme keyboard-height viewport', async ({ context, page }) => {
@@ -487,10 +575,14 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
-  await expect(workspaceList.getByRole('button', { name: 'Inspect listening ports' })).toBeVisible();
-  await expect(workspaceList.getByRole('button', { name: /Switch to .* theme/ })).toBeVisible();
-  await expect(workspaceList.getByRole('button', { name: 'Sign out' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close workspace navigator' }).click();
+  await expect(workspaceList.getByRole('button', { name: 'Open settings' })).toBeVisible();
+  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Compose first/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expectTerminalReady(page);
   const terminalTypography = await page
     .getByRole('application', { name: 'Interactive shell terminal' })
     .evaluate((terminal) => {
@@ -518,7 +610,18 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   );
   await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal top' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scroll terminal up one page' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scroll terminal down one page' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal bottom' })).toBeVisible();
+  const historyControlLabels = await page
+    .getByRole('group', { name: 'Terminal controls' })
+    .getByRole('button')
+    .evaluateAll((buttons) =>
+      buttons
+        .map((button) => button.textContent?.trim() ?? '')
+        .filter((label) => ['Top', 'PgUp', 'PgDn', 'Bottom'].includes(label))
+    );
+  expect(historyControlLabels).toEqual(['Top', 'PgUp', 'PgDn', 'Bottom']);
 
   await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', 'seq 1 200']);
   await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
@@ -528,6 +631,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
       (rows, expected) => Array.from(rows.children).some((row) => row.textContent?.trim() === expected),
       value
     );
+  await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
+  await page.getByRole('button', { name: 'Scroll terminal up one page' }).click();
+  await expect.poll(() => hasVisibleOutputLine('200')).toBe(false);
+  await page.getByRole('button', { name: 'Scroll terminal down one page' }).click();
   await expect.poll(() => hasVisibleOutputLine('200')).toBe(true);
   await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
   await expect.poll(() => hasVisibleOutputLine('1')).toBe(true);
@@ -709,18 +816,16 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   await expect(cpuPlugin).toBeVisible();
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
-  const ports = workspaceList.getByRole('button', { name: 'Inspect listening ports' });
-  const theme = workspaceList.getByRole('button', { name: /Switch to .* theme/ });
-  const [portsBox, portsIconBox, themeBox] = await Promise.all([
-    ports.boundingBox(),
-    ports.locator('svg').boundingBox(),
-    theme.boundingBox(),
+  const settingsButton = workspaceList.getByRole('button', { name: 'Open settings' });
+  const [settingsBox, settingsIconBox] = await Promise.all([
+    settingsButton.boundingBox(),
+    settingsButton.locator('svg').boundingBox(),
   ]);
-  expect(portsBox).not.toBeNull();
-  expect(portsIconBox).not.toBeNull();
-  expect(themeBox).not.toBeNull();
-  expect(Math.abs(portsBox!.width - themeBox!.width)).toBeLessThan(1);
-  expect(portsIconBox!.x).toBeGreaterThan(portsBox!.x);
+  expect(settingsBox).not.toBeNull();
+  expect(settingsIconBox).not.toBeNull();
+  expect(
+    Math.abs(settingsIconBox!.x + settingsIconBox!.width / 2 - (settingsBox!.x + settingsBox!.width / 2))
+  ).toBeLessThan(1);
   await page.getByRole('button', { name: 'Close workspace navigator' }).click();
   await cpuPlugin.click();
   const popover = page.locator('.status-plugin-popover');

@@ -5,7 +5,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import {
   listManagedWorkspaces,
-  readManagedLaunchProfiles,
+  readManagedLaunchProfileSettings,
   readManagedWorkspacePreferences,
 } from './workspace-registry.server.ts';
 import {
@@ -296,6 +296,7 @@ class WorkspaceStatusHub {
   #workspaces: Map<string, ManagedWorkspace> | undefined;
   #preferences: WorkspacePreferences | null | undefined;
   #launchProfiles: LaunchProfile[] | undefined;
+  #defaultStartupProfileId: string | null | undefined;
   #refreshPromise: Promise<void> | undefined;
   #activityRefreshPromise: Promise<void> | undefined;
   #refreshTimer: NodeJS.Timeout | undefined;
@@ -353,6 +354,7 @@ class WorkspaceStatusHub {
         workspaces: [...this.#workspaces!.values()],
         preferences: this.#preferences ?? null,
         launchProfiles: this.#launchProfiles ?? [],
+        defaultStartupProfileId: this.#defaultStartupProfileId ?? null,
       });
       this.#clients.add(socket);
       socket.once('close', () => this.unsubscribe(socket));
@@ -382,6 +384,7 @@ class WorkspaceStatusHub {
     this.#workspaces = undefined;
     this.#preferences = undefined;
     this.#launchProfiles = undefined;
+    this.#defaultStartupProfileId = undefined;
     this.#suppressedActivity.clear();
     this.#pendingAgentStates.clear();
     this.#statusPlugins.stop();
@@ -395,6 +398,7 @@ class WorkspaceStatusHub {
     this.#workspaces = undefined;
     this.#preferences = undefined;
     this.#launchProfiles = undefined;
+    this.#defaultStartupProfileId = undefined;
     this.#suppressedActivity.clear();
     this.#pendingAgentStates.clear();
     this.#statusPlugins.stop();
@@ -418,11 +422,13 @@ class WorkspaceStatusHub {
     const precedingActivityRefresh = this.#activityRefreshPromise;
     this.#refreshPromise = (async () => {
       if (precedingActivityRefresh) await precedingActivityRefresh;
-      const [managedWorkspaces, nextPreferences, nextLaunchProfiles] = await Promise.all([
+      const [managedWorkspaces, nextPreferences, nextProfileSettings] = await Promise.all([
         listManagedWorkspaces(),
         readManagedWorkspacePreferences(),
-        readManagedLaunchProfiles(),
+        readManagedLaunchProfileSettings(),
       ]);
+      const nextLaunchProfiles = nextProfileSettings.launchProfiles;
+      const nextDefaultStartupProfileId = nextProfileSettings.defaultStartupProfileId;
       const nextWorkspaces = preserveLatestOutput(
         new Map(managedWorkspaces.map((workspace) => [workspace.id, workspace])),
         this.#workspaces,
@@ -431,9 +437,11 @@ class WorkspaceStatusHub {
       const previousWorkspaces = this.#workspaces;
       const previousPreferences = this.#preferences;
       const previousLaunchProfiles = this.#launchProfiles;
+      const previousDefaultStartupProfileId = this.#defaultStartupProfileId;
       this.#workspaces = nextWorkspaces;
       this.#preferences = nextPreferences;
       this.#launchProfiles = nextLaunchProfiles;
+      this.#defaultStartupProfileId = nextDefaultStartupProfileId;
       if (!previousWorkspaces) return;
 
       for (const [id] of previousWorkspaces) {
@@ -458,10 +466,15 @@ class WorkspaceStatusHub {
           preferences: nextPreferences,
         });
       }
-      if (previousLaunchProfiles !== undefined && !equalLaunchProfiles(previousLaunchProfiles, nextLaunchProfiles)) {
+      if (
+        previousLaunchProfiles !== undefined &&
+        (!equalLaunchProfiles(previousLaunchProfiles, nextLaunchProfiles) ||
+          previousDefaultStartupProfileId !== nextDefaultStartupProfileId)
+      ) {
         this.#broadcast({
           type: 'launch-profiles-updated',
           launchProfiles: nextLaunchProfiles,
+          defaultStartupProfileId: nextDefaultStartupProfileId,
         });
       }
     })();

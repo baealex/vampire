@@ -33,6 +33,7 @@ export interface WorkspaceStore {
   version: typeof WORKSPACE_STATE_VERSION;
   workspaces: StoredWorkspace[];
   launchProfiles: LaunchProfile[];
+  defaultStartupProfileId?: string | null;
   workspacePreferences?: WorkspacePreferences;
 }
 
@@ -187,7 +188,10 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
     value.version !== WORKSPACE_STATE_VERSION ||
     !Array.isArray(rawWorkspaces) ||
     !rawWorkspaces.every(isStoredWorkspace) ||
-    (value.launchProfiles !== undefined && !Array.isArray(value.launchProfiles))
+    (value.launchProfiles !== undefined && !Array.isArray(value.launchProfiles)) ||
+    (value.defaultStartupProfileId !== undefined &&
+      value.defaultStartupProfileId !== null &&
+      typeof value.defaultStartupProfileId !== 'string')
   ) {
     throw new Error('invalid state file');
   }
@@ -197,10 +201,17 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
     value.launchProfiles === undefined ? migrateCompatibilityLaunchProfiles(rawWorkspaces) : undefined;
   const launchProfiles = compatibility?.launchProfiles ?? normalizeLaunchProfiles(value.launchProfiles);
   const launchProfileIds = new Set(launchProfiles.map((profile) => profile.id));
+  const requestedDefaultStartupProfileId =
+    typeof value.defaultStartupProfileId === 'string' ? value.defaultStartupProfileId.trim() : null;
+  const defaultStartupProfileId =
+    requestedDefaultStartupProfileId && launchProfileIds.has(requestedDefaultStartupProfileId)
+      ? requestedDefaultStartupProfileId
+      : null;
   return {
     version: WORKSPACE_STATE_VERSION,
     ...(workspacePreferences ? { workspacePreferences } : {}),
     launchProfiles,
+    defaultStartupProfileId,
     workspaces: rawWorkspaces.map((workspace) => {
       const explicitStartupProfileId =
         typeof workspace.startupProfileId === 'string' ? workspace.startupProfileId.trim() : null;
@@ -243,7 +254,13 @@ export async function readWorkspaceStore(file = vampireStatePath()): Promise<Wor
   try {
     return parseWorkspaceStore(await readWorkspaceStateFile(file));
   } catch (error) {
-    if (errorHasCode(error, 'ENOENT')) return { version: WORKSPACE_STATE_VERSION, workspaces: [], launchProfiles: [] };
+    if (errorHasCode(error, 'ENOENT'))
+      return {
+        version: WORKSPACE_STATE_VERSION,
+        workspaces: [],
+        launchProfiles: [],
+        defaultStartupProfileId: null,
+      };
     throw new Error('Vampire workspace registry is unreadable; refusing to overwrite it.', { cause: error });
   }
 }

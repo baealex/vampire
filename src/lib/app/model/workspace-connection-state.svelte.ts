@@ -12,12 +12,17 @@ type WorkspaceEvent =
       workspaces: ManagedWorkspace[];
       preferences?: WorkspacePreferences | null;
       launchProfiles?: LaunchProfile[];
+      defaultStartupProfileId?: string | null;
     }
   | { type: 'workspace-added'; workspace: ManagedWorkspace }
   | { type: 'workspace-updated'; id: string; changes: WorkspaceChanges }
   | { type: 'workspace-removed'; id: string }
   | { type: 'workspace-preferences-updated'; preferences: WorkspacePreferences | null }
-  | { type: 'launch-profiles-updated'; launchProfiles: LaunchProfile[] };
+  | {
+      type: 'launch-profiles-updated';
+      launchProfiles: LaunchProfile[];
+      defaultStartupProfileId?: string | null;
+    };
 
 type StatusResponse = {
   authenticationRequired: boolean;
@@ -192,12 +197,19 @@ export class WorkspaceConnectionState {
           workspaces: message.workspaces,
           ...(message.preferences !== undefined ? { preferences: message.preferences } : {}),
           ...(message.launchProfiles !== undefined ? { launchProfiles: message.launchProfiles } : {}),
+          ...(message.defaultStartupProfileId !== undefined
+            ? { defaultStartupProfileId: message.defaultStartupProfileId }
+            : {}),
         });
         // A development server started before workspace metadata support may
         // still have the older long-lived WebSocket runtime in memory. The HTTP
         // route is hot-reloaded, so use it once to fill in metadata and shared
         // preferences that the compatibility snapshot cannot carry.
-        if (message.preferences === undefined || message.launchProfiles === undefined) {
+        if (
+          message.preferences === undefined ||
+          message.launchProfiles === undefined ||
+          message.defaultStartupProfileId === undefined
+        ) {
           void options.refreshWorkspaces({ quiet: true });
         }
       } else if (message.type === 'status-plugins-snapshot') {

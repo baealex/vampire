@@ -387,7 +387,7 @@ onDestroy(() => {
     close={() => void closeAskAgent()}
     load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
     submit={(request) => queueWorkspaceAgentAction(workspaceId, 'automation', request)}
-    onQueued={() => agentMessage = 'Automation request sent. It will appear here after the agent validates it.'}
+    onQueued={() => agentMessage = 'Automation request sent. Its create or update will appear after validation.'}
     onSubmittingChange={(value) => agentSubmitting = value}
   />
 {:else if editorMode}

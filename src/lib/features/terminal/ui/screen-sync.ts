@@ -43,14 +43,12 @@ export class TerminalScreenSync {
   #clearTimeout: (timer: Timer) => void;
   #disposed = false;
   #initialScreenSettled = false;
-  #outputFrame: number | undefined;
   #outputOverflowed = false;
   #outputWriteInFlight = false;
   #physicalWriteInFlight = false;
   #pendingOutput = '';
   #pendingSnapshot = '';
   #pendingSnapshotStart: { version: number; context: TerminalSnapshotContext } | undefined;
-  #renderingPaused = false;
   #requestFrame: (callback: () => void) => number;
   #revealDeadline: Timer | undefined;
   #revealFrame: number | undefined;
@@ -99,22 +97,12 @@ export class TerminalScreenSync {
     if (this.#pendingOutput.length + output.length > TERMINAL_OUTPUT_BACKLOG_CHARACTER_LIMIT) {
       this.#outputOverflowed = true;
       this.#pendingOutput = '';
-      if (this.#outputFrame !== undefined) this.#cancelFrame(this.#outputFrame);
-      this.#outputFrame = undefined;
       this.#adapter.onOverflow?.();
       return false;
     }
     this.#pendingOutput += output;
-    this.#scheduleOutputWrite();
+    this.#writeOutputBatch();
     return true;
-  }
-
-  setRenderingPaused(paused: boolean): void {
-    if (this.#disposed || this.#renderingPaused === paused) return;
-    this.#renderingPaused = paused;
-    if (paused) return;
-    if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
-    else this.#scheduleOutputWrite();
   }
 
   replaceScreen(screen: string, reset = false): void {
@@ -124,8 +112,6 @@ export class TerminalScreenSync {
     this.#screenReplacementReset = reset;
     this.#pendingOutput = '';
     this.#outputOverflowed = false;
-    if (this.#outputFrame !== undefined) this.#cancelFrame(this.#outputFrame);
-    this.#outputFrame = undefined;
     this.#startScreenReplacement();
   }
 
@@ -159,24 +145,6 @@ export class TerminalScreenSync {
     this.#disposed = true;
   }
 
-  #scheduleOutputWrite(): void {
-    if (
-      this.#disposed ||
-      this.#outputOverflowed ||
-      this.#renderingPaused ||
-      !this.#terminalReady ||
-      this.#physicalWriteInFlight ||
-      this.#outputWriteInFlight ||
-      this.#outputFrame !== undefined ||
-      !this.#pendingOutput
-    )
-      return;
-    this.#outputFrame = this.#requestFrame(() => {
-      this.#outputFrame = undefined;
-      this.#writeOutputBatch();
-    });
-  }
-
   #writeSnapshotBatch(version: number, context: TerminalSnapshotContext): void {
     if (!this.#snapshotIsCurrent(version, context) || this.#snapshotWriteInFlight || this.#physicalWriteInFlight)
       return;
@@ -207,7 +175,7 @@ export class TerminalScreenSync {
     context.onRestored?.();
     this.#terminalReady = true;
     if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
-    else this.#scheduleOutputWrite();
+    else this.#writeOutputBatch();
     this.#revealSettledTerminal();
     this.#scheduleAcknowledgement(this.#snapshotAcknowledgementVersion, context);
   }
@@ -216,7 +184,7 @@ export class TerminalScreenSync {
     if (
       this.#disposed ||
       this.#outputOverflowed ||
-      this.#renderingPaused ||
+      !this.#terminalReady ||
       this.#outputWriteInFlight ||
       this.#physicalWriteInFlight ||
       !this.#pendingOutput
@@ -236,14 +204,13 @@ export class TerminalScreenSync {
         return;
       }
       this.#revealSettledTerminal();
-      this.#scheduleOutputWrite();
+      this.#writeOutputBatch();
     });
   }
 
   #startScreenReplacement(): void {
     if (
       this.#disposed ||
-      this.#renderingPaused ||
       this.#outputWriteInFlight ||
       this.#snapshotWriteInFlight ||
       this.#physicalWriteInFlight ||
@@ -270,7 +237,7 @@ export class TerminalScreenSync {
       this.#adapter.refresh();
       this.#adapter.onReadyChange(true);
       if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
-      else this.#scheduleOutputWrite();
+      else this.#writeOutputBatch();
     });
   }
 
@@ -354,11 +321,9 @@ export class TerminalScreenSync {
   #cancelPendingFrames(): void {
     if (this.#acknowledgementFrame !== undefined) this.#cancelFrame(this.#acknowledgementFrame);
     if (this.#revealFrame !== undefined) this.#cancelFrame(this.#revealFrame);
-    if (this.#outputFrame !== undefined) this.#cancelFrame(this.#outputFrame);
     if (this.#snapshotFrame !== undefined) this.#cancelFrame(this.#snapshotFrame);
     this.#acknowledgementFrame = undefined;
     this.#revealFrame = undefined;
-    this.#outputFrame = undefined;
     this.#snapshotFrame = undefined;
   }
 }

@@ -74,15 +74,15 @@ test('opens the automation Ask agent flow with its managed request context', asy
       return json({
         action: {
           id: 'automation',
-          title: 'Create an automation with an agent',
+          title: 'Manage automations with an agent',
           description: 'Vampire supplies safe automation support.',
           target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', agentLabel: 'codex' },
           context: [
             { label: 'Automation request', value: '/state/automation-requests/request.draft.json' },
             { label: 'Automation guide', value: '/state/agent-guides/workspace-automation.md' },
           ],
-          requestLabel: 'What should the automation do, and when?',
-          requestPlaceholder: 'Every weekday at 9 AM.',
+          requestLabel: 'What should the agent create or change?',
+          requestPlaceholder: 'Change “Daily review” to weekdays at 9 AM.',
           defaultRequest: '',
         },
       });
@@ -93,7 +93,7 @@ test('opens the automation Ask agent flow with its managed request context', asy
 
   await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
   expect(await screen.findByText('/state/automation-requests/request.draft.json')).toBeInTheDocument();
-  expect(screen.getByRole('textbox', { name: 'What should the automation do, and when?' })).toHaveFocus();
+  expect(screen.getByRole('textbox', { name: 'What should the agent create or change?' })).toHaveFocus();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Back' }));
   expect(screen.getByRole('button', { name: 'Ask agent…' })).toHaveFocus();
@@ -205,12 +205,12 @@ test('reports an embedded agent submission as busy until it settles', async () =
       return json({
         action: {
           id: 'automation',
-          title: 'Create an automation with an agent',
+          title: 'Manage automations with an agent',
           description: 'Vampire supplies safe automation support.',
           target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', agentLabel: 'codex' },
           context: [],
-          requestLabel: 'What should the automation do, and when?',
-          requestPlaceholder: 'Every weekday at 9 AM.',
+          requestLabel: 'What should the agent create or change?',
+          requestPlaceholder: 'Change “Daily review” to weekdays at 9 AM.',
           defaultRequest: '',
         },
       });
@@ -221,7 +221,7 @@ test('reports an embedded agent submission as busy until it settles', async () =
 
   await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
   await user.type(
-    await screen.findByRole('textbox', { name: 'What should the automation do, and when?' }),
+    await screen.findByRole('textbox', { name: 'What should the agent create or change?' }),
     'Create it.'
   );
   await user.click(screen.getByRole('button', { name: 'Send to agent' }));

@@ -96,7 +96,7 @@ onMount(() => {
   height: 100%;
   overflow: auto;
   overscroll-behavior: contain;
-  background: var(--color-surface);
+  background: var(--color-panel);
   color: var(--color-text);
 }
 .management-header {
@@ -104,7 +104,7 @@ onMount(() => {
   z-index: 2;
   top: 0;
   border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
   backdrop-filter: blur(12px);
 }
 .management-header-inner {
@@ -178,6 +178,9 @@ h1 {
 footer {
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
+}
+.management-surface :global(.vampire-button--secondary) {
+  border-color: var(--color-border-subtle);
 }
 @media (hover: hover) {
   .management-back:not(:disabled):hover {

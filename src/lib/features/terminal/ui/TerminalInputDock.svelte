@@ -1,19 +1,23 @@
 <script lang="ts">
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
-import { onDestroy } from 'svelte';
+import { onDestroy, onMount } from 'svelte';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
+import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
 
 let {
+  workspaceId,
+  terminalId,
   connected,
   send,
   submit,
-  onComposerFocusChange,
   onImageSelected,
+  scrollPageUp,
+  scrollPageDown,
   scrollToTop,
   scrollToBottom,
   fontSize,
@@ -21,13 +25,18 @@ let {
   maximumFontSize,
   decreaseFontSize,
   increaseFontSize,
+  handoffToTerminal,
+  onComposerFocus = () => undefined,
   composerElement = $bindable(),
 }: {
+  workspaceId: string;
+  terminalId?: string;
   connected: boolean;
   send: (data: string) => void;
   submit: (data: string) => boolean;
-  onComposerFocusChange: (focused: boolean) => void;
   onImageSelected: (image: File) => void;
+  scrollPageUp: () => void;
+  scrollPageDown: () => void;
   scrollToTop: () => void;
   scrollToBottom: () => void;
   fontSize: number;
@@ -35,6 +44,8 @@ let {
   maximumFontSize: number;
   decreaseFontSize: () => void;
   increaseFontSize: () => void;
+  handoffToTerminal: (data: string) => void;
+  onComposerFocus?: () => void;
   composerElement?: HTMLTextAreaElement;
 } = $props();
 
@@ -42,9 +53,45 @@ let imageInputElement: HTMLInputElement;
 let composerMessage = $state('');
 let composerDropActive = $state(false);
 let composerResizeFrame: number | undefined;
-const nativeFieldSizing = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
+let draftStorageKey = '';
+let draftStorageReady = false;
+let draftPersistenceFailed = $state(false);
+
+const COMPOSER_DRAFT_STORAGE_PREFIX = 'vampire:terminal-composer-draft:v1';
+
+function composerDraftStorageKey(workspace: string, terminal?: string): string {
+  return `${COMPOSER_DRAFT_STORAGE_PREFIX}:${encodeURIComponent(workspace)}:${encodeURIComponent(terminal ?? 'main')}`;
+}
+
+function persistComposerDraft(value = composerMessage) {
+  if (!draftStorageReady) return;
+  try {
+    if (value) window.localStorage.setItem(draftStorageKey, value);
+    else window.localStorage.removeItem(draftStorageKey);
+    draftPersistenceFailed = false;
+  } catch {
+    draftPersistenceFailed = true;
+  }
+}
+
+function updateComposerMessage(value: string) {
+  composerMessage = value;
+  persistComposerDraft(value);
+}
+
+onMount(() => {
+  draftStorageKey = composerDraftStorageKey(workspaceId, terminalId);
+  draftStorageReady = true;
+  try {
+    composerMessage = window.localStorage.getItem(draftStorageKey) ?? '';
+  } catch {
+    draftPersistenceFailed = true;
+  }
+  requestAnimationFrame(resizeComposer);
+});
 
 onDestroy(() => {
+  persistComposerDraft();
   if (composerResizeFrame !== undefined) cancelAnimationFrame(composerResizeFrame);
 });
 
@@ -59,7 +106,7 @@ function sendControl(data: string) {
 function sendComposerMessage() {
   if (!connected || !composerMessage.trim()) return;
   if (!submit(composerMessage)) return;
-  composerMessage = '';
+  updateComposerMessage('');
   requestAnimationFrame(() => {
     resizeComposer();
     composerElement?.focus();
@@ -67,7 +114,7 @@ function sendComposerMessage() {
 }
 
 function resizeComposer() {
-  if (!composerElement || nativeFieldSizing || composerResizeFrame !== undefined) return;
+  if (!composerElement || composerResizeFrame !== undefined) return;
   composerResizeFrame = requestAnimationFrame(() => {
     composerResizeFrame = undefined;
     if (!composerElement) return;
@@ -102,7 +149,7 @@ function handleComposerDrop(event: DragEvent) {
   const insertion = entries.map(workspaceEntryDragText).join(' ');
   const start = composerElement?.selectionStart ?? composerMessage.length;
   const end = composerElement?.selectionEnd ?? start;
-  composerMessage = `${composerMessage.slice(0, start)}${insertion}${composerMessage.slice(end)}`;
+  updateComposerMessage(`${composerMessage.slice(0, start)}${insertion}${composerMessage.slice(end)}`);
   const caretPosition = start + insertion.length;
   requestAnimationFrame(() => {
     composerElement?.focus();
@@ -111,11 +158,48 @@ function handleComposerDrop(event: DragEvent) {
   });
 }
 
+function handleComposerInput(event: Event) {
+  updateComposerMessage((event.currentTarget as HTMLTextAreaElement).value);
+  resizeComposer();
+}
+
+function shouldHandoffSlash(data: string | null): boolean {
+  return (
+    terminalInputPreferences.slashHandoff &&
+    data === '/' &&
+    composerMessage.length === 0 &&
+    (composerElement?.selectionStart ?? 0) === 0 &&
+    (composerElement?.selectionEnd ?? 0) === 0
+  );
+}
+
+function handleComposerBeforeInput(event: InputEvent) {
+  if (event.isComposing || event.inputType !== 'insertText' || !shouldHandoffSlash(event.data)) return;
+  event.preventDefault();
+  handoffToTerminal('/');
+}
+
+function insertComposerLineBreak() {
+  const start = composerElement?.selectionStart ?? composerMessage.length;
+  const end = composerElement?.selectionEnd ?? start;
+  updateComposerMessage(composerMessage.slice(0, start) + '\n' + composerMessage.slice(end));
+  requestAnimationFrame(() => {
+    composerElement?.setSelectionRange(start + 1, start + 1);
+    resizeComposer();
+  });
+}
+
 function handleComposerKeydown(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) return;
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && shouldHandoffSlash(event.key)) {
     event.preventDefault();
-    sendComposerMessage();
+    handoffToTerminal('/');
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (event.shiftKey) insertComposerLineBreak();
+    else sendComposerMessage();
   }
 }
 
@@ -127,7 +211,7 @@ function handleImageSelection(event: Event) {
 }
 </script>
 
-<div class="input-dock">
+<div class="input-dock" class:compose-first={terminalInputPreferences.mode === 'compose'}>
   <div class="touch-toolbar" role="group" aria-label="Terminal controls">
     <button
       type="button"
@@ -209,6 +293,26 @@ function handleImageSelection(event: Event) {
     <button
       type="button"
       class="wide-key"
+      aria-label="Scroll terminal up one page"
+      title="Scroll up one page"
+      onpointerdown={preventButtonFocus}
+      onclick={scrollPageUp}
+    >
+      PgUp
+    </button>
+    <button
+      type="button"
+      class="wide-key"
+      aria-label="Scroll terminal down one page"
+      title="Scroll down one page"
+      onpointerdown={preventButtonFocus}
+      onclick={scrollPageDown}
+    >
+      PgDn
+    </button>
+    <button
+      type="button"
+      class="wide-key"
       aria-label="Scroll to terminal bottom"
       title="Scroll to bottom"
       onpointerdown={preventButtonFocus}
@@ -260,11 +364,11 @@ function handleImageSelection(event: Event) {
     <textarea
       id="shell-message"
       bind:this={composerElement}
-      bind:value={composerMessage}
-      oninput={resizeComposer}
+      value={composerMessage}
+      oninput={handleComposerInput}
+      onbeforeinput={handleComposerBeforeInput}
       onkeydown={handleComposerKeydown}
-      onfocus={() => onComposerFocusChange(true)}
-      onblur={() => onComposerFocusChange(false)}
+      onfocus={onComposerFocus}
       rows="1"
       placeholder="Send to shell…"
       autocapitalize="off"
@@ -293,6 +397,9 @@ function handleImageSelection(event: Event) {
       <Send size={19} strokeWidth={1.8} aria-hidden="true" />
     </button>
   </div>
+  {#if draftPersistenceFailed}
+    <p class="draft-persistence-error" role="status">This draft could not be saved in this browser.</p>
+  {/if}
 </div>
 
 <style>
@@ -403,10 +510,15 @@ function handleImageSelection(event: Event) {
   font: inherit;
   font-size: 1rem;
   line-height: var(--leading-ui);
-  field-sizing: content;
 }
 .composer textarea::placeholder {
   color: var(--color-field-placeholder);
+}
+.draft-persistence-error {
+  margin: 0;
+  padding: 0.15rem var(--dock-inline-end) 0.35rem var(--dock-inline-start);
+  color: var(--color-danger-text);
+  font-size: var(--text-caption);
 }
 .composer button {
   display: grid;
@@ -444,13 +556,25 @@ function handleImageSelection(event: Event) {
   cursor: default;
 }
 
-@media (min-width: 64rem) and (pointer: fine) {
+@media (any-pointer: fine) {
   .input-dock {
     --dock-inline-start: 0.75rem;
     --dock-inline-end: 0.75rem;
   }
-  .touch-toolbar {
+  .input-dock:not(.compose-first) .touch-toolbar {
     display: none;
+  }
+  .input-dock.compose-first .touch-toolbar {
+    padding: 0.4rem var(--dock-inline-end) 0 var(--dock-inline-start);
+  }
+  .input-dock.compose-first .touch-toolbar button {
+    min-width: 2.25rem;
+    height: 2rem;
+    min-height: 2rem;
+    padding-inline: 0.55rem;
+  }
+  .input-dock.compose-first .toolbar-divider {
+    height: 1.65rem;
   }
   .composer {
     grid-template-columns: minmax(0, 1fr) var(--control-height-md) var(--control-height-md);

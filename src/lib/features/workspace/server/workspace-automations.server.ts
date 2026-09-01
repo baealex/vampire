@@ -26,7 +26,7 @@ import {
   withWorkspaceStoreMutation,
   writeWorkspaceStore,
 } from './workspace-store.server.ts';
-import { pendingWorkspaceAutomationRequestCount } from './workspace-automation-request-files.server.ts';
+import { pendingWorkspaceAutomationCreateRequestCount } from './workspace-automation-request-files.server.ts';
 
 const WORKSPACE_AUTOMATION_DISPATCH_COOLDOWN_MS = 5_000;
 
@@ -209,7 +209,7 @@ export async function createManagedWorkspaceAutomation(
     if (index < 0) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const stored = state.workspaces[index];
     const customCount = stored.automations.filter((automation) => automation.kind === 'custom').length;
-    const pendingCount = await pendingWorkspaceAutomationRequestCount(id);
+    const pendingCount = await pendingWorkspaceAutomationCreateRequestCount(id);
     if (customCount + pendingCount >= MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
@@ -238,26 +238,127 @@ export async function createManagedWorkspaceAutomationFromAgentRequest(
   value: unknown,
   now = Date.now()
 ): Promise<WorkspaceAutomation> {
-  const requestId = normalizeAgentRequestId(requestIdValue);
+  return applyManagedWorkspaceAutomationAgentRequest(
+    id,
+    requestIdValue,
+    { type: 'create', automation: { ...(isRecord(value) ? value : {}), enabled: true } },
+    now
+  );
+}
+
+type NormalizedWorkspaceAutomationAgentOperation =
+  | { type: 'create'; input: CreateWorkspaceAutomationInput; enabled: boolean }
+  | {
+      type: 'update';
+      automationId: string;
+      expectedUpdatedAt: number;
+      input: CreateWorkspaceAutomationInput;
+      enabled: boolean;
+    };
+
+function normalizeAgentAutomationConfiguration(value: unknown): {
+  input: CreateWorkspaceAutomationInput;
+  enabled: boolean;
+} {
   const input = normalizeCreateInput(value);
+  if (!isRecord(value) || typeof value.enabled !== 'boolean') {
+    throw new WorkspaceAutomationMutationError('invalid-input', 'automation.enabled must be a boolean.');
+  }
+  return { input, enabled: value.enabled };
+}
+
+function normalizeAgentOperation(value: unknown): NormalizedWorkspaceAutomationAgentOperation {
+  if (!isRecord(value)) {
+    throw new WorkspaceAutomationMutationError(
+      'invalid-input',
+      'An automation create or update operation is required.'
+    );
+  }
+  const configuration = normalizeAgentAutomationConfiguration(value.automation);
+  if (value.type === 'create') return { type: 'create', ...configuration };
+  if (value.type !== 'update') {
+    throw new WorkspaceAutomationMutationError('invalid-input', 'The automation operation must create or update.');
+  }
+  const automationId = typeof value.automationId === 'string' ? value.automationId.trim() : '';
+  if (!automationId || automationId.length > 128 || /[\0\r\n\t]/.test(automationId)) {
+    throw new WorkspaceAutomationMutationError('invalid-input', 'The automation update target is invalid.');
+  }
+  if (
+    typeof value.expectedUpdatedAt !== 'number' ||
+    !Number.isSafeInteger(value.expectedUpdatedAt) ||
+    value.expectedUpdatedAt < 0
+  ) {
+    throw new WorkspaceAutomationMutationError('invalid-input', 'The automation update version is invalid.');
+  }
+  return {
+    type: 'update',
+    automationId,
+    expectedUpdatedAt: value.expectedUpdatedAt,
+    ...configuration,
+  };
+}
+
+export async function applyManagedWorkspaceAutomationAgentRequest(
+  id: string,
+  requestIdValue: unknown,
+  value: unknown,
+  now = Date.now()
+): Promise<WorkspaceAutomation> {
+  const requestId = normalizeAgentRequestId(requestIdValue);
+  const operation = normalizeAgentOperation(value);
   return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
     const index = state.workspaces.findIndex((workspace) => workspace.id === id);
     if (index < 0) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const stored = state.workspaces[index];
-    const existing = stored.automations.find(
+    const previouslyApplied = stored.automations.find(
       (automation) => automation.kind === 'custom' && automation.agentRequestId === requestId
     );
-    if (existing) return existing;
+    if (previouslyApplied) return previouslyApplied;
+    if (operation.type === 'update') {
+      const current = stored.automations.find(
+        (automation) => automation.kind === 'custom' && automation.id === operation.automationId
+      );
+      if (!current) {
+        throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
+      }
+      if (current.updatedAt !== operation.expectedUpdatedAt) {
+        throw new WorkspaceAutomationMutationError(
+          'conflict',
+          'The automation changed after the agent request was prepared. Review the latest automation before retrying.'
+        );
+      }
+      const scheduled = automationFromInput(operation.input, now);
+      const automation: WorkspaceAutomation = {
+        ...current,
+        agentRequestId: requestId,
+        name: operation.input.name,
+        prompt: operation.input.prompt,
+        schedule: { ...operation.input.schedule },
+        enabled: operation.enabled,
+        nextRunAt: scheduled.nextRunAt,
+        updatedAt: Math.max(now, current.updatedAt + 1),
+        lastOutcome: null,
+        lastError: null,
+      };
+      const workspaces = [...state.workspaces];
+      workspaces[index] = replaceStoredAutomation(stored, automation);
+      await writeWorkspaceStore({ ...state, workspaces });
+      return automation;
+    }
+
     const customCount = stored.automations.filter((automation) => automation.kind === 'custom').length;
-    const pendingCount = await pendingWorkspaceAutomationRequestCount(id);
+    const pendingCount = Math.max(1, await pendingWorkspaceAutomationCreateRequestCount(id, requestId, now));
     if (customCount + pendingCount > MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
         `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`
       );
     }
-    const automation = automationFromInput(input, now, 'custom', undefined, requestId);
+    const automation = {
+      ...automationFromInput(operation.input, now, 'custom', undefined, requestId),
+      enabled: operation.enabled,
+    };
     const workspaces = [...state.workspaces];
     workspaces[index] = { ...stored, automations: [...stored.automations, automation] };
     await writeWorkspaceStore({ ...state, workspaces });
@@ -292,7 +393,7 @@ export async function setManagedWorkspaceAutomationEnabled(
       ...current,
       enabled,
       nextRunAt,
-      updatedAt: now,
+      updatedAt: Math.max(now, current.updatedAt + 1),
       ...(enabled ? { lastOutcome: null, lastError: null } : {}),
     };
     const updated = replaceStoredAutomation(stored, automation);
@@ -325,7 +426,7 @@ export async function updateManagedWorkspaceAutomation(
       prompt: input.prompt,
       schedule: { ...input.schedule },
       nextRunAt: scheduled.nextRunAt,
-      updatedAt: now,
+      updatedAt: Math.max(now, current.updatedAt + 1),
       lastOutcome: null,
       lastError: null,
     };
