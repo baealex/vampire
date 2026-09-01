@@ -361,14 +361,11 @@ test('keeps mobile composition visible while terminal output and viewport geomet
   }, 'printf 모바일-IME-확인');
   await composer.press('Enter');
   await expect(page.locator('.xterm-rows')).toContainText('모바일-IME-확인');
-  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
+  expect(sentTerminalMessages.map(websocketMessageType)).toContain('resize');
   await expect(composer).toBeFocused();
 });
 
-test('keeps terminal geometry stable while the mobile keyboard changes the visible viewport', async ({
-  context,
-  page,
-}) => {
+test('resizes terminal geometry to keep the mobile keyboard from hiding active content', async ({ context, page }) => {
   test.setTimeout(60_000);
   const sentTerminalMessages: Array<string | Buffer> = [];
   let delayServerMessages = false;
@@ -412,6 +409,18 @@ test('keeps terminal geometry stable while the mobile keyboard changes the visib
     .locator('.xterm-screen')
     .evaluate((screen) => screen.getBoundingClientRect().height);
 
+  // Android Firefox can leave VisualViewport at its previous height while
+  // innerHeight is the only value that reflects the software keyboard.
+  await page.evaluate(() => {
+    const visualViewport = window.visualViewport;
+    if (!visualViewport) return;
+    const staleHeight = visualViewport.height;
+    Object.defineProperty(visualViewport, 'height', {
+      configurable: true,
+      get: () => staleHeight,
+    });
+  });
+
   delayServerMessages = true;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height - 320 });
   await page.waitForTimeout(250);
@@ -419,24 +428,39 @@ test('keeps terminal geometry stable while the mobile keyboard changes the visib
   const pendingScreenHeight = await page
     .locator('.xterm-screen')
     .evaluate((screen) => screen.getBoundingClientRect().height);
-  expect(pendingScreenHeight).toBeCloseTo(initialScreenHeight, 0);
-  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
+  expect(pendingScreenHeight).toBeLessThan(initialScreenHeight);
+  expect(sentTerminalMessages.map(websocketMessageType)).toContain('resize');
 
   await expect
     .poll(() =>
       page.locator('.terminal-frame').evaluate((frame) => {
         const frameBounds = frame.getBoundingClientRect();
+        const terminalBounds = frame.querySelector<HTMLElement>(':scope > .terminal')?.getBoundingClientRect();
+        const screenBounds = frame.querySelector<HTMLElement>('.xterm-screen')?.getBoundingClientRect();
+        const cursorBounds = frame.querySelector<HTMLElement>('.xterm-helper-textarea')?.getBoundingClientRect();
         const composerBounds = document.querySelector('.composer')?.getBoundingClientRect();
         const visualViewport = window.visualViewport;
-        const viewportBottom = (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? window.innerHeight);
+        const viewportBottom =
+          (visualViewport?.offsetTop ?? 0) + Math.min(visualViewport?.height ?? window.innerHeight, window.innerHeight);
         return {
           composerFits: Boolean(composerBounds && composerBounds.bottom <= viewportBottom + 1),
-          frameClipsStableScreen: getComputedStyle(frame).overflow === 'hidden',
-          frameVisible: frameBounds.height > 0,
+          frameFitsScreen: Boolean(
+            terminalBounds &&
+              screenBounds &&
+              Math.abs(terminalBounds.height - frameBounds.height) <= 1 &&
+              screenBounds.bottom <= frameBounds.bottom + 1
+          ),
+          activeCursorVisible: Boolean(
+            cursorBounds && cursorBounds.top >= frameBounds.top - 1 && cursorBounds.bottom <= frameBounds.bottom + 1
+          ),
         };
       })
     )
-    .toEqual({ composerFits: true, frameClipsStableScreen: true, frameVisible: true });
+    .toEqual({
+      composerFits: true,
+      frameFitsScreen: true,
+      activeCursorVisible: true,
+    });
 
   delayServerMessages = false;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height });

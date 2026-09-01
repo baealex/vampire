@@ -7,7 +7,7 @@ import {
   terminalThemeColor,
   type TerminalColorSlot,
 } from '~/lib/shared/contracts/terminal-color.ts';
-import { fitTerminalToVisibleArea, terminalSizeForVisibleArea, type TerminalSize } from './fit.ts';
+import { fitTerminalToVisibleArea, type TerminalSize } from './fit.ts';
 import {
   TERMINAL_HISTORY_CHUNK_LINES,
   TERMINAL_PROTOCOL_VERSION,
@@ -25,8 +25,6 @@ const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
 const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
-const SOFT_KEYBOARD_MINIMUM_HEIGHT = 96;
-const VIEWPORT_SIZE_TOLERANCE = 2;
 const TERMINAL_BUFFER_SWITCH_PATTERN = /\u001b\[\?(?:47|1047|1049)[hl]/u;
 const TERMINAL_SYNCHRONIZED_OUTPUT_START = '\u001b[?2026h';
 const TERMINAL_SYNCHRONIZED_OUTPUT_END = '\u001b[?2026l';
@@ -93,7 +91,6 @@ export class TerminalRuntime {
   #inputNoticeAt = 0;
   #lastOutputActivityNotice = 0;
   #lastSentSize = '';
-  #compatibilityGeometryConnectionId = 0;
   #openingDelay: ReturnType<typeof setTimeout> | undefined;
   #options: TerminalRuntimeOptions;
   #outputActive = false;
@@ -121,9 +118,6 @@ export class TerminalRuntime {
   };
   #terminal: Terminal | undefined;
   #touchLayout = false;
-  #softKeyboardConstrained = false;
-  #stableViewportHeight = 0;
-  #stableViewportWidth = 0;
   #resizeObserver: ResizeObserver | undefined;
 
   constructor(options: TerminalRuntimeOptions) {
@@ -266,9 +260,6 @@ export class TerminalRuntime {
     const finePointer = hasFinePointer();
     const desktopInput = finePointer;
     this.#touchLayout = !finePointer;
-    const initialViewport = window.visualViewport;
-    this.#stableViewportHeight = initialViewport?.height ?? window.innerHeight;
-    this.#stableViewportWidth = initialViewport?.width ?? window.innerWidth;
     const scrollback = this.#touchLayout ? TERMINAL_SCROLLBACK_LINES.reduced : TERMINAL_SCROLLBACK_LINES.standard;
     this.#historyMaximum = scrollback;
     this.#historyChunkLines = this.#touchLayout
@@ -392,7 +383,6 @@ export class TerminalRuntime {
           if (this.#destroyed) return;
           if (message.type === 'geometry') {
             this.#geometryConnectionId = context.id;
-            if (this.#compatibilityGeometryConnectionId === context.id) this.#compatibilityGeometryConnectionId = 0;
             if (message.active !== undefined) this.#updateState({ controlsTerminal: message.active });
             this.#applyGeometry({ columns: message.columns, rows: message.rows });
           } else if (message.type === 'request-terminal-theme') {
@@ -406,7 +396,6 @@ export class TerminalRuntime {
             if (this.#geometryConnectionId !== context.id) {
               // A pre-geometry server ignores the protocol query. Keep its compatibility
               // client-side fit behavior until this page reconnects to a newer server.
-              this.#compatibilityGeometryConnectionId = context.id;
               this.#scheduleResize();
             }
             this.#updateState({ reconnecting: false });
@@ -659,15 +648,12 @@ export class TerminalRuntime {
     const fitAddon = this.#fit;
     if (!fitAddon) return;
     const connection = this.#connection;
-    const proposed = terminalSizeForVisibleArea(fitAddon);
-    if (!proposed) return;
-    const dimensions =
-      connection && this.#compatibilityGeometryConnectionId === connection.connectionId
-        ? fitTerminalToVisibleArea(fitAddon, (columns, rows) => {
-            const terminal = this.#terminal;
-            if (terminal) terminal.resize(columns, rows);
-          })
-        : proposed;
+    // Fit the browser immediately. Waiting for the server geometry echo leaves
+    // the old xterm rows clipped behind a mobile software keyboard.
+    const dimensions = fitTerminalToVisibleArea(fitAddon, (columns, rows) => {
+      const terminal = this.#terminal;
+      if (terminal) terminal.resize(columns, rows);
+    });
     if (!dimensions) return;
     this.#requestedSize = dimensions;
     this.#updateControlSizeMismatch();
@@ -683,35 +669,8 @@ export class TerminalRuntime {
     if (this.#resizeFrame !== undefined) return;
     this.#resizeFrame = requestAnimationFrame(() => {
       this.#resizeFrame = undefined;
-      if (!this.#destroyed && !this.#softKeyboardOwnsViewportResize()) this.#sendSize();
+      if (!this.#destroyed) this.#sendSize();
     });
-  }
-
-  #softKeyboardOwnsViewportResize(): boolean {
-    const viewport = window.visualViewport;
-    const width = viewport?.width ?? window.innerWidth;
-    const height = viewport?.height ?? window.innerHeight;
-    if (!this.#touchLayout && navigator.maxTouchPoints < 1) return false;
-    if (Math.abs(width - this.#stableViewportWidth) > VIEWPORT_SIZE_TOLERANCE) {
-      this.#stableViewportWidth = width;
-      this.#stableViewportHeight = height;
-      this.#softKeyboardConstrained = false;
-      return false;
-    }
-
-    const activeElement = document.activeElement;
-    const acceptsText =
-      activeElement instanceof HTMLInputElement ||
-      activeElement instanceof HTMLTextAreaElement ||
-      (activeElement instanceof HTMLElement && activeElement.isContentEditable);
-    if (acceptsText && this.#stableViewportHeight - height >= SOFT_KEYBOARD_MINIMUM_HEIGHT) {
-      this.#softKeyboardConstrained = true;
-    }
-    if (this.#softKeyboardConstrained && height < this.#stableViewportHeight - VIEWPORT_SIZE_TOLERANCE) return true;
-
-    this.#softKeyboardConstrained = false;
-    this.#stableViewportHeight = Math.max(this.#stableViewportHeight, height);
-    return false;
   }
 
   #cancelScheduledResize(): void {

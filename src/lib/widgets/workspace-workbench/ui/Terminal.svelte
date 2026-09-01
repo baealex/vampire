@@ -81,14 +81,15 @@ onMount(() => {
   const applyViewport = () => {
     viewportFrame = undefined;
     const viewport = window.visualViewport;
-    const keyboardConstrained = Boolean(viewport && viewport.height + 1 < window.innerHeight);
-    visualViewportConstrained = !isDesktopInteractionViewport() || keyboardConstrained;
+    // Android Firefox can expose VisualViewport while only shrinking
+    // innerHeight for the software keyboard. Use the smaller visible area.
+    const height = Math.round(Math.min(viewport?.height ?? window.innerHeight, window.innerHeight));
+    visualViewportConstrained = !isDesktopInteractionViewport() || height + 1 < window.innerHeight;
     if (!visualViewportConstrained) {
       compactViewport = false;
       viewportStyle = '';
       return;
     }
-    const height = Math.round(viewport?.height ?? window.innerHeight);
     const top = Math.round(viewport?.offsetTop ?? 0);
     compactViewport = height <= 360;
     viewportStyle = `--terminal-viewport-height: ${height}px; --terminal-viewport-top: ${top}px;`;
