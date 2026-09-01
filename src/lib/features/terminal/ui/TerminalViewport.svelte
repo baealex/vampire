@@ -19,10 +19,7 @@ import {
 import '@xterm/xterm/css/xterm.css';
 import { terminalInputPreferences, type TerminalInputMode } from '../model/input-preferences.svelte.ts';
 import { hasFinePointer } from '~/lib/shared/ui/layout';
-import type {
-  WorkspaceComposerPrompt,
-  WorkspaceComposerPromptPreview,
-} from '~/lib/shared/contracts/workspace-composer-history.ts';
+import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspaceId,
@@ -30,7 +27,6 @@ let {
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
   composerHistoryEnabled = true,
-  promptPreview = null,
   onRecordComposerPrompt,
   onLoadComposerPrompts,
   onRepositoryStatus = () => undefined,
@@ -46,7 +42,6 @@ let {
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
   composerHistoryEnabled?: boolean;
-  promptPreview?: WorkspaceComposerPromptPreview | null;
   onRecordComposerPrompt: (workspaceId: string, prompt: string) => Promise<void>;
   onLoadComposerPrompts: (workspaceId: string, refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   onRepositoryStatus?: (changeCount: number, worktreeCount: number, branch?: string) => void;
@@ -112,30 +107,18 @@ function changeTerminalFontSize(delta: number) {
 }
 
 function focusPreferredInputAfterTerminalTap() {
-  if (
-    terminalInputPreferences.mode === 'compose' &&
-    inputOwner === 'compose' &&
-    !runtime?.shouldPreserveDirectFocus()
-  ) {
-    if (preferredFocusFrame !== undefined) cancelAnimationFrame(preferredFocusFrame);
-    preferredFocusFrame = requestAnimationFrame(() => {
-      preferredFocusFrame = undefined;
-      if (
-        terminalInputPreferences.mode !== 'compose' ||
-        inputOwner !== 'compose' ||
-        runtime?.shouldPreserveDirectFocus()
-      )
-        return;
-      composerElement?.focus({ preventScroll: true });
-    });
+  if (terminalInputPreferences.mode !== 'compose' || inputOwner !== 'compose') {
+    inputOwner = 'terminal';
+    runtime?.focus();
     return;
   }
-  inputOwner = 'terminal';
-  runtime?.focus();
-}
-
-function claimTerminalInput() {
-  inputOwner = 'terminal';
+  if (preferredFocusFrame !== undefined) cancelAnimationFrame(preferredFocusFrame);
+  preferredFocusFrame = requestAnimationFrame(() => {
+    preferredFocusFrame = undefined;
+    if (terminalInputPreferences.mode !== 'compose' || inputOwner !== 'compose') return;
+    if (runtime?.shouldPreserveDirectFocus()) return;
+    composerElement?.focus({ preventScroll: true });
+  });
 }
 
 function dataTransferTypes(event: DragEvent): string[] {
@@ -220,7 +203,6 @@ onMount(() => {
     onOutputActivity,
     onRepositoryStatus,
     onStateChange: applyRuntimeState,
-    onTerminalInteraction: claimTerminalInput,
     onTerminalTap: focusPreferredInputAfterTerminalTap,
   });
   runtime = terminalRuntime;
@@ -334,7 +316,6 @@ onMount(() => {
     {composerHistoryEnabled}
     scrollPageUp={() => runtime?.scrollPageUp()}
     scrollPageDown={() => runtime?.scrollPageDown()}
-    {promptPreview}
     onSubmitted={(prompt) => onRecordComposerPrompt(workspaceId, prompt)}
     loadPrompts={(refresh) => onLoadComposerPrompts(workspaceId, refresh)}
     scrollToTop={() => runtime?.scrollToTop()}

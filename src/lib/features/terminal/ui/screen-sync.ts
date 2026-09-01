@@ -20,6 +20,7 @@ export interface TerminalSnapshotContext {
 export interface TerminalScreenAdapter {
   reset: () => void;
   write: (data: string, complete: () => void) => void;
+  resetAndWrite: (data: string, complete: () => void) => void;
   refresh: () => void;
   onReadyChange: (ready: boolean) => void;
   onWriteComplete: () => void;
@@ -226,19 +227,22 @@ export class TerminalScreenSync {
     this.#terminalReady = false;
     this.#screenReady = false;
     this.#adapter.onReadyChange(false);
-    if (reset) this.#adapter.reset();
     this.#snapshotWriteInFlight = true;
-    this.#writePhysical(screen, () => {
-      if (this.#disposed || version !== this.#snapshotVersion) return;
-      this.#snapshotWriteInFlight = false;
-      this.#terminalReady = true;
-      this.#screenReady = true;
-      this.#adapter.onScreenReplaced?.();
-      this.#adapter.refresh();
-      this.#adapter.onReadyChange(true);
-      if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
-      else this.#writeOutputBatch();
-    });
+    this.#writePhysical(
+      screen,
+      () => {
+        if (this.#disposed || version !== this.#snapshotVersion) return;
+        this.#snapshotWriteInFlight = false;
+        this.#terminalReady = true;
+        this.#screenReady = true;
+        this.#adapter.onScreenReplaced?.();
+        this.#adapter.refresh();
+        this.#adapter.onReadyChange(true);
+        if (this.#screenReplacement !== undefined) this.#startScreenReplacement();
+        else this.#writeOutputBatch();
+      },
+      reset
+    );
   }
 
   #startPendingSnapshot(): void {
@@ -250,10 +254,11 @@ export class TerminalScreenSync {
     this.#writeSnapshotBatch(pending.version, pending.context);
   }
 
-  #writePhysical(data: string, complete: () => void): void {
+  #writePhysical(data: string, complete: () => void, reset = false): void {
     if (this.#physicalWriteInFlight) throw new Error('Terminal writes must be serialized.');
     this.#physicalWriteInFlight = true;
-    this.#adapter.write(data, () => {
+    const write = reset ? this.#adapter.resetAndWrite : this.#adapter.write;
+    write(data, () => {
       this.#physicalWriteInFlight = false;
       if (this.#disposed) return;
       if (this.#pendingSnapshotStart) {

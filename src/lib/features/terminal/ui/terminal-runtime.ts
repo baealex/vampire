@@ -25,6 +25,11 @@ const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
 const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
+const SOFT_KEYBOARD_MINIMUM_HEIGHT = 96;
+const VIEWPORT_SIZE_TOLERANCE = 2;
+const TERMINAL_BUFFER_SWITCH_PATTERN = /\u001b\[\?(?:47|1047|1049)[hl]/u;
+const TERMINAL_SYNCHRONIZED_OUTPUT_START = '\u001b[?2026h';
+const TERMINAL_SYNCHRONIZED_OUTPUT_END = '\u001b[?2026l';
 
 export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
 
@@ -56,7 +61,6 @@ export interface TerminalRuntimeOptions {
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onRepositoryStatus: (changeCount: number, worktreeCount: number, branch?: string) => void;
   onStateChange: (state: Readonly<TerminalRuntimeState>) => void;
-  onTerminalInteraction: () => void;
   onTerminalTap: () => void;
 }
 
@@ -117,6 +121,9 @@ export class TerminalRuntime {
   };
   #terminal: Terminal | undefined;
   #touchLayout = false;
+  #softKeyboardConstrained = false;
+  #stableViewportHeight = 0;
+  #stableViewportWidth = 0;
   #resizeObserver: ResizeObserver | undefined;
 
   constructor(options: TerminalRuntimeOptions) {
@@ -143,7 +150,6 @@ export class TerminalRuntime {
     this.#options.element.addEventListener('wheel', this.#handleTerminalWheel, { passive: true });
     this.#removeTouchScroll = installTerminalTouchScroll(this.#options.element, () => this.#terminal, {
       onScrollAttempt: (lines) => this.#handleTerminalTouchScroll(lines),
-      onScrollStart: this.#options.onTerminalInteraction,
       onTap: this.#options.onTerminalTap,
       useNativeInteraction: () => true,
     });
@@ -260,6 +266,9 @@ export class TerminalRuntime {
     const finePointer = hasFinePointer();
     const desktopInput = finePointer;
     this.#touchLayout = !finePointer;
+    const initialViewport = window.visualViewport;
+    this.#stableViewportHeight = initialViewport?.height ?? window.innerHeight;
+    this.#stableViewportWidth = initialViewport?.width ?? window.innerWidth;
     const scrollback = this.#touchLayout ? TERMINAL_SCROLLBACK_LINES.reduced : TERMINAL_SCROLLBACK_LINES.standard;
     this.#historyMaximum = scrollback;
     this.#historyChunkLines = this.#touchLayout
@@ -294,9 +303,26 @@ export class TerminalRuntime {
     terminal.loadAddon(fitAddon);
     terminal.open(this.#options.element);
 
+    const writeTerminalData = (data: string, complete: () => void): void => {
+      if (!TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) {
+        terminal.write(data, complete);
+        return;
+      }
+      // Keep synchronized-output mode active while xterm parses a buffer
+      // switch. Separate parser writes are required: refresh requests are
+      // emitted after each write has parsed, not while one combined string is
+      // being consumed.
+      terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_START, () => {
+        terminal.write(data, () => terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_END, complete));
+      });
+    };
+
     this.#screenSync = new TerminalScreenSync({
       reset: () => terminal.reset(),
-      write: (data, complete) => terminal.write(data, complete),
+      write: writeTerminalData,
+      // Keep an authoritative reset and its replacement screen in one parser
+      // batch so the renderer never exposes the cleared buffer between them.
+      resetAndWrite: (data, complete) => writeTerminalData(`\u001bc${data}`, complete),
       refresh: () => this.#refreshTerminalDisplay(),
       onReadyChange: (ready) => {
         this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
@@ -657,8 +683,35 @@ export class TerminalRuntime {
     if (this.#resizeFrame !== undefined) return;
     this.#resizeFrame = requestAnimationFrame(() => {
       this.#resizeFrame = undefined;
-      if (!this.#destroyed) this.#sendSize();
+      if (!this.#destroyed && !this.#softKeyboardOwnsViewportResize()) this.#sendSize();
     });
+  }
+
+  #softKeyboardOwnsViewportResize(): boolean {
+    const viewport = window.visualViewport;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    if (!this.#touchLayout && navigator.maxTouchPoints < 1) return false;
+    if (Math.abs(width - this.#stableViewportWidth) > VIEWPORT_SIZE_TOLERANCE) {
+      this.#stableViewportWidth = width;
+      this.#stableViewportHeight = height;
+      this.#softKeyboardConstrained = false;
+      return false;
+    }
+
+    const activeElement = document.activeElement;
+    const acceptsText =
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      (activeElement instanceof HTMLElement && activeElement.isContentEditable);
+    if (acceptsText && this.#stableViewportHeight - height >= SOFT_KEYBOARD_MINIMUM_HEIGHT) {
+      this.#softKeyboardConstrained = true;
+    }
+    if (this.#softKeyboardConstrained && height < this.#stableViewportHeight - VIEWPORT_SIZE_TOLERANCE) return true;
+
+    this.#softKeyboardConstrained = false;
+    this.#stableViewportHeight = Math.max(this.#stableViewportHeight, height);
+    return false;
   }
 
   #cancelScheduledResize(): void {

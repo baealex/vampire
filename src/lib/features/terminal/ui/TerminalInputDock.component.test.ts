@@ -25,7 +25,6 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
       connected: true,
       send,
       submit,
-      promptPreview: { text: 'Review the automation queue', submittedAt: 2 },
       onSubmitted,
       loadPrompts,
       handoffToTerminal,
@@ -50,8 +49,9 @@ beforeEach(() => {
 test('opens exact workspace Composer history and inserts a selected prompt without sending it', async () => {
   const { submit } = renderDock();
 
-  expect(screen.getByText('Review the automation queue')).toBeInTheDocument();
+  expect(screen.queryByText('Review the automation queue')).not.toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'Open Composer history' }));
+  expect(await screen.findByText('Review the automation queue')).toBeInTheDocument();
   await fireEvent.click(await screen.findByRole('button', { name: /Check the current tests/ }));
 
   expect(screen.getByLabelText('Send text to the shell')).toHaveValue('Check the current tests');

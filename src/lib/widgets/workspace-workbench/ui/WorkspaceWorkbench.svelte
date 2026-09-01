@@ -278,7 +278,12 @@ onMount(() => {
 });
 </script>
 
-<section class="workspace-workbench" class:repository-open={repositoryOpen} class:side-panel-open={sidePanelOpen}>
+<section
+  class="workspace-workbench"
+  class:repository-open={repositoryOpen}
+  class:repository-viewing={repositoryOpen && Boolean(repository.selection)}
+  class:side-panel-open={sidePanelOpen}
+>
   <div class="workspace-primary">
     <Terminal
       {workspace}
@@ -531,10 +536,12 @@ onMount(() => {
   box-shadow: var(--shadow-repository-panel);
   color: var(--color-text);
   pointer-events: none;
+  visibility: hidden;
 }
 .workspace-note-panel.open {
   transform: translateX(0);
   pointer-events: auto;
+  visibility: visible;
 }
 .workspace-note-panel :global(.note-editor.panel) {
   flex: 1 1 auto;
@@ -545,32 +552,8 @@ onMount(() => {
 }
 
 @media (min-width: 80rem) {
-  .workspace-workbench {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 0fr;
-  }
-  .workspace-workbench.side-panel-open {
-    grid-template-columns: minmax(0, 1fr) var(--workspace-panel-width);
-  }
-  .workspace-primary {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .workspace-note-panel {
-    position: relative;
-    z-index: 1;
-    top: auto;
-    right: auto;
-    grid-column: 2;
-    grid-row: 1;
-    width: 100%;
-    height: 100%;
-    transform: none;
-    box-shadow: none;
-    visibility: hidden;
-  }
-  .workspace-note-panel.open {
-    visibility: visible;
+  .workspace-workbench.repository-viewing .workspace-primary :global(.repository-viewer) {
+    right: var(--workspace-panel-width);
   }
 }
 
@@ -585,7 +568,12 @@ onMount(() => {
     height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
-    transition: transform 180ms ease;
+    transition:
+      transform 180ms ease,
+      visibility 0s linear 180ms;
+  }
+  .workspace-note-panel.open {
+    transition-delay: 0s;
   }
 }
 

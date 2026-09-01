@@ -297,10 +297,10 @@ async function openStatusWidgets(workspaceId?: string) {
 
 async function restoreManagementTrigger(view: ManagementView) {
   await tick();
-  let target =
-    view === 'settings'
-      ? document.querySelector<HTMLElement>('[aria-label="Open settings"]')
-      : document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
+  // Closing global settings returns to the user's preferred terminal input
+  // surface. Other management pages still restore the control that opened them.
+  if (view === 'settings') return;
+  let target = document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
   if (view === 'automations') {
     const workspaceActions = document.querySelector<HTMLElement>(
       '.workspace-row-shell.selected [aria-label^="Workspace actions for"]'

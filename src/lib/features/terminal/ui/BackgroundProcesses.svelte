@@ -479,10 +479,12 @@ function closePanel() {
   box-shadow: var(--shadow-repository-panel);
   color: var(--color-text);
   pointer-events: none;
+  visibility: hidden;
 }
 .background-panel.open {
   transform: translateX(0);
   pointer-events: auto;
+  visibility: visible;
 }
 .background-view {
   display: flex;
@@ -898,25 +900,6 @@ function closePanel() {
   word-break: break-word;
 }
 
-@media (min-width: 80rem) {
-  .background-panel {
-    position: relative;
-    z-index: 1;
-    top: auto;
-    right: auto;
-    grid-column: 2;
-    grid-row: 1;
-    width: 100%;
-    height: 100%;
-    transform: none;
-    box-shadow: none;
-    visibility: hidden;
-  }
-  .background-panel.open {
-    visibility: visible;
-  }
-}
-
 @media (width < 80rem) {
   .background-panel {
     position: fixed;
@@ -925,7 +908,12 @@ function closePanel() {
     height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
-    transition: transform 180ms ease;
+    transition:
+      transform 180ms ease,
+      visibility 0s linear 180ms;
+  }
+  .background-panel.open {
+    transition-delay: 0s;
   }
 }
 

@@ -2,18 +2,15 @@
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
 import History from '@lucide/svelte/icons/history';
-import X from '@lucide/svelte/icons/x';
 import { onDestroy, onMount } from 'svelte';
+import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
-import type {
-  WorkspaceComposerPrompt,
-  WorkspaceComposerPromptPreview,
-} from '~/lib/shared/contracts/workspace-composer-history.ts';
+import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspaceId,
@@ -22,7 +19,6 @@ let {
   send,
   submit,
   composerHistoryEnabled = true,
-  promptPreview = null,
   onSubmitted,
   loadPrompts,
   onImageSelected,
@@ -45,7 +41,6 @@ let {
   send: (data: string) => void;
   submit: (data: string) => boolean;
   composerHistoryEnabled?: boolean;
-  promptPreview?: WorkspaceComposerPromptPreview | null;
   onSubmitted: (prompt: string) => Promise<void>;
   loadPrompts: (refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   onImageSelected: (image: File) => void;
@@ -423,110 +418,110 @@ function handleImageSelection(event: Event) {
     </button>
   </div>
   {#if composerHistoryEnabled && promptHistoryOpen}
-    <section class="prompt-history" id="composer-prompt-history" aria-label="Composer history">
-      <header>
-        <strong>Composer history</strong>
-        <button type="button" onclick={closePromptHistory} aria-label="Close Composer history" title="Close history">
-          <X size={17} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      </header>
-      {#if promptHistoryLoading}
-        <p class="prompt-history-message" role="status">Loading history…</p>
-      {:else if promptHistoryError}
-        <p class="prompt-history-message error" role="alert">{promptHistoryError}</p>
-      {:else if promptHistory.length === 0}
-        <p class="prompt-history-message">Prompts sent from this Composer will appear here.</p>
-      {:else}
-        <div class="prompt-history-list">
-          {#each promptHistory as prompt (prompt.id)}
-            <button type="button" class="prompt-history-item" onclick={() => insertComposerPrompt(prompt.text)}>
-              <span>{prompt.text}</span>
-              <time datetime={new Date(prompt.submittedAt).toISOString()}
-                >{formatPromptTimestamp(prompt.submittedAt)}</time
-              >
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </section>
-  {:else if composerHistoryEnabled && promptPreview}
-    <button type="button" class="last-prompt" onclick={openPromptHistory} title={promptPreview.text}>
-      <span class="last-prompt-label">Last sent</span>
-      <span class="last-prompt-text">{promptPreview.text}</span>
-    </button>
+    <DialogShell
+      title="Composer history"
+      close={closePromptHistory}
+      closeLabel="Close Composer history"
+      contentId="composer-prompt-history"
+    >
+      {#snippet children()}
+        <section class="prompt-history" aria-label="Composer history">
+          {#if promptHistoryLoading}
+            <p class="prompt-history-message" role="status">Loading history…</p>
+          {:else if promptHistoryError}
+            <p class="prompt-history-message error" role="alert">{promptHistoryError}</p>
+          {:else if promptHistory.length === 0}
+            <p class="prompt-history-message">Prompts sent from this Composer will appear here.</p>
+          {:else}
+            <div class="prompt-history-list">
+              {#each promptHistory as prompt (prompt.id)}
+                <button type="button" class="prompt-history-item" onclick={() => insertComposerPrompt(prompt.text)}>
+                  <span>{prompt.text}</span>
+                  <time datetime={new Date(prompt.submittedAt).toISOString()}
+                    >{formatPromptTimestamp(prompt.submittedAt)}</time
+                  >
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/snippet}
+    </DialogShell>
   {/if}
   {#if promptSaveError}
     <p class="prompt-save-error" role="alert">{promptSaveError}</p>
   {/if}
-  <div
-    class="composer"
-    class:history-disabled={!composerHistoryEnabled}
-    class:drop-target={composerDropActive}
-    role="group"
-    aria-label="Terminal input"
-    ondragenter={handleComposerDragOver}
-    ondragover={handleComposerDragOver}
-    ondragleave={handleComposerDragLeave}
-    ondrop={handleComposerDrop}
-  >
-    <label class="visually-hidden" for="shell-message">Send text to the shell</label>
-    <input
-      class="visually-hidden"
-      bind:this={imageInputElement}
-      type="file"
-      accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
-      onchange={handleImageSelection}
-      tabindex="-1"
+  <div class="composer-slot">
+    <div
+      class="composer"
+      class:history-disabled={!composerHistoryEnabled}
+      class:drop-target={composerDropActive}
+      role="group"
+      aria-label="Terminal input"
+      ondragenter={handleComposerDragOver}
+      ondragover={handleComposerDragOver}
+      ondragleave={handleComposerDragLeave}
+      ondrop={handleComposerDrop}
     >
-    <textarea
-      id="shell-message"
-      bind:this={composerElement}
-      value={composerMessage}
-      oninput={handleComposerInput}
-      onbeforeinput={handleComposerBeforeInput}
-      onkeydown={handleComposerKeydown}
-      onfocus={onComposerFocus}
-      rows="1"
-      placeholder="Send to shell…"
-      autocapitalize="off"
-      autocomplete="off"
-      spellcheck="false"
-    ></textarea>
-    {#if composerHistoryEnabled}
+      <label class="visually-hidden" for="shell-message">Send text to the shell</label>
+      <input
+        class="visually-hidden"
+        bind:this={imageInputElement}
+        type="file"
+        accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+        onchange={handleImageSelection}
+        tabindex="-1"
+      >
+      <textarea
+        id="shell-message"
+        bind:this={composerElement}
+        value={composerMessage}
+        oninput={handleComposerInput}
+        onbeforeinput={handleComposerBeforeInput}
+        onkeydown={handleComposerKeydown}
+        onfocus={onComposerFocus}
+        rows="1"
+        placeholder="Send to shell…"
+        autocapitalize="off"
+        autocomplete="off"
+        spellcheck="false"
+      ></textarea>
+      {#if composerHistoryEnabled}
+        <button
+          class="history-button"
+          type="button"
+          onpointerdown={preventButtonFocus}
+          onclick={() => promptHistoryOpen ? closePromptHistory() : void openPromptHistory()}
+          aria-label={promptHistoryOpen ? 'Close Composer history' : 'Open Composer history'}
+          aria-expanded={promptHistoryOpen}
+          aria-controls="composer-prompt-history"
+          title="Composer history"
+        >
+          <History size={18} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      {/if}
       <button
-        class="history-button"
+        class="image-button"
+        type="button"
+        onclick={() => imageInputElement?.click()}
+        disabled={!connected}
+        aria-label="Send an image to the shell"
+        title="Send an image"
+      >
+        <ImagePlus size={18} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      <button
+        class="send-button"
         type="button"
         onpointerdown={preventButtonFocus}
-        onclick={() => promptHistoryOpen ? closePromptHistory() : void openPromptHistory()}
-        aria-label={promptHistoryOpen ? 'Close Composer history' : 'Open Composer history'}
-        aria-expanded={promptHistoryOpen}
-        aria-controls="composer-prompt-history"
-        title="Composer history"
+        onclick={sendComposerMessage}
+        disabled={!connected || !composerMessage.trim()}
+        aria-label="Send to shell"
+        title="Send text and press Enter"
       >
-        <History size={18} strokeWidth={1.8} aria-hidden="true" />
+        <Send size={19} strokeWidth={1.8} aria-hidden="true" />
       </button>
-    {/if}
-    <button
-      class="image-button"
-      type="button"
-      onclick={() => imageInputElement?.click()}
-      disabled={!connected}
-      aria-label="Send an image to the shell"
-      title="Send an image"
-    >
-      <ImagePlus size={18} strokeWidth={1.8} aria-hidden="true" />
-    </button>
-    <button
-      class="send-button"
-      type="button"
-      onpointerdown={preventButtonFocus}
-      onclick={sendComposerMessage}
-      disabled={!connected || !composerMessage.trim()}
-      aria-label="Send to shell"
-      title="Send text and press Enter"
-    >
-      <Send size={19} strokeWidth={1.8} aria-hidden="true" />
-    </button>
+    </div>
   </div>
   {#if draftPersistenceFailed}
     <p class="draft-persistence-error" role="status">This draft could not be saved in this browser.</p>
@@ -537,7 +532,9 @@ function handleImageSelection(event: Event) {
 .input-dock {
   --dock-inline-start: max(0.55rem, env(safe-area-inset-left));
   --dock-inline-end: max(0.55rem, env(safe-area-inset-right));
+  --composer-control-size: 2.5rem;
   min-width: 0;
+  position: relative;
   border-top: 1px solid var(--color-border-subtle);
   background: var(--color-panel);
   box-shadow: var(--shadow-terminal-dock);
@@ -593,20 +590,29 @@ function handleImageSelection(event: Event) {
   margin: 0 0.15rem;
   background: var(--color-border);
 }
-.composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, var(--control-height-md));
-  align-items: center;
-  gap: 0.2rem;
-  min-width: 0;
+.composer-slot {
+  position: relative;
+  height: calc(var(--composer-control-size) + 0.36rem + 2px);
   margin: 0.35rem var(--dock-inline-end) max(0.5rem, env(safe-area-inset-bottom)) var(--dock-inline-start);
+}
+.composer {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
+  align-items: end;
+  gap: 0.35rem;
+  min-width: 0;
   padding: 0.18rem;
   border: 1px solid var(--color-border);
   border-radius: 0.78rem;
   background: var(--color-control-background);
 }
 .composer.history-disabled {
-  grid-template-columns: minmax(0, 1fr) repeat(2, var(--control-height-md));
+  grid-template-columns: minmax(0, 1fr) repeat(2, var(--composer-control-size));
 }
 .composer:focus-within {
   border-color: var(--color-accent);
@@ -631,9 +637,9 @@ function handleImageSelection(event: Event) {
 .composer textarea {
   width: 100%;
   min-width: 0;
-  min-height: var(--control-height-md);
+  min-height: var(--composer-control-size);
   max-height: 8rem;
-  padding: 0.58rem 0.62rem;
+  padding: 0.52rem 0.62rem;
   overflow-y: auto;
   resize: none;
   border: 0;
@@ -657,8 +663,8 @@ function handleImageSelection(event: Event) {
 .composer button {
   display: grid;
   place-items: center;
-  width: var(--control-height-md);
-  height: var(--control-height-md);
+  width: var(--composer-control-size);
+  height: var(--composer-control-size);
   padding: 0;
   border: 0;
   border-radius: 0.58rem;
@@ -680,63 +686,15 @@ function handleImageSelection(event: Event) {
     color: var(--color-text);
   }
 }
-.last-prompt {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.45rem;
-  width: calc(100% - var(--dock-inline-start) - var(--dock-inline-end));
-  margin: 0.35rem var(--dock-inline-end) 0 var(--dock-inline-start);
-  padding: 0.2rem 0.35rem;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font: inherit;
-  font-size: var(--text-caption);
-  text-align: left;
-  cursor: pointer;
-}
-.last-prompt-label {
-  color: var(--color-text-disabled);
-}
-.last-prompt-text {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .prompt-history {
-  max-height: min(18rem, 42vh);
-  margin: 0.45rem var(--dock-inline-end) 0 var(--dock-inline-start);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-raised);
-}
-.prompt-history header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 0.6rem 0.4rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  font-size: var(--text-label);
-}
-.prompt-history header button {
-  display: grid;
-  place-items: center;
-  width: var(--control-height-sm);
-  height: var(--control-height-sm);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
+  min-width: 0;
 }
 .prompt-history-list {
-  max-height: 14rem;
+  max-height: min(24rem, 55dvh);
   overflow-y: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
 }
 .prompt-history-item {
   display: grid;
@@ -755,9 +713,7 @@ function handleImageSelection(event: Event) {
   border-bottom: 0;
 }
 @media (hover: hover) {
-  .prompt-history-item:hover,
-  .prompt-history header button:hover,
-  .last-prompt:hover {
+  .prompt-history-item:hover {
     background: var(--color-surface-hover);
   }
 }
@@ -825,7 +781,10 @@ function handleImageSelection(event: Event) {
     height: 1.65rem;
   }
   .composer {
-    grid-template-columns: minmax(0, 1fr) repeat(3, var(--control-height-md));
+    grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
+    gap: 0.2rem;
+  }
+  .composer-slot {
     margin: 0.6rem var(--dock-inline-end) 0.7rem var(--dock-inline-start);
   }
   .composer textarea {

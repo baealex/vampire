@@ -398,8 +398,20 @@ test('focuses the selected input surface and keeps Shift+Enter distinct in the t
   const composer = page.getByPlaceholder('Send to shell…');
   await expect(composer).toBeFocused();
   await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
-  await page.getByRole('application', { name: 'Interactive shell terminal' }).click({ position: { x: 80, y: 80 } });
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  await terminal.click({ position: { x: 80, y: 80 } });
   await expect(composer).toBeFocused();
+
+  const terminalBounds = await terminal.boundingBox();
+  expect(terminalBounds).not.toBeNull();
+  await page.mouse.move(terminalBounds!.x + 36, terminalBounds!.y + 28);
+  await page.mouse.down();
+  await page.mouse.move(terminalBounds!.x + 180, terminalBounds!.y + 28);
+  await page.mouse.up();
+  await expect(terminal.locator('.xterm-selection > div')).not.toHaveCount(0);
+  await terminal.click({ position: { x: 80, y: 80 } });
+  await expect(composer).toBeFocused();
+
   await composer.pressSequentially('/');
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
   await expect
@@ -418,6 +430,29 @@ test('focuses the selected input surface and keeps Shift+Enter distinct in the t
   await expect
     .poll(() => messages.some((message) => message.direction === 'client' && message.data === '\u001b[13;2u'))
     .toBe(true);
+});
+
+test('keeps terminal geometry stable while Composer expands and history opens', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
+  const terminalRows = page.locator('.xterm-rows');
+  const initialRenderedRows = await terminalRows.evaluate((rows) => rows.childElementCount);
+  const composer = page.getByPlaceholder('Send to shell…');
+
+  await composer.fill('First line\nSecond line\nThird line\nFourth line');
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(80);
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
+  await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
+
+  await page.getByRole('button', { name: 'Open Composer history' }).click();
+  await expect(page.getByRole('dialog', { name: 'Composer history' })).toBeVisible();
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
+  await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 });
 
 async function dropWorkspaceEntry(target: Locator, entry: { path: string; kind: 'file' | 'directory' }): Promise<void> {
@@ -2345,13 +2380,14 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   await expect(endedGroup.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
 });
 
-test('resizes the terminal area when opening the repository panel', async ({ context, page }) => {
+test('overlays the repository panel without resizing the terminal area', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  const terminalGeometryBeforePanel = await tmuxPaneGeometry(workspace.tmuxSession);
   const terminalWidthBeforePanel = await page
     .locator('.workspace-primary')
     .evaluate((element) => element.getBoundingClientRect().width);
@@ -2360,7 +2396,8 @@ test('resizes the terminal area when opening the repository panel', async ({ con
   await expect(repositoryPanel).toBeVisible();
   await expect
     .poll(() => page.locator('.workspace-primary').evaluate((element) => element.getBoundingClientRect().width))
-    .toBeLessThan(terminalWidthBeforePanel - 300);
+    .toBe(terminalWidthBeforePanel);
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(terminalGeometryBeforePanel);
   await expect
     .poll(() => repositoryPanel.evaluate((element) => element.getBoundingClientRect().width))
     .toBeGreaterThan(300);
@@ -2379,6 +2416,16 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
   await page.getByRole('button', { name: 'Open repository' }).click();
   await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
+
+  const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
+  const repositoryViewer = page.getByLabel('File for conflict.txt');
+  const [panelBounds, viewerBounds] = await Promise.all([
+    repositoryPanel.boundingBox(),
+    repositoryViewer.boundingBox(),
+  ]);
+  expect(panelBounds).not.toBeNull();
+  expect(viewerBounds).not.toBeNull();
+  expect(viewerBounds!.x + viewerBounds!.width).toBeLessThanOrEqual(panelBounds!.x + 1);
 
   const editor = page.locator('[aria-label="Edit conflict.txt"] .cm-content');
   await expect(editor).toBeVisible({ timeout: 15_000 });

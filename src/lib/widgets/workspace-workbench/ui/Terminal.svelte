@@ -151,7 +151,6 @@ onMount(() => {
         terminalId={mainTerminal?.id}
         {onInputActivity}
         {onOutputActivity}
-        promptPreview={workspace.composerPromptPreview}
         {composerHistoryEnabled}
         {onRecordComposerPrompt}
         {onLoadComposerPrompts}

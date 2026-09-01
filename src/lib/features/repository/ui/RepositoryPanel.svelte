@@ -378,10 +378,12 @@ function endDragWorkspace() {
   box-shadow: var(--shadow-repository-panel);
   color: var(--color-text);
   pointer-events: none;
+  visibility: hidden;
 }
 .repository-panel.open {
   transform: translateX(0);
   pointer-events: auto;
+  visibility: visible;
 }
 .repository-file-input {
   display: none;
@@ -514,26 +516,12 @@ function endDragWorkspace() {
     height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
-    transition: transform 180ms ease;
-  }
-}
-
-@media (min-width: 80rem) {
-  .repository-panel {
-    position: relative;
-    z-index: 1;
-    top: auto;
-    right: auto;
-    grid-column: 2;
-    grid-row: 1;
-    width: 100%;
-    height: 100%;
-    transform: none;
-    box-shadow: none;
-    visibility: hidden;
+    transition:
+      transform 180ms ease,
+      visibility 0s linear 180ms;
   }
   .repository-panel.open {
-    visibility: visible;
+    transition-delay: 0s;
   }
 }
 

@@ -62,6 +62,7 @@ function createHarness() {
         resets += 1;
       },
       write: (data, complete) => writes.push({ data, complete }),
+      resetAndWrite: (data, complete) => writes.push({ data: `\u001bc${data}`, complete }),
       refresh: () => {
         refreshes += 1;
       },
@@ -289,10 +290,10 @@ test('resets stale scrollback before an authoritative synchronized snapshot', ()
   harness.writes[0].complete();
 
   harness.sync.replaceScreen('authoritative snapshot', true);
-  assert.equal(harness.resets, 2);
+  assert.equal(harness.resets, 1);
   assert.deepEqual(
     harness.writes.map(({ data }) => data),
-    ['snapshot', 'authoritative snapshot']
+    ['snapshot', '\u001bcauthoritative snapshot']
   );
   harness.writes[1].complete();
   assert.equal(harness.replacedScreens, 1);
@@ -307,14 +308,14 @@ test('applies the latest synchronized snapshot that arrives during a replacement
   harness.sync.replaceScreen('latest replacement', true);
   assert.deepEqual(
     harness.writes.map(({ data }) => data),
-    ['snapshot', 'first replacement']
+    ['snapshot', '\u001bcfirst replacement']
   );
 
   harness.writes[1].complete();
-  assert.equal(harness.resets, 3);
+  assert.equal(harness.resets, 1);
   assert.deepEqual(
     harness.writes.map(({ data }) => data),
-    ['snapshot', 'first replacement', 'latest replacement']
+    ['snapshot', '\u001bcfirst replacement', '\u001bclatest replacement']
   );
 });
 

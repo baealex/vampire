@@ -255,6 +255,52 @@ test('keeps touch scrolling after the terminal takes direct input ownership', as
     .toBeLessThan(bottomMinimum);
 });
 
+test('keeps Compose First ownership after scrolling the terminal', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.addInitScript(() => {
+    window.localStorage.setItem('vampire:terminal-input-mode', 'compose');
+  });
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
+  const composer = page.getByPlaceholder('Send to shell…');
+
+  const alignment = await page.locator('.composer').evaluate((element) => {
+    const textarea = element.querySelector('textarea')?.getBoundingClientRect();
+    const sendButton = element.querySelector('.send-button')?.getBoundingClientRect();
+    if (!textarea || !sendButton) return undefined;
+    return {
+      centerDelta: Math.abs(textarea.y + textarea.height / 2 - (sendButton.y + sendButton.height / 2)),
+      heightDelta: Math.abs(textarea.height - sendButton.height),
+    };
+  });
+  expect(alignment).toEqual({ centerDelta: 0, heightDelta: 0 });
+
+  await terminal.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const startY = bounds.top + Math.min(120, bounds.height * 0.35);
+    const pointer = (type: string, clientY: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: bounds.left + bounds.width / 2,
+        clientY,
+        isPrimary: true,
+        pointerId: 42,
+        pointerType: 'touch',
+      });
+    element.dispatchEvent(pointer('pointerdown', startY));
+    element.dispatchEvent(pointer('pointermove', startY + 80));
+    element.dispatchEvent(pointer('pointerup', startY + 80));
+  });
+
+  await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(composer).toBeFocused();
+});
+
 test('keeps mobile composition visible while terminal output and viewport geometry change', async ({
   context,
   page,
@@ -271,6 +317,8 @@ test('keeps mobile composition visible while terminal output and viewport geomet
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
   const composer = page.getByPlaceholder('Send to shell…');
   await composer.focus();
@@ -283,7 +331,7 @@ test('keeps mobile composition visible while terminal output and viewport geomet
   await expect(page.locator('.xterm-rows')).toContainText('OUTPUT-DURING-MOBILE-IME');
 
   const updates = ['ㅁ', '모', '모바', '모바일', 'printf 모바일-IME-확인'];
-  const heights = [720, 640, 760, 700, 680];
+  const heights = [120, 200, 100, 160, 180].map((reduction) => Math.max(280, viewport!.height - reduction));
   for (const [index, value] of updates.entries()) {
     await composer.evaluate((input, compositionValue) => {
       const textarea = input as HTMLTextAreaElement;
@@ -301,7 +349,7 @@ test('keeps mobile composition visible while terminal output and viewport geomet
     await expect(composer).toHaveValue(value);
     const height = heights[index];
     if (height === undefined) throw new Error('Missing mobile viewport test height.');
-    await page.setViewportSize({ width: 412, height });
+    await page.setViewportSize({ width: viewport!.width, height });
     await page.waitForTimeout(60);
   }
   await expect(composer).toBeFocused();
@@ -313,13 +361,14 @@ test('keeps mobile composition visible while terminal output and viewport geomet
   }, 'printf 모바일-IME-확인');
   await composer.press('Enter');
   await expect(page.locator('.xterm-rows')).toContainText('모바일-IME-확인');
-  await expect
-    .poll(() => sentTerminalMessages.map(websocketMessageType).filter((type) => type === 'resize').length)
-    .toBeGreaterThan(0);
+  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
   await expect(composer).toBeFocused();
 });
 
-test('keeps terminal rendering coherent while mobile geometry is delayed', async ({ context, page }) => {
+test('keeps terminal geometry stable while the mobile keyboard changes the visible viewport', async ({
+  context,
+  page,
+}) => {
   test.setTimeout(60_000);
   const sentTerminalMessages: Array<string | Buffer> = [];
   let delayServerMessages = false;
@@ -371,17 +420,23 @@ test('keeps terminal rendering coherent while mobile geometry is delayed', async
     .locator('.xterm-screen')
     .evaluate((screen) => screen.getBoundingClientRect().height);
   expect(pendingScreenHeight).toBeCloseTo(initialScreenHeight, 0);
-  expect(sentTerminalMessages.map(websocketMessageType)).toContain('resize');
+  expect(sentTerminalMessages.map(websocketMessageType)).not.toContain('resize');
 
   await expect
     .poll(() =>
       page.locator('.terminal-frame').evaluate((frame) => {
         const frameBounds = frame.getBoundingClientRect();
-        const screenBounds = frame.querySelector('.xterm-screen')?.getBoundingClientRect();
-        return Boolean(screenBounds && screenBounds.bottom <= frameBounds.bottom + 1);
+        const composerBounds = document.querySelector('.composer')?.getBoundingClientRect();
+        const visualViewport = window.visualViewport;
+        const viewportBottom = (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? window.innerHeight);
+        return {
+          composerFits: Boolean(composerBounds && composerBounds.bottom <= viewportBottom + 1),
+          frameClipsStableScreen: getComputedStyle(frame).overflow === 'hidden',
+          frameVisible: frameBounds.height > 0,
+        };
       })
     )
-    .toBe(true);
+    .toEqual({ composerFits: true, frameClipsStableScreen: true, frameVisible: true });
 
   delayServerMessages = false;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height });
@@ -465,6 +520,7 @@ test('keeps a full-screen TUI coherent through repeated mobile resizes', async (
   await composer.press('Enter');
   const terminalRows = page.locator('.xterm-rows');
   await expect(terminalRows).toContainText('TUI-READY');
+  await composer.evaluate((element) => element.blur());
 
   for (const height of [620, 860, 540, 915]) {
     await page.setViewportSize({ width: 412, height });
@@ -702,8 +758,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await page.getByRole('button', { name: 'Open repository' }).click();
   const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
   await expect(repositoryPanel).toBeVisible();
-  await expect(repositoryPanel).toHaveCSS('transition-property', 'transform');
-  await expect(repositoryPanel).toHaveCSS('transition-duration', '0.18s');
+  await expect(repositoryPanel).toHaveCSS('transition-property', 'transform, visibility');
+  await expect(repositoryPanel).toHaveCSS('transition-duration', '0.18s, 0s');
   await expect(repositoryPanel.getByRole('tab', { name: 'Git' })).toBeVisible();
   await repositoryPanel.getByRole('button', { name: 'Close workspace panel' }).click();
   await expect(repositoryPanel).toBeHidden();
@@ -819,15 +875,15 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   const settingsButton = workspaceList.getByRole('button', { name: 'Open settings' });
-  const [settingsBox, settingsIconBox] = await Promise.all([
-    settingsButton.boundingBox(),
-    settingsButton.locator('svg').boundingBox(),
-  ]);
-  expect(settingsBox).not.toBeNull();
-  expect(settingsIconBox).not.toBeNull();
-  expect(
-    Math.abs(settingsIconBox!.x + settingsIconBox!.width / 2 - (settingsBox!.x + settingsBox!.width / 2))
-  ).toBeLessThan(1);
+  await expect(settingsButton).toBeVisible();
+  const settingsCenterDifference = await settingsButton.evaluate((button) => {
+    const icon = button.querySelector('svg');
+    if (!icon) return Number.POSITIVE_INFINITY;
+    const buttonBounds = button.getBoundingClientRect();
+    const iconBounds = icon.getBoundingClientRect();
+    return Math.abs(iconBounds.x + iconBounds.width / 2 - (buttonBounds.x + buttonBounds.width / 2));
+  });
+  expect(settingsCenterDifference).toBeLessThan(1);
   await page.getByRole('button', { name: 'Close workspace navigator' }).click();
   await cpuPlugin.click();
   const popover = page.locator('.status-plugin-popover');
