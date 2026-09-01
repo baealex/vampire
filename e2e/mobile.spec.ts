@@ -265,9 +265,13 @@ test('keeps terminal rendering coherent while mobile geometry is delayed', async
 
 test('coalesces 60, 90, and 120Hz mobile viewport animations into one resize each', async ({ context, page }) => {
   const sentTerminalMessages: Array<string | Buffer> = [];
+  let lastResizeMessageAt = 0;
   page.on('websocket', (socket) => {
     if (!new URL(socket.url()).pathname.endsWith('/ws/terminal')) return;
-    socket.on('framesent', ({ payload }) => sentTerminalMessages.push(payload));
+    socket.on('framesent', ({ payload }) => {
+      sentTerminalMessages.push(payload);
+      if (websocketMessageType(payload) === 'resize') lastResizeMessageAt = Date.now();
+    });
   });
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -277,6 +281,7 @@ test('coalesces 60, 90, and 120Hz mobile viewport animations into one resize eac
   await expectTerminalReady(page);
   const composer = page.getByPlaceholder('Send to shell…');
   await composer.focus();
+  await expect.poll(() => lastResizeMessageAt > 0 && Date.now() - lastResizeMessageAt >= 160).toBe(true);
   for (const [cadence, heights] of [
     [17, [860, 820, 780, 740, 700]],
     [11, [690, 650, 610, 570, 530]],
@@ -643,12 +648,15 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await automationPrompt.focus();
   await page.setViewportSize({ width: 412, height: 500 });
   await expect(automationPrompt).toBeFocused();
-  const managementScrolls = await automationPage.evaluate((surface) => {
-    const element = surface as HTMLElement;
-    element.scrollTop = element.scrollHeight;
-    return element.scrollHeight > element.clientHeight && element.scrollTop > 0;
-  });
-  expect(managementScrolls).toBe(true);
+  await expect
+    .poll(() =>
+      automationPage.evaluate((surface) => {
+        const element = surface as HTMLElement;
+        element.scrollTop = element.scrollHeight;
+        return element.scrollHeight > element.clientHeight && element.scrollTop > 0;
+      })
+    )
+    .toBe(true);
   await expect(automationPage.getByRole('button', { name: 'Add automation' })).toBeInViewport();
   await page.setViewportSize({ width: 412, height: 915 });
   await automationPage.getByRole('button', { name: 'Back to automations' }).click();

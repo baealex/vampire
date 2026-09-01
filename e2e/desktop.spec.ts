@@ -110,6 +110,13 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function readWorkspaceNote(context: BrowserContext, workspaceId: string): Promise<string | undefined> {
+  const response = await context.request.get(`/api/workspaces/${encodeURIComponent(workspaceId)}/note`);
+  if (!response.ok()) return undefined;
+  const body = (await response.json()) as { note?: unknown };
+  return typeof body.note === 'string' ? body.note : undefined;
+}
+
 type StoredAgentAction = {
   agentActionId?: string;
   enabled: boolean;
@@ -796,9 +803,7 @@ test('flushes a workspace note before sidebar navigation replaces its workbench'
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
     releaseSave();
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
-    const savedNote = await context.request.get(`/api/workspaces/${encodeURIComponent(firstWorkspace.id)}/note`);
-    expect(savedNote.ok()).toBe(true);
-    await expect(savedNote.json()).resolves.toEqual({ note: 'Save this before switching' });
+    await expect.poll(() => readWorkspaceNote(context, firstWorkspace.id)).toBe('Save this before switching');
 
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Add workspace note' }).click();
@@ -812,9 +817,7 @@ test('flushes a workspace note before sidebar navigation replaces its workbench'
     failSecondSave = false;
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
-    const retriedNote = await context.request.get(`/api/workspaces/${encodeURIComponent(secondWorkspace.id)}/note`);
-    expect(retriedNote.ok()).toBe(true);
-    await expect(retriedNote.json()).resolves.toEqual({ note: 'Retry this before browser back' });
+    await expect.poll(() => readWorkspaceNote(context, secondWorkspace.id)).toBe('Retry this before browser back');
   } finally {
     releaseSave();
     await removeWorkspace(context, secondWorkspace.id);

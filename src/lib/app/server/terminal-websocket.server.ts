@@ -310,6 +310,9 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           },
           onInput: () => {
             state.inputVersion += 1;
+            // Once a screen synchronization has finished, genuine input owns
+            // the next output even if the previous resize settle window remains.
+            if (state.syntheticOutputDepth === 0) state.syntheticOutputUntil = 0;
           },
           onSyntheticOutput: (timestamp) => {
             state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
