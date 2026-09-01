@@ -1,5 +1,6 @@
 <script lang="ts">
 import X from '@lucide/svelte/icons/x';
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import type { Snippet } from 'svelte';
 
 let {
@@ -9,6 +10,8 @@ let {
   subtitleMonospace = false,
   close,
   closeLabel = 'Close panel',
+  onBack,
+  backLabel = 'Back',
   actions,
 }: {
   title: string;
@@ -17,16 +20,25 @@ let {
   subtitleMonospace?: boolean;
   close?: () => void;
   closeLabel?: string;
+  onBack?: () => void;
+  backLabel?: string;
   actions?: Snippet;
 } = $props();
 </script>
 
 <header class="workspace-panel-header">
-  <div class="workspace-panel-title">
-    <strong id={titleId}>{title}</strong>
-    {#if subtitle}
-      <span class:monospace={subtitleMonospace} title={subtitle}>{subtitle}</span>
+  <div class="workspace-panel-heading">
+    {#if onBack}
+      <button type="button" class="workspace-panel-back" onclick={onBack} aria-label={backLabel} title={backLabel}>
+        <ArrowLeft size={17} strokeWidth={1.9} aria-hidden="true" />
+      </button>
     {/if}
+    <div class="workspace-panel-title">
+      <strong id={titleId}>{title}</strong>
+      {#if subtitle}
+        <span class:monospace={subtitleMonospace} title={subtitle}>{subtitle}</span>
+      {/if}
+    </div>
   </div>
   {#if actions || close}
     <div class="workspace-panel-actions">
@@ -53,6 +65,12 @@ let {
   padding: 0.75rem 0.8rem 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border);
   box-sizing: border-box;
+}
+.workspace-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
 }
 .workspace-panel-title {
   display: grid;
@@ -84,6 +102,7 @@ let {
   align-items: center;
   gap: 0.15rem;
 }
+.workspace-panel-back,
 .workspace-panel-close {
   display: grid;
   place-items: center;
@@ -97,6 +116,7 @@ let {
   cursor: pointer;
 }
 @media (hover: hover) {
+  .workspace-panel-back:hover,
   .workspace-panel-close:hover {
     background: var(--color-surface-raised);
     color: var(--color-text);

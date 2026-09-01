@@ -450,14 +450,14 @@ onDestroy(() => unsubscribe?.());
 .listening-port-scope.network > span {
   background: var(--color-warning-accent);
 }
-:global(.listening-port-action) {
+.listening-port-row :global(.listening-port-action) {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.35rem;
   justify-self: end;
   width: 6rem;
-  min-height: 1.6rem;
+  min-height: var(--control-height-sm);
   padding: 0;
   border: 0;
   background: transparent;
@@ -465,13 +465,14 @@ onDestroy(() => unsubscribe?.());
   font: inherit;
   font-size: var(--text-nano);
   font-weight: var(--weight-medium);
+  text-align: left;
   white-space: nowrap;
 }
-:global(.listening-port-stop) {
+.listening-port-row :global(.listening-port-stop) {
   cursor: pointer;
 }
 @media (hover: hover) {
-  :global(.listening-port-stop:hover:not(:disabled)) {
+  .listening-port-row :global(.listening-port-stop:hover:not(:disabled)) {
     color: var(--color-danger-text);
   }
 }
@@ -502,7 +503,7 @@ onDestroy(() => unsubscribe?.());
     grid-column: 2;
     grid-row: 1;
   }
-  :global(.listening-port-action) {
+  .listening-port-row :global(.listening-port-action) {
     width: 5.75rem;
   }
 }

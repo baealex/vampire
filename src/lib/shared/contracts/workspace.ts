@@ -61,4 +61,4 @@ export type WorkspacePreferences = {
   manualWorkspaceOrder: string[];
 };
 
-export type MobilePanel = 'workspaces' | 'repository' | 'note';
+export type MobilePanel = 'workspaces' | 'repository' | 'note' | 'background';

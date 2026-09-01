@@ -66,6 +66,12 @@ test('opens server-wide automation management from Server tools', async () => {
   expect(onManageAutomations).toHaveBeenCalledOnce();
 });
 
+test('keeps listening ports out of application settings', () => {
+  renderSettings();
+
+  expect(screen.queryByText('Listening ports')).not.toBeInTheDocument();
+});
+
 beforeEach(() => {
   window.localStorage.clear();
   terminalInputPreferences.setMode('terminal');

@@ -9,9 +9,9 @@ import { onMount, untrack } from 'svelte';
 import type { WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
-import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
 import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
+import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 
 let {
   open,
@@ -207,8 +207,8 @@ async function toggleFavorite(event: MouseEvent, process: WorkspaceTerminal) {
   else await onFavorite(processCommandValue);
 }
 
-function restoreTriggerFocus(event: Event) {
-  event.preventDefault();
+function closePanel() {
+  onOpenChange(false);
   queueMicrotask(() => document.getElementById(triggerId)?.focus());
 }
 </script>
@@ -385,63 +385,86 @@ function restoreTriggerFocus(event: Event) {
   </section>
 {/snippet}
 
-{#if open}
-  <DialogShell
+<aside
+  id={panelId}
+  class="background-panel"
+  class:open
+  aria-labelledby={`${panelId}-title`}
+  aria-hidden={!open}
+  inert={!open}
+>
+  <WorkspacePanelHeader
     title={dialogTitle}
-    close={() => onOpenChange(false)}
+    titleId={`${panelId}-title`}
+    close={closePanel}
     closeLabel="Close background manager"
-    variant="inspect"
-    contentId={panelId}
     onBack={view === 'list' ? undefined : showProcessList}
     backLabel="Back to background processes"
-    onCloseAutoFocus={restoreTriggerFocus}
-  >
-    {#snippet children()}
-      <div class="background-view">
-        {#if view === 'list'}
-          <DialogToolbar>
-            {#if orderedProcesses.length > 0}
-              <span>{processCountLabel(orderedProcesses.length)}</span>
-            {/if}
-            <Button
-              variant="primary"
-              class="background-run-action"
-              onclick={openRunner}
-              ariaLabel="Run background command"
-            >
-              <Plus size={16} strokeWidth={2} aria-hidden="true" />
-              <span>Run command</span>
-            </Button>
-          </DialogToolbar>
-          {@render favorites()}
-          <div class="background-content">{@render processList()}</div>
-        {:else if view === 'runner'}
-          {@render commandRunner()}
-          {@render favorites()}
-        {:else if selectedProcess}
-          <div class="background-detail-bar">
-            <span
-              class="process-status"
-              class:running={selectedProcess.state === 'running'}
-              class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
-              class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
-              >{processStatus(selectedProcess)}</span
-            >
-            {@render processActions(selectedProcess)}
-          </div>
-          {@render processOutput(selectedProcess)}
+  />
+  <div class="background-view">
+    {#if view === 'list'}
+      <DialogToolbar>
+        {#if orderedProcesses.length > 0}
+          <span>{processCountLabel(orderedProcesses.length)}</span>
         {/if}
+        <Button variant="primary" class="background-run-action" onclick={openRunner} ariaLabel="Run background command">
+          <Plus size={16} strokeWidth={2} aria-hidden="true" />
+          <span>Run command</span>
+        </Button>
+      </DialogToolbar>
+      {@render favorites()}
+      <div class="background-content">{@render processList()}</div>
+    {:else if view === 'runner'}
+      {@render commandRunner()}
+      {@render favorites()}
+    {:else if selectedProcess}
+      <div class="background-detail-bar">
+        <span
+          class="process-status"
+          class:running={selectedProcess.state === 'running'}
+          class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
+          class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
+          >{processStatus(selectedProcess)}</span
+        >
+        {@render processActions(selectedProcess)}
       </div>
-    {/snippet}
-  </DialogShell>
-{/if}
+      {@render processOutput(selectedProcess)}
+    {/if}
+  </div>
+</aside>
 
 <style>
+.background-panel {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--workspace-panel-width, min(22rem, calc(100% - 3rem)));
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transform: translateX(100%);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-repository-panel);
+  color: var(--color-text);
+  pointer-events: none;
+}
+.background-panel.open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
 .background-view {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  padding: 0.75rem;
 }
 :global(.background-run-action) {
   margin-left: auto;
@@ -568,9 +591,11 @@ function restoreTriggerFocus(event: Event) {
   opacity: 0.42;
 }
 .background-content {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
   padding-top: 0.65rem;
+  overscroll-behavior: contain;
 }
 .process-list {
   min-width: 0;
@@ -723,8 +748,7 @@ function restoreTriggerFocus(event: Event) {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  height: min(20rem, 45dvh);
-  max-height: min(20rem, 45dvh);
+  flex: 1 1 auto;
   border-top: 1px solid var(--color-border-subtle);
   background: var(--color-surface-raised);
 }
@@ -761,5 +785,42 @@ function restoreTriggerFocus(event: Event) {
   scrollbar-gutter: stable;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (min-width: 80rem) {
+  .background-panel {
+    position: relative;
+    z-index: 1;
+    top: auto;
+    right: auto;
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    box-shadow: none;
+    visibility: hidden;
+  }
+  .background-panel.open {
+    visibility: visible;
+  }
+}
+
+@media (width < 80rem) {
+  .background-panel {
+    position: fixed;
+    z-index: 40;
+    width: var(--workspace-panel-width, min(23rem, calc(100% - 2.75rem)));
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    transition: transform 180ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .background-panel {
+    transition: none;
+  }
 }
 </style>

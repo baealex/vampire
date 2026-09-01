@@ -9,6 +9,7 @@ import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import MoveConflictDialog from '~/lib/features/repository/ui/MoveConflictDialog.svelte';
+import BackgroundProcesses from '~/lib/features/terminal/ui/BackgroundProcesses.svelte';
 import RepositoryPanel from '~/lib/features/repository/ui/RepositoryPanel.svelte';
 import RepositoryViewer from '~/lib/features/repository/ui/RepositoryViewer.svelte';
 import WorkspaceNoteEditor from '~/lib/features/workspace/ui/WorkspaceNoteEditor.svelte';
@@ -81,6 +82,7 @@ let {
 
 let desktop = $state(false);
 let notePanelOpen = $state(false);
+let backgroundPanelOpen = $state(false);
 let flushNoteDraft: (() => Promise<boolean>) | undefined;
 let notePanelLocked = $state(false);
 let pathInsertionRequest = $state<TerminalPathInsertionRequest>();
@@ -89,7 +91,12 @@ const name = $derived(workspaceName(workspace));
 const repositoryName = $derived(projectName(workspace.cwd));
 const repositoryOpen = $derived(desktop ? repositoryPanelOpen : mobilePanel === 'repository');
 const noteOpen = $derived(desktop ? notePanelOpen : mobilePanel === 'note');
-const sidePanelOpen = $derived(repositoryOpen || noteOpen);
+const backgroundOpen = $derived(desktop ? backgroundPanelOpen : mobilePanel === 'background');
+const sidePanelOpen = $derived(repositoryOpen || noteOpen || backgroundOpen);
+const orderedTerminals = $derived([...workspace.terminals].sort((left, right) => left.index - right.index));
+const backgroundProcesses = $derived(orderedTerminals.slice(1));
+const backgroundPanelId = $derived(`background-manager-${workspace.id}`);
+const backgroundTriggerId = $derived(`background-trigger-${workspace.id}`);
 const repository = new RepositoryWorkspaceState(
   untrack(() => workspace.id),
   { isOpen: () => repositoryOpen }
@@ -101,8 +108,25 @@ function toggleRepository() {
     return;
   }
   if (!closeNotePanel()) return;
+  closeBackgroundPanel();
   onRepositoryPanelOpenChange(true);
   if (!desktop) onMobilePanelChange('repository');
+}
+
+function closeBackgroundPanel() {
+  backgroundPanelOpen = false;
+  if (!desktop && mobilePanel === 'background') onMobilePanelChange(undefined);
+}
+
+async function toggleBackground() {
+  if (backgroundOpen) {
+    closeBackgroundPanel();
+    return;
+  }
+  if (repositoryOpen && !(await closeRepository())) return;
+  if (!closeNotePanel()) return;
+  backgroundPanelOpen = true;
+  if (!desktop) onMobilePanelChange('background');
 }
 
 function closeNotePanel(): boolean {
@@ -128,6 +152,7 @@ async function toggleNote() {
     return;
   }
   if (repositoryOpen && !(await closeRepository())) return;
+  closeBackgroundPanel();
   openNotePanel();
 }
 
@@ -144,6 +169,8 @@ async function openWorkspaceNavigator() {
   } else if (noteOpen) {
     if (!(await confirmWorkspaceNavigation())) return;
     closeNotePanel();
+  } else if (backgroundOpen) {
+    closeBackgroundPanel();
   } else if (!(await repository.confirmDiscardChanges())) {
     return;
   }
@@ -230,6 +257,10 @@ onMount(() => {
       if (target.closest('.note-agent-view')) return;
       event.preventDefault();
       closeNotePanel();
+    } else if (backgroundOpen) {
+      if (!target?.closest('.background-panel')) return;
+      event.preventDefault();
+      closeBackgroundPanel();
     } else if (repository.selection) {
       event.preventDefault();
       void repository.closeViewer();
@@ -251,15 +282,6 @@ onMount(() => {
   <div class="workspace-primary">
     <Terminal
       {workspace}
-      {onStartBackground}
-      {onStopBackground}
-      {onLoadBackgroundOutput}
-      {onFavoriteBackground}
-      {onRemoveBackgroundFavorite}
-      {startingBackground}
-      {stoppingBackgroundProcessId}
-      {updatingFavoriteCommand}
-      {backgroundActionError}
       close={openWorkspaceNavigator}
       {onInputActivity}
       {onOutputActivity}
@@ -268,6 +290,7 @@ onMount(() => {
       {composerHistoryEnabled}
       {repositoryOpen}
       {noteOpen}
+      {backgroundOpen}
       isGitRepository={repository.snapshot?.isGitRepository ?? workspace.isGitRepository}
       changeCount={repository.changeCount}
       worktreeCount={repository.worktreeCount}
@@ -276,6 +299,7 @@ onMount(() => {
         repository.handleStatus(changeCount, worktreeCount, branch)}
       onToggleRepository={toggleRepository}
       onToggleNote={() => void toggleNote()}
+      onToggleBackground={() => void toggleBackground()}
       {pathInsertionRequest}
       onExternalFileDrop={addDroppedFilesToTerminal}
       dismissStatusPopovers={!desktop && mobilePanel !== undefined}
@@ -305,7 +329,7 @@ onMount(() => {
       class="workspace-panel-scrim"
       type="button"
       aria-label="Dismiss workspace panel"
-      onclick={() => void (repositoryOpen ? closeRepository() : closeNotePanel())}
+      onclick={() => void (repositoryOpen ? closeRepository() : noteOpen ? closeNotePanel() : closeBackgroundPanel())}
     ></button>
   {/if}
 
@@ -364,6 +388,24 @@ onMount(() => {
       onPanelLockChange={(locked) => notePanelLocked = locked}
     />
   </aside>
+
+  <BackgroundProcesses
+    open={backgroundOpen}
+    onOpenChange={(open) => open ? void toggleBackground() : closeBackgroundPanel()}
+    panelId={backgroundPanelId}
+    triggerId={backgroundTriggerId}
+    processes={backgroundProcesses}
+    favoriteCommands={workspace.favoriteCommands}
+    starting={startingBackground}
+    stoppingProcessId={stoppingBackgroundProcessId}
+    {updatingFavoriteCommand}
+    actionError={backgroundActionError}
+    onStart={onStartBackground}
+    onStop={onStopBackground}
+    onLoadOutput={onLoadBackgroundOutput}
+    onFavorite={onFavoriteBackground}
+    onRemoveFavorite={onRemoveBackgroundFavorite}
+  />
 
   {#if repository.discardChangesPrompt}
     <ConfirmDialog

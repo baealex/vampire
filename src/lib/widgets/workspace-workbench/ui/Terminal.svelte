@@ -1,8 +1,7 @@
 <script lang="ts">
 import { onMount, type Snippet } from 'svelte';
-import type { ManagedWorkspace, WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace';
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
-import BackgroundProcesses from '~/lib/features/terminal/ui/BackgroundProcesses.svelte';
 import GlobalStatusBar from './GlobalStatusBar.svelte';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 import TerminalViewport from '~/lib/features/terminal/ui/TerminalViewport.svelte';
@@ -13,15 +12,8 @@ import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-c
 
 let {
   workspace,
-  onStartBackground,
-  onStopBackground,
-  onLoadBackgroundOutput,
-  onFavoriteBackground,
-  onRemoveBackgroundFavorite,
-  startingBackground = false,
-  stoppingBackgroundProcessId,
-  updatingFavoriteCommand,
-  backgroundActionError = '',
+  backgroundOpen = false,
+  onToggleBackground = () => undefined,
   close,
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
@@ -45,15 +37,8 @@ let {
   children,
 }: {
   workspace: ManagedWorkspace;
-  onStartBackground: (command: string) => Promise<WorkspaceTerminal | undefined>;
-  onStopBackground: (process: WorkspaceTerminal) => Promise<boolean>;
-  onLoadBackgroundOutput: (processId: string) => Promise<string>;
-  onFavoriteBackground: (command: string) => Promise<boolean>;
-  onRemoveBackgroundFavorite: (command: string) => Promise<boolean>;
-  startingBackground?: boolean;
-  stoppingBackgroundProcessId?: string;
-  updatingFavoriteCommand?: string;
-  backgroundActionError?: string;
+  backgroundOpen?: boolean;
+  onToggleBackground?: () => void;
   close: () => void;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
@@ -81,7 +66,6 @@ let viewportStyle = $state('');
 let visualViewportConstrained = $state(false);
 let compactViewport = $state(false);
 let terminalFontSize = $state(14);
-let backgroundOpen = $state(false);
 const minimumFontSize = 10;
 const maximumFontSize = 22;
 const projectName = $derived(workspaceName(workspace));
@@ -156,25 +140,8 @@ onMount(() => {
       {backgroundTriggerId}
       toggleRepository={onToggleRepository}
       toggleNote={onToggleNote}
-      toggleBackground={() => (backgroundOpen = !backgroundOpen)}
+      toggleBackground={onToggleBackground}
     ></TerminalHeader>
-    <BackgroundProcesses
-      open={backgroundOpen}
-      onOpenChange={(open) => (backgroundOpen = open)}
-      panelId={backgroundPanelId}
-      triggerId={backgroundTriggerId}
-      processes={backgroundProcesses}
-      favoriteCommands={workspace.favoriteCommands}
-      starting={startingBackground}
-      stoppingProcessId={stoppingBackgroundProcessId}
-      {updatingFavoriteCommand}
-      actionError={backgroundActionError}
-      onStart={onStartBackground}
-      onStop={onStopBackground}
-      onLoadOutput={onLoadBackgroundOutput}
-      onFavorite={onFavoriteBackground}
-      onRemoveFavorite={onRemoveBackgroundFavorite}
-    />
   </div>
 
   {#key mainTerminal?.id}

@@ -1,13 +1,11 @@
 <script lang="ts">
 import LogOut from '@lucide/svelte/icons/log-out';
 import Clock3 from '@lucide/svelte/icons/clock-3';
-import Network from '@lucide/svelte/icons/network';
 import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { onMount, untrack } from 'svelte';
-import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 import {
   terminalInputPreferences,
   type TerminalInputMode,
@@ -71,7 +69,6 @@ let historyLimit = $state(String(untrack(() => composerHistorySettings.limit)));
 let syncedHistorySettings = $state(JSON.stringify(untrack(() => composerHistorySettings)));
 let historySavingError = $state('');
 let historySavedMessage = $state('');
-let listeningPortsOpen = $state(false);
 const profileChanges = $derived(
   JSON.stringify(editableProfiles) !== syncedProfiles || selectedDefaultProfileId !== syncedDefaultProfileId
 );
@@ -189,8 +186,7 @@ async function saveComposerHistorySettings() {
   historySavingError = '';
   historySavedMessage = '';
   if (!Number.isInteger(limit) || limit < MIN_WORKSPACE_COMPOSER_PROMPTS || limit > MAX_WORKSPACE_COMPOSER_PROMPTS) {
-    historySavingError =
-      `Keep between ${MIN_WORKSPACE_COMPOSER_PROMPTS} and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`;
+    historySavingError = `Keep between ${MIN_WORKSPACE_COMPOSER_PROMPTS} and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`;
     return;
   }
   saving = true;
@@ -492,16 +488,6 @@ async function saveComposerHistorySettings() {
               <span>Manage</span>
             </Button>
           </div>
-          <div class="settings-row">
-            <span>
-              <strong>Listening ports</strong>
-              <small>Inspect processes accepting network connections on this server.</small>
-            </span>
-            <Button variant="secondary" size="sm" onclick={() => listeningPortsOpen = true}>
-              <Network size={15} strokeWidth={1.8} aria-hidden="true" />
-              <span>Inspect</span>
-            </Button>
-          </div>
         </div>
       </section>
 
@@ -525,10 +511,6 @@ async function saveComposerHistorySettings() {
     </div>
   {/snippet}
 </ManagementSurface>
-
-{#if listeningPortsOpen}
-  <ListeningPortsDialog close={() => listeningPortsOpen = false} />
-{/if}
 
 <style>
 .settings-page {
