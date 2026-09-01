@@ -227,6 +227,18 @@ async function destroyTmuxTarget(arguments_: string[]): Promise<void> {
     await execFile('tmux', arguments_, { timeout: 3_000 });
   } catch (error) {
     if (isMissingTmuxTarget(error)) return;
+    const target = arguments_.at(-1);
+    if (target) {
+      try {
+        await execFile('tmux', ['display-message', '-p', '-t', target, '#{session_name}'], { timeout: 3_000 });
+      } catch (verificationError) {
+        const details = verificationError as NodeJS.ErrnoException;
+        // A pane's foreground process can exit the final tmux session between
+        // discovery and kill-session/kill-window. display-message returning 1
+        // is authoritative confirmation that the requested target is gone.
+        if (Number(details.code) === 1 || isMissingTmuxTarget(verificationError)) return;
+      }
+    }
     throw error;
   }
 }

@@ -126,6 +126,10 @@ class TerminalRenderShield {
     const screen = rows?.parentElement;
     if (!rows || !screen) return undefined;
     const overlay = rows.cloneNode(true) as HTMLElement;
+    // This is a frozen visual copy, not a second xterm row container. Keeping
+    // xterm's semantic class here makes DOM consumers observe two live
+    // renderers during the buffer handoff.
+    overlay.classList.remove('xterm-rows', 'xterm-focus');
     overlay.classList.add('terminal-render-shield');
     overlay.dataset.terminalRenderShield = '';
     overlay.style.position = 'absolute';

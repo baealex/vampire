@@ -243,12 +243,18 @@ async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]
     .toBe('');
 }
 
-async function observeBlankTerminalFrames(page: Page): Promise<() => Promise<number>> {
+async function observeTerminalFrames(
+  page: Page
+): Promise<() => Promise<{ blankFrames: number; invalidRowContainerFrames: number }>> {
   await page.evaluate(() => {
     const target = window as typeof window & {
-      __vampireTerminalFrameObservation?: { animationFrame: number; blankFrames: number };
+      __vampireTerminalFrameObservation?: {
+        animationFrame: number;
+        blankFrames: number;
+        invalidRowContainerFrames: number;
+      };
     };
-    const observation = { animationFrame: 0, blankFrames: 0 };
+    const observation = { animationFrame: 0, blankFrames: 0, invalidRowContainerFrames: 0 };
     target.__vampireTerminalFrameObservation = observation;
     const sample = () => {
       const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
@@ -256,6 +262,9 @@ async function observeBlankTerminalFrames(page: Page): Promise<() => Promise<num
         terminal?.querySelector<HTMLElement>('.terminal-render-shield') ??
         terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
       if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
+      if (terminal && terminal.querySelectorAll('.xterm-screen > .xterm-rows').length !== 1) {
+        observation.invalidRowContainerFrames += 1;
+      }
       observation.animationFrame = requestAnimationFrame(sample);
     };
     observation.animationFrame = requestAnimationFrame(sample);
@@ -263,14 +272,40 @@ async function observeBlankTerminalFrames(page: Page): Promise<() => Promise<num
   return () =>
     page.evaluate(() => {
       const target = window as typeof window & {
-        __vampireTerminalFrameObservation?: { animationFrame: number; blankFrames: number };
+        __vampireTerminalFrameObservation?: {
+          animationFrame: number;
+          blankFrames: number;
+          invalidRowContainerFrames: number;
+        };
       };
       const observation = target.__vampireTerminalFrameObservation;
-      if (!observation) return -1;
+      if (!observation) return { blankFrames: -1, invalidRowContainerFrames: -1 };
       cancelAnimationFrame(observation.animationFrame);
       delete target.__vampireTerminalFrameObservation;
-      return observation.blankFrames;
+      return {
+        blankFrames: observation.blankFrames,
+        invalidRowContainerFrames: observation.invalidRowContainerFrames,
+      };
     });
+}
+
+function waitForWorkspaceSnapshot(page: Page): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for the workspace stream snapshot.')), 10_000);
+    page.on('websocket', (socket) => {
+      if (!new URL(socket.url()).pathname.endsWith('/ws/workspace')) return;
+      socket.on('framereceived', ({ payload }) => {
+        try {
+          const message = JSON.parse(typeof payload === 'string' ? payload : payload.toString()) as { type?: unknown };
+          if (message.type !== 'workspaces-snapshot') return;
+          clearTimeout(timeout);
+          resolve();
+        } catch {
+          // The workspace stream only uses JSON; ignore unrelated frames.
+        }
+      });
+    });
+  });
 }
 
 async function activateTerminal(page: Page): Promise<void> {
@@ -1615,7 +1650,9 @@ test('publishes output sent immediately after terminal resize to other devices',
     const observerPage = await observerContext.newPage();
     const controllerPage = await controllerContext.newPage();
 
+    const observerStreamReady = waitForWorkspaceSnapshot(observerPage);
     await observerPage.goto('/');
+    await observerStreamReady;
     await expect(observerPage.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
     await observerPage.getByRole('button', { name: 'Arrange workspaces manually' }).click();
     const observerState = observerPage.locator('.workspace-row', { hasText: 'workspace' }).locator('.workspace-state');
@@ -1789,7 +1826,7 @@ test('hands terminal layout between entered devices and restores it on disconnec
     expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
     const desktopComposer = desktopPage.getByPlaceholder('Send to shell…');
-    const stopBlankFrameObservation = await observeBlankTerminalFrames(desktopPage);
+    const stopFrameObservation = await observeTerminalFrames(desktopPage);
     const alternateScreenCommand =
       "printf '\\033[?1049h\\033[2J\\033[8;20HVAMP_TUI_READY\\033[12;7H'; IFS= read -r value; printf '\\033[?1049lVAMP_TUI_INPUT=%s\\n' \"$value\"";
     await desktopComposer.fill(alternateScreenCommand);
@@ -1800,7 +1837,7 @@ test('hands terminal layout between entered devices and restores it on disconnec
       )
       .toBe(true);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-    expect(await stopBlankFrameObservation()).toBe(0);
+    expect(await stopFrameObservation()).toEqual({ blankFrames: 0, invalidRowContainerFrames: 0 });
 
     await phonePage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(phonePage);
