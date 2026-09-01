@@ -9,7 +9,6 @@ import { onMount, untrack } from 'svelte';
 import type { WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
-import DialogToolbar from '~/lib/shared/ui/DialogToolbar.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
 import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 
@@ -61,16 +60,12 @@ let previouslyOpen = false;
 const orderedProcesses = $derived([...processes].sort((left, right) => left.index - right.index));
 const selectedProcess = $derived(orderedProcesses.find((process) => process.id === selectedProcessId));
 const favoriteSet = $derived(new Set(favoriteCommands));
+const runningProcessCount = $derived(orderedProcesses.filter((process) => process.state === 'running').length);
 const runningCommands = $derived(
   new Set(orderedProcesses.filter((process) => process.state === 'running').map(processCommand))
 );
-const dialogTitle = $derived(
-  view === 'runner'
-    ? 'Run background command'
-    : view === 'output' && selectedProcess
-      ? processCommand(selectedProcess)
-      : 'Background processes'
-);
+const dialogTitle = $derived(view === 'runner' ? 'Run command' : view === 'output' ? 'Output' : 'Background');
+const dialogSubtitle = $derived(view === 'output' && selectedProcess ? processCommand(selectedProcess) : undefined);
 
 onMount(() => {
   const timer = window.setInterval(() => (now = Date.now()), 1_000);
@@ -153,7 +148,9 @@ function processAge(process: WorkspaceTerminal): string {
 }
 
 function processCountLabel(count: number): string {
-  return count === 0 ? 'No commands' : `${count} ${count === 1 ? 'command' : 'commands'}`;
+  if (count === 0) return '0';
+  if (runningProcessCount > 0) return `${runningProcessCount} running · ${count} total`;
+  return `${count} completed`;
 }
 
 function openRunner() {
@@ -216,20 +213,24 @@ function closePanel() {
 {#snippet commandRunner()}
   <div class="background-runner">
     <form onsubmit={startProcess}>
-      <Input
-        bind:element={commandInput}
-        bind:value={command}
-        class="background-command-input"
-        placeholder="Command to run…"
-        ariaLabel="Background command"
-        autocomplete="off"
-        spellcheck="false"
-        maxlength={1000}
-        mono
-      />
-      <Button class="background-run-submit" type="submit" variant="primary" disabled={!command.trim() || starting}
-        >{starting ? 'Starting…' : 'Run'}</Button
-      >
+      <label for={`${panelId}-command`}>Command</label>
+      <div class="background-command-control">
+        <Input
+          id={`${panelId}-command`}
+          bind:element={commandInput}
+          bind:value={command}
+          class="background-command-input"
+          placeholder="e.g. pnpm dev"
+          ariaLabel="Background command"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength={1000}
+          mono
+        />
+        <Button class="background-run-submit" type="submit" variant="primary" disabled={!command.trim() || starting}
+          >{starting ? 'Starting…' : 'Run'}</Button
+        >
+      </div>
     </form>
     {#if actionError}
       <p class="background-error runner-error" role="alert">{actionError}</p>
@@ -239,8 +240,8 @@ function closePanel() {
 
 {#snippet favorites()}
   {#if favoriteCommands.length > 0}
-    <section class="favorite-strip" aria-label="Favorite background commands">
-      <span class="favorite-heading"><Star size={13} strokeWidth={1.8} aria-hidden="true" /> Favorites</span>
+    <section class="favorite-strip" aria-label="Saved background commands">
+      <span class="favorite-heading"><Star size={12} strokeWidth={1.8} aria-hidden="true" /> Saved</span>
       <div class="favorite-list">
         {#each favoriteCommands as favoriteCommand (favoriteCommand)}
           <div class="favorite-command">
@@ -249,10 +250,10 @@ function closePanel() {
               class="favorite-run"
               disabled={starting || runningCommands.has(favoriteCommand)}
               onclick={() => void runCommand(favoriteCommand)}
-              aria-label={`Run favorite ${favoriteCommand}`}
-              title={runningCommands.has(favoriteCommand) ? 'Already running' : 'Run command'}
+              aria-label={`Run saved command ${favoriteCommand}`}
+              title={runningCommands.has(favoriteCommand) ? 'Already running' : favoriteCommand}
             >
-              <Play size={13} strokeWidth={2} aria-hidden="true" />
+              <Play size={16} strokeWidth={1.7} fill="currentColor" aria-hidden="true" />
               <code>{favoriteCommand}</code>
             </button>
             <button
@@ -260,8 +261,8 @@ function closePanel() {
               type="button"
               disabled={Boolean(updatingFavoriteCommand)}
               onclick={() => void onRemoveFavorite(favoriteCommand)}
-              aria-label={`Remove ${favoriteCommand} from favorites`}
-              title="Remove favorite"
+              aria-label={`Remove saved command ${favoriteCommand}`}
+              title="Remove saved command"
             >
               <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
             </button>
@@ -272,25 +273,27 @@ function closePanel() {
   {/if}
 {/snippet}
 
-{#snippet processActions(process: WorkspaceTerminal)}
+{#snippet processActions(process: WorkspaceTerminal, compact: boolean)}
   <div class="process-actions">
-    <button
-      type="button"
-      class="process-icon-action"
-      class:favorite={favoriteSet.has(processCommand(process))}
-      disabled={Boolean(updatingFavoriteCommand)}
-      onclick={(event) => void toggleFavorite(event, process)}
-      aria-pressed={favoriteSet.has(processCommand(process))}
-      aria-label={favoriteSet.has(processCommand(process)) ? `Remove ${processCommand(process)} from favorites` : `Save ${processCommand(process)} as favorite`}
-      title={favoriteSet.has(processCommand(process)) ? 'Remove favorite' : 'Save as favorite'}
-    >
-      <Star
-        size={14}
-        strokeWidth={1.9}
-        fill={favoriteSet.has(processCommand(process)) ? 'currentColor' : 'none'}
-        aria-hidden="true"
-      />
-    </button>
+    {#if !compact}
+      <button
+        type="button"
+        class="process-icon-action"
+        class:favorite={favoriteSet.has(processCommand(process))}
+        disabled={Boolean(updatingFavoriteCommand)}
+        onclick={(event) => void toggleFavorite(event, process)}
+        aria-pressed={favoriteSet.has(processCommand(process))}
+        aria-label={favoriteSet.has(processCommand(process)) ? `Remove saved command ${processCommand(process)}` : `Save command ${processCommand(process)}`}
+        title={favoriteSet.has(processCommand(process)) ? 'Remove saved command' : 'Save command'}
+      >
+        <Star
+          size={14}
+          strokeWidth={1.9}
+          fill={favoriteSet.has(processCommand(process)) ? 'currentColor' : 'none'}
+          aria-hidden="true"
+        />
+      </button>
+    {/if}
     {#if process.state === 'exited'}
       <button
         type="button"
@@ -306,19 +309,23 @@ function closePanel() {
     <button
       type="button"
       class="stop-process"
+      class:compact
+      class:running={process.state === 'running'}
       disabled={Boolean(stoppingProcessId)}
       onclick={(event) => void stopProcess(event, process)}
       aria-label={process.state === 'running' ? `Stop ${processCommand(process)}` : `Delete ${processCommand(process)}`}
       title={process.state === 'running' ? 'Stop process' : 'Delete result'}
     >
       {#if process.state === 'running'}
-        <Square size={12} strokeWidth={2} aria-hidden="true" />
+        <Square size={15} strokeWidth={1.8} fill="currentColor" aria-hidden="true" />
       {:else}
         <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
       {/if}
-      <span class="stop-process-label"
-        >{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span
-      >
+      {#if !compact}
+        <span class="stop-process-label"
+          >{stoppingProcessId === process.id ? 'Stopping…' : process.state === 'running' ? 'Stop' : 'Delete'}</span
+        >
+      {/if}
     </button>
   </div>
 {/snippet}
@@ -350,7 +357,10 @@ function closePanel() {
 {#snippet processList()}
   <div class="process-list" aria-label="Background process list">
     {#if orderedProcesses.length === 0}
-      <DialogEmptyState>No background commands</DialogEmptyState>
+      <DialogEmptyState class="background-empty" as="div">
+        <strong>No background processes</strong>
+        <span>Use + to start one.</span>
+      </DialogEmptyState>
     {:else}
       {#each orderedProcesses as process (process.id)}
         <div class="process-item">
@@ -365,7 +375,7 @@ function closePanel() {
             >
               {@render processSummaryContent(process)}
             </button>
-            {@render processActions(process)}
+            {@render processActions(process, true)}
           </div>
         </div>
       {/each}
@@ -396,37 +406,54 @@ function closePanel() {
   <WorkspacePanelHeader
     title={dialogTitle}
     titleId={`${panelId}-title`}
+    subtitle={dialogSubtitle}
+    subtitleMonospace={view === 'output'}
     close={closePanel}
     closeLabel="Close background manager"
     onBack={view === 'list' ? undefined : showProcessList}
     backLabel="Back to background processes"
-  />
-  <div class="background-view">
-    {#if view === 'list'}
-      <DialogToolbar>
-        {#if orderedProcesses.length > 0}
-          <span>{processCountLabel(orderedProcesses.length)}</span>
-        {/if}
-        <Button variant="primary" class="background-run-action" onclick={openRunner} ariaLabel="Run background command">
-          <Plus size={16} strokeWidth={2} aria-hidden="true" />
-          <span>Run command</span>
+  >
+    {#snippet actions()}
+      {#if view === 'list'}
+        <Button
+          variant="icon"
+          class="background-run-action"
+          onclick={openRunner}
+          ariaLabel="Run background command"
+          title="Run background command"
+        >
+          <Plus size={18} strokeWidth={1.9} aria-hidden="true" />
         </Button>
-      </DialogToolbar>
-      {@render favorites()}
-      <div class="background-content">{@render processList()}</div>
+      {/if}
+    {/snippet}
+  </WorkspacePanelHeader>
+  <div class="background-view" class:output-view={view === 'output'}>
+    {#if view === 'list'}
+      <section class="process-section" aria-labelledby={`${panelId}-processes-heading`}>
+        <header class="section-heading">
+          <strong id={`${panelId}-processes-heading`}>Processes</strong>
+          <span>{processCountLabel(orderedProcesses.length)}</span>
+        </header>
+        <div class="background-content">{@render processList()}</div>
+      </section>
     {:else if view === 'runner'}
       {@render commandRunner()}
       {@render favorites()}
     {:else if selectedProcess}
       <div class="background-detail-bar">
-        <span
-          class="process-status"
-          class:running={selectedProcess.state === 'running'}
-          class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
-          class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
-          >{processStatus(selectedProcess)}</span
-        >
-        {@render processActions(selectedProcess)}
+        <div class="process-detail-meta">
+          <span
+            class="process-status"
+            class:running={selectedProcess.state === 'running'}
+            class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
+            class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
+            >{processStatus(selectedProcess)}</span
+          >
+          {#if processAge(selectedProcess)}
+            <time title={`Started ${processAge(selectedProcess)} ago`}>{processAge(selectedProcess)} ago</time>
+          {/if}
+        </div>
+        {@render processActions(selectedProcess, false)}
       </div>
       {@render processOutput(selectedProcess)}
     {/if}
@@ -464,80 +491,89 @@ function closePanel() {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0.75rem;
-}
-:global(.background-run-action) {
-  margin-left: auto;
+  background: var(--color-panel);
 }
 .background-runner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 0.75rem 1rem;
-  padding: 0 0 0.8rem;
+  flex: 0 0 auto;
+  padding: var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .background-runner form {
   display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.background-runner label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.background-command-control {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
   min-width: 0;
 }
 :global(.background-command-input) {
-  height: 2.35rem;
-  min-height: 2.35rem;
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
   border-color: var(--color-border);
-  border-right: 0;
-  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  border-radius: var(--radius-sm);
   font-size: var(--text-caption);
 }
 :global(.background-command-input:focus) {
   border-color: var(--color-accent);
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+  box-shadow: var(--shadow-accent-focus);
 }
 :global(.background-run-submit) {
   min-width: 4.5rem;
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  border-radius: var(--radius-sm);
 }
 .background-error {
   margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-danger-border);
+  background: var(--color-danger-surface);
   color: var(--color-danger-text);
   font-size: var(--text-caption);
 }
+.runner-error {
+  margin-top: var(--space-3);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-sm);
+}
 .favorite-strip {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.7rem;
-  min-height: 2.7rem;
-  padding: 0.35rem 0;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4) var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .favorite-heading {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
   font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 .favorite-list {
-  display: flex;
-  gap: 0.4rem;
+  display: grid;
+  gap: var(--space-1);
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 .favorite-command {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 2rem;
-  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) var(--control-height-sm);
   align-items: center;
-  max-width: min(24rem, 62vw);
+  min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-control-background);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
 }
 .favorite-command button {
   border: 0;
@@ -546,11 +582,13 @@ function closePanel() {
   cursor: pointer;
 }
 .favorite-command code {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
-  font-size: var(--text-caption);
+  font-size: var(--text-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -559,8 +597,8 @@ function closePanel() {
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
-  min-height: 2.15rem;
-  padding: 0 0.65rem;
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
   text-align: left;
 }
 @media (hover: hover) {
@@ -575,10 +613,9 @@ function closePanel() {
 .favorite-remove {
   display: grid;
   place-items: center;
-  width: 1.9rem;
-  height: 2.15rem;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
-  border-left: 1px solid var(--color-border);
 }
 @media (hover: hover) {
   .favorite-remove:hover:not(:disabled) {
@@ -590,18 +627,55 @@ function closePanel() {
   cursor: default;
   opacity: 0.42;
 }
+.process-section {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.section-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.4rem;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.section-heading strong {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.section-heading span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
 .background-content {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding-top: 0.65rem;
   overscroll-behavior: contain;
 }
 .process-list {
   min-width: 0;
   min-height: 0;
   display: grid;
-  gap: 0.4rem;
+}
+.process-list :global(.background-empty) {
+  min-height: 10rem;
+  gap: var(--space-2);
+  padding-inline: var(--space-5);
+}
+.process-list :global(.background-empty strong) {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.process-list :global(.background-empty span) {
+  max-width: 17rem;
+  line-height: var(--leading-ui);
 }
 .output-placeholder {
   margin: 0;
@@ -613,13 +687,13 @@ function closePanel() {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
+  min-height: 3.65rem;
 }
 .process-item {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
 }
 .process-summary,
 .process-icon-action,
@@ -636,8 +710,8 @@ function closePanel() {
   align-items: center;
   gap: 0.6rem;
   min-width: 0;
-  min-height: 2.85rem;
-  padding: 0.55rem 0.65rem 0.55rem 0.7rem;
+  min-height: 3.65rem;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
   text-align: left;
 }
 @media (hover: hover) {
@@ -685,18 +759,19 @@ function closePanel() {
 .process-details {
   display: grid;
   min-width: 0;
-  gap: 0.3rem;
+  gap: var(--space-1);
 }
 .process-summary code {
   display: block;
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--text-label);
   font-weight: var(--weight-medium);
   line-height: 1.35;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .process-meta {
   display: flex;
@@ -709,16 +784,27 @@ function closePanel() {
   font-size: var(--text-caption);
   white-space: nowrap;
 }
+.process-summary .process-status {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.process-summary .process-status.running {
+  color: var(--color-success-text);
+}
+.process-summary .process-status.failed {
+  color: var(--color-danger-text);
+}
 .process-actions {
   display: flex;
   align-items: stretch;
-  gap: 0.05rem;
+  gap: 0;
   min-width: 0;
 }
 .process-icon-action {
   display: grid;
   place-items: center;
-  width: 2.25rem;
+  width: var(--control-height-sm);
   padding: 0;
   color: var(--color-text-disabled);
 }
@@ -740,6 +826,18 @@ function closePanel() {
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }
+.stop-process.compact {
+  width: var(--control-height-sm);
+  min-width: var(--control-height-sm);
+  padding: 0;
+  color: var(--color-text-secondary);
+}
+.stop-process.running {
+  color: var(--color-danger-text);
+}
+.process-item .stop-process.compact {
+  align-self: stretch;
+}
 .stop-process-label {
   white-space: nowrap;
 }
@@ -749,15 +847,28 @@ function closePanel() {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-raised);
+  background: var(--color-terminal-background);
 }
 .background-detail-bar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
   min-height: 3rem;
+  padding-left: var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
+}
+.process-detail-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+.process-detail-meta time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  white-space: nowrap;
 }
 .background-detail-bar .process-actions {
   min-height: 3rem;
@@ -776,8 +887,8 @@ function closePanel() {
   overflow: auto;
   overscroll-behavior: contain;
   margin: 0;
-  padding: 0.7rem 0.85rem 0.85rem 1.05rem;
-  background: var(--color-surface-raised);
+  padding: var(--space-4);
+  background: var(--color-terminal-background);
   color: var(--color-terminal-foreground);
   font-family: var(--font-mono);
   font-size: var(--text-caption);
@@ -815,6 +926,16 @@ function closePanel() {
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     transition: transform 180ms ease;
+  }
+}
+
+@media (hover: hover) {
+  .process-item .process-actions {
+    opacity: 0.62;
+  }
+  .process-item:hover .process-actions,
+  .process-item:focus-within .process-actions {
+    opacity: 1;
   }
 }
 

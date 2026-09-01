@@ -644,9 +644,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   const openBackground = page.getByRole('button', { name: 'Open background processes' });
   await expect(openBackground).toBeVisible();
   await openBackground.click();
-  const backgroundSheet = page.getByRole('dialog');
-  const backgroundTitle = backgroundSheet.getByRole('heading', { name: 'Background processes' });
+  const backgroundSheet = page.locator('aside.background-panel');
+  const backgroundTitle = backgroundSheet.locator('.workspace-panel-title strong');
   await expect(backgroundSheet).toBeVisible();
+  await expect(backgroundTitle).toHaveText('Background');
   await expect(page.getByRole('textbox', { name: 'Background command' })).toHaveCount(0);
   await expect(backgroundSheet.getByRole('button', { name: 'Run background command' })).toBeVisible();
   await backgroundSheet.getByRole('button', { name: 'Run background command' }).click();
@@ -660,7 +661,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(backgroundCommand).toHaveCount(0);
   const output = backgroundSheet.getByRole('region', { name: `Output for ${backgroundCommandValue}` }).locator('pre');
   await expect(output).toContainText('300');
-  await expect(backgroundSheet.getByRole('heading', { name: backgroundCommandValue })).toBeVisible();
+  await expect(backgroundTitle).toHaveText('Output');
+  await expect(backgroundSheet.locator('.workspace-panel-title span')).toHaveText(backgroundCommandValue);
   const stopBackground = page.getByRole('button', { name: `Stop ${backgroundCommandValue}` });
   await expect(stopBackground).toBeVisible();
   const sheetLayout = await backgroundSheet.evaluate((sheet) => {
@@ -683,7 +685,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await stopBackground.click();
   await expect(stopBackground).toBeHidden();
   await backgroundSheet.getByRole('button', { name: 'Close background manager' }).click();
-  await expect(backgroundSheet).toBeHidden();
+  await expect(backgroundSheet).toHaveAttribute('aria-hidden', 'true');
   await expect(openBackground).toBeFocused();
   await page.setViewportSize({ width: 412, height: 915 });
 

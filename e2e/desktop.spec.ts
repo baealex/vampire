@@ -2188,7 +2188,7 @@ test('runs and stops a background command without replacing the main workspace',
 
   const backgroundTrigger = page.getByRole('button', { name: 'Open background processes' });
   await backgroundTrigger.click();
-  const backgroundDialog = page.getByRole('dialog');
+  const backgroundDialog = page.locator('aside.background-panel');
   await expect(backgroundDialog).toBeVisible();
   await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   const backgroundCommand = backgroundDialog.getByRole('textbox', { name: 'Background command' });
@@ -2204,18 +2204,28 @@ test('runs and stops a background command without replacing the main workspace',
   );
   await expect(page.locator('.workspace-row-shell.selected .runtime-summary')).toHaveText('1 background');
   await expect(page.locator('.workspace-group.idle .workspace-row-shell.selected')).toBeVisible({ timeout: 12_000 });
-  await backgroundDialog.getByRole('button', { name: `Save ${longCommand} as favorite`, exact: true }).click();
+  await backgroundDialog.getByRole('button', { name: `Save command ${longCommand}`, exact: true }).click();
   await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
+  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(0);
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await expect(
-    backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })
+    backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
   ).toBeVisible();
+  const favoriteStripFitsPanel = await backgroundDialog
+    .locator('.favorite-strip')
+    .evaluate((favorites) => favorites.scrollWidth <= favorites.clientWidth + 1);
+  expect(favoriteStripFitsPanel).toBe(true);
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
 
   await page.reload();
   await expectTerminalReady(page);
   await page.getByRole('button', { name: 'Open background processes' }).click();
+  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(0);
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await expect(
-    backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })
+    backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
   ).toBeVisible();
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
   const outputRoute = '**/api/workspaces/*/background/*/output';
   await page.route(outputRoute, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_500));
@@ -2253,7 +2263,8 @@ test('runs and stops a background command without replacing the main workspace',
     backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true })
   ).toHaveCount(0);
   await expect(page.locator('.workspace-row-shell.selected .runtime-summary')).toBeHidden();
-  await backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true }).click();
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
+  await backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true }).click();
   await expect(backgroundDialog.getByRole('region', { name: `Output for ${longCommand}` })).toBeVisible({
     timeout: 15_000,
   });
@@ -2261,11 +2272,13 @@ test('runs and stops a background command without replacing the main workspace',
   await expect(
     backgroundDialog.getByRole('button', { name: `View output for ${longCommand}`, exact: true })
   ).toHaveCount(0);
-  await backgroundDialog.getByRole('button', { name: `Remove ${longCommand} from favorites`, exact: true }).click();
-  await expect(backgroundDialog.getByRole('button', { name: `Run favorite ${longCommand}`, exact: true })).toHaveCount(
-    0
-  );
+  await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
+  await backgroundDialog.getByRole('button', { name: `Remove saved command ${longCommand}`, exact: true }).click();
+  await expect(
+    backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
+  ).toHaveCount(0);
 
+  await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
   await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await backgroundCommand.fill("printf 'finished-background-marker\\n'");
   await backgroundDialog.getByRole('button', { name: 'Run', exact: true }).click();
