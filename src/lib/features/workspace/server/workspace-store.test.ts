@@ -31,6 +31,7 @@ test('finds the terminal and workspace registered for a workspace ID', async (t)
   assert.deepEqual(stored.launchProfiles, []);
   assert.equal(stored.workspaces[0]?.startupProfileId, null);
   assert.deepEqual(stored.workspaces[0]?.automations, []);
+  assert.equal('composerPromptHistory' in stored.workspaces[0]!, false);
   assert.equal(await findWorkspaceConnection('47b7cc7d-b47e-4ab7-a1ee-f462eb779c46', file), undefined);
 });
 

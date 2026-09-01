@@ -6,6 +6,7 @@ import FolderX from '@lucide/svelte/icons/folder-x';
 import GitBranch from '@lucide/svelte/icons/git-branch';
 import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 import StickyNote from '@lucide/svelte/icons/sticky-note';
+import MessageSquareText from '@lucide/svelte/icons/message-square-text';
 import Button from '~/lib/shared/ui/Button.svelte';
 import WorkspaceActionsMenu from './WorkspaceActionsMenu.svelte';
 import type { ManagedWorkspace, WorkspaceOrderMode } from '~/lib/shared/contracts/workspace';
@@ -181,12 +182,13 @@ async function runWorkspaceAction(
     >
       <button
         class="workspace-row"
+        class:has-memory={Boolean(workspace.notePreview || workspace.composerPromptPreview)}
         class:missing={workspace.state === 'missing'}
         onclick={() => onOpen(workspace)}
         oncontextmenu={(event) => handleWorkspaceContextMenu(event, workspace)}
         onkeydown={(event) => handleWorkspaceOrderKeydown(event, workspace.id)}
         aria-current={selectedWorkspaceId === workspace.id ? 'true' : undefined}
-        aria-label={`Open ${workspace.state === 'missing' ? 'ended' : 'running'} ${displayName} workspace (${process?.label ? `${process.label}; ` : ''}${workspaceActivityHint(workspace, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${workspace.workspaceAvailable === false ? '; working copy missing' : ''}${workspace.notePreview ? '; has a note' : ''})`}
+        aria-label={`Open ${workspace.state === 'missing' ? 'ended' : 'running'} ${displayName} workspace (${process?.label ? `${process.label}; ` : ''}${workspaceActivityHint(workspace, activityRecords, now)}; ${backgroundCount} background ${backgroundCount === 1 ? 'process' : 'processes'}${workspace.workspaceAvailable === false ? '; working copy missing' : ''}${workspace.notePreview ? '; has a note' : ''}${workspace.composerPromptPreview ? '; has Composer history' : ''})`}
       >
         <span class="workspace-summary">
           <span class="workspace-title" title={displayName}>
@@ -247,14 +249,33 @@ async function runWorkspaceAction(
               <span>{backgroundCount} background</span>
             </span>
           {/if}
-          {#if workspace.notePreview}
-            <span class="workspace-note-preview" title={workspace.notePreview}>
-              <StickyNote size={12} strokeWidth={1.8} aria-hidden="true" />
-              <span>{workspace.notePreview}</span>
-            </span>
-          {/if}
         </span>
       </button>
+      {#if workspace.notePreview || workspace.composerPromptPreview}
+        <button
+          type="button"
+          class="workspace-memory"
+          onclick={() => onOpen(workspace)}
+          aria-label={`Open ${displayName} workspace context`}
+        >
+          {#if workspace.notePreview}
+            <span class="workspace-memory-item workspace-note-preview" title={workspace.notePreview}>
+              <span class="workspace-memory-kind">
+                <StickyNote size={13} strokeWidth={1.8} aria-hidden="true" />
+              </span>
+              <span class="workspace-memory-text">{workspace.notePreview}</span>
+            </span>
+          {/if}
+          {#if workspace.composerPromptPreview}
+            <span class="workspace-memory-item workspace-prompt-preview" title={workspace.composerPromptPreview.text}>
+              <span class="workspace-memory-kind">
+                <MessageSquareText size={13} strokeWidth={1.8} aria-hidden="true" />
+              </span>
+              <span class="workspace-memory-text">{workspace.composerPromptPreview.text}</span>
+            </span>
+          {/if}
+        </button>
+      {/if}
       <div class="workspace-actions-menu">
         <WorkspaceActionsMenu
           {workspace}
@@ -403,11 +424,14 @@ async function runWorkspaceAction(
   text-align: left;
   cursor: pointer;
 }
+.workspace-row.has-memory {
+  padding-bottom: 0.45rem;
+}
 @media (hover: hover) {
-  .workspace-row:hover {
+  .workspace-row-shell:hover {
     background: var(--color-surface-raised);
   }
-  .workspace-row-shell.selected .workspace-row:hover {
+  .workspace-row-shell.selected:hover {
     background: var(--color-surface-active-hover);
   }
 }
@@ -469,7 +493,6 @@ async function runWorkspaceAction(
 }
 .agent-summary,
 .runtime-summary,
-.workspace-note-preview,
 .workspace-origin,
 .workspace-missing {
   display: flex;
@@ -567,17 +590,73 @@ async function runWorkspaceAction(
   flex: 0 0 auto;
   color: var(--color-text-disabled);
 }
-.workspace-note-preview {
-  gap: 0.32rem;
-  color: var(--color-note);
-}
-.workspace-note-preview :global(svg) {
-  flex: 0 0 auto;
-}
-.workspace-note-preview span {
+.workspace-memory {
+  position: relative;
+  display: grid;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
+  margin: 0;
+  padding: 0.52rem 1rem 0.58rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-memory::before {
+  position: absolute;
+  top: 0;
+  right: 1rem;
+  left: 1rem;
+  height: 1px;
+  background: var(--color-divider-subtle);
+  content: "";
+}
+.workspace-memory-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.16rem 0;
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.workspace-memory-item + .workspace-memory-item {
+  margin-top: 0.08rem;
+}
+.workspace-memory-kind {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  color: var(--color-text-disabled);
+}
+.workspace-memory-kind :global(svg) {
+  flex: 0 0 auto;
+}
+.workspace-memory-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-note-preview .workspace-memory-kind {
+  color: var(--color-note);
+}
+.workspace-prompt-preview .workspace-memory-kind {
+  color: var(--color-agent);
+}
+.workspace-row-shell.selected .workspace-memory::before {
+  background: color-mix(in srgb, var(--color-accent) 24%, var(--color-divider-subtle));
+}
+@media (hover: hover) {
+  .workspace-memory:hover {
+    background: transparent;
+  }
 }
 .workspace-row.missing .workspace-summary {
   opacity: 0.62;

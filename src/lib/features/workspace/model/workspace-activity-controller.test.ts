@@ -44,6 +44,7 @@ function workspace(lastOutputAt: number | null = null, id = 'workspace-1'): Mana
     lastActiveAt: 1,
     lastOutputAt,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: null,
     state: 'running',

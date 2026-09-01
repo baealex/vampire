@@ -7,15 +7,20 @@ import {
   readManagedWorkspacePreferences,
   WorkspaceLaunchError,
 } from '~/lib/app/server/workspace-registry.server.ts';
+import { readManagedWorkspaceComposerHistorySettings } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);
-  const [workspaces, preferences, profileSettings] = await Promise.all([
+  const [workspaces, preferences, profileSettings, composerHistorySettings] = await Promise.all([
     listManagedWorkspaces(),
     readManagedWorkspacePreferences(),
     readManagedLaunchProfileSettings(),
+    readManagedWorkspaceComposerHistorySettings(),
   ]);
-  return json({ workspaces, preferences, ...profileSettings }, { headers: { 'cache-control': 'no-store' } });
+  return json(
+    { workspaces, preferences, ...profileSettings, composerHistorySettings },
+    { headers: { 'cache-control': 'no-store' } }
+  );
 };
 
 export const POST: RequestHandler = async (event) => {

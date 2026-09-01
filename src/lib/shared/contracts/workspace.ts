@@ -1,4 +1,5 @@
 import type { AgentState } from './workspace-agent.ts';
+import type { WorkspaceComposerPromptPreview } from './workspace-composer-history.ts';
 
 export type LaunchProfile = {
   id: string;
@@ -40,6 +41,7 @@ export type ManagedWorkspace = {
   createdAt: number;
   lastActiveAt: number;
   notePreview: string;
+  composerPromptPreview: WorkspaceComposerPromptPreview | null;
   favoriteCommands: string[];
   startupProfileId: string | null;
   lastOutputAt: number | null;

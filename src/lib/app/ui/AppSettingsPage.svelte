@@ -13,6 +13,11 @@ import {
   type TerminalInputMode,
 } from '~/lib/features/terminal/model/input-preferences.svelte.ts';
 import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
+import {
+  MAX_WORKSPACE_COMPOSER_PROMPTS,
+  MIN_WORKSPACE_COMPOSER_PROMPTS,
+  type WorkspaceComposerHistorySettings,
+} from '~/lib/shared/contracts/workspace-composer-history.ts';
 import type { LaunchProfile, ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import { themeState, type AppThemePreference } from '~/lib/shared/theme/theme.svelte.ts';
 import Button from '~/lib/shared/ui/Button.svelte';
@@ -23,9 +28,11 @@ import Select from '~/lib/shared/ui/Select.svelte';
 let {
   launchProfiles,
   defaultStartupProfileId,
+  composerHistorySettings,
   workspaces,
   close,
   onSaveLaunchProfiles,
+  onSaveComposerHistorySettings,
   onManageAutomations,
   onManageWidgets,
   onLogout,
@@ -34,12 +41,16 @@ let {
 }: {
   launchProfiles: LaunchProfile[];
   defaultStartupProfileId: string | null;
+  composerHistorySettings: WorkspaceComposerHistorySettings;
   workspaces: ManagedWorkspace[];
   close: () => void;
   onSaveLaunchProfiles: (
     profiles: LaunchProfile[],
     defaultProfileId: string | null,
     applyDefaultToAll: boolean
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onSaveComposerHistorySettings: (
+    settings: WorkspaceComposerHistorySettings
   ) => Promise<{ ok: boolean; error?: string }>;
   onManageAutomations: () => void;
   onManageWidgets: () => void;
@@ -55,9 +66,17 @@ let syncedDefaultProfileId = $state(untrack(() => defaultStartupProfileId ?? '')
 let saving = $state(false);
 let savingError = $state('');
 let savedMessage = $state('');
+let historyEnabled = $state(untrack(() => composerHistorySettings.enabled));
+let historyLimit = $state(String(untrack(() => composerHistorySettings.limit)));
+let syncedHistorySettings = $state(JSON.stringify(untrack(() => composerHistorySettings)));
+let historySavingError = $state('');
+let historySavedMessage = $state('');
 let listeningPortsOpen = $state(false);
 const profileChanges = $derived(
   JSON.stringify(editableProfiles) !== syncedProfiles || selectedDefaultProfileId !== syncedDefaultProfileId
+);
+const historyChanges = $derived(
+  JSON.stringify({ enabled: historyEnabled, limit: Number(historyLimit) }) !== syncedHistorySettings
 );
 
 $effect(() => {
@@ -72,7 +91,15 @@ $effect(() => {
 });
 
 $effect(() => {
-  onDirtyChange(profileChanges);
+  onDirtyChange(profileChanges || historyChanges);
+});
+
+$effect(() => {
+  const incoming = JSON.stringify(composerHistorySettings);
+  if (incoming === syncedHistorySettings || untrack(() => historyChanges)) return;
+  historyEnabled = composerHistorySettings.enabled;
+  historyLimit = String(composerHistorySettings.limit);
+  syncedHistorySettings = incoming;
 });
 
 onMount(() => terminalInputPreferences.start());
@@ -156,6 +183,34 @@ async function saveLaunchProfiles() {
     onBusyChange(false);
   }
 }
+
+async function saveComposerHistorySettings() {
+  const limit = Number(historyLimit);
+  historySavingError = '';
+  historySavedMessage = '';
+  if (!Number.isInteger(limit) || limit < MIN_WORKSPACE_COMPOSER_PROMPTS || limit > MAX_WORKSPACE_COMPOSER_PROMPTS) {
+    historySavingError =
+      `Keep between ${MIN_WORKSPACE_COMPOSER_PROMPTS} and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`;
+    return;
+  }
+  saving = true;
+  onBusyChange(true);
+  try {
+    const settings = { enabled: historyEnabled, limit };
+    const result = await onSaveComposerHistorySettings(settings);
+    if (!result.ok) {
+      historySavingError = result.error ?? 'Unable to save Composer history settings.';
+      return;
+    }
+    syncedHistorySettings = JSON.stringify(settings);
+    historySavedMessage = historyEnabled
+      ? `Composer history will keep ${limit} ${limit === 1 ? 'prompt' : 'prompts'} per workspace.`
+      : 'Composer history is off. Existing history is retained.';
+  } finally {
+    saving = false;
+    onBusyChange(false);
+  }
+}
 </script>
 
 <ManagementSurface
@@ -176,7 +231,7 @@ async function saveLaunchProfiles() {
               <h2 id="appearance-settings-title">Appearance</h2>
               <span>Browser</span>
             </div>
-            <p>Saved on this device.</p>
+            <p>Saved in this browser.</p>
           </div>
         </div>
         <div class="choice-grid choice-grid--three" role="radiogroup" aria-label="Theme">
@@ -252,6 +307,58 @@ async function saveLaunchProfiles() {
             <small>Typing / in an empty Compose field focuses the terminal and forwards the slash.</small>
           </span>
         </label>
+      </section>
+
+      <section class="settings-section" aria-labelledby="composer-history-settings-title">
+        <div class="settings-section-heading">
+          <div>
+            <div class="settings-title-row">
+              <h2 id="composer-history-settings-title">Composer history</h2>
+              <span>Server</span>
+            </div>
+            <p>Only prompts successfully sent from Compose are saved. Direct terminal input is never recorded.</p>
+          </div>
+        </div>
+        <label class="toggle-row">
+          <input type="checkbox" bind:checked={historyEnabled} disabled={saving}>
+          <span>
+            <strong>Save Compose history</strong>
+            <small>Show the latest prompt as workspace context and make recent prompts available for reuse.</small>
+          </span>
+        </label>
+        <label class="history-limit-field">
+          <span>
+            <strong>Prompts per workspace</strong>
+            <small>Lowering this limit permanently removes the oldest saved prompts.</small>
+          </span>
+          <Input
+            type="number"
+            bind:value={historyLimit}
+            min={MIN_WORKSPACE_COMPOSER_PROMPTS}
+            max={MAX_WORKSPACE_COMPOSER_PROMPTS}
+            step={1}
+            disabled={saving || !historyEnabled}
+            ariaLabel="Prompts saved per workspace"
+          />
+        </label>
+        <div class="profile-actions">
+          <div aria-live="polite">
+            {#if historySavingError}
+              <p class="feedback feedback--error" role="alert">{historySavingError}</p>
+            {:else if historySavedMessage}
+              <p class="feedback">{historySavedMessage}</p>
+            {/if}
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onclick={() => void saveComposerHistorySettings()}
+            disabled={saving || !historyChanges}
+          >
+            <Save size={15} strokeWidth={1.9} aria-hidden="true" />
+            <span>{saving ? 'Saving…' : 'Save history settings'}</span>
+          </Button>
+        </div>
       </section>
 
       <section class="settings-section" aria-labelledby="launch-profile-settings-title">
@@ -569,6 +676,31 @@ kbd {
   border-radius: var(--radius-md);
   background: var(--color-control-background);
 }
+.history-limit-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-control-background);
+}
+.history-limit-field > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+.history-limit-field strong {
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.history-limit-field small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: var(--leading-body);
+}
 .profile-list {
   display: grid;
   gap: 0.6rem;
@@ -661,6 +793,9 @@ kbd {
   }
   .default-profile-field {
     grid-template-columns: 1fr;
+  }
+  .history-limit-field {
+    grid-template-columns: minmax(0, 1fr) 6rem;
   }
   .settings-row {
     align-items: flex-start;

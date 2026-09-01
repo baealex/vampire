@@ -33,6 +33,7 @@ function agentWorkspace(
     createdAt: 1,
     lastActiveAt,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: null,
     lastOutputAt: null,

@@ -91,6 +91,7 @@ function isStoredWorkspace(
     (value.noteFile === undefined || typeof value.noteFile === 'boolean') &&
     (value.agentNoteFile === undefined || typeof value.agentNoteFile === 'boolean') &&
     (value.automations === undefined || Array.isArray(value.automations)) &&
+    (value.composerPromptHistory === undefined || Array.isArray(value.composerPromptHistory)) &&
     (value.favoriteCommands === undefined ||
       (Array.isArray(value.favoriteCommands) &&
         value.favoriteCommands.every((command) => typeof command === 'string'))) &&

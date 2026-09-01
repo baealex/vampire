@@ -17,6 +17,7 @@ import { uploadSelectionFromDataTransfer } from '~/lib/features/repository/api/u
 import { RepositoryWorkspaceState } from '~/lib/features/repository/model/workspace-state.svelte';
 import { repositoryNavigationPaths } from '~/lib/features/repository/model/view';
 import type { RepositorySelection, RepositoryTab } from '~/lib/shared/contracts/repository';
+import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspace,
@@ -32,6 +33,9 @@ let {
   close,
   onUpdateNote,
   onLoadNote,
+  composerHistoryEnabled = true,
+  onRecordComposerPrompt,
+  onLoadComposerPrompts,
   onInputActivity,
   onOutputActivity,
   onTerminalPresentationChange = () => undefined,
@@ -58,6 +62,9 @@ let {
   close: () => void;
   onUpdateNote: (workspaceId: string, note: string) => Promise<void>;
   onLoadNote: (workspaceId: string, refresh?: boolean) => Promise<string>;
+  composerHistoryEnabled?: boolean;
+  onRecordComposerPrompt: (workspaceId: string, prompt: string) => Promise<void>;
+  onLoadComposerPrompts: (workspaceId: string, refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onTerminalPresentationChange?: (workspaceId: string, presented: boolean) => void;
@@ -256,6 +263,9 @@ onMount(() => {
       close={openWorkspaceNavigator}
       {onInputActivity}
       {onOutputActivity}
+      {onRecordComposerPrompt}
+      {onLoadComposerPrompts}
+      {composerHistoryEnabled}
       {repositoryOpen}
       {noteOpen}
       isGitRepository={repository.snapshot?.isGitRepository ?? workspace.isGitRepository}

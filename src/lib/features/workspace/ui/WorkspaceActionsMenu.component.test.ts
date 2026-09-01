@@ -14,6 +14,7 @@ const workspace: ManagedWorkspace = {
   createdAt: 1,
   lastActiveAt: 1,
   notePreview: 'Release blocker',
+  composerPromptPreview: null,
   favoriteCommands: [],
   startupProfileId: null,
   lastOutputAt: null,

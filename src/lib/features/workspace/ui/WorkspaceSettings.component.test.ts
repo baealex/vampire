@@ -12,6 +12,7 @@ function workspace(overrides: Partial<ManagedWorkspace> = {}): ManagedWorkspace 
     createdAt: 1,
     lastActiveAt: 1,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: 'profile-1',
     lastOutputAt: 1,

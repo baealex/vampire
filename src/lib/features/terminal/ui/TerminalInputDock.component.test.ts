@@ -7,17 +7,27 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
   const send = vi.fn();
   const scrollPageUp = vi.fn();
   const scrollPageDown = vi.fn();
+  const onSubmitted = vi.fn(async () => undefined);
+  const loadPrompts = vi.fn(async () => [
+    { id: 'prompt-2', text: 'Review the automation queue', submittedAt: 2 },
+    { id: 'prompt-1', text: 'Check the current tests', submittedAt: 1 },
+  ]);
   return {
     submit,
     send,
     handoffToTerminal,
     scrollPageUp,
     scrollPageDown,
+    onSubmitted,
+    loadPrompts,
     result: render(TerminalInputDock, {
       workspaceId,
       connected: true,
       send,
       submit,
+      promptPreview: { text: 'Review the automation queue', submittedAt: 2 },
+      onSubmitted,
+      loadPrompts,
       handoffToTerminal,
       onImageSelected: vi.fn(),
       scrollPageUp,
@@ -35,6 +45,28 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
 
 beforeEach(() => {
   window.localStorage.clear();
+});
+
+test('opens exact workspace Composer history and inserts a selected prompt without sending it', async () => {
+  const { submit } = renderDock();
+
+  expect(screen.getByText('Review the automation queue')).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole('button', { name: 'Open Composer history' }));
+  await fireEvent.click(await screen.findByRole('button', { name: /Check the current tests/ }));
+
+  expect(screen.getByLabelText('Send text to the shell')).toHaveValue('Check the current tests');
+  expect(submit).not.toHaveBeenCalled();
+});
+
+test('records exact Composer text only after terminal submission succeeds', async () => {
+  const { submit, onSubmitted } = renderDock();
+  const composer = screen.getByLabelText('Send text to the shell');
+  await fireEvent.input(composer, { target: { value: 'Continue the current work' } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
+
+  expect(submit).toHaveBeenCalledWith('Continue the current work');
+  await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith('Continue the current work'));
+  expect(composer).toHaveValue('');
 });
 
 test('keeps Shift+Enter as a composer line break without submitting', async () => {

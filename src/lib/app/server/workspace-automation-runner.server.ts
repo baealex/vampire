@@ -4,6 +4,7 @@ import {
   migrateManagedWorkspaceNotes,
 } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
+import { migrateManagedWorkspaceComposerHistories } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
 import {
   listTmuxSessions,
   submitTmuxPrompt,
@@ -69,6 +70,7 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
 }
 
 export async function installWorkspaceAutomationRunner(): Promise<() => void> {
+  await migrateManagedWorkspaceComposerHistories();
   await migrateManagedWorkspaceNotes();
   let activeTick: Promise<void> | undefined;
   const tick = () => {

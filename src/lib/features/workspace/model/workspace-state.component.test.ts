@@ -10,6 +10,7 @@ function workspace(id: string, overrides: Partial<ManagedWorkspace> = {}): Manag
     createdAt: 1,
     lastActiveAt: 100,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: null,
     lastOutputAt: 100,
@@ -103,5 +104,55 @@ test('places an isolated workspace below its source in shared manual order', asy
 
   await vi.waitFor(() => expect(persistedOrder).toEqual(['source', 'isolated', 'tail']));
   expect(current.displayedWorkspaces.map((item) => item.id)).toEqual(['source', 'isolated', 'tail']);
+  current.dispose();
+});
+
+test('records a Composer prompt and caches its workspace history', async () => {
+  const prompt = { id: 'prompt-1', text: 'Continue the current work', submittedAt: 200 };
+  const preview = { text: prompt.text, submittedAt: prompt.submittedAt };
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    if (init?.method === 'POST') return json({ saved: true, prompt, preview });
+    return json({ prompts: [prompt] });
+  });
+  const current = state();
+  current.applyWorkspaceSnapshot([workspace('one')]);
+
+  await current.recordWorkspaceComposerPrompt('one', prompt.text);
+  expect(current.workspaces[0]?.composerPromptPreview).toEqual(preview);
+  await expect(current.loadWorkspaceComposerPrompts('one')).resolves.toEqual([prompt]);
+  await expect(current.loadWorkspaceComposerPrompts('one')).resolves.toEqual([prompt]);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  current.dispose();
+});
+
+test('applies server Composer history settings and stops recording when disabled', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const path = String(input);
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    if (path === '/api/composer-history/settings' && init?.method === 'PUT') {
+      return json({ enabled: false, limit: 8 });
+    }
+    if (path === '/api/workspaces') {
+      return json({
+        workspaces: [workspace('one')],
+        composerHistorySettings: { enabled: false, limit: 8 },
+      });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  const current = state();
+  current.applyWorkspaceSnapshot([
+    workspace('one', { composerPromptPreview: { text: 'Existing prompt', submittedAt: 1 } }),
+  ]);
+
+  await expect(current.updateComposerHistorySettings({ enabled: false, limit: 8 })).resolves.toEqual({ ok: true });
+  await current.recordWorkspaceComposerPrompt('one', 'Do not record this');
+
+  expect(current.composerHistorySettings).toEqual({ enabled: false, limit: 8 });
+  expect(current.workspaces[0]?.composerPromptPreview).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
   current.dispose();
 });

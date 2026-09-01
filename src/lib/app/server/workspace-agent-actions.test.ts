@@ -22,6 +22,7 @@ function workspace(): ManagedWorkspace {
     favoriteCommands: [],
     startupProfileId: null,
     notePreview: '',
+    composerPromptPreview: null,
     state: 'running',
     lastOutputAt: 1,
     attachedClients: 0,

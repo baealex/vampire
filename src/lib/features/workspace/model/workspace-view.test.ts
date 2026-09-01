@@ -17,6 +17,7 @@ function workspace(
     lastActiveAt: 1,
     lastOutputAt,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: null,
     state,

@@ -706,10 +706,12 @@ onMount(() => {
           <AppSettingsPage
             launchProfiles={workspaceState.launchProfiles}
             defaultStartupProfileId={workspaceState.defaultStartupProfileId}
+            composerHistorySettings={workspaceState.composerHistorySettings}
             workspaces={workspaceState.workspaces}
             close={closeManagementView}
             onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
               workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
+            onSaveComposerHistorySettings={(settings) => workspaceState.updateComposerHistorySettings(settings)}
             onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
             onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
             onLogout={connection.authenticationRequired ? () => void logout() : undefined}
@@ -861,6 +863,9 @@ onMount(() => {
               close={openWorkspaceNavigator}
               onUpdateNote={(workspaceId, note) => workspaceState.updateWorkspaceNote(workspaceId, note)}
               onLoadNote={(workspaceId, refresh) => workspaceState.loadWorkspaceNote(workspaceId, refresh)}
+              composerHistoryEnabled={workspaceState.composerHistorySettings.enabled}
+              onRecordComposerPrompt={(workspaceId, prompt) => workspaceState.recordWorkspaceComposerPrompt(workspaceId, prompt)}
+              onLoadComposerPrompts={(workspaceId, refresh) => workspaceState.loadWorkspaceComposerPrompts(workspaceId, refresh)}
               onInputActivity={(workspaceId, timestamp) => workspaceState.recordWorkspaceInput(workspaceId, timestamp)}
               onOutputActivity={(workspaceId, active, timestamp) => workspaceState.recordWorkspaceOutput(workspaceId, active, timestamp, terminalIsObserved(workspaceId))}
               onTerminalPresentationChange={setTerminalPresentation}

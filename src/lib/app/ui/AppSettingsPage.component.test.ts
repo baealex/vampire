@@ -21,6 +21,7 @@ const workspace: ManagedWorkspace = {
   createdAt: 1,
   lastActiveAt: 1,
   notePreview: '',
+  composerPromptPreview: null,
   favoriteCommands: [],
   startupProfileId: 'codex',
   lastOutputAt: null,
@@ -31,17 +32,23 @@ const workspace: ManagedWorkspace = {
   isGitRepository: false,
 };
 
-function renderSettings(onSaveLaunchProfiles = vi.fn(async () => ({ ok: true }))) {
+function renderSettings(
+  onSaveLaunchProfiles = vi.fn(async () => ({ ok: true })),
+  onSaveComposerHistorySettings = vi.fn(async () => ({ ok: true }))
+) {
   const onManageAutomations = vi.fn();
   return {
     onSaveLaunchProfiles,
+    onSaveComposerHistorySettings,
     onManageAutomations,
     view: render(AppSettingsPage, {
       launchProfiles: profiles,
       defaultStartupProfileId: 'codex',
+      composerHistorySettings: { enabled: true, limit: 20 },
       workspaces: [workspace],
       close: vi.fn(),
       onSaveLaunchProfiles,
+      onSaveComposerHistorySettings,
       onManageAutomations,
       onManageWidgets: vi.fn(),
       onBusyChange: vi.fn(),
@@ -63,6 +70,21 @@ beforeEach(() => {
   window.localStorage.clear();
   terminalInputPreferences.setMode('terminal');
   terminalInputPreferences.setSlashHandoff(true);
+});
+
+test('explains Compose-only history and saves its server retention policy', async () => {
+  const user = userEvent.setup();
+  const { onSaveComposerHistorySettings } = renderSettings();
+
+  expect(
+    screen.getByText('Only prompts successfully sent from Compose are saved. Direct terminal input is never recorded.')
+  ).toBeVisible();
+  const limit = screen.getByRole('spinbutton', { name: 'Prompts saved per workspace' });
+  await user.clear(limit);
+  await user.type(limit, '12');
+  await user.click(screen.getByRole('button', { name: 'Save history settings' }));
+
+  expect(onSaveComposerHistorySettings).toHaveBeenCalledWith({ enabled: true, limit: 12 });
 });
 
 test('persists the Compose-first and slash handoff browser preferences', async () => {

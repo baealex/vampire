@@ -9,6 +9,7 @@ import TerminalViewport from '~/lib/features/terminal/ui/TerminalViewport.svelte
 import type { StatusPluginSnapshot } from '~/lib/shared/contracts/status-plugin';
 import { isDesktopInteractionViewport } from '~/lib/shared/ui/layout';
 import type { TerminalPathInsertionRequest, WorkspaceEntryDragData } from '~/lib/shared/lib/workspace-entry-drag.ts';
+import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspace,
@@ -24,6 +25,9 @@ let {
   close,
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
+  composerHistoryEnabled = true,
+  onRecordComposerPrompt,
+  onLoadComposerPrompts,
   repositoryOpen = false,
   isGitRepository = undefined,
   changeCount = 0,
@@ -53,6 +57,9 @@ let {
   close: () => void;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
+  composerHistoryEnabled?: boolean;
+  onRecordComposerPrompt: (workspaceId: string, prompt: string) => Promise<void>;
+  onLoadComposerPrompts: (workspaceId: string, refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   repositoryOpen?: boolean;
   isGitRepository?: boolean;
   changeCount?: number;
@@ -177,6 +184,10 @@ onMount(() => {
         terminalId={mainTerminal?.id}
         {onInputActivity}
         {onOutputActivity}
+        promptPreview={workspace.composerPromptPreview}
+        {composerHistoryEnabled}
+        {onRecordComposerPrompt}
+        {onLoadComposerPrompts}
         {onRepositoryStatus}
         {pathInsertionRequest}
         {onExternalFileDrop}

@@ -20,6 +20,10 @@ import {
   writeManagedWorkspaceNoteFile,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
 import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
+import {
+  prepareManagedWorkspaceComposerHistoryRemoval,
+  readManagedWorkspaceComposerPromptPreview,
+} from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
 import { prepareWorkspaceAutomationRequestRemoval } from '~/lib/features/workspace/server/workspace-automation-request-files.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
@@ -43,6 +47,7 @@ import {
 import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, LaunchProfileSettings, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type { WorkspaceComposerPromptPreview } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
@@ -50,6 +55,7 @@ export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS };
 
 export interface ManagedWorkspace extends Omit<StoredWorkspace, 'automations'> {
   notePreview: string;
+  composerPromptPreview: WorkspaceComposerPromptPreview | null;
   state: 'running' | 'missing';
   lastOutputAt: number | null;
   attachedClients: number;
@@ -121,6 +127,14 @@ async function readManagedWorkspaceNotePreview(stored: StoredWorkspace): Promise
     return createWorkspaceNotePreview((await readManagedWorkspaceNoteFile(stored.id)) ?? '');
   } catch {
     return '';
+  }
+}
+
+async function readManagedComposerPromptPreview(stored: StoredWorkspace): Promise<WorkspaceComposerPromptPreview | null> {
+  try {
+    return await readManagedWorkspaceComposerPromptPreview(stored.id);
+  } catch {
+    return null;
   }
 }
 
@@ -211,9 +225,10 @@ export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
   const repositoryByCwd = new Map(workspaceStates.map(([cwd, isGitRepository]) => [cwd, isGitRepository]));
   const availabilityByCwd = new Map(workspaceStates.map(([cwd, , workspaceAvailable]) => [cwd, workspaceAvailable]));
   const tmuxByName = new Map(tmuxSessions.map((workspace) => [workspace.name, workspace]));
-  const notePreviews = await Promise.all(
-    state.workspaces.map((workspace) => readManagedWorkspaceNotePreview(workspace))
-  );
+  const [notePreviews, composerPromptPreviews] = await Promise.all([
+    Promise.all(state.workspaces.map((workspace) => readManagedWorkspaceNotePreview(workspace))),
+    Promise.all(state.workspaces.map((workspace) => readManagedComposerPromptPreview(workspace))),
+  ]);
 
   return state.workspaces.map((workspace, index) => {
     const tmux = tmuxByName.get(workspace.tmuxSession);
@@ -221,6 +236,7 @@ export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
     return {
       ...stored,
       notePreview: notePreviews[index] ?? '',
+      composerPromptPreview: composerPromptPreviews[index] ?? null,
       state: tmux ? 'running' : 'missing',
       lastOutputAt: tmux?.lastOutputAt ?? null,
       attachedClients: tmux?.attachedClients ?? 0,
@@ -322,6 +338,7 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       favoriteCommands: stored.favoriteCommands,
       startupProfileId: stored.startupProfileId,
       notePreview: '',
+      composerPromptPreview: null,
       state: 'running',
       lastOutputAt: tmux.lastOutputAt,
       attachedClients: tmux.attachedClients,
@@ -401,6 +418,7 @@ export async function createManagedWorktreeWorkspace(input: {
       favoriteCommands: stored.favoriteCommands,
       startupProfileId: stored.startupProfileId,
       notePreview: '',
+      composerPromptPreview: null,
       state: 'running',
       lastOutputAt: tmux.lastOutputAt,
       attachedClients: tmux.attachedClients,
@@ -443,6 +461,7 @@ export async function restartManagedWorkspace(
         favoriteCommands: stored.favoriteCommands,
         startupProfileId: stored.startupProfileId,
         notePreview: await readManagedWorkspaceNotePreview(stored),
+        composerPromptPreview: await readManagedComposerPromptPreview(stored),
         state: 'running',
         lastOutputAt: existingTmux.lastOutputAt,
         attachedClients: existingTmux.attachedClients,
@@ -487,6 +506,7 @@ export async function restartManagedWorkspace(
       favoriteCommands: restarted.favoriteCommands,
       startupProfileId: restarted.startupProfileId,
       notePreview: await readManagedWorkspaceNotePreview(restarted),
+      composerPromptPreview: await readManagedComposerPromptPreview(restarted),
       state: 'running',
       lastOutputAt: restartedTmux.lastOutputAt,
       attachedClients: restartedTmux.attachedClients,
@@ -833,10 +853,11 @@ export async function removeManagedWorkspace(id: string): Promise<void> {
     }
 
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
+    const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await Promise.all([removeNote(), removeAutomationRequests()]);
+    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
   });
 }
 
@@ -847,10 +868,11 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     if (!stored) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
+    const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
     await killTmuxSession(stored.tmuxSession);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await Promise.all([removeNote(), removeAutomationRequests()]);
+    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
   });
 }

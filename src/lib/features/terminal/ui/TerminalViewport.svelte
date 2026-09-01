@@ -19,12 +19,20 @@ import {
 import '@xterm/xterm/css/xterm.css';
 import { terminalInputPreferences, type TerminalInputMode } from '../model/input-preferences.svelte.ts';
 import { hasFinePointer } from '~/lib/shared/ui/layout';
+import type {
+  WorkspaceComposerPrompt,
+  WorkspaceComposerPromptPreview,
+} from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspaceId,
   terminalId,
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
+  composerHistoryEnabled = true,
+  promptPreview = null,
+  onRecordComposerPrompt,
+  onLoadComposerPrompts,
   onRepositoryStatus = () => undefined,
   pathInsertionRequest,
   onExternalFileDrop = async () => [],
@@ -37,6 +45,10 @@ let {
   terminalId?: string;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
+  composerHistoryEnabled?: boolean;
+  promptPreview?: WorkspaceComposerPromptPreview | null;
+  onRecordComposerPrompt: (workspaceId: string, prompt: string) => Promise<void>;
+  onLoadComposerPrompts: (workspaceId: string, refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   onRepositoryStatus?: (changeCount: number, worktreeCount: number, branch?: string) => void;
   pathInsertionRequest?: TerminalPathInsertionRequest;
   onExternalFileDrop?: (dataTransfer: DataTransfer) => Promise<WorkspaceEntryDragData[]>;
@@ -319,8 +331,12 @@ onMount(() => {
     {connected}
     send={(data) => runtime?.send(data)}
     submit={(data) => runtime?.submit(data) ?? false}
+    {composerHistoryEnabled}
     scrollPageUp={() => runtime?.scrollPageUp()}
     scrollPageDown={() => runtime?.scrollPageDown()}
+    {promptPreview}
+    onSubmitted={(prompt) => onRecordComposerPrompt(workspaceId, prompt)}
+    loadPrompts={(refresh) => onLoadComposerPrompts(workspaceId, refresh)}
     scrollToTop={() => runtime?.scrollToTop()}
     scrollToBottom={() => runtime?.scrollToBottom()}
     onImageSelected={(image) => void imagePaste.paste(image)}

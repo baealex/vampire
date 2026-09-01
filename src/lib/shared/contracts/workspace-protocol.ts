@@ -7,6 +7,7 @@ import type {
 } from './workspace.ts';
 import { isLaunchProfile } from './launch-profiles.ts';
 import { isStatusPluginSnapshotList, type StatusPluginSnapshot } from './status-plugin.ts';
+import { isWorkspaceComposerPromptPreview } from './workspace-composer-history.ts';
 
 export type WorkspaceChanges = Partial<Omit<ManagedWorkspace, 'id'>>;
 
@@ -40,6 +41,7 @@ const WORKSPACE_CHANGE_FIELDS = new Set([
   'createdAt',
   'lastActiveAt',
   'notePreview',
+  'composerPromptPreview',
   'favoriteCommands',
   'startupProfileId',
   'state',
@@ -154,6 +156,7 @@ export function isManagedWorkspaceMessage(value: unknown): value is ManagedWorks
     isFiniteNumber(value.createdAt) &&
     isFiniteNumber(value.lastActiveAt) &&
     typeof value.notePreview === 'string' &&
+    isWorkspaceComposerPromptPreview(value.composerPromptPreview) &&
     Array.isArray(value.favoriteCommands) &&
     value.favoriteCommands.every((command) => typeof command === 'string') &&
     (value.startupProfileId === null || typeof value.startupProfileId === 'string') &&
@@ -185,6 +188,7 @@ export function isWorkspaceChangesMessage(value: unknown): value is WorkspaceCha
     (value.createdAt === undefined || isFiniteNumber(value.createdAt)) &&
     (value.lastActiveAt === undefined || isFiniteNumber(value.lastActiveAt)) &&
     (value.notePreview === undefined || typeof value.notePreview === 'string') &&
+    (value.composerPromptPreview === undefined || isWorkspaceComposerPromptPreview(value.composerPromptPreview)) &&
     (value.favoriteCommands === undefined ||
       (Array.isArray(value.favoriteCommands) &&
         value.favoriteCommands.every((command) => typeof command === 'string'))) &&

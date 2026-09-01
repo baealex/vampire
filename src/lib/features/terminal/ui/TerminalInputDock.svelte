@@ -1,6 +1,8 @@
 <script lang="ts">
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
+import History from '@lucide/svelte/icons/history';
+import X from '@lucide/svelte/icons/x';
 import { onDestroy, onMount } from 'svelte';
 import {
   parseWorkspaceEntryDragEntries,
@@ -8,6 +10,10 @@ import {
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
+import type {
+  WorkspaceComposerPrompt,
+  WorkspaceComposerPromptPreview,
+} from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspaceId,
@@ -15,6 +21,10 @@ let {
   connected,
   send,
   submit,
+  composerHistoryEnabled = true,
+  promptPreview = null,
+  onSubmitted,
+  loadPrompts,
   onImageSelected,
   scrollPageUp,
   scrollPageDown,
@@ -34,6 +44,10 @@ let {
   connected: boolean;
   send: (data: string) => void;
   submit: (data: string) => boolean;
+  composerHistoryEnabled?: boolean;
+  promptPreview?: WorkspaceComposerPromptPreview | null;
+  onSubmitted: (prompt: string) => Promise<void>;
+  loadPrompts: (refresh?: boolean) => Promise<WorkspaceComposerPrompt[]>;
   onImageSelected: (image: File) => void;
   scrollPageUp: () => void;
   scrollPageDown: () => void;
@@ -89,6 +103,12 @@ onMount(() => {
   }
   requestAnimationFrame(resizeComposer);
 });
+let promptHistoryOpen = $state(false);
+let promptHistoryLoading = $state(false);
+let promptHistoryError = $state('');
+let promptHistory = $state<WorkspaceComposerPrompt[]>([]);
+let promptHistoryLoaded = false;
+let promptSaveError = $state('');
 
 onDestroy(() => {
   persistComposerDraft();
@@ -105,11 +125,71 @@ function sendControl(data: string) {
 
 function sendComposerMessage() {
   if (!connected || !composerMessage.trim()) return;
-  if (!submit(composerMessage)) return;
+  const submittedPrompt = composerMessage;
+  if (!submit(submittedPrompt)) return;
   updateComposerMessage('');
+  if (!composerHistoryEnabled) {
+    requestAnimationFrame(() => {
+      resizeComposer();
+      composerElement?.focus();
+    });
+    return;
+  }
+  promptSaveError = '';
+  void onSubmitted(submittedPrompt)
+    .then(async () => {
+      if (!promptHistoryOpen) return;
+      promptHistory = await loadPrompts(true);
+      promptHistoryLoaded = true;
+    })
+    .catch((error) => {
+      promptSaveError = error instanceof Error ? error.message : 'Vampire could not save this prompt to history.';
+    });
   requestAnimationFrame(() => {
     resizeComposer();
     composerElement?.focus();
+  });
+}
+
+async function openPromptHistory() {
+  promptHistoryOpen = true;
+  if (promptHistoryLoaded || promptHistoryLoading) return;
+  promptHistoryLoading = true;
+  promptHistoryError = '';
+  try {
+    promptHistory = await loadPrompts();
+    promptHistoryLoaded = true;
+  } catch (error) {
+    promptHistoryError = error instanceof Error ? error.message : 'Unable to load Composer history.';
+  } finally {
+    promptHistoryLoading = false;
+  }
+}
+
+function closePromptHistory() {
+  promptHistoryOpen = false;
+  requestAnimationFrame(() => composerElement?.focus());
+}
+
+function insertComposerPrompt(prompt: string) {
+  const start = composerElement?.selectionStart ?? composerMessage.length;
+  const end = composerElement?.selectionEnd ?? start;
+  updateComposerMessage(`${composerMessage.slice(0, start)}${prompt}${composerMessage.slice(end)}`);
+  const caretPosition = start + prompt.length;
+  promptHistoryOpen = false;
+  requestAnimationFrame(() => {
+    composerElement?.focus();
+    composerElement?.setSelectionRange(caretPosition, caretPosition);
+    resizeComposer();
+  });
+}
+
+function formatPromptTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
 }
 
@@ -342,8 +422,45 @@ function handleImageSelection(event: Event) {
       A+
     </button>
   </div>
+  {#if composerHistoryEnabled && promptHistoryOpen}
+    <section class="prompt-history" id="composer-prompt-history" aria-label="Composer history">
+      <header>
+        <strong>Composer history</strong>
+        <button type="button" onclick={closePromptHistory} aria-label="Close Composer history" title="Close history">
+          <X size={17} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </header>
+      {#if promptHistoryLoading}
+        <p class="prompt-history-message" role="status">Loading history…</p>
+      {:else if promptHistoryError}
+        <p class="prompt-history-message error" role="alert">{promptHistoryError}</p>
+      {:else if promptHistory.length === 0}
+        <p class="prompt-history-message">Prompts sent from this Composer will appear here.</p>
+      {:else}
+        <div class="prompt-history-list">
+          {#each promptHistory as prompt (prompt.id)}
+            <button type="button" class="prompt-history-item" onclick={() => insertComposerPrompt(prompt.text)}>
+              <span>{prompt.text}</span>
+              <time datetime={new Date(prompt.submittedAt).toISOString()}
+                >{formatPromptTimestamp(prompt.submittedAt)}</time
+              >
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {:else if composerHistoryEnabled && promptPreview}
+    <button type="button" class="last-prompt" onclick={openPromptHistory} title={promptPreview.text}>
+      <span class="last-prompt-label">Last sent</span>
+      <span class="last-prompt-text">{promptPreview.text}</span>
+    </button>
+  {/if}
+  {#if promptSaveError}
+    <p class="prompt-save-error" role="alert">{promptSaveError}</p>
+  {/if}
   <div
     class="composer"
+    class:history-disabled={!composerHistoryEnabled}
     class:drop-target={composerDropActive}
     role="group"
     aria-label="Terminal input"
@@ -375,6 +492,20 @@ function handleImageSelection(event: Event) {
       autocomplete="off"
       spellcheck="false"
     ></textarea>
+    {#if composerHistoryEnabled}
+      <button
+        class="history-button"
+        type="button"
+        onpointerdown={preventButtonFocus}
+        onclick={() => promptHistoryOpen ? closePromptHistory() : void openPromptHistory()}
+        aria-label={promptHistoryOpen ? 'Close Composer history' : 'Open Composer history'}
+        aria-expanded={promptHistoryOpen}
+        aria-controls="composer-prompt-history"
+        title="Composer history"
+      >
+        <History size={18} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+    {/if}
     <button
       class="image-button"
       type="button"
@@ -464,7 +595,7 @@ function handleImageSelection(event: Event) {
 }
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--control-height-md) var(--control-height-md);
+  grid-template-columns: minmax(0, 1fr) repeat(3, var(--control-height-md));
   align-items: center;
   gap: 0.2rem;
   min-width: 0;
@@ -473,6 +604,9 @@ function handleImageSelection(event: Event) {
   border: 1px solid var(--color-border);
   border-radius: 0.78rem;
   background: var(--color-control-background);
+}
+.composer.history-disabled {
+  grid-template-columns: minmax(0, 1fr) repeat(2, var(--control-height-md));
 }
 .composer:focus-within {
   border-color: var(--color-accent);
@@ -535,11 +669,125 @@ function handleImageSelection(event: Event) {
   background: transparent;
   color: var(--color-text-secondary);
 }
+.history-button {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
 @media (hover: hover) {
-  .image-button:hover:not(:disabled) {
+  .image-button:hover:not(:disabled),
+  .history-button:hover:not(:disabled) {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
+}
+.last-prompt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  width: calc(100% - var(--dock-inline-start) - var(--dock-inline-end));
+  margin: 0.35rem var(--dock-inline-end) 0 var(--dock-inline-start);
+  padding: 0.2rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.last-prompt-label {
+  color: var(--color-text-disabled);
+}
+.last-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt-history {
+  max-height: min(18rem, 42vh);
+  margin: 0.45rem var(--dock-inline-end) 0 var(--dock-inline-start);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+}
+.prompt-history header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--text-label);
+}
+.prompt-history header button {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.prompt-history-list {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.prompt-history-item {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.prompt-history-item:last-child {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  .prompt-history-item:hover,
+  .prompt-history header button:hover,
+  .last-prompt:hover {
+    background: var(--color-surface-hover);
+  }
+}
+.prompt-history-item span {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.prompt-history-item time {
+  color: var(--color-text-disabled);
+  font-size: var(--text-micro);
+}
+.prompt-history-message,
+.prompt-save-error {
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.prompt-history-message.error,
+.prompt-save-error {
+  color: var(--color-danger);
+}
+.prompt-save-error {
+  padding: 0.35rem var(--dock-inline-end) 0 var(--dock-inline-start);
 }
 .send-button {
   background: var(--color-accent);
@@ -577,7 +825,7 @@ function handleImageSelection(event: Event) {
     height: 1.65rem;
   }
   .composer {
-    grid-template-columns: minmax(0, 1fr) var(--control-height-md) var(--control-height-md);
+    grid-template-columns: minmax(0, 1fr) repeat(3, var(--control-height-md));
     margin: 0.6rem var(--dock-inline-end) 0.7rem var(--dock-inline-start);
   }
   .composer textarea {

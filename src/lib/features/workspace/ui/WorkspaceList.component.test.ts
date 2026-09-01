@@ -11,6 +11,7 @@ function workspace(state: ManagedWorkspace['state']): ManagedWorkspace {
     createdAt: 1,
     lastActiveAt: 1,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: [],
     startupProfileId: null,
     lastOutputAt: null,
@@ -63,4 +64,17 @@ test('reveals Ended when the selected workspace terminates outside the close act
   const endedToggle = screen.getByRole('button', { name: /Ended/ });
   await waitFor(() => expect(endedToggle).toHaveAttribute('aria-expanded', 'true'));
   expect(screen.getByRole('button', { name: /Open ended/ })).toBeInTheDocument();
+});
+
+test('shows the last Compose prompt beside the persistent workspace note', () => {
+  const current = {
+    ...workspace('running'),
+    notePreview: 'Automation follow-up',
+    composerPromptPreview: { text: 'Check whether dispatch can overlap', submittedAt: 2 },
+  };
+
+  render(WorkspaceList, props(current));
+
+  expect(screen.getByText('Automation follow-up')).toBeInTheDocument();
+  expect(screen.getByText('Check whether dispatch can overlap')).toBeInTheDocument();
 });

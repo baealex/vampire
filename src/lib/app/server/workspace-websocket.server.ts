@@ -45,6 +45,7 @@ const WORKSPACE_FIELDS = [
   'createdAt',
   'lastActiveAt',
   'notePreview',
+  'composerPromptPreview',
   'favoriteCommands',
   'startupProfileId',
   'state',
@@ -120,6 +121,16 @@ function equalStrings(left: string[] | undefined, right: string[] | undefined): 
   );
 }
 
+function equalComposerPromptPreview(
+  left: ManagedWorkspace['composerPromptPreview'],
+  right: ManagedWorkspace['composerPromptPreview']
+): boolean {
+  return (
+    left === right ||
+    (left != null && right != null && left.text === right.text && left.submittedAt === right.submittedAt)
+  );
+}
+
 function equalWorkspacePreferences(
   left: WorkspacePreferences | null | undefined,
   right: WorkspacePreferences | null | undefined
@@ -153,9 +164,11 @@ function workspaceChanges(previous: ManagedWorkspace, next: ManagedWorkspace): W
         ? equalForegroundProcess(previous[field], next[field])
         : field === 'terminals'
           ? equalTerminals(previous[field], next[field])
-          : field === 'favoriteCommands'
-            ? equalStrings(previous[field], next[field])
-            : previous[field] === next[field];
+          : field === 'composerPromptPreview'
+            ? equalComposerPromptPreview(previous[field], next[field])
+            : field === 'favoriteCommands'
+              ? equalStrings(previous[field], next[field])
+              : previous[field] === next[field];
     if (!equal) (changes as Record<string, unknown>)[field] = next[field];
   }
   return changes;

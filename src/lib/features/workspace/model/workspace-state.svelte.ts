@@ -6,6 +6,14 @@ import type {
   WorkspacePreferences,
   WorkspaceTerminal,
 } from '~/lib/shared/contracts/workspace.ts';
+import type {
+  WorkspaceComposerPrompt,
+  WorkspaceComposerPromptPreview,
+} from '~/lib/shared/contracts/workspace-composer-history.ts';
+import {
+  DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS,
+  type WorkspaceComposerHistorySettings,
+} from '~/lib/shared/contracts/workspace-composer-history.ts';
 import { BackgroundTerminalReconciler } from './background-terminal-reconciler.ts';
 import { WorkspaceActivityController } from './workspace-activity-controller.ts';
 import {
@@ -33,6 +41,9 @@ export class WorkspaceState {
   workspaces = $state<ManagedWorkspace[]>([]);
   launchProfiles = $state<LaunchProfile[]>([]);
   defaultStartupProfileId = $state<string | null>(null);
+  composerHistorySettings = $state<WorkspaceComposerHistorySettings>({
+    ...DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS,
+  });
   cwd = $state('');
   loading = $state(false);
   starting = $state(false);
@@ -70,6 +81,8 @@ export class WorkspaceState {
   #backgroundTerminals = new BackgroundTerminalReconciler();
   #workspaceNotes = new Map<string, string>();
   #workspaceNoteRequests = new Map<string, Promise<string>>();
+  #workspaceComposerPrompts = new Map<string, WorkspaceComposerPrompt[]>();
+  #workspaceComposerPromptRequests = new Map<string, Promise<WorkspaceComposerPrompt[]>>();
   #refreshPromise: Promise<void> | undefined;
   #refreshQueued = false;
   #workspacesVersion = 0;
@@ -150,6 +163,15 @@ export class WorkspaceState {
     );
   }
 
+  applyComposerHistorySettings(settings: WorkspaceComposerHistorySettings) {
+    this.composerHistorySettings = { ...settings };
+    this.#workspaceComposerPrompts.clear();
+    this.#workspaceComposerPromptRequests.clear();
+    if (!settings.enabled) {
+      this.workspaces = this.workspaces.map((workspace) => ({ ...workspace, composerPromptPreview: null }));
+    }
+  }
+
   applyWorkspacePreferences(preferences: WorkspacePreferences | null, options: { initialSnapshot?: boolean } = {}) {
     if (options.initialSnapshot && this.#preferencesInitialized) return;
     if (preferences === null) {
@@ -214,6 +236,8 @@ export class WorkspaceState {
     this.workspaces = this.workspaces.filter((workspace) => workspace.id !== workspaceId);
     this.#workspaceNotes.delete(workspaceId);
     this.#workspaceNoteRequests.delete(workspaceId);
+    this.#workspaceComposerPrompts.delete(workspaceId);
+    this.#workspaceComposerPromptRequests.delete(workspaceId);
     this.#activity.removeWorkspace(workspaceId);
     if (this.backgroundActionErrorWorkspaceId === workspaceId) {
       this.backgroundActionError = '';
@@ -233,12 +257,16 @@ export class WorkspaceState {
           preferences?: WorkspacePreferences | null;
           launchProfiles?: LaunchProfile[];
           defaultStartupProfileId?: string | null;
+          composerHistorySettings?: WorkspaceComposerHistorySettings;
         }>('/api/workspaces');
         if (requestVersion !== this.#workspacesVersion) continue;
         this.applyWorkspaces(data.workspaces);
         if (data.preferences !== undefined) this.applyWorkspacePreferences(data.preferences);
         if (data.launchProfiles !== undefined)
           this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
+        if (data.composerHistorySettings !== undefined) {
+          this.applyComposerHistorySettings(data.composerHistorySettings);
+        }
       } catch (error) {
         if (requestVersion !== this.#workspacesVersion) continue;
         if (isUnauthorized(error)) this.#options.onUnauthorized();
@@ -410,6 +438,77 @@ export class WorkspaceState {
       });
     this.#workspaceNoteRequests.set(workspaceId, request);
     return request;
+  }
+
+  async recordWorkspaceComposerPrompt(workspaceId: string, promptText: string): Promise<void> {
+    if (!this.composerHistorySettings.enabled) return;
+    const data = await requestJson<
+      | { saved: false }
+      | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
+    >(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/composer-prompts`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: promptText }),
+      },
+      'The prompt was sent, but Vampire could not save it to Composer history'
+    );
+    if (!data.saved) return;
+    const cached = this.#workspaceComposerPrompts.get(workspaceId);
+    if (cached) this.#workspaceComposerPrompts.set(workspaceId, [data.prompt, ...cached]);
+    this.workspaces = this.workspaces.map((workspace) =>
+      workspace.id === workspaceId ? { ...workspace, composerPromptPreview: data.preview } : workspace
+    );
+  }
+
+  async loadWorkspaceComposerPrompts(workspaceId: string, refresh = false): Promise<WorkspaceComposerPrompt[]> {
+    if (!this.composerHistorySettings.enabled) return [];
+    const cached = refresh ? undefined : this.#workspaceComposerPrompts.get(workspaceId);
+    if (cached) return cached.map((prompt) => ({ ...prompt }));
+    const pending = this.#workspaceComposerPromptRequests.get(workspaceId);
+    if (pending) return pending;
+    const request = requestJson<{ prompts: WorkspaceComposerPrompt[] }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/composer-prompts`,
+      { cache: 'no-store' },
+      'Unable to load Composer history'
+    )
+      .then(({ prompts }) => {
+        this.#workspaceComposerPrompts.set(workspaceId, prompts);
+        return prompts.map((prompt) => ({ ...prompt }));
+      })
+      .finally(() => {
+        if (this.#workspaceComposerPromptRequests.get(workspaceId) === request) {
+          this.#workspaceComposerPromptRequests.delete(workspaceId);
+        }
+      });
+    this.#workspaceComposerPromptRequests.set(workspaceId, request);
+    return request;
+  }
+
+  async updateComposerHistorySettings(
+    settings: WorkspaceComposerHistorySettings
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const saved = await requestJson<WorkspaceComposerHistorySettings>(
+        '/api/composer-history/settings',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(settings),
+        },
+        'Unable to save Composer history settings'
+      );
+      this.applyComposerHistorySettings(saved);
+      await this.refresh({ quiet: true });
+      return { ok: true };
+    } catch (error) {
+      if (isUnauthorized(error)) this.#options.onUnauthorized();
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unable to save Composer history settings',
+      };
+    }
   }
 
   async updateWorkspaceStartup(
@@ -823,9 +922,12 @@ export class WorkspaceState {
     this.workspaces = [];
     this.launchProfiles = [];
     this.defaultStartupProfileId = null;
+    this.composerHistorySettings = { ...DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS };
     this.requestedWorkspaceId = undefined;
     this.#workspaceNotes.clear();
     this.#workspaceNoteRequests.clear();
+    this.#workspaceComposerPrompts.clear();
+    this.#workspaceComposerPromptRequests.clear();
     this.workspacesLoaded = false;
     this.newWorkspaceOpen = false;
     this.errorMessage = '';

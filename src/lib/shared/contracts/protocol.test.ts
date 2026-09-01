@@ -21,6 +21,7 @@ function managedWorkspace(overrides: Record<string, unknown> = {}): ManagedWorks
     createdAt: 1,
     lastActiveAt: 2,
     notePreview: '',
+    composerPromptPreview: null,
     favoriteCommands: ['pnpm dev'],
     startupProfileId: 'codex',
     state: 'running',
@@ -236,6 +237,7 @@ test('validates complete workspace messages before applying them to client state
         repositoryPath: '/tmp/project',
         workspaceLabel: 'Fix login',
         worktreeBranch: 'vampire/fix-login-01234567',
+        composerPromptPreview: { text: 'Review the current changes', submittedAt: 4 },
       }),
     ],
   };
@@ -277,6 +279,15 @@ test('validates complete workspace messages before applying them to client state
       id: 'workspace-1',
       changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
     }
+  );
+  assert.equal(
+    decodeWorkspaceServerMessage(
+      JSON.stringify({
+        type: 'workspaces-snapshot',
+        workspaces: [managedWorkspace({ composerPromptPreview: { text: 42, submittedAt: 4 } })],
+      })
+    ),
+    undefined
   );
   assert.equal(
     decodeWorkspaceServerMessage(
