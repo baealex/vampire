@@ -1,8 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStateDirectory } from '~/lib/server/state-path.ts';
+import {
+  VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE,
+  VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE,
+  vampireGlobalStatePath,
+  vampireStateDirectory,
+  vampireWorkspaceStatePath,
+} from '~/lib/server/state-path.ts';
 import {
   DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS,
   isWorkspaceComposerHistorySettings,
@@ -22,10 +28,6 @@ import {
 } from './workspace-store.server.ts';
 
 const COMPOSER_HISTORY_VERSION = 1;
-const COMPOSER_HISTORY_DIRECTORY = 'composer-history';
-const COMPOSER_HISTORY_WORKSPACES_DIRECTORY = 'workspaces';
-const COMPOSER_HISTORY_SETTINGS_FILE = 'settings.json';
-const SAFE_WORKSPACE_HISTORY_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const MAX_COMPOSER_HISTORY_FILE_BYTES =
   MAX_WORKSPACE_COMPOSER_PROMPTS * WORKSPACE_COMPOSER_PROMPT_MAX_LENGTH * 4 + 64 * 1_024;
 const MAX_COMPOSER_HISTORY_SETTINGS_BYTES = 64 * 1_024;
@@ -54,27 +56,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function managedWorkspaceComposerHistoryFileName(workspaceId: string): string {
-  const safeId = SAFE_WORKSPACE_HISTORY_ID.test(workspaceId)
-    ? workspaceId
-    : createHash('sha256').update(workspaceId).digest('hex');
-  return `${safeId}.json`;
-}
-
 export function managedWorkspaceComposerHistoryDirectory(): string {
-  return join(vampireStateDirectory(), COMPOSER_HISTORY_DIRECTORY);
+  return join(vampireStateDirectory(), 'workspaces');
 }
 
 export function managedWorkspaceComposerHistorySettingsPath(): string {
-  return join(managedWorkspaceComposerHistoryDirectory(), COMPOSER_HISTORY_SETTINGS_FILE);
+  return vampireGlobalStatePath(VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE);
 }
 
 export function managedWorkspaceComposerHistoryPath(workspaceId: string): string {
-  return join(
-    managedWorkspaceComposerHistoryDirectory(),
-    COMPOSER_HISTORY_WORKSPACES_DIRECTORY,
-    managedWorkspaceComposerHistoryFileName(workspaceId)
-  );
+  return vampireWorkspaceStatePath(workspaceId, VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE);
 }
 
 async function ensureParentDirectory(path: string): Promise<void> {
@@ -217,8 +208,7 @@ export async function appendManagedWorkspaceComposerPrompt(
   value: unknown,
   submittedAt = Date.now()
 ): Promise<
-  | { saved: false }
-  | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
+  { saved: false } | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
 > {
   return withWorkspaceStoreMutation(async () => {
     const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === workspaceId);
@@ -234,9 +224,7 @@ export async function appendManagedWorkspaceComposerPrompt(
   });
 }
 
-export async function prepareManagedWorkspaceComposerHistoryRemoval(
-  workspaceId: string
-): Promise<() => Promise<void>> {
+export async function prepareManagedWorkspaceComposerHistoryRemoval(workspaceId: string): Promise<() => Promise<void>> {
   const path = managedWorkspaceComposerHistoryPath(workspaceId);
   if ((await assertRegularFile(path, MAX_COMPOSER_HISTORY_FILE_BYTES)) === 'missing') return async () => undefined;
   return async () => {

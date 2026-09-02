@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStateDirectory } from '~/lib/server/state-path.ts';
+import { VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE, vampireGlobalStatePath } from '~/lib/server/state-path.ts';
 import {
   DEFAULT_TERMINAL_INPUT_SETTINGS,
   isTerminalInputSettings,
@@ -10,7 +10,6 @@ import {
 } from '~/lib/shared/contracts/terminal-input.ts';
 
 const TERMINAL_INPUT_SETTINGS_VERSION = 2;
-const TERMINAL_INPUT_SETTINGS_FILE = 'terminal-input-settings.json';
 const MAX_TERMINAL_INPUT_SETTINGS_BYTES = 64 * 1_024;
 
 type TerminalInputSettingsDocument = TerminalInputSettings & {
@@ -20,7 +19,7 @@ type TerminalInputSettingsDocument = TerminalInputSettings & {
 export class TerminalInputSettingsError extends Error {}
 
 export function managedTerminalInputSettingsPath(): string {
-  return join(vampireStateDirectory(), TERMINAL_INPUT_SETTINGS_FILE);
+  return vampireGlobalStatePath(VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE);
 }
 
 async function settingsFileExists(path: string): Promise<boolean> {

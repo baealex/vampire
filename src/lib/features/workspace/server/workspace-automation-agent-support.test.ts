@@ -123,8 +123,8 @@ test('materializes an isolated automation draft, guide, and apply command', asyn
     500
   );
   const support = await ensureWorkspaceAutomationAgentSupport('workspace-1', 1_000);
-  assert.match(support.requestPath, /automation-requests\/[^/]+\.draft\.json$/);
-  assert.equal(support.guidePath, join(directory, 'agent-guides', 'workspace-automation.md'));
+  assert.match(support.requestPath, /agent-support\/requests\/automations\/[^/]+\.draft\.json$/);
+  assert.equal(support.guidePath, join(directory, 'agent-support', 'guides', 'workspace-automation.md'));
   const guide = await readFile(support.guidePath, 'utf8');
   assert.match(guide, /Create or update one automation/);
   assert.match(guide, /type: 'weekly'/);

@@ -29,6 +29,7 @@ import {
   webSocketRequestUrl,
 } from '~/lib/server/websocket-support.ts';
 import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
+import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -373,10 +374,14 @@ class WorkspaceStatusHub {
       this.#clients.add(socket);
       socket.once('close', () => this.unsubscribe(socket));
       if (firstClient) {
-        try {
-          await this.#statusPlugins.start();
-        } catch {
-          send(socket, { type: 'error', message: 'Unable to load status plugins.' });
+        if (automaticCommandsAllowed()) {
+          try {
+            await this.#statusPlugins.start();
+          } catch {
+            send(socket, { type: 'error', message: 'Unable to load status plugins.' });
+          }
+        } else {
+          send(socket, { type: 'status-plugins-snapshot', plugins: [] });
         }
       } else {
         send(socket, { type: 'status-plugins-snapshot', plugins: this.#statusPlugins.snapshots() });

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, test, type WebSocketRoute } from '@playwright/test';
+import { E2E_TMUX_SOCKET_NAME } from './runtime.ts';
 import {
   authenticate,
   createWorkspace,
@@ -13,6 +14,7 @@ import {
 
 let workspaceId: string | undefined;
 const run = promisify(execFile);
+const runTmux = (arguments_: readonly string[]) => run('tmux', ['-L', E2E_TMUX_SOCKET_NAME, ...arguments_]);
 
 function websocketMessageType(message: string | Buffer): string | undefined {
   try {
@@ -204,10 +206,10 @@ test('keeps touch scrolling after the terminal takes direct input ownership', as
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
   const fillCommand = 'i=1; while [ $i -le 120 ]; do printf \'TOUCH_SCROLL_%03d\\n\' "$i"; i=$((i+1)); done';
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', fillCommand]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', fillCommand]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect
-    .poll(async () => (await run('tmux', ['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession])).stdout)
+    .poll(async () => (await runTmux(['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession])).stdout)
     .toContain('TOUCH_SCROLL_120');
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
@@ -328,8 +330,8 @@ test('keeps mobile composition visible while terminal output and viewport geomet
     input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
   });
   sentTerminalMessages.length = 0;
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT-DURING-MOBILE-IME\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT-DURING-MOBILE-IME\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(page.locator('.xterm-rows')).toContainText('OUTPUT-DURING-MOBILE-IME');
 
   const updates = ['ㅁ', '모', '모바', '모바일', 'printf 모바일-IME-확인'];
@@ -678,7 +680,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   expect(terminalTypography.fontFamily).toContain('system-ui');
   expect(terminalTypography.fontFamily).toContain('sans-serif');
   expect(terminalTypography.fontFamily).not.toMatch(/(?:^|,)\s*(?:ui-)?monospace\s*(?:,|$)/);
-  await run('tmux', [
+  await runTmux([
     'send-keys',
     '-t',
     workspace.tmuxSession,
@@ -686,7 +688,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
     '--',
     "printf '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀\\n'",
   ]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(page.locator('.xterm-rows')).toContainText(
     '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀'
   );
@@ -705,8 +707,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
     );
   expect(historyControlLabels).toEqual(['Top', 'PgUp', 'PgDn', 'Bottom']);
 
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', 'seq 1 200']);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', 'seq 1 200']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   const terminalRows = page.locator('.xterm-rows');
   const hasVisibleOutputLine = (value: string) =>
     terminalRows.evaluate(
@@ -775,8 +777,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'unobserved-mobile-output\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'unobserved-mobile-output\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await page.getByRole('button', { name: /Open running workspace workspace/ }).click();
   await expectTerminalReady(page);
   await expect.poll(() => pageErrors.filter((message) => message.includes('effect_update_depth_exceeded'))).toEqual([]);

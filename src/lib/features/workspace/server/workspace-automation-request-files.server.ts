@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
 import { vampireStateDirectory } from '~/lib/server/state-path.ts';
 
-export const WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME = 'automation-requests';
+export const WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME = 'agent-support/requests/automations';
 export const WORKSPACE_AUTOMATION_DRAFT_RESERVATION_MS = 24 * 60 * 60_000;
 
 export function workspaceAutomationRequestKey(workspaceId: string): string {

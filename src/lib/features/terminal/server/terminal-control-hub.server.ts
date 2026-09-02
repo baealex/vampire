@@ -7,6 +7,7 @@ import {
   type CanonicalTerminalSnapshot,
 } from './terminal-canonical-model.server.ts';
 import { parseTmuxControlOutput } from './tmux-control.server.ts';
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 
 const CONTROL_COMMAND_TIMEOUT_MS = 3_000;
 const CONTROL_ATTACH_TIMEOUT_MS = 3_000;
@@ -90,7 +91,7 @@ export class TerminalControlHub {
     // Deep history is loaded lazily from tmux. Keep only the live viewport
     // until a subscriber explicitly asks to scroll upward.
     this.#canonicalModel = new TerminalCanonicalModel(geometry, { scrollback: 0 });
-    this.#control = spawn('tmux', ['-C', 'attach-session', '-f', 'ignore-size', '-t', windowId], {
+    this.#control = spawn('tmux', tmuxCommandArguments(['-C', 'attach-session', '-f', 'ignore-size', '-t', windowId]), {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.#control.stderr.resume();

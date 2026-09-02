@@ -1,8 +1,11 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status.ts';
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
 import { listProcesses, terminateProcessTrees, type ProcessRecord } from './process-cleanup.server.ts';
+
+export { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -32,18 +35,21 @@ export function tmuxSessionLaunch(
   for (const key of serverEnvironmentKeys) delete environment[key];
 
   return {
-    arguments: [
-      ...serverEnvironmentKeys.flatMap((key) => ['set-environment', '-gr', key, ';']),
-      'new-session',
-      '-d',
-      '-s',
-      name,
-      '-c',
-      cwd,
-      '-P',
-      '-F',
-      TMUX_WINDOW_FORMAT,
-    ],
+    arguments: tmuxCommandArguments(
+      [
+        ...serverEnvironmentKeys.flatMap((key) => ['set-environment', '-gr', key, ';']),
+        'new-session',
+        '-d',
+        '-s',
+        name,
+        '-c',
+        cwd,
+        '-P',
+        '-F',
+        TMUX_WINDOW_FORMAT,
+      ],
+      sourceEnvironment
+    ),
     environment,
   };
 }
@@ -192,9 +198,11 @@ function backgroundWindowName(command: string): string {
 
 async function assertTmuxTerminalOwner(name: string, terminalId: string): Promise<void> {
   if (!/^@\d+$/.test(terminalId)) throw new Error('Terminal identifier is invalid.');
-  const { stdout } = await execFile('tmux', ['display-message', '-p', '-t', terminalId, '#{session_name}'], {
-    timeout: 3_000,
-  });
+  const { stdout } = await execFile(
+    'tmux',
+    tmuxCommandArguments(['display-message', '-p', '-t', terminalId, '#{session_name}']),
+    { timeout: 3_000 }
+  );
   if (stdout.trim() !== name) throw new Error('Terminal does not belong to this workspace.');
 }
 
@@ -209,7 +217,14 @@ function isMissingTmuxTarget(error: unknown): boolean {
 async function listTmuxPanePids(name: string, target: string, workspaceScope: boolean): Promise<number[]> {
   const { stdout } = await execFile(
     'tmux',
-    ['list-panes', ...(workspaceScope ? ['-s'] : []), '-t', target, '-F', '#{session_name}\t#{pane_pid}'],
+    tmuxCommandArguments([
+      'list-panes',
+      ...(workspaceScope ? ['-s'] : []),
+      '-t',
+      target,
+      '-F',
+      '#{session_name}\t#{pane_pid}',
+    ]),
     { timeout: 3_000 }
   );
   const panePids = new Set<number>();
@@ -224,13 +239,15 @@ async function listTmuxPanePids(name: string, target: string, workspaceScope: bo
 
 async function destroyTmuxTarget(arguments_: string[]): Promise<void> {
   try {
-    await execFile('tmux', arguments_, { timeout: 3_000 });
+    await execFile('tmux', tmuxCommandArguments(arguments_), { timeout: 3_000 });
   } catch (error) {
     if (isMissingTmuxTarget(error)) return;
     const target = arguments_.at(-1);
     if (target) {
       try {
-        await execFile('tmux', ['display-message', '-p', '-t', target, '#{session_name}'], { timeout: 3_000 });
+        await execFile('tmux', tmuxCommandArguments(['display-message', '-p', '-t', target, '#{session_name}']), {
+          timeout: 3_000,
+        });
       } catch (verificationError) {
         const details = verificationError as NodeJS.ErrnoException;
         // A pane's foreground process can exit the final tmux session between
@@ -245,74 +262,83 @@ async function destroyTmuxTarget(arguments_: string[]): Promise<void> {
 
 export async function createTmuxBackgroundProcess(name: string, cwd: string, command: string): Promise<TmuxTerminal> {
   const startedAt = Date.now();
-  const { stdout } = await execFile('tmux', [
-    'new-window',
-    '-d',
-    '-P',
-    '-F',
-    '#{window_id}',
-    '-t',
-    `${name}:`,
-    '-c',
-    cwd,
-    '-n',
-    backgroundWindowName(command),
-  ]);
+  const { stdout } = await execFile(
+    'tmux',
+    tmuxCommandArguments([
+      'new-window',
+      '-d',
+      '-P',
+      '-F',
+      '#{window_id}',
+      '-t',
+      `${name}:`,
+      '-c',
+      cwd,
+      '-n',
+      backgroundWindowName(command),
+    ])
+  );
   const terminalId = stdout.trim();
   if (!/^@\d+$/.test(terminalId)) throw new Error('tmux did not describe the new background process.');
 
   try {
-    await execFile('tmux', [
-      'set-option',
-      '-w',
-      '-t',
-      terminalId,
-      'remain-on-exit',
-      'on',
-      ';',
-      'set-option',
-      '-w',
-      '-t',
-      terminalId,
-      'automatic-rename',
-      'off',
-      ';',
-      'set-option',
-      '-w',
-      '-t',
-      terminalId,
-      'allow-rename',
-      'off',
-      ';',
-      'set-option',
-      '-w',
-      '-t',
-      terminalId,
-      '@vampire_background_command',
-      command,
-      ';',
-      'set-option',
-      '-w',
-      '-t',
-      terminalId,
-      '@vampire_background_started_at',
-      String(startedAt),
-    ]);
+    await execFile(
+      'tmux',
+      tmuxCommandArguments([
+        'set-option',
+        '-w',
+        '-t',
+        terminalId,
+        'remain-on-exit',
+        'on',
+        ';',
+        'set-option',
+        '-w',
+        '-t',
+        terminalId,
+        'automatic-rename',
+        'off',
+        ';',
+        'set-option',
+        '-w',
+        '-t',
+        terminalId,
+        'allow-rename',
+        'off',
+        ';',
+        'set-option',
+        '-w',
+        '-t',
+        terminalId,
+        '@vampire_background_command',
+        command,
+        ';',
+        'set-option',
+        '-w',
+        '-t',
+        terminalId,
+        '@vampire_background_started_at',
+        String(startedAt),
+      ])
+    );
     const shell = process.env.SHELL?.trim() || '/bin/sh';
-    await execFile('tmux', [
-      'respawn-pane',
-      '-k',
-      '-t',
-      terminalId,
-      `exec ${shellArgument(shell)} -lc ${shellArgument(command)}`,
-    ]);
+    await execFile(
+      'tmux',
+      tmuxCommandArguments([
+        'respawn-pane',
+        '-k',
+        '-t',
+        terminalId,
+        `exec ${shellArgument(shell)} -lc ${shellArgument(command)}`,
+      ])
+    );
     const terminal = (await listTmuxSessions())
       .find((workspace) => workspace.name === name)
       ?.terminals.find((candidate) => candidate.id === terminalId);
     if (!terminal) throw new Error('tmux did not describe the new background process.');
     return terminal;
   } catch (error) {
-    await execFile('tmux', ['kill-window', '-t', terminalId]).catch(() => undefined);
+    await execFile('tmux', tmuxCommandArguments(['kill-window', '-t', terminalId])).catch(() => undefined);
     throw error;
   }
 }
@@ -336,7 +362,7 @@ export function stripTmuxCapturePadding(output: string): string {
 
 export async function captureTmuxBackgroundOutput(name: string, terminalId: string): Promise<string> {
   await assertTmuxTerminalOwner(name, terminalId);
-  const { stdout } = await execFile('tmux', ['capture-pane', '-p', '-S', '-', '-t', terminalId], {
+  const { stdout } = await execFile('tmux', tmuxCommandArguments(['capture-pane', '-p', '-S', '-', '-t', terminalId]), {
     maxBuffer: 512 * 1024,
     timeout: 3_000,
   });
@@ -345,7 +371,7 @@ export async function captureTmuxBackgroundOutput(name: string, terminalId: stri
 
 export async function sendTmuxInput(name: string, data: string): Promise<void> {
   if (Buffer.byteLength(data) > MAX_INPUT_BYTES) throw new Error('Input is too large.');
-  await execFile('tmux', ['send-keys', '-t', name, '-l', '--', data]);
+  await execFile('tmux', tmuxCommandArguments(['send-keys', '-t', name, '-l', '--', data]));
 }
 
 export function tmuxPromptSubmissionArguments(terminalId: string, data: string, bracketedPaste: boolean): string[] {
@@ -364,13 +390,17 @@ export function tmuxPromptEnterArguments(terminalId: string): string[] {
 
 export async function submitTmuxPrompt(name: string, terminalId: string, data: string): Promise<void> {
   await assertTmuxTerminalOwner(name, terminalId);
-  const { stdout } = await execFile('tmux', ['display-message', '-p', '-t', terminalId, '#{bracket_paste_flag}'], {
-    timeout: 3_000,
-  });
+  const { stdout } = await execFile(
+    'tmux',
+    tmuxCommandArguments(['display-message', '-p', '-t', terminalId, '#{bracket_paste_flag}']),
+    { timeout: 3_000 }
+  );
   const bracketedPaste = stdout.trim() === '1';
-  await execFile('tmux', tmuxPromptSubmissionArguments(terminalId, data, bracketedPaste), { timeout: 5_000 });
+  await execFile('tmux', tmuxCommandArguments(tmuxPromptSubmissionArguments(terminalId, data, bracketedPaste)), {
+    timeout: 5_000,
+  });
   await new Promise((resolve) => setTimeout(resolve, terminalSubmissionSettleMs(bracketedPaste)));
-  await execFile('tmux', tmuxPromptEnterArguments(terminalId), { timeout: 3_000 });
+  await execFile('tmux', tmuxCommandArguments(tmuxPromptEnterArguments(terminalId)), { timeout: 3_000 });
 }
 
 export async function killTmuxSession(name: string): Promise<void> {
@@ -506,7 +536,7 @@ function parseTmuxSessionsWithProcesses(output: string, processes: Map<number, P
 export async function listTmuxSessions(): Promise<TmuxSession[]> {
   try {
     const [{ stdout }, processTable] = await Promise.all([
-      execFile('tmux', ['list-windows', '-a', '-F', TMUX_WINDOW_FORMAT]),
+      execFile('tmux', tmuxCommandArguments(['list-windows', '-a', '-F', TMUX_WINDOW_FORMAT])),
       listProcesses().catch(() => new Map<number, ProcessRecord>()),
     ]);
     return parseTmuxSessionsWithProcesses(stdout, processTable);
@@ -518,12 +548,10 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 
 export async function listTmuxSessionActivity(): Promise<TmuxSessionActivity[]> {
   try {
-    const { stdout } = await execFile('tmux', [
-      'list-windows',
-      '-a',
-      '-F',
-      '#{session_name}\t#{window_index}\t#{window_activity}',
-    ]);
+    const { stdout } = await execFile(
+      'tmux',
+      tmuxCommandArguments(['list-windows', '-a', '-F', '#{session_name}\t#{window_index}\t#{window_activity}'])
+    );
     return parseTmuxSessionActivity(stdout);
   } catch (error) {
     if (isTmuxUnavailable(error)) return [];

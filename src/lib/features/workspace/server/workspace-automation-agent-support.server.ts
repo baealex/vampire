@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStateDirectory } from '~/lib/server/state-path.ts';
+import {
+  VAMPIRE_AGENT_GUIDES_DIRECTORY,
+  vampireAgentSupportPath,
+  vampireStateDirectory,
+} from '~/lib/server/state-path.ts';
 import {
   MAX_AUTOMATION_INTERVAL_MS,
   MAX_WORKSPACE_AUTOMATIONS,
@@ -22,7 +26,6 @@ import {
   workspaceAutomationRequestKey,
 } from './workspace-automation-request-files.server.ts';
 
-const GUIDE_DIRECTORY_NAME = 'agent-guides';
 const GUIDE_FILE_NAME = 'workspace-automation.md';
 const APPLY_FILE_NAME = 'apply-workspace-automation.mjs';
 const REQUEST_VERSION = 2;
@@ -218,7 +221,7 @@ export async function ensureWorkspaceAutomationAgentSupport(
       schedule: { ...automation.schedule },
     }));
   const stateDirectory = vampireStateDirectory();
-  const guideDirectory = join(stateDirectory, GUIDE_DIRECTORY_NAME);
+  const guideDirectory = vampireAgentSupportPath(VAMPIRE_AGENT_GUIDES_DIRECTORY);
   const requestDirectory = join(stateDirectory, WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME);
   const key = workspaceAutomationRequestKey(workspaceId);
   const requestId = randomUUID();

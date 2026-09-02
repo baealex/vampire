@@ -6,7 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, type BrowserContext, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
-import { E2E_BASE_URL, E2E_STATE_DIRECTORY } from './runtime.ts';
+import { E2E_BASE_URL, E2E_PORT, E2E_STATE_DIRECTORY, E2E_TMUX_SOCKET_NAME } from './runtime.ts';
 import {
   authenticate,
   createWorkspace,
@@ -27,6 +27,7 @@ declare global {
 
 let workspaceId: string | undefined;
 const run = promisify(execFile);
+const runTmux = (arguments_: readonly string[]) => run('tmux', ['-L', E2E_TMUX_SOCKET_NAME, ...arguments_]);
 
 async function gitWorkspace(...args: string[]): Promise<string> {
   const { stdout } = await run('git', ['-C', E2E_WORKSPACE_DIRECTORY, ...args], {
@@ -126,13 +127,9 @@ type StoredAgentAction = {
 };
 
 async function readStoredAgentAction(workspaceId: string, actionId: string): Promise<StoredAgentAction | undefined> {
-  const raw = await readFile(join(E2E_STATE_DIRECTORY, 'sessions.json'), 'utf8');
-  const state = JSON.parse(raw) as {
-    workspaces?: Array<{ id?: string; automations?: StoredAgentAction[] }>;
-  };
-  return state.workspaces
-    ?.find((workspace) => workspace.id === workspaceId)
-    ?.automations?.find((automation) => automation.agentActionId === actionId);
+  const raw = await readFile(join(E2E_STATE_DIRECTORY, 'workspaces', workspaceId, 'automations.json'), 'utf8');
+  const state = JSON.parse(raw) as { automations?: StoredAgentAction[] };
+  return state.automations?.find((automation) => automation.agentActionId === actionId);
 }
 
 async function startWaitingMainAgent(context: BrowserContext, workspace: ManagedWorkspace): Promise<string> {
@@ -149,8 +146,8 @@ async function startWaitingMainAgent(context: BrowserContext, workspace: Managed
   ].join('');
   const encodedSource = Buffer.from(agentSource).toString('base64');
   const command = `exec -a codex node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`;
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
 
   await expect
     .poll(
@@ -169,13 +166,13 @@ async function startWaitingMainAgent(context: BrowserContext, workspace: Managed
 }
 
 async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number; rows: number }> {
-  const { stdout } = await run('tmux', ['display-message', '-p', '-t', tmuxSession, '#{pane_width}\t#{pane_height}']);
+  const { stdout } = await runTmux(['display-message', '-p', '-t', tmuxSession, '#{pane_width}\t#{pane_height}']);
   const [columns, rows] = stdout.trim().split('\t').map(Number);
   return { columns, rows };
 }
 
 async function tmuxPaneCursor(tmuxSession: string): Promise<{ column: number; row: number }> {
-  const { stdout } = await run('tmux', ['display-message', '-p', '-t', tmuxSession, '#{cursor_x}\t#{cursor_y}']);
+  const { stdout } = await runTmux(['display-message', '-p', '-t', tmuxSession, '#{cursor_x}\t#{cursor_y}']);
   const [column, row] = stdout.trim().split('\t').map(Number);
   return { column, row };
 }
@@ -201,7 +198,7 @@ function normalizeTerminalRows(rows: string[]): string[] {
 }
 
 async function tmuxPaneRows(tmuxSession: string): Promise<string[]> {
-  const { stdout } = await run('tmux', ['capture-pane', '-p', '-t', tmuxSession]);
+  const { stdout } = await runTmux(['capture-pane', '-p', '-t', tmuxSession]);
   const rows = stdout.replace(/\r/g, '').split('\n');
   if (rows.at(-1) === '') rows.pop();
   return normalizeTerminalRows(rows);
@@ -327,8 +324,8 @@ async function activateTerminal(page: Page): Promise<void> {
 
 async function fillTerminalWithNumberedRows(tmuxSession: string, count = 300): Promise<void> {
   const command = `clear; i=1; while [ $i -le ${count} ]; do printf 'VAMP_ROW_%03d\\n' "$i"; i=$((i + 1)); done`;
-  await run('tmux', ['send-keys', '-t', tmuxSession, '-l', '--', command]);
-  await run('tmux', ['send-keys', '-t', tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', tmuxSession, '-l', '--', command]);
+  await runTmux(['send-keys', '-t', tmuxSession, 'Enter']);
   const finalRow = `VAMP_ROW_${String(count).padStart(3, '0')}`;
   await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === finalRow)).toBe(true);
 }
@@ -619,7 +616,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
                 },
                 {
                   protocol: 'tcp',
-                  port: 7678,
+                  port: E2E_PORT,
                   addresses: ['127.0.0.1'],
                   pid: 999,
                   processName: 'node',
@@ -639,7 +636,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
                 },
                 {
                   protocol: 'tcp',
-                  port: 7678,
+                  port: E2E_PORT,
                   addresses: ['127.0.0.1'],
                   pid: 999,
                   processName: 'node',
@@ -701,7 +698,7 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(page.getByText('This closes port 5173 and any other work owned by that process.')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
 
-  const vampireServer = page.locator('.listening-port-row', { hasText: '7678' });
+  const vampireServer = page.locator('.listening-port-row', { hasText: String(E2E_PORT) });
   await expect(vampireServer).toContainText('Protected');
   await expect(vampireServer.getByRole('button', { name: /Stop/ })).toHaveCount(0);
 });
@@ -772,7 +769,7 @@ test('delivers note and widget requests to the existing main agent without expos
   const noteInput = noteView.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
   await expect(noteView.getByText('Saved', { exact: true })).toBeVisible();
-  const notePath = join(E2E_STATE_DIRECTORY, `${workspace.id}.note.md`);
+  const notePath = join(E2E_STATE_DIRECTORY, 'workspaces', workspace.id, 'note.md');
   await expect(noteView.getByText(notePath, { exact: true })).toHaveCount(0);
   await noteView.getByRole('button', { name: 'Ask agent…' }).click();
   const noteAgentView = notePanel.getByRole('region', { name: 'Ask agent about this note' });
@@ -822,9 +819,9 @@ test('delivers note and widget requests to the existing main agent without expos
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
   await statusPage.getByRole('button', { name: 'Ask agent…' }).click();
   const widgetAgentView = statusPage.getByRole('heading', { name: 'Create a status widget with an agent' });
-  const widgetConfigurationPath = join(E2E_STATE_DIRECTORY, 'status-plugins.json');
-  const widgetGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'status-widget.md');
-  const widgetValidatorPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'validate-status-widgets.mjs');
+  const widgetConfigurationPath = join(E2E_STATE_DIRECTORY, 'global', 'status-widgets.json');
+  const widgetGuidePath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'status-widget.md');
+  const widgetValidatorPath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'validate-status-widgets.mjs');
   await expect(widgetAgentView).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Create a status widget with an agent' })).toHaveCount(0);
   await expect(statusPage.getByRole('combobox', { name: 'Send to' })).toHaveValue(workspace.id);
@@ -858,8 +855,8 @@ test('delivers note and widget requests to the existing main agent without expos
   await automationPage.getByRole('button', { name: 'Ask agent…' }).click();
   await expect(page.getByRole('dialog', { name: 'Manage automations with an agent' })).toHaveCount(0);
   await expect(automationPage.getByRole('heading', { name: 'Manage automations with an agent' })).toBeVisible();
-  const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'workspace-automation.md');
-  const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-guides', 'apply-workspace-automation.mjs');
+  const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'workspace-automation.md');
+  const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'apply-workspace-automation.mjs');
   await expect(automationPage.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
   const automationRequestInput = automationPage.getByRole('textbox', {
@@ -1559,8 +1556,8 @@ test('orders a resize reset ahead of output queued before snapshot acknowledgeme
   await expect.poll(() => Boolean(heldAcknowledgement)).toBe(true);
   const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
 
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_ACK_FENCE\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_ACK_FENCE\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect.poll(async () => (await tmuxPaneRows(workspace.tmuxSession)).includes('VAMP_ACK_FENCE')).toBe(true);
 
   await page.setViewportSize({ width: 820, height: 620 });
@@ -1573,8 +1570,8 @@ test('orders a resize reset ahead of output queued before snapshot acknowledgeme
   await expect.poll(() => serverMessages.filter((message) => message.screenSync).length).toBeGreaterThan(0);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ACK_FENCE');
 
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_AFTER_ACK_FENCE\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_AFTER_ACK_FENCE\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_AFTER_ACK_FENCE');
   await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
   expect(connectionCount).toBe(1);
@@ -1654,8 +1651,8 @@ test('preserves alternate-screen row backgrounds after returning to a workspace'
   await expectTerminalReady(page);
   const command =
     "printf '\\033[?1049h\\033[2J\\033[H\\033[1;1H\\033[48;2;60;60;60m\\033[2K\\033[1;20H\\033[38;2;240;240;240mtop-background\\033[0m\\033[4;1H\\033[48;2;60;60;60m\\033[2K\\033[4;20H\\033[38;2;240;240;240mmiddle-background\\033[0m\\033[8;1H\\033[48;2;60;60;60m\\033[2K\\033[8;20H\\033[38;2;240;240;240mbottom-background\\033[0m'";
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'C-m']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'C-m']);
   await expect
     .poll(async () =>
       (await tmuxPaneRows(workspace.tmuxSession)).some(
@@ -1745,8 +1742,8 @@ test('ignores transient terminal container collapse until a usable size returns'
     element.style.removeProperty('width');
     element.style.removeProperty('height');
   });
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(terminal.locator('.xterm-rows')).toContainText('stable-terminal-size');
 });
 
@@ -1819,8 +1816,8 @@ test('keeps terminal output moving while native IME composition is active', asyn
   });
   await expect(compositionView).toHaveText('우');
 
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT_DURING_NATIVE_IME\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf '\\nOUTPUT_DURING_NATIVE_IME\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
   await expect(terminal.locator('.xterm-rows')).toContainText('OUTPUT_DURING_NATIVE_IME');
 
   await cdp.send('Input.insertText', { text: '우' });
@@ -2403,8 +2400,8 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   await page.getByRole('button', { name: 'Group workspaces by status' }).click();
   await expect(workspaceRow.locator('.workspace-state')).toHaveCount(0);
   await page.waitForTimeout(1_100);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'vampire activity check\\n'"]);
-  await run('tmux', ['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'vampire activity check\\n'"]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
 
   await expect(page.locator('.workspace-group.working .workspace-row', { hasText: 'workspace' })).toBeVisible({
     timeout: 3_000,
@@ -2418,7 +2415,7 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   await expectTerminalReady(page);
   await expect(page.locator('.workspace-group.idle .workspace-row', { hasText: 'workspace' })).toBeVisible();
 
-  await run('tmux', ['kill-session', '-t', workspace.tmuxSession]);
+  await runTmux(['kill-session', '-t', workspace.tmuxSession]);
   const endedGroup = page.locator('.workspace-group.ended');
   await expect(endedGroup.getByRole('button', { name: /Ended/ })).toHaveAttribute('aria-expanded', 'true', {
     timeout: 3_000,

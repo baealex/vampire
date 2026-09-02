@@ -13,6 +13,8 @@ import {
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
 import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.server.ts';
+import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
+import { prepareStructuredWorkspaceStateRemoval } from '~/lib/server/workspace-state-files.ts';
 import {
   ensureManagedWorkspaceNoteFile,
   prepareManagedWorkspaceNoteRemoval,
@@ -706,6 +708,7 @@ async function sendLaunchProfile(
   launchProfiles: LaunchProfile[],
   launchProfileId: string | null
 ): Promise<void> {
+  if (!automaticCommandsAllowed()) return;
   const profile = launchProfileId ? launchProfiles.find((candidate) => candidate.id === launchProfileId) : undefined;
   const mainTerminal = running.terminals[0];
   if (!profile || !mainTerminal) return;
@@ -900,9 +903,11 @@ export async function removeManagedWorkspace(id: string): Promise<void> {
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
+    const removeWorkspaceState = await prepareStructuredWorkspaceStateRemoval(stored.id);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
     await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
+    await removeWorkspaceState();
   });
 }
 
@@ -915,9 +920,11 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
+    const removeWorkspaceState = await prepareStructuredWorkspaceStateRemoval(stored.id);
     await killTmuxSession(stored.tmuxSession);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
     await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
+    await removeWorkspaceState();
   });
 }

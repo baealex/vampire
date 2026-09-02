@@ -59,7 +59,10 @@ test('stores exact Composer prompts outside sessions.json and lists the newest f
   );
   const rawState = (await readWorkspaceStateFile()) as { workspaces: Array<Record<string, unknown>> };
   assert.equal('composerPromptHistory' in rawState.workspaces[0]!, false);
-  assert.equal(managedWorkspaceComposerHistoryPath('workspace-1'), join(directory, 'composer-history', 'workspaces', 'workspace-1.json'));
+  assert.equal(
+    managedWorkspaceComposerHistoryPath('workspace-1'),
+    join(directory, 'workspaces', 'workspace-1', 'composer-history.json')
+  );
   assert.match(await readFile(managedWorkspaceComposerHistoryPath('workspace-1'), 'utf8'), /Next prompt/);
 });
 
@@ -75,7 +78,7 @@ test('uses server settings to disable recording and bound each workspace history
     (await listManagedWorkspaceComposerPrompts('workspace-1')).map((prompt) => prompt.text),
     ['Prompt 3', 'Prompt 2']
   );
-  assert.equal(managedWorkspaceComposerHistorySettingsPath(), join(directory, 'composer-history', 'settings.json'));
+  assert.equal(managedWorkspaceComposerHistorySettingsPath(), join(directory, 'global', 'composer-history.json'));
 
   await updateManagedWorkspaceComposerHistorySettings({ enabled: false, limit: 2 });
   assert.deepEqual(await appendManagedWorkspaceComposerPrompt('workspace-1', 'Not recorded', 5), { saved: false });
@@ -126,6 +129,7 @@ test('rejects invalid prompts, settings, and unsafe workspace paths', async (t) 
     (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'invalid-settings'
   );
   const unsafePath = managedWorkspaceComposerHistoryPath('../../outside');
-  assert.equal(dirname(unsafePath), join(directory, 'composer-history', 'workspaces'));
-  assert.match(basename(unsafePath), /^[a-f0-9]{64}\.json$/);
+  assert.equal(dirname(dirname(unsafePath)), join(directory, 'workspaces'));
+  assert.match(basename(dirname(unsafePath)), /^[a-f0-9]{64}$/);
+  assert.equal(basename(unsafePath), 'composer-history.json');
 });

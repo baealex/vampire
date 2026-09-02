@@ -20,9 +20,9 @@ test('materializes the current widget store, guide, and executable validator', a
   });
 
   const support = await ensureStatusWidgetAgentSupport();
-  assert.equal(support.configurationPath, join(stateDirectory, 'status-plugins.json'));
-  assert.equal(support.guidePath, join(stateDirectory, 'agent-guides', 'status-widget.md'));
-  assert.equal(support.validatorPath, join(stateDirectory, 'agent-guides', 'validate-status-widgets.mjs'));
+  assert.equal(support.configurationPath, join(stateDirectory, 'global', 'status-widgets.json'));
+  assert.equal(support.guidePath, join(stateDirectory, 'agent-support', 'guides', 'status-widget.md'));
+  assert.equal(support.validatorPath, join(stateDirectory, 'agent-support', 'guides', 'validate-status-widgets.mjs'));
   assert.match(await readFile(support.guidePath, 'utf8'), /type StatusWidgetStore/);
   assert.match(await readFile(support.guidePath, 'utf8'), /detected automatically/);
   assert.deepEqual(

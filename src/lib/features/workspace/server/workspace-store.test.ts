@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   findWorkspaceConnection,
   readWorkspaceStore,
+  type WorkspaceStore,
   WORKSPACE_STATE_VERSION,
+  writeWorkspaceStore,
 } from '~/lib/features/workspace/server/workspace-store.server.ts';
+import { writeStructuredWorkspaceState } from '~/lib/server/workspace-state-files.ts';
 
 test('finds the terminal and workspace registered for a workspace ID', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-state-'));
@@ -42,6 +45,45 @@ test('does not trust malformed workspace state', async (t) => {
   await writeFile(file, JSON.stringify({ version: WORKSPACE_STATE_VERSION, workspaces: [{ id: 'broken' }] }));
 
   assert.equal(await findWorkspaceConnection('broken', file), undefined);
+});
+
+test('uses the organized registry and ownership files after layout migration', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-structured-state-'));
+  const previousStateDirectory = process.env.VAMPIRE_STATE_DIR;
+  process.env.VAMPIRE_STATE_DIR = directory;
+  t.after(async () => {
+    if (previousStateDirectory === undefined) delete process.env.VAMPIRE_STATE_DIR;
+    else process.env.VAMPIRE_STATE_DIR = previousStateDirectory;
+    await rm(directory, { recursive: true, force: true });
+  });
+  const state: WorkspaceStore = {
+    version: WORKSPACE_STATE_VERSION,
+    launchProfiles: [],
+    defaultStartupProfileId: null,
+    workspaces: [
+      {
+        id: 'organized',
+        tmuxSession: 'vampire-organized',
+        cwd: '/tmp/organized',
+        createdAt: 1,
+        lastActiveAt: 1,
+        automations: [],
+        favoriteCommands: ['pnpm dev'],
+        startupProfileId: null,
+      },
+    ],
+  };
+  await writeStructuredWorkspaceState(state, { stateDirectory: directory, revision: 'revision-1' });
+
+  assert.deepEqual(await findWorkspaceConnection('organized'), {
+    tmuxSession: 'vampire-organized',
+    cwd: '/tmp/organized',
+  });
+  const updated = { ...state, workspaces: [{ ...state.workspaces[0]!, favoriteCommands: ['pnpm test'] }] };
+  await writeWorkspaceStore(updated);
+  assert.deepEqual((await readWorkspaceStore()).workspaces[0]?.favoriteCommands, ['pnpm test']);
+  assert.match(await readFile(join(directory, 'workspaces', 'organized', 'background.json'), 'utf8'), /pnpm test/);
+  await assert.rejects(readFile(join(directory, 'sessions.json')), { code: 'ENOENT' });
 });
 
 test('reads compatibility session-shaped state as workspace state', async (t) => {

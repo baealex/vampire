@@ -51,6 +51,19 @@ test('keeps Vampire server configuration out of new tmux sessions', () => {
   ]);
 });
 
+test('uses an explicit tmux socket namespace without changing production defaults', () => {
+  assert.deepEqual(tmux.tmuxCommandArguments(['list-windows'], {}), ['list-windows']);
+  assert.deepEqual(tmux.tmuxCommandArguments(['list-windows'], { VAMPIRE_TMUX_SOCKET_NAME: 'vampire-dev-a1' }), [
+    '-L',
+    'vampire-dev-a1',
+    'list-windows',
+  ]);
+  assert.throws(
+    () => tmux.tmuxCommandArguments(['list-windows'], { VAMPIRE_TMUX_SOCKET_NAME: '../default' }),
+    /socket name/i
+  );
+});
+
 test('treats a missing tmux server socket as an empty server', () => {
   const error = Object.assign(new Error('Command failed: tmux list-windows'), {
     code: 1,

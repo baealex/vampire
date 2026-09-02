@@ -1,11 +1,15 @@
 import { createServer, loadEnv } from 'vite';
 import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { applyVampireEnvironmentDefaults, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
+import { prepareDevelopmentEnvironment } from '~/lib/server/development-state.ts';
+import { runStateMigrations } from '~/lib/server/state-migrations.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.server.ts';
 
 const fileEnvironment = loadEnv('development', process.cwd(), 'VAMPIRE_');
 applyVampireEnvironmentDefaults(fileEnvironment);
 delete fileEnvironment.VAMPIRE_TOKEN;
+const developmentEnvironment = await prepareDevelopmentEnvironment();
+const stateMigration = await runStateMigrations({ stateDirectory: developmentEnvironment.stateDirectory });
 
 const config = runtimeConfig();
 if (config.host === '0.0.0.0' || config.host === '::') {
@@ -35,6 +39,9 @@ console.log(
 );
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
+console.log(`Development tmux socket: ${developmentEnvironment.tmuxSocketName}`);
+console.log(`State layout version: ${stateMigration.layoutVersion}`);
+console.log('Automatic startup profiles, automations, and status widget commands are disabled.');
 
 let closing = false;
 const shutdown = () => {

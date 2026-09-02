@@ -10,9 +10,9 @@ When a supported agent is running in the workspace's main terminal, open **Statu
 
 The agent support files live under the configured state directory:
 
-- `status-plugins.json` is the live server-wide widget configuration;
-- `agent-guides/status-widget.md` is the current authoring contract; and
-- `agent-guides/validate-status-widgets.mjs` validates a candidate configuration.
+- `global/status-widgets.json` is the live server-wide widget configuration;
+- `agent-support/guides/status-widget.md` is the current authoring contract; and
+- `agent-support/guides/validate-status-widgets.mjs` validates a candidate configuration.
 
 Opening the action refreshes the guide and validator from the running Vampire version. The server watches the configuration and reloads valid changes, so an agent can validate and save a widget without a separate plugin API. The validator checks the supported structure and bounds; it does not decide whether a command is trustworthy.
 

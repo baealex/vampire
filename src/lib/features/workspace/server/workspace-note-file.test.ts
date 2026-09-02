@@ -66,7 +66,8 @@ test('the note agent action uses only the custom instructions and exposes the li
   );
 
   const notePath = managedWorkspaceNotePath('workspace-1');
-  assert.equal(notePath, join(stateDirectory, 'workspace-1.note.md'));
+  assert.equal(notePath, join(stateDirectory, 'workspaces', 'workspace-1', 'note.md'));
+  await mkdir(dirname(notePath), { recursive: true });
   await writeFile(notePath, 'Existing context\n');
   const instructions = 'Keep the existing wording and add only the current deployment blocker.';
   const queued = await queueManagedWorkspaceNoteUpdate('workspace-1', instructions, 1_000);
@@ -87,6 +88,8 @@ test('the note agent action uses only the custom instructions and exposes the li
 
 test('startup migration preserves notes from the legacy sessions collection before removing the JSON mirror', async (t) => {
   const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-migration-');
+  await mkdir(dirname(managedWorkspaceNotePath('workspace-one')), { recursive: true });
+  await mkdir(dirname(managedWorkspaceNotePath('workspace-two')), { recursive: true });
   await writeFile(managedWorkspaceNotePath('workspace-one'), 'Stale file from before rollback\n');
   await writeFile(managedWorkspaceNotePath('workspace-two'), '');
   await writeFile(
@@ -187,7 +190,7 @@ test('a compatibility JSON note blocks migration when its note file cannot be cr
       ],
     })
   );
-  await mkdir(managedWorkspaceNotePath('blocked-note'));
+  await mkdir(managedWorkspaceNotePath('blocked-note'), { recursive: true });
 
   await assert.rejects(installWorkspaceAutomationRunner(), /not a regular file/);
   await assert.rejects(updateManagedWorkspaceNote('blocked-note', 'Still editable'), /not a regular file/);
@@ -237,6 +240,7 @@ test('removing a workspace deletes its note and pending automation requests', as
 test('compatibility workspace identifiers cannot escape the Vampire state directory', async (t) => {
   const { stateDirectory } = await useTemporaryStateDirectory(t, 'vampire-note-path-');
   const path = managedWorkspaceNotePath('../../outside');
-  assert.equal(dirname(path), stateDirectory);
-  assert.match(basename(path), /^[a-f0-9]{64}\.note\.md$/);
+  assert.equal(dirname(dirname(path)), join(stateDirectory, 'workspaces'));
+  assert.match(basename(dirname(path)), /^[a-f0-9]{64}$/);
+  assert.equal(basename(path), 'note.md');
 });

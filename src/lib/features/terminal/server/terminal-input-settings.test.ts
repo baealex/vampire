@@ -31,7 +31,7 @@ test('stores terminal input behavior once for the server', async (t) => {
   };
   assert.deepEqual(await updateManagedTerminalInputSettings(settings), settings);
   assert.deepEqual(await readManagedTerminalInputSettings(), settings);
-  assert.equal(managedTerminalInputSettingsPath(), join(directory, 'terminal-input-settings.json'));
+  assert.equal(managedTerminalInputSettingsPath(), join(directory, 'global', 'terminal-input.json'));
   assert.equal(
     (JSON.parse(await readFile(managedTerminalInputSettingsPath(), 'utf8')) as { version: number }).version,
     2

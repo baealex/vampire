@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Self-hosted web workspace for running Codex, Claude Code, and other terminal-based coding agents.",
   "license": "MIT",
   "type": "module",
@@ -41,6 +41,7 @@
   },
   "scripts": {
     "dev": "node --import ./tools/register-ts-alias.mjs src/lib/app/server/dev.server.ts",
+    "dev:state:prepare": "node tools/prepare-development-state.ts",
     "build": "vite build && node tools/build-server.ts",
     "start": "node bin/vampire.js",
     "check": "node tools/check.ts",
@@ -62,6 +63,7 @@
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
     "handlebars": "^4.7.9",
+    "umzug": "3.8.3",
     "ws": "^8.21.1"
   },
   "devDependencies": {

@@ -14,6 +14,7 @@ import {
 import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
+import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
 
 const AUTOMATION_POLL_INTERVAL_MS = 2_000;
 
@@ -72,6 +73,7 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
 export async function installWorkspaceAutomationRunner(): Promise<() => void> {
   await migrateManagedWorkspaceComposerHistories();
   await migrateManagedWorkspaceNotes();
+  if (!automaticCommandsAllowed()) return () => undefined;
   let activeTick: Promise<void> | undefined;
   const tick = () => {
     if (activeTick) return;

@@ -8,6 +8,7 @@ import {
   runtimeConfig,
 } from '~/lib/server/runtime-config.ts';
 import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
+import { runStateMigrations } from '~/lib/server/state-migrations.ts';
 import { rejectWebSocketUpgrade, webSocketRequestUrl } from '~/lib/server/websocket-support.ts';
 import { resolveAdapterHandlerPath } from './adapter-handler-path.server.ts';
 import { installTerminalWebSocket } from './terminal-websocket.server.ts';
@@ -20,6 +21,7 @@ if (!process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT?.trim()) {
 }
 
 const config = runtimeConfig();
+const stateMigration = await runStateMigrations({ stateDirectory: config.stateDirectory });
 await initializeAuthentication();
 const originPolicy = configureAdapterRequestOrigin(config);
 const injectedProtocolHeader = originPolicy.injectedProtocolHeader;
@@ -91,6 +93,7 @@ if (config.tokenConfigured) {
 }
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
+console.log(`State layout version: ${stateMigration.layoutVersion}`);
 
 let closing = false;
 const shutdown = () => {

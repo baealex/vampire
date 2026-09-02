@@ -10,14 +10,13 @@ import {
   STATUS_PLUGIN_NAME_MAX_LENGTH,
 } from '~/lib/shared/contracts/status-plugin.ts';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStateDirectory } from '~/lib/server/state-path.ts';
+import { VAMPIRE_AGENT_GUIDES_DIRECTORY, vampireAgentSupportPath } from '~/lib/server/state-path.ts';
 import {
   ensureStatusPluginStoreFile,
   STATUS_PLUGIN_STATE_VERSION,
   statusPluginStatePath,
 } from './status-plugin-store.server.ts';
 
-const GUIDE_DIRECTORY_NAME = 'agent-guides';
 const GUIDE_FILE_NAME = 'status-widget.md';
 const VALIDATOR_FILE_NAME = 'validate-status-widgets.mjs';
 
@@ -156,7 +155,7 @@ export type StatusWidgetAgentSupport = {
 
 export async function ensureStatusWidgetAgentSupport(): Promise<StatusWidgetAgentSupport> {
   const configurationPath = await ensureStatusPluginStoreFile(statusPluginStatePath());
-  const guideDirectory = join(vampireStateDirectory(), GUIDE_DIRECTORY_NAME);
+  const guideDirectory = vampireAgentSupportPath(VAMPIRE_AGENT_GUIDES_DIRECTORY);
   const guidePath = join(guideDirectory, GUIDE_FILE_NAME);
   const validatorPath = join(guideDirectory, VALIDATOR_FILE_NAME);
   await mkdir(guideDirectory, { recursive: true, mode: 0o700 });

@@ -1,24 +1,22 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStatePath } from '~/lib/server/state-path.ts';
+import {
+  VAMPIRE_WORKSPACE_NOTE_FILE,
+  vampireStateDirectory,
+  vampireStatePath,
+  vampireWorkspaceStatePath,
+} from '~/lib/server/state-path.ts';
 import { normalizeWorkspaceNote, workspaceNoteByteLength, WORKSPACE_NOTE_MAX_BYTES } from './workspace-note.server.ts';
 
-const SAFE_WORKSPACE_NOTE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-
-function managedWorkspaceNoteFileName(workspaceId: string): string {
-  if (SAFE_WORKSPACE_NOTE_ID.test(workspaceId)) return `${workspaceId}.note.md`;
-  return `${createHash('sha256').update(workspaceId).digest('hex')}.note.md`;
-}
-
 export function managedWorkspaceNotePath(workspaceId: string): string {
-  return join(dirname(vampireStatePath()), managedWorkspaceNoteFileName(workspaceId));
+  return vampireWorkspaceStatePath(workspaceId, VAMPIRE_WORKSPACE_NOTE_FILE);
 }
 
 export function managedWorkspaceNoteMigrationBackupPath(): string {
-  return `${vampireStatePath()}.before-note-files.bak`;
+  return join(vampireStateDirectory(), 'backups', 'compatibility', 'sessions.before-note-files.json');
 }
 
 async function ensureStateDirectory(path: string): Promise<void> {
@@ -48,6 +46,7 @@ export async function ensureManagedWorkspaceNoteMigrationBackup(): Promise<strin
   const sourcePath = vampireStatePath();
   const backupPath = managedWorkspaceNoteMigrationBackupPath();
   await ensureStateDirectory(sourcePath);
+  await ensureStateDirectory(backupPath);
   try {
     await copyFile(sourcePath, backupPath, constants.COPYFILE_EXCL);
   } catch (error) {

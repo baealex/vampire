@@ -3,10 +3,16 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 
 import { closeTerminalControlHubs, retainTerminalControlHub } from './terminal-control-hub.server.ts';
 
 const execFile = promisify(execFileCallback);
+const ownsTmuxSocket = !process.env.VAMPIRE_TMUX_SOCKET_NAME?.trim();
+if (ownsTmuxSocket) {
+  process.env.VAMPIRE_TMUX_SOCKET_NAME = `vampire-hub-test-${process.pid}-${randomUUID().slice(0, 8)}`;
+}
+const execTmux = (arguments_: readonly string[]) => execFile('tmux', tmuxCommandArguments(arguments_));
 
 function hexadecimalInput(data: string): string {
   return Array.from(Buffer.from(data), (byte) => byte.toString(16).padStart(2, '0')).join(' ');
@@ -20,11 +26,14 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
 }
 
-test('shares one ordered tmux reader across pane subscribers', async () => {
+test('shares one ordered tmux reader across pane subscribers', async (t) => {
+  if (ownsTmuxSocket) {
+    t.after(() => execTmux(['kill-server']).catch(() => undefined));
+  }
   const session = `vampire-hub-test-${randomUUID()}`;
-  await execFile('tmux', ['new-session', '-d', '-s', session, '-x', '80', '-y', '24', '/bin/sh']);
+  await execTmux(['new-session', '-d', '-s', session, '-x', '80', '-y', '24', '/bin/sh']);
   try {
-    const { stdout } = await execFile('tmux', [
+    const { stdout } = await execTmux([
       'display-message',
       '-p',
       '-t',
@@ -94,6 +103,6 @@ test('shares one ordered tmux reader across pane subscribers', async () => {
     secondLease.release();
   } finally {
     closeTerminalControlHubs();
-    await execFile('tmux', ['kill-session', '-t', session]).catch(() => undefined);
+    await execTmux(['kill-session', '-t', session]).catch(() => undefined);
   }
 });

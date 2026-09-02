@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 
 type ForegroundProcess = {
@@ -64,7 +65,7 @@ export async function readWorkspaceAgentStates(workspaces: Iterable<AgentWorkspa
         try {
           const { stdout } = await execFile(
             'tmux',
-            ['capture-pane', '-p', '-S', `-${RECENT_SCREEN_LINES}`, '-t', mainTerminal.id],
+            tmuxCommandArguments(['capture-pane', '-p', '-S', `-${RECENT_SCREEN_LINES}`, '-t', mainTerminal.id]),
             { maxBuffer: 128 * 1024, timeout: 750 }
           );
           states.set(workspace.id, inferAgentState(process, stdout));

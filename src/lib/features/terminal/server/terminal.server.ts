@@ -11,6 +11,7 @@ import {
   type TerminalServerMessage,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { terminalColorReport, type TerminalColorSlot } from '~/lib/shared/contracts/terminal-color.ts';
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
 import { decodeTmuxControlValue } from './tmux-control.server.ts';
 import { retainTerminalControlHub } from './terminal-control-hub.server.ts';
@@ -405,13 +406,16 @@ async function terminalTarget(
     throw new Error('Terminal identifier is invalid.');
   }
   const target = requestedWindowId ?? tmuxSession;
-  const { stdout } = await execFile('tmux', [
-    'display-message',
-    '-p',
-    '-t',
-    target,
-    '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}',
-  ]);
+  const { stdout } = await execFile(
+    'tmux',
+    tmuxCommandArguments([
+      'display-message',
+      '-p',
+      '-t',
+      target,
+      '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}',
+    ])
+  );
   const [sessionName, windowId, paneId, rawColumns, rawRows] = stdout.trim().split('\t');
   const columns = Number(rawColumns);
   const rows = Number(rawRows);

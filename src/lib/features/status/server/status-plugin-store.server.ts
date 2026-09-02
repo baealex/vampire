@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import {
   cloneStatusPlugins,
   defaultStatusPlugins,
@@ -12,7 +12,7 @@ import {
   type StatusPlugin,
 } from '~/lib/shared/contracts/status-plugin.ts';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { vampireStateDirectory } from '~/lib/server/state-path.ts';
+import { VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE, vampireGlobalStatePath } from '~/lib/server/state-path.ts';
 
 export const STATUS_PLUGIN_STATE_VERSION = 1;
 
@@ -84,7 +84,7 @@ function migrateStatusPlugins(value: unknown): StatusPlugin[] | undefined {
 }
 
 export function statusPluginStatePath(): string {
-  return join(vampireStateDirectory(), 'status-plugins.json');
+  return vampireGlobalStatePath(VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE);
 }
 
 function parseStatusPluginStore(value: unknown): StatusPluginStore {
