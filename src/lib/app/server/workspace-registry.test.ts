@@ -9,6 +9,7 @@ import {
   WorkspaceMutationError,
   updateManagedLaunchProfiles,
   updateManagedStartupProfile,
+  updateManagedWorkspaceSettings,
   updateManagedWorkspaceStartup,
 } from './workspace-registry.server.ts';
 import {
@@ -114,6 +115,59 @@ test('saving from a workspace updates the shared cache and its local selection a
     (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile'
   );
   assert.deepEqual(await readWorkspaceStore(), stored);
+});
+
+test('saves a workspace Composer template with its startup profile and rejects unsafe templates atomically', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vampire-workspace-settings-'));
+  const previousStateDirectory = process.env.VAMPIRE_STATE_DIR;
+  process.env.VAMPIRE_STATE_DIR = directory;
+  t.after(async () => {
+    if (previousStateDirectory === undefined) delete process.env.VAMPIRE_STATE_DIR;
+    else process.env.VAMPIRE_STATE_DIR = previousStateDirectory;
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  await writeWorkspaceStore({
+    version: WORKSPACE_STATE_VERSION,
+    launchProfiles: [{ id: 'codex', name: 'Codex', command: 'codex' }],
+    workspaces: [
+      {
+        id: 'workspace-1',
+        tmuxSession: 'vampire-workspace-1',
+        cwd: tmpdir(),
+        createdAt: 1,
+        lastActiveAt: 1,
+        automations: [],
+        favoriteCommands: [],
+        startupProfileId: null,
+      },
+    ],
+  });
+
+  const composerTemplate = 'Date: {{ today }}\n\n{{ prompts }}\n\nRead AGENTS.md before replying.';
+  assert.deepEqual(
+    await updateManagedWorkspaceSettings('workspace-1', {
+      startupProfileId: 'codex',
+      composerTemplate,
+    }),
+    {
+      startupProfileId: 'codex',
+      composerTemplate,
+    }
+  );
+  const saved = await readWorkspaceStore();
+  assert.equal(saved.workspaces[0]?.startupProfileId, 'codex');
+  assert.equal(saved.workspaces[0]?.composerTemplate, composerTemplate);
+
+  await assert.rejects(
+    () =>
+      updateManagedWorkspaceSettings('workspace-1', {
+        startupProfileId: null,
+        composerTemplate: 'The prompt slot is missing.',
+      }),
+    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-composer-template'
+  );
+  assert.deepEqual(await readWorkspaceStore(), saved);
 });
 
 test('changes the shared default atomically for every registered workspace', async (t) => {

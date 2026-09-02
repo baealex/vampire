@@ -48,6 +48,7 @@ const WORKSPACE_FIELDS = [
   'composerPromptPreview',
   'favoriteCommands',
   'startupProfileId',
+  'composerTemplate',
   'state',
   'lastOutputAt',
   'attachedClients',

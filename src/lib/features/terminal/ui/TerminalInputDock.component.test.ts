@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
+import { DEFAULT_TERMINAL_INPUT_SETTINGS } from '~/lib/shared/contracts/terminal-input.ts';
 import TerminalInputDock from './TerminalInputDock.svelte';
 
-function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
+function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', composerTemplate = '{{ prompts }}') {
   const handoffToTerminal = vi.fn();
   const send = vi.fn();
   const scrollPageUp = vi.fn();
@@ -23,6 +25,8 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
     result: render(TerminalInputDock, {
       workspaceId,
       connected: true,
+      composerTemplate,
+      composerTemplateContext: { workspace: { name: 'Vampire', cwd: '/work/vampire' } },
       send,
       submit,
       onSubmitted,
@@ -44,6 +48,7 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1') {
 
 beforeEach(() => {
   window.localStorage.clear();
+  terminalInputPreferences.apply(DEFAULT_TERMINAL_INPUT_SETTINGS);
 });
 
 test('opens exact workspace Composer history and inserts a selected prompt without sending it', async () => {
@@ -67,6 +72,34 @@ test('records exact Composer text only after terminal submission succeeds', asyn
   expect(submit).toHaveBeenCalledWith('Continue the current work');
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith('Continue the current work'));
   expect(composer).toHaveValue('');
+});
+
+test('applies the workspace template only to the terminal submission', async () => {
+  const { submit, onSubmitted } = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    'Workspace: {{ workspace.name }}\n\n{{ prompts }}\n\nVerify before replying.'
+  );
+  const composer = screen.getByLabelText('Send text to the shell');
+  await fireEvent.input(composer, { target: { value: 'Implement the request' } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
+
+  expect(submit).toHaveBeenCalledWith('Workspace: Vampire\n\nImplement the request\n\nVerify before replying.');
+  await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith('Implement the request'));
+});
+
+test('sends the original message when a stored workspace template is invalid', async () => {
+  const { submit } = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    'Prompt was accidentally removed'
+  );
+  const composer = screen.getByLabelText('Send text to the shell');
+  await fireEvent.input(composer, { target: { value: 'Do not lose this message' } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
+
+  expect(submit).toHaveBeenCalledWith('Do not lose this message');
+  expect(await screen.findByText(/original message was sent/i)).toBeVisible();
 });
 
 test('keeps Shift+Enter as a composer line break without submitting', async () => {

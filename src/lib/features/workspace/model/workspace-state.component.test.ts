@@ -156,3 +156,35 @@ test('applies server Composer history settings and stops recording when disabled
   expect(fetchMock).toHaveBeenCalledTimes(2);
   current.dispose();
 });
+
+test('saves workspace settings together and applies the returned template locally', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        startupProfileId: 'codex',
+        composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
+      }),
+      { headers: { 'content-type': 'application/json' } }
+    )
+  );
+  const current = state();
+  current.applyWorkspaceSnapshot([workspace('one')]);
+
+  await expect(current.updateWorkspaceSettings('one', 'codex', 'Read AGENTS.md.\n\n{{ prompts }}')).resolves.toEqual({
+    ok: true,
+  });
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces/one/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      startupProfileId: 'codex',
+      composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
+    }),
+  });
+  expect(current.workspaces[0]).toMatchObject({
+    startupProfileId: 'codex',
+    composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
+  });
+  current.dispose();
+});

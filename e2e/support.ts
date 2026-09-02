@@ -81,6 +81,14 @@ export async function resetStatusPlugins(request: APIRequestContext): Promise<vo
   }
 }
 
+export async function resetTerminalInputSettings(request: APIRequestContext): Promise<void> {
+  await authenticateRequest(request);
+  const response = await request.put(`${E2E_BASE_URL}/api/terminal-input/settings`, {
+    data: { mode: 'terminal', slashHandoff: true },
+  });
+  expect(response.ok()).toBe(true);
+}
+
 export async function removeWorkspace(context: BrowserContext, workspaceId: string | undefined): Promise<void> {
   if (!workspaceId) return;
   await context.request

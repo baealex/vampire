@@ -8,6 +8,7 @@ import {
   removeWorkspace,
   resetWorkspaces,
   resetStatusPlugins,
+  resetTerminalInputSettings,
 } from './support.ts';
 
 let workspaceId: string | undefined;
@@ -36,7 +37,7 @@ function websocketInputData(message: string | Buffer): string | undefined {
 
 test.beforeEach(async ({ request }) => {
   workspaceId = undefined;
-  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request)]);
+  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request), resetTerminalInputSettings(request)]);
 });
 
 test.afterEach(async ({ context }) => {
@@ -259,9 +260,10 @@ test('keeps Compose First ownership after scrolling the terminal', async ({ cont
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
-  await page.addInitScript(() => {
-    window.localStorage.setItem('vampire:terminal-input-mode', 'compose');
+  const settings = await context.request.put('/api/terminal-input/settings', {
+    data: { mode: 'compose', slashHandoff: true },
   });
+  expect(settings.ok()).toBe(true);
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);

@@ -1,11 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
-import {
-  TERMINAL_INPUT_MODE_STORAGE_KEY,
-  TERMINAL_SLASH_HANDOFF_STORAGE_KEY,
-  terminalInputPreferences,
-} from '~/lib/features/terminal/model/input-preferences.svelte.ts';
+import { DEFAULT_TERMINAL_INPUT_SETTINGS } from '~/lib/shared/contracts/terminal-input.ts';
 import type { LaunchProfile, ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import AppSettingsPage from './AppSettingsPage.svelte';
 
@@ -34,20 +30,24 @@ const workspace: ManagedWorkspace = {
 
 function renderSettings(
   onSaveLaunchProfiles = vi.fn(async () => ({ ok: true })),
-  onSaveComposerHistorySettings = vi.fn(async () => ({ ok: true }))
+  onSaveComposerHistorySettings = vi.fn(async () => ({ ok: true })),
+  onSaveTerminalInputSettings = vi.fn(async () => ({ ok: true }))
 ) {
   const onManageAutomations = vi.fn();
   return {
     onSaveLaunchProfiles,
     onSaveComposerHistorySettings,
+    onSaveTerminalInputSettings,
     onManageAutomations,
     view: render(AppSettingsPage, {
       launchProfiles: profiles,
       defaultStartupProfileId: 'codex',
+      terminalInputSettings: DEFAULT_TERMINAL_INPUT_SETTINGS,
       composerHistorySettings: { enabled: true, limit: 20 },
       workspaces: [workspace],
       close: vi.fn(),
       onSaveLaunchProfiles,
+      onSaveTerminalInputSettings,
       onSaveComposerHistorySettings,
       onManageAutomations,
       onManageWidgets: vi.fn(),
@@ -72,11 +72,7 @@ test('keeps listening ports out of application settings', () => {
   expect(screen.queryByText('Listening ports')).not.toBeInTheDocument();
 });
 
-beforeEach(() => {
-  window.localStorage.clear();
-  terminalInputPreferences.setMode('terminal');
-  terminalInputPreferences.setSlashHandoff(true);
-});
+beforeEach(() => window.localStorage.clear());
 
 test('explains Compose-only history and saves its server retention policy', async () => {
   const user = userEvent.setup();
@@ -93,15 +89,45 @@ test('explains Compose-only history and saves its server retention policy', asyn
   expect(onSaveComposerHistorySettings).toHaveBeenCalledWith({ enabled: true, limit: 12 });
 });
 
-test('persists the Compose-first and slash handoff browser preferences', async () => {
+test('saves Compose-first and slash handoff as server settings', async () => {
   const user = userEvent.setup();
-  renderSettings();
+  const onSaveTerminalInputSettings = vi.fn(async () => ({ ok: true }));
+  renderSettings(undefined, undefined, onSaveTerminalInputSettings);
 
   await user.click(screen.getByRole('radio', { name: /Compose first/ }));
   await user.click(screen.getByRole('checkbox', { name: /Open the terminal/ }));
+  await user.click(screen.getByRole('button', { name: 'Save terminal input' }));
 
-  expect(window.localStorage.getItem(TERMINAL_INPUT_MODE_STORAGE_KEY)).toBe('compose');
-  expect(window.localStorage.getItem(TERMINAL_SLASH_HANDOFF_STORAGE_KEY)).toBe('false');
+  expect(onSaveTerminalInputSettings).toHaveBeenCalledWith({
+    mode: 'compose',
+    slashHandoff: false,
+  });
+});
+
+test('does not overwrite server input settings before they finish loading', async () => {
+  const onSaveTerminalInputSettings = vi.fn(async () => ({ ok: true }));
+  const onReloadTerminalInputSettings = vi.fn(async () => undefined);
+  render(AppSettingsPage, {
+    launchProfiles: profiles,
+    defaultStartupProfileId: 'codex',
+    terminalInputSettings: DEFAULT_TERMINAL_INPUT_SETTINGS,
+    terminalInputSettingsReady: false,
+    terminalInputSettingsError: 'Unable to load terminal input settings',
+    composerHistorySettings: { enabled: true, limit: 20 },
+    workspaces: [workspace],
+    close: vi.fn(),
+    onSaveLaunchProfiles: vi.fn(async () => ({ ok: true })),
+    onSaveTerminalInputSettings,
+    onReloadTerminalInputSettings,
+    onSaveComposerHistorySettings: vi.fn(async () => ({ ok: true })),
+    onManageAutomations: vi.fn(),
+    onManageWidgets: vi.fn(),
+  });
+
+  expect(screen.getByRole('button', { name: 'Save terminal input' })).toBeDisabled();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Retry loading' }));
+  expect(onReloadTerminalInputSettings).toHaveBeenCalledOnce();
+  expect(onSaveTerminalInputSettings).not.toHaveBeenCalled();
 });
 
 test('applies a changed default profile to every workspace on save', async () => {

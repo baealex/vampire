@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "Self-hosted web workspace for running Codex, Claude Code, and other terminal-based coding agents.",
   "license": "MIT",
   "type": "module",
@@ -61,6 +61,7 @@
     "@codemirror/view": "^6.43.6",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
+    "handlebars": "^4.7.9",
     "ws": "^8.21.1"
   },
   "devDependencies": {

@@ -1,65 +1,72 @@
-export type TerminalInputMode = 'compose' | 'terminal';
+import { requestJson } from '~/lib/shared/api/request.ts';
+import {
+  DEFAULT_TERMINAL_INPUT_SETTINGS,
+  type TerminalInputMode,
+  type TerminalInputSettings,
+} from '~/lib/shared/contracts/terminal-input.ts';
 
-export const TERMINAL_INPUT_MODE_STORAGE_KEY = 'vampire:terminal-input-mode';
-export const TERMINAL_SLASH_HANDOFF_STORAGE_KEY = 'vampire:terminal-slash-handoff';
-
-function storedInputMode(): TerminalInputMode {
-  if (typeof window === 'undefined') return 'terminal';
-  try {
-    return window.localStorage.getItem(TERMINAL_INPUT_MODE_STORAGE_KEY) === 'compose' ? 'compose' : 'terminal';
-  } catch {
-    return 'terminal';
-  }
-}
-
-function storedSlashHandoff(): boolean {
-  if (typeof window === 'undefined') return true;
-  try {
-    return window.localStorage.getItem(TERMINAL_SLASH_HANDOFF_STORAGE_KEY) !== 'false';
-  } catch {
-    return true;
-  }
-}
+export type { TerminalInputMode, TerminalInputSettings } from '~/lib/shared/contracts/terminal-input.ts';
 
 export class TerminalInputPreferences {
-  mode = $state<TerminalInputMode>(storedInputMode());
-  slashHandoff = $state(storedSlashHandoff());
+  mode = $state<TerminalInputMode>(DEFAULT_TERMINAL_INPUT_SETTINGS.mode);
+  slashHandoff = $state(DEFAULT_TERMINAL_INPUT_SETTINGS.slashHandoff);
+  loadError = $state('');
+  loaded = $state(false);
 
-  #started = false;
+  #loadPromise: Promise<void> | undefined;
+  #mutationVersion = 0;
+
+  get settings(): TerminalInputSettings {
+    return {
+      mode: this.mode,
+      slashHandoff: this.slashHandoff,
+    };
+  }
 
   start(): () => void {
-    this.mode = storedInputMode();
-    this.slashHandoff = storedSlashHandoff();
-    if (this.#started) return () => undefined;
-    this.#started = true;
-
-    const syncAcrossTabs = (event: StorageEvent) => {
-      if (event.key === TERMINAL_INPUT_MODE_STORAGE_KEY) this.mode = storedInputMode();
-      if (event.key === TERMINAL_SLASH_HANDOFF_STORAGE_KEY) this.slashHandoff = storedSlashHandoff();
-    };
-    window.addEventListener('storage', syncAcrossTabs);
-    return () => {
-      window.removeEventListener('storage', syncAcrossTabs);
-      this.#started = false;
-    };
+    void this.refresh();
+    return () => undefined;
   }
 
-  setMode(mode: TerminalInputMode) {
-    this.mode = mode;
-    try {
-      window.localStorage.setItem(TERMINAL_INPUT_MODE_STORAGE_KEY, mode);
-    } catch {
-      // Keep the preference active for this page when storage is unavailable.
-    }
+  async refresh(): Promise<void> {
+    if (this.#loadPromise) return this.#loadPromise;
+    const mutationVersion = this.#mutationVersion;
+    this.#loadPromise = requestJson<TerminalInputSettings>(
+      '/api/terminal-input/settings',
+      undefined,
+      'Unable to load terminal input settings'
+    )
+      .then((settings) => {
+        if (mutationVersion === this.#mutationVersion) this.apply(settings);
+      })
+      .catch((error) => {
+        this.loadError = error instanceof Error ? error.message : 'Unable to load terminal input settings';
+      })
+      .finally(() => {
+        this.#loadPromise = undefined;
+      });
+    return this.#loadPromise;
   }
 
-  setSlashHandoff(enabled: boolean) {
-    this.slashHandoff = enabled;
-    try {
-      window.localStorage.setItem(TERMINAL_SLASH_HANDOFF_STORAGE_KEY, String(enabled));
-    } catch {
-      // Keep the preference active for this page when storage is unavailable.
-    }
+  async update(settings: TerminalInputSettings): Promise<void> {
+    const mutationVersion = ++this.#mutationVersion;
+    const saved = await requestJson<TerminalInputSettings>(
+      '/api/terminal-input/settings',
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(settings),
+      },
+      'Unable to save terminal input settings'
+    );
+    if (mutationVersion === this.#mutationVersion) this.apply(saved);
+  }
+
+  apply(settings: TerminalInputSettings) {
+    this.mode = settings.mode;
+    this.slashHandoff = settings.slashHandoff;
+    this.loadError = '';
+    this.loaded = true;
   }
 }
 

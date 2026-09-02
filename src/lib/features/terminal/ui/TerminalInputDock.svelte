@@ -10,12 +10,15 @@ import {
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
 import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
+import { renderComposerTemplate, type ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
 import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
 let {
   workspaceId,
   terminalId,
   connected,
+  composerTemplate,
+  composerTemplateContext,
   send,
   submit,
   composerHistoryEnabled = true,
@@ -38,6 +41,8 @@ let {
   workspaceId: string;
   terminalId?: string;
   connected: boolean;
+  composerTemplate?: string;
+  composerTemplateContext: ComposerTemplateContext;
   send: (data: string) => void;
   submit: (data: string) => boolean;
   composerHistoryEnabled?: boolean;
@@ -104,6 +109,7 @@ let promptHistoryError = $state('');
 let promptHistory = $state<WorkspaceComposerPrompt[]>([]);
 let promptHistoryLoaded = false;
 let promptSaveError = $state('');
+let composerTemplateWarning = $state('');
 
 onDestroy(() => {
   persistComposerDraft();
@@ -121,7 +127,11 @@ function sendControl(data: string) {
 function sendComposerMessage() {
   if (!connected || !composerMessage.trim()) return;
   const submittedPrompt = composerMessage;
-  if (!submit(submittedPrompt)) return;
+  const rendered = renderComposerTemplate(composerTemplate, submittedPrompt, composerTemplateContext);
+  if (!submit(rendered.text)) return;
+  composerTemplateWarning = rendered.error
+    ? `The Compose template could not be applied, so the original message was sent. ${rendered.error}`
+    : '';
   updateComposerMessage('');
   if (!composerHistoryEnabled) {
     requestAnimationFrame(() => {
@@ -451,6 +461,9 @@ function handleImageSelection(event: Event) {
   {#if promptSaveError}
     <p class="prompt-save-error" role="alert">{promptSaveError}</p>
   {/if}
+  {#if composerTemplateWarning}
+    <p class="composer-send-warning" role="status">{composerTemplateWarning}</p>
+  {/if}
   <div class="composer-slot">
     <div
       class="composer"
@@ -731,7 +744,8 @@ function handleImageSelection(event: Event) {
   font-size: var(--text-micro);
 }
 .prompt-history-message,
-.prompt-save-error {
+.prompt-save-error,
+.composer-send-warning {
   margin: 0;
   padding: 0.7rem 0.75rem;
   color: var(--color-text-secondary);
@@ -744,6 +758,10 @@ function handleImageSelection(event: Event) {
 }
 .prompt-save-error {
   padding: 0.35rem var(--dock-inline-end) 0 var(--dock-inline-start);
+}
+.composer-send-warning {
+  padding: 0.35rem var(--dock-inline-end) 0 var(--dock-inline-start);
+  color: var(--color-warning-text, var(--color-text-secondary));
 }
 .send-button {
   background: var(--color-accent);

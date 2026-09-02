@@ -150,6 +150,8 @@ onMount(() => {
       <TerminalViewport
         workspaceId={workspace.id}
         terminalId={mainTerminal?.id}
+        composerTemplate={workspace.composerTemplate}
+        composerTemplateContext={{ workspace: { name: projectName, cwd: workspace.cwd } }}
         {onInputActivity}
         {onOutputActivity}
         {composerHistoryEnabled}

@@ -14,6 +14,7 @@ import {
   expectTerminalReady,
   removeWorkspace,
   resetStatusPlugins,
+  resetTerminalInputSettings,
   resetWorkspaces,
 } from './support.ts';
 
@@ -357,7 +358,9 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
         };
         messages.push({
           direction,
-          ...(value.type === 'input' && typeof value.data === 'string' ? { data: value.data } : {}),
+          ...((value.type === 'input' || value.type === 'submit') && typeof value.data === 'string'
+            ? { data: value.data }
+            : {}),
           ...(typeof value.history?.available === 'number' ? { historyAvailable: value.history.available } : {}),
           ...(typeof value.history?.loaded === 'number' ? { historyLoaded: value.history.loaded } : {}),
           ...(typeof value.lines === 'number' ? { lines: value.lines } : {}),
@@ -393,7 +396,9 @@ test('focuses the selected input surface and keeps Shift+Enter distinct in the t
 
   await workspaceList.getByRole('button', { name: 'Open settings' }).click();
   await page.getByRole('radio', { name: /Compose first/ }).click();
+  await page.getByRole('button', { name: 'Save terminal input' }).click();
   await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.reload();
   await expectTerminalReady(page);
   const composer = page.getByPlaceholder('Send to shell…');
   await expect(composer).toBeFocused();
@@ -420,7 +425,9 @@ test('focuses the selected input surface and keeps Shift+Enter distinct in the t
 
   await workspaceList.getByRole('button', { name: 'Open settings' }).click();
   await page.getByRole('radio', { name: /Terminal first/ }).click();
+  await page.getByRole('button', { name: 'Save terminal input' }).click();
   await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.reload();
   await expectTerminalReady(page);
   const terminalInput = page.locator('.xterm-helper-textarea');
   await expect(terminalInput).toBeFocused();
@@ -430,6 +437,43 @@ test('focuses the selected input surface and keeps Shift+Enter distinct in the t
   await expect
     .poll(() => messages.some((message) => message.direction === 'client' && message.data === '\u001b[13;2u'))
     .toBe(true);
+});
+
+test('previews, persists, and applies a workspace Compose template', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const messages: ObservedTerminalMessage[] = [];
+  await observeTerminalMessages(page, messages);
+
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Workspace settings' });
+  const template = '# Read AGENTS.md before working.\n{{ prompts }}\n# Verify the result before replying.';
+  await dialog.getByRole('textbox', { name: 'Template' }).fill(template);
+  await dialog.getByRole('textbox', { name: 'Preview message' }).fill('Implement the request');
+  await expect(dialog.locator('.preview-output pre')).toHaveText(
+    '# Read AGENTS.md before working.\nImplement the request\n# Verify the result before replying.'
+  );
+  await dialog.getByRole('button', { name: 'Save workspace settings' }).click();
+  await expect(dialog).toBeHidden();
+
+  const workspacesResponse = await context.request.get('/api/workspaces');
+  expect(workspacesResponse.ok()).toBe(true);
+  const workspacesBody = (await workspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
+  expect(workspacesBody.workspaces.find((candidate) => candidate.id === workspace.id)?.composerTemplate).toBe(template);
+
+  const prompt = "printf 'VAMP_COMPOSER_TEMPLATE_OK\\n'";
+  await page.getByPlaceholder('Send to shell…').fill(prompt);
+  await page.getByPlaceholder('Send to shell…').press('Enter');
+  await expect
+    .poll(() => messages.findLast((message) => message.direction === 'client' && message.type === 'submit')?.data)
+    .toBe(`# Read AGENTS.md before working.\n${prompt}\n# Verify the result before replying.`);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_COMPOSER_TEMPLATE_OK');
 });
 
 test('keeps terminal geometry stable while Composer expands and history opens', async ({ context, page }) => {
@@ -488,7 +532,7 @@ function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): b
 
 test.beforeEach(async ({ request }) => {
   workspaceId = undefined;
-  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request)]);
+  await Promise.all([resetWorkspaces(request), resetStatusPlugins(request), resetTerminalInputSettings(request)]);
 });
 
 test.afterEach(async ({ context }) => {
@@ -1094,10 +1138,12 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   await expect(page.locator('.xterm-rows')).toContainText('launch-profile-marker');
   const reuseActions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await reuseActions.click();
-  await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await page.getByRole('radio', { name: /No startup profile/ }).click();
-  await page.getByRole('button', { name: 'Save selection' }).click();
+  const reuseSettingsDialog = page.getByRole('dialog', { name: 'Workspace settings' });
+  await reuseSettingsDialog.getByRole('button', { name: 'Save workspace settings' }).click();
+  await expect(reuseSettingsDialog).toBeHidden();
   const reuseWorkspacesResponse = await context.request.get('/api/workspaces');
   const reuseWorkspacesBody = (await reuseWorkspacesResponse.json()) as { workspaces: ManagedWorkspace[] };
   expect(
@@ -1114,10 +1160,10 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   const endedActions = endedGroup.locator('.workspace-actions-menu .vampire-menu-trigger');
   await expect(endedActions).toBeVisible();
   await endedActions.click();
-  await page.getByRole('menuitem', { name: 'Startup profile' }).click();
-  await expect(page.getByRole('heading', { name: 'Startup profile' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
-  const startupDialog = page.getByRole('dialog', { name: 'Startup profile' });
+  const startupDialog = page.getByRole('dialog', { name: 'Workspace settings' });
   await expect(startupDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
   await expect(startupDialog.locator('.vampire-dialog-footer')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -1131,7 +1177,7 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   const actions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await expect(actions).toBeVisible();
   await actions.click();
-  await page.getByRole('menuitem', { name: 'Startup profile' }).click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 });

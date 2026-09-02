@@ -48,6 +48,11 @@ import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, LaunchProfileSettings, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
 import type { WorkspaceComposerPromptPreview } from '~/lib/shared/contracts/workspace-composer-history.ts';
+import {
+  DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
+  isWorkspaceComposerTemplate,
+} from '~/lib/shared/contracts/workspace-composer-template.ts';
+import { validateComposerTemplate } from '~/lib/shared/lib/composer-template.ts';
 
 export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
@@ -88,6 +93,7 @@ export type WorkspaceMutationErrorReason =
   | 'favorite-limit'
   | 'invalid-launch-profiles'
   | 'invalid-startup-profile'
+  | 'invalid-composer-template'
   | 'invalid-workspace-alias'
   | 'invalid-workspace-preferences';
 
@@ -130,7 +136,9 @@ async function readManagedWorkspaceNotePreview(stored: StoredWorkspace): Promise
   }
 }
 
-async function readManagedComposerPromptPreview(stored: StoredWorkspace): Promise<WorkspaceComposerPromptPreview | null> {
+async function readManagedComposerPromptPreview(
+  stored: StoredWorkspace
+): Promise<WorkspaceComposerPromptPreview | null> {
   try {
     return await readManagedWorkspaceComposerPromptPreview(stored.id);
   } catch {
@@ -207,6 +215,15 @@ function normalizeWorkspaceAlias(alias: string): string {
   return normalizedAlias;
 }
 
+function validateWorkspaceComposerTemplate(template: string): string {
+  if (!isWorkspaceComposerTemplate(template)) {
+    throw new WorkspaceMutationError('invalid-composer-template', 'The workspace Composer template is invalid.');
+  }
+  const validationError = validateComposerTemplate(template);
+  if (validationError) throw new WorkspaceMutationError('invalid-composer-template', validationError);
+  return template;
+}
+
 const exclusively = withWorkspaceStoreMutation;
 
 export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
@@ -235,6 +252,7 @@ export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
     const { automations: _automations, ...stored } = workspace;
     return {
       ...stored,
+      composerTemplate: stored.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
       notePreview: notePreviews[index] ?? '',
       composerPromptPreview: composerPromptPreviews[index] ?? null,
       state: tmux ? 'running' : 'missing',
@@ -281,6 +299,27 @@ export async function updateManagedWorkspacePreferences(input: WorkspacePreferen
   });
 }
 
+export async function updateManagedWorkspaceSettings(
+  id: string,
+  input: { startupProfileId: string | null; composerTemplate: string }
+): Promise<{ startupProfileId: string | null; composerTemplate: string }> {
+  return exclusively(async () => {
+    const state = await readState();
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    if (index < 0) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
+
+    const startupProfileId = input.startupProfileId?.trim() ?? null;
+    if (startupProfileId !== null && !state.launchProfiles.some((profile) => profile.id === startupProfileId)) {
+      throw new WorkspaceMutationError('invalid-startup-profile', 'The startup profile was not found.');
+    }
+    const composerTemplate = validateWorkspaceComposerTemplate(input.composerTemplate);
+    const workspaces = [...state.workspaces];
+    workspaces[index] = { ...workspaces[index], startupProfileId, composerTemplate };
+    await writeState({ ...state, workspaces });
+    return { startupProfileId, composerTemplate };
+  });
+}
+
 export async function findWorkspaceDirectory(id: string): Promise<Pick<StoredWorkspace, 'id' | 'cwd'> | undefined> {
   const workspace = (await readState()).workspaces.find((candidate) => candidate.id === id);
   return workspace ? { id: workspace.id, cwd: workspace.cwd } : undefined;
@@ -302,6 +341,7 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       automations: [],
       favoriteCommands: [],
       startupProfileId: current.defaultStartupProfileId ?? null,
+      composerTemplate: DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
     };
     await initializeManagedWorkspaceNote(stored);
     await writeState({ ...current, workspaces: [...current.workspaces, stored] });
@@ -337,6 +377,7 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       lastActiveAt: stored.lastActiveAt,
       favoriteCommands: stored.favoriteCommands,
       startupProfileId: stored.startupProfileId,
+      composerTemplate: stored.composerTemplate,
       notePreview: '',
       composerPromptPreview: null,
       state: 'running',
@@ -376,6 +417,7 @@ export async function createManagedWorktreeWorkspace(input: {
       automations: [],
       favoriteCommands: [...source.favoriteCommands],
       startupProfileId: source.startupProfileId,
+      composerTemplate: source.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
     };
     try {
       await initializeManagedWorkspaceNote(stored);
@@ -417,6 +459,7 @@ export async function createManagedWorktreeWorkspace(input: {
       lastActiveAt: stored.lastActiveAt,
       favoriteCommands: stored.favoriteCommands,
       startupProfileId: stored.startupProfileId,
+      composerTemplate: stored.composerTemplate,
       notePreview: '',
       composerPromptPreview: null,
       state: 'running',
@@ -460,6 +503,7 @@ export async function restartManagedWorkspace(
         lastActiveAt: stored.lastActiveAt,
         favoriteCommands: stored.favoriteCommands,
         startupProfileId: stored.startupProfileId,
+        composerTemplate: stored.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
         notePreview: await readManagedWorkspaceNotePreview(stored),
         composerPromptPreview: await readManagedComposerPromptPreview(stored),
         state: 'running',
@@ -505,6 +549,7 @@ export async function restartManagedWorkspace(
       lastActiveAt: restarted.lastActiveAt,
       favoriteCommands: restarted.favoriteCommands,
       startupProfileId: restarted.startupProfileId,
+      composerTemplate: restarted.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
       notePreview: await readManagedWorkspaceNotePreview(restarted),
       composerPromptPreview: await readManagedComposerPromptPreview(restarted),
       state: 'running',

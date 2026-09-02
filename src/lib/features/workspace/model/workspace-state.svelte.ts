@@ -443,8 +443,7 @@ export class WorkspaceState {
   async recordWorkspaceComposerPrompt(workspaceId: string, promptText: string): Promise<void> {
     if (!this.composerHistorySettings.enabled) return;
     const data = await requestJson<
-      | { saved: false }
-      | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
+      { saved: false } | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
     >(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/composer-prompts`,
       {
@@ -544,6 +543,31 @@ export class WorkspaceState {
     } catch (error) {
       if (isUnauthorized(error)) this.#options.onUnauthorized();
       return { ok: false, error: error instanceof Error ? error.message : 'Unable to save the startup profile' };
+    }
+  }
+
+  async updateWorkspaceSettings(
+    workspaceId: string,
+    startupProfileId: string | null,
+    composerTemplate: string
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const saved = await requestJson<{ startupProfileId: string | null; composerTemplate: string }>(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/settings`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ startupProfileId, composerTemplate }),
+        },
+        'Unable to save workspace settings'
+      );
+      this.workspaces = this.workspaces.map((workspace) =>
+        workspace.id === workspaceId ? { ...workspace, ...saved } : workspace
+      );
+      return { ok: true };
+    } catch (error) {
+      if (isUnauthorized(error)) this.#options.onUnauthorized();
+      return { ok: false, error: error instanceof Error ? error.message : 'Unable to save workspace settings' };
     }
   }
 

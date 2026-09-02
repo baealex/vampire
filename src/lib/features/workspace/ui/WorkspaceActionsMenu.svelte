@@ -4,7 +4,7 @@ import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 import LogOut from '@lucide/svelte/icons/log-out';
 import Tags from '@lucide/svelte/icons/tags';
-import SquarePlay from '@lucide/svelte/icons/square-play';
+import Settings2 from '@lucide/svelte/icons/settings-2';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import DropdownMenuGroup from '~/lib/shared/ui/DropdownMenuGroup.svelte';
 import DropdownMenuHeading from '~/lib/shared/ui/DropdownMenuHeading.svelte';
@@ -131,8 +131,8 @@ async function confirmSelectedAction() {
           {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onSettings(workspace)}>
-          <SquarePlay size={16} strokeWidth={1.8} aria-hidden="true" />
-          Startup profile
+          <Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
+          Workspace settings
         </DropdownMenuItem>
       </DropdownMenuGroup>
       {#if workspace.isGitRepository && workspace.workspaceAvailable !== false}

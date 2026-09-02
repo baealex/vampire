@@ -20,10 +20,13 @@ import '@xterm/xterm/css/xterm.css';
 import { terminalInputPreferences, type TerminalInputMode } from '../model/input-preferences.svelte.ts';
 import { hasFinePointer } from '~/lib/shared/ui/layout';
 import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
+import type { ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
 
 let {
   workspaceId,
   terminalId,
+  composerTemplate,
+  composerTemplateContext,
   onInputActivity = () => undefined,
   onOutputActivity = () => undefined,
   composerHistoryEnabled = true,
@@ -39,6 +42,8 @@ let {
 }: {
   workspaceId: string;
   terminalId?: string;
+  composerTemplate?: string;
+  composerTemplateContext: ComposerTemplateContext;
   onInputActivity?: (workspaceId: string, timestamp: number) => void;
   onOutputActivity?: (workspaceId: string, active: boolean, timestamp?: number) => void;
   composerHistoryEnabled?: boolean;
@@ -58,6 +63,7 @@ let composerElement = $state<HTMLTextAreaElement>();
 let runtime = $state<TerminalRuntime>();
 let preferredFocusFrame: number | undefined;
 let inputOwner = $state<TerminalInputMode>('terminal');
+let inputOwnerChosen = false;
 let terminalError = $state('');
 let connected = $state(false);
 let controlSizeMismatch = $state(false);
@@ -107,6 +113,7 @@ function changeTerminalFontSize(delta: number) {
 }
 
 function focusPreferredInputAfterTerminalTap() {
+  inputOwnerChosen = true;
   if (terminalInputPreferences.mode !== 'compose' || inputOwner !== 'compose') {
     inputOwner = 'terminal';
     runtime?.focus();
@@ -169,6 +176,20 @@ async function handleTerminalDrop(event: DragEvent) {
 $effect(() => {
   const size = fontSize;
   untrack(() => runtime?.setFontSize(size));
+});
+
+$effect(() => {
+  const preferredMode = terminalInputPreferences.mode;
+  if (inputOwnerChosen) return;
+  inputOwner = preferredMode;
+  if (preferredMode !== 'compose' || !connected || !hasFinePointer() || preserveRestoredFocus()) return;
+  if (preferredFocusFrame !== undefined) cancelAnimationFrame(preferredFocusFrame);
+  preferredFocusFrame = requestAnimationFrame(() => {
+    preferredFocusFrame = undefined;
+    if (!inputOwnerChosen && terminalInputPreferences.mode === 'compose') {
+      composerElement?.focus({ preventScroll: true });
+    }
+  });
 });
 
 $effect(() => {
@@ -311,6 +332,8 @@ onMount(() => {
     {workspaceId}
     {terminalId}
     {connected}
+    {composerTemplate}
+    {composerTemplateContext}
     send={(data) => runtime?.send(data)}
     submit={(data) => runtime?.submit(data) ?? false}
     {composerHistoryEnabled}
@@ -327,11 +350,15 @@ onMount(() => {
     decreaseFontSize={() => changeTerminalFontSize(-1)}
     increaseFontSize={() => changeTerminalFontSize(1)}
     handoffToTerminal={(data) => {
+      inputOwnerChosen = true;
       inputOwner = 'terminal';
       runtime?.focus();
       runtime?.send(data);
     }}
-    onComposerFocus={() => inputOwner = 'compose'}
+    onComposerFocus={() => {
+      inputOwnerChosen = true;
+      inputOwner = 'compose';
+    }}
   />
   {#if children}
     {@render children()}

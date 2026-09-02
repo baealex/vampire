@@ -9,6 +9,7 @@ import {
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import { MAX_LAUNCH_PROFILES, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
 import type { LaunchProfile, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import { isWorkspaceComposerTemplate } from '~/lib/shared/contracts/workspace-composer-template.ts';
 
 export const WORKSPACE_STATE_VERSION = 1;
 export const BACKGROUND_COMMAND_MAX_LENGTH = 1_000;
@@ -27,6 +28,7 @@ export interface StoredWorkspace {
   automations: WorkspaceAutomation[];
   favoriteCommands: string[];
   startupProfileId: string | null;
+  composerTemplate?: string;
 }
 
 export interface WorkspaceStore {
@@ -92,6 +94,7 @@ function isStoredWorkspace(
     (value.agentNoteFile === undefined || typeof value.agentNoteFile === 'boolean') &&
     (value.automations === undefined || Array.isArray(value.automations)) &&
     (value.composerPromptHistory === undefined || Array.isArray(value.composerPromptHistory)) &&
+    (value.composerTemplate === undefined || isWorkspaceComposerTemplate(value.composerTemplate)) &&
     (value.favoriteCommands === undefined ||
       (Array.isArray(value.favoriteCommands) &&
         value.favoriteCommands.every((command) => typeof command === 'string'))) &&
@@ -246,6 +249,7 @@ function parseWorkspaceStore(value: unknown): WorkspaceStore {
         automations: normalizeWorkspaceAutomations(workspace.automations),
         favoriteCommands: normalizeFavoriteCommands(workspace.favoriteCommands),
         startupProfileId,
+        ...(typeof workspace.composerTemplate === 'string' ? { composerTemplate: workspace.composerTemplate } : {}),
       };
     }),
   };

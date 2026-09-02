@@ -42,6 +42,7 @@ export type ManagedWorkspace = {
   lastActiveAt: number;
   notePreview: string;
   composerPromptPreview: WorkspaceComposerPromptPreview | null;
+  composerTemplate?: string;
   favoriteCommands: string[];
   startupProfileId: string | null;
   lastOutputAt: number | null;

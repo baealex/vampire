@@ -237,6 +237,7 @@ test('validates complete workspace messages before applying them to client state
         repositoryPath: '/tmp/project',
         workspaceLabel: 'Fix login',
         worktreeBranch: 'vampire/fix-login-01234567',
+        composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
         composerPromptPreview: { text: 'Review the current changes', submittedAt: 4 },
       }),
     ],
@@ -278,6 +279,20 @@ test('validates complete workspace messages before applying them to client state
       type: 'workspace-updated',
       id: 'workspace-1',
       changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
+    }
+  );
+  assert.deepEqual(
+    decodeWorkspaceServerMessage(
+      encodeWorkspaceServerMessage({
+        type: 'workspace-updated',
+        id: 'workspace-1',
+        changes: { composerTemplate: '{{ prompts }}\n\nVerify the result.' },
+      })
+    ),
+    {
+      type: 'workspace-updated',
+      id: 'workspace-1',
+      changes: { composerTemplate: '{{ prompts }}\n\nVerify the result.' },
     }
   );
   assert.equal(

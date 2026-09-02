@@ -30,6 +30,7 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
+import { terminalInputPreferences } from '~/lib/features/terminal/model/input-preferences.svelte.ts';
 import AppAutomationsPage from './AppAutomationsPage.svelte';
 import AppSettingsPage from './AppSettingsPage.svelte';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
@@ -100,6 +101,10 @@ const workspaceState: WorkspaceState = new WorkspaceState({
   navigate: pushApplicationState,
   onUnauthorized: () => connection.markUnauthenticated(),
   isWorkspaceObserved: (workspaceId) => terminalIsObserved(workspaceId),
+});
+
+$effect(() => {
+  if (connection.authenticated) void terminalInputPreferences.refresh();
 });
 function terminalIsObserved(workspaceId: string): boolean {
   return (
@@ -706,11 +711,26 @@ onMount(() => {
           <AppSettingsPage
             launchProfiles={workspaceState.launchProfiles}
             defaultStartupProfileId={workspaceState.defaultStartupProfileId}
+            terminalInputSettings={terminalInputPreferences.settings}
+            terminalInputSettingsReady={terminalInputPreferences.loaded}
+            terminalInputSettingsError={terminalInputPreferences.loadError}
             composerHistorySettings={workspaceState.composerHistorySettings}
             workspaces={workspaceState.workspaces}
             close={closeManagementView}
             onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
               workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
+            onSaveTerminalInputSettings={async (settings) => {
+              try {
+                await terminalInputPreferences.update(settings);
+                return { ok: true };
+              } catch (error) {
+                return {
+                  ok: false,
+                  error: error instanceof Error ? error.message : 'Unable to save terminal input settings.',
+                };
+              }
+            }}
+            onReloadTerminalInputSettings={() => terminalInputPreferences.refresh()}
             onSaveComposerHistorySettings={(settings) => workspaceState.updateComposerHistorySettings(settings)}
             onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
             onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
@@ -904,9 +924,9 @@ onMount(() => {
 
         {#if managementClosePrompt}
           <ConfirmDialog
-            title={managementView === 'settings' ? 'Discard unsaved profile changes?' : 'Discard unsaved widget changes?'}
+            title={managementView === 'settings' ? 'Discard unsaved settings?' : 'Discard unsaved widget changes?'}
             description={managementView === 'settings'
-              ? 'Your launch profile edits have not been saved. Discard them and leave settings?'
+              ? 'Your application setting changes have not been saved. Discard them and leave settings?'
               : 'Your widget edits have not been saved. Discard them and leave status widget settings?'}
             confirmLabel="Discard changes"
             close={cancelManagementClosePrompt}
@@ -919,11 +939,11 @@ onMount(() => {
             workspace={workspaceState.activeWorkspace}
             profiles={workspaceState.launchProfiles}
             onClose={() => workspaceSettingsOpen = false}
-            onSave={(startupProfileId) =>
-              workspaceState.updateWorkspaceStartup(
+            onSave={(startupProfileId, composerTemplate) =>
+              workspaceState.updateWorkspaceSettings(
                 workspaceState.activeWorkspace!.id,
-                workspaceState.launchProfiles,
-                startupProfileId
+                startupProfileId,
+                composerTemplate
               )}
             onManageProfiles={() => {
               workspaceSettingsOpen = false;
