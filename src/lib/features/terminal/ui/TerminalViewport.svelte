@@ -68,6 +68,7 @@ let runtime = $state<TerminalRuntime>();
 let inputOwner = $state<TerminalInputSurface>('compose');
 let terminalError = $state('');
 let connected = $state(false);
+let inputReady = $state(false);
 let controlSizeMismatch = $state(false);
 let controlsTerminal = $state<boolean>();
 let terminalReconnecting = $state(false);
@@ -98,6 +99,7 @@ function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   connected = state.connected;
   controlSizeMismatch = state.controlSizeMismatch;
   controlsTerminal = state.controlsTerminal;
+  inputReady = state.inputReady;
   openingStage = state.openingStage;
   openingVisible = state.openingVisible;
   screenReady = state.screenReady;
@@ -324,7 +326,7 @@ onMount(() => {
     bind:composerElement
     {workspaceId}
     {terminalId}
-    {connected}
+    connected={connected && inputReady}
     {composerTemplate}
     {composerTemplateContext}
     sendControl={(control) => runtime?.sendControl(control)}

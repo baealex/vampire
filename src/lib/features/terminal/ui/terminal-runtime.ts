@@ -37,6 +37,7 @@ export interface TerminalRuntimeState {
   controlSizeMismatch: boolean;
   controlsTerminal: boolean | undefined;
   error: string;
+  inputReady: boolean;
   openingStage: TerminalOpeningStage;
   openingVisible: boolean;
   outputPaused: boolean;
@@ -113,6 +114,7 @@ export class TerminalRuntime {
     controlSizeMismatch: false,
     controlsTerminal: undefined,
     error: '',
+    inputReady: false,
     openingStage: 'opening',
     openingVisible: false,
     outputPaused: false,
@@ -188,7 +190,7 @@ export class TerminalRuntime {
   }
 
   send(data: string): void {
-    if (!this.#connection?.send({ type: 'input', data })) return;
+    if (!this.#state.inputReady || !this.#connection?.send({ type: 'input', data })) return;
     this.#markInputActivity();
   }
 
@@ -200,6 +202,7 @@ export class TerminalRuntime {
     const terminal = this.#terminal;
     if (
       !terminal ||
+      !this.#state.inputReady ||
       !this.#connection?.send({
         type: 'submit',
         data,
@@ -291,26 +294,25 @@ export class TerminalRuntime {
     terminal.loadAddon(fitAddon);
     terminal.open(this.#options.element);
 
-    const writeTerminalData = (data: string, complete: () => void): void => {
-      if (!TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) {
-        terminal.write(data, complete);
-        return;
-      }
+    const writeSynchronizedTerminalData = (data: string, complete: () => void): void => {
       // Keep synchronized-output mode active while xterm parses a buffer
-      // switch. Separate parser writes are required: refresh requests are
-      // emitted after each write has parsed, not while one combined string is
-      // being consumed.
+      // replacement. Separate parser writes are required: the mode must be set
+      // before a buffer reset can synchronously clear the DOM renderer.
       terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_START, () => {
         terminal.write(data, () => terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_END, complete));
       });
+    };
+    const writeTerminalData = (data: string, complete: () => void): void => {
+      if (TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) writeSynchronizedTerminalData(data, complete);
+      else terminal.write(data, complete);
     };
 
     this.#screenSync = new TerminalScreenSync({
       reset: () => terminal.reset(),
       write: writeTerminalData,
-      // Keep an authoritative reset and its replacement screen in one parser
-      // batch so the renderer never exposes the cleared buffer between them.
-      resetAndWrite: (data, complete) => writeTerminalData(`\u001bc${data}`, complete),
+      // RIS resets xterm's private modes, so it must begin inside synchronized
+      // output even when the replacement itself does not switch buffers.
+      resetAndWrite: (data, complete) => writeSynchronizedTerminalData(`\u001bc${data}`, complete),
       refresh: () => this.#refreshTerminalDisplay(),
       onReadyChange: (ready) => {
         this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
@@ -370,6 +372,7 @@ export class TerminalRuntime {
             controlSizeMismatch: false,
             controlsTerminal: undefined,
             error: '',
+            inputReady: false,
             openingStage: 'attaching',
             outputPaused: false,
           });
@@ -401,7 +404,7 @@ export class TerminalRuntime {
               // client-side fit behavior until this page reconnects to a newer server.
               this.#scheduleResize();
             }
-            this.#updateState({ reconnecting: false });
+            this.#updateState({ inputReady: true, reconnecting: false });
             this.#screenSync?.markScreenReady();
           } else if (message.type === 'output') {
             if (!this.#acceptOutputSequence(message, context)) return;
@@ -425,12 +428,13 @@ export class TerminalRuntime {
           this.#screenSync?.disconnect();
           if (this.#destroyed) return;
           if (retrying) {
-            this.#updateState({ connected: false, controlsTerminal: undefined, error: '' });
+            this.#updateState({ connected: false, controlsTerminal: undefined, error: '', inputReady: false });
             return;
           }
           this.#updateState({
             connected: false,
             controlsTerminal: undefined,
+            inputReady: false,
             reconnecting: false,
             error:
               event.code === 1008 && ['authentication expired', 'authentication revoked'].includes(event.reason)
@@ -640,6 +644,14 @@ export class TerminalRuntime {
 
   #applyGeometry(geometry: TerminalSize): void {
     this.#sharedGeometry = geometry;
+    const connection = this.#connection;
+    if (connection) {
+      // Treat every server geometry as the authoritative acknowledgement. If
+      // the server rejected an optimistic fit (viewer or one-column jitter),
+      // a later observation must be allowed to send that device size again.
+      this.#lastSentSize = `${geometry.columns}x${geometry.rows}`;
+      this.#sentSizeConnection = connection.connectionId;
+    }
     this.#updateControlSizeMismatch();
     const terminal = this.#terminal;
     if (!terminal || (terminal.cols === geometry.columns && terminal.rows === geometry.rows)) return;

@@ -40,8 +40,13 @@ const TERMINAL_REDRAW_QUIET_MS = 40;
 // notification. Keep one conservative observation window, then require a full
 // quiet interval after the latest output instead of imposing a fixed 250ms stall.
 const TERMINAL_REDRAW_GRACE_MS = 64;
+// A pane can emit one last resize redraw after the first authoritative screen
+// has been captured. Keep the delivery gate closed across that paint window
+// and replace the screen again if tmux produced anything in between.
+const TERMINAL_POST_SYNCHRONIZATION_GRACE_MS = 150;
 const TERMINAL_REDRAW_SETTLE_LIMIT_MS = 1_000;
 const TERMINAL_REDRAW_POLL_MS = 10;
+const TERMINAL_INITIAL_OUTPUT_WAIT_MS = 1_000;
 const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
 const TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES = ['\u001b[?47l', '\u001b[?1047l', '\u001b[?1049l'] as const;
 const TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH =
@@ -714,9 +719,12 @@ export async function attachTerminal(
       });
   };
 
-  const waitForTerminalRedraw = async (): Promise<void> => {
+  const waitForTerminalRedraw = async (
+    graceMs = TERMINAL_REDRAW_GRACE_MS,
+    settleLimitMs = TERMINAL_REDRAW_SETTLE_LIMIT_MS
+  ): Promise<void> => {
     const startedAt = Date.now();
-    const deadline = Date.now() + TERMINAL_REDRAW_SETTLE_LIMIT_MS;
+    const deadline = Date.now() + settleLimitMs;
     let observedVersion = controlHub.outputVersion;
     let quietSince = Date.now();
     while (!closed && Date.now() < deadline) {
@@ -726,9 +734,23 @@ export async function attachTerminal(
         quietSince = Date.now();
         continue;
       }
-      if (Date.now() - startedAt >= TERMINAL_REDRAW_GRACE_MS && Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS)
-        return;
+      if (Date.now() - startedAt >= graceMs && Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS) return;
     }
+  };
+
+  const waitForInitialTerminalContent = async (): Promise<void> => {
+    const outputVersion = controlHub.outputVersion;
+    const visiblePane = await runControlCommand(`capture-pane -p -t ${paneId}`);
+    if (visiblePane.trim() || controlHub.outputVersion !== outputVersion) {
+      await waitForTerminalRedraw();
+      return;
+    }
+
+    const deadline = Date.now() + TERMINAL_INITIAL_OUTPUT_WAIT_MS;
+    while (!closed && controlHub.outputVersion === outputVersion && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, TERMINAL_REDRAW_POLL_MS));
+    }
+    if (!closed && controlHub.outputVersion !== outputVersion) await waitForTerminalRedraw();
   };
 
   const waitForTerminalGeometry = async (geometry: TerminalSize): Promise<void> => {
@@ -755,7 +777,17 @@ export async function attachTerminal(
       // notifications arrive. Capturing immediately can therefore restore the
       // previous device's grid after the pane already has its new geometry.
       await waitForTerminalRedraw();
-      await afterRedraw?.(result);
+      if (afterRedraw) {
+        const deadline = Date.now() + TERMINAL_REDRAW_SETTLE_LIMIT_MS;
+        while (!closed) {
+          const outputVersion = controlHub.outputVersion;
+          await afterRedraw(result);
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) break;
+          await waitForTerminalRedraw(Math.min(TERMINAL_POST_SYNCHRONIZATION_GRACE_MS, remainingMs), remainingMs);
+          if (controlHub.outputVersion === outputVersion) break;
+        }
+      }
       return result;
     } finally {
       try {
@@ -800,6 +832,15 @@ export async function attachTerminal(
         ...(options.outputSequences ? { sequence: output.sequence } : {}),
       });
     }
+  };
+
+  const sendTerminalGeometry = (geometry: TerminalSize): void => {
+    if (!options.sendGeometry) return;
+    sendTerminalMessage(socket, {
+      type: 'geometry',
+      ...geometry,
+      ...(options.hasControl ? { active: options.hasControl() } : {}),
+    });
   };
 
   const sendTerminalOutput = (output: string, sequence: number): void => {
@@ -1082,7 +1123,11 @@ export async function attachTerminal(
   });
 
   const resizeControlClient = async (): Promise<void> => {
-    if (resizing || closed || sizeIgnored || !controlHub.ownsSize(sizeOwner) || options.canResize?.() === false) return;
+    if (resizing || closed) return;
+    if (sizeIgnored || !controlHub.ownsSize(sizeOwner) || options.canResize?.() === false) {
+      sendTerminalGeometry(options.getGeometry?.() ?? currentGeometry);
+      return;
+    }
     resizing = true;
     try {
       while (requestedSize && !closed && options.canResize?.() !== false) {
@@ -1090,6 +1135,7 @@ export async function attachTerminal(
         requestedSize = undefined;
         if (lastControlledSize && terminalGeometryIsColumnJitter(lastControlledSize, next)) {
           preferredSize = lastControlledSize;
+          sendTerminalGeometry(lastControlledSize);
           continue;
         }
         const key = `${next.columns}x${next.rows}`;
@@ -1276,18 +1322,15 @@ export async function attachTerminal(
   await options.onAttached?.(setIgnoreSize, resyncTerminalScreen);
   if (!inputAllowed()) return;
   if (requestedSize) await scheduleTerminalOperation(resizeControlClient);
+  await waitForInitialTerminalContent();
+  if (!inputAllowed()) return;
   const initialSnapshot = await scheduleTerminalOperation(async () => {
     const geometry = options.getGeometry?.() ?? currentGeometry;
     const snapshot = await boundedCanonicalTerminalSnapshot(options.lazyHistory ? 0 : snapshotHistoryLines, geometry);
     return { geometry, snapshot };
   });
   const { geometry: snapshotGeometry, snapshot } = initialSnapshot;
-  if (options.sendGeometry)
-    sendTerminalMessage(socket, {
-      type: 'geometry',
-      ...snapshotGeometry,
-      ...(options.hasControl ? { active: options.hasControl() } : {}),
-    });
+  sendTerminalGeometry(snapshotGeometry);
   loadedHistoryLines = snapshot.history.loaded;
   terminalDelivery.publishSnapshot(snapshot.throughSequence);
   pendingSnapshotId = options.snapshotIds ? ++snapshotId : undefined;

@@ -6,6 +6,7 @@ import {
   authenticate,
   createWorkspace,
   expectTerminalReady,
+  observeTerminalFrames,
   removeWorkspace,
   resetWorkspaces,
   resetStatusPlugins,
@@ -525,11 +526,19 @@ test('keeps numbered normal-screen rows unique through repeated mobile resizes',
   await composer.press('Enter');
   const terminalRows = page.locator('.xterm-rows');
   await expect(terminalRows).toContainText('VAMPIRE_UNIQUE_0005');
+  expect((await terminalRows.innerText()).split('for i in $(seq 1 5)')).toHaveLength(2);
+  const stopFrameObservation = await observeTerminalFrames(page, 'VAMPIRE_UNIQUE_0005');
 
   for (const height of [620, 860, 540, 915]) {
     await page.setViewportSize({ width: 412, height });
     await expect(terminalRows).toContainText('VAMPIRE_UNIQUE_0005');
   }
+
+  expect(await stopFrameObservation()).toEqual({
+    blankFrames: 0,
+    invalidRowContainerFrames: 0,
+    unstableMarkerFrames: 0,
+  });
 
   const renderedText = await terminalRows.innerText();
   for (let index = 1; index <= 5; index += 1) {

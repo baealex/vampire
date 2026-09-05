@@ -12,6 +12,7 @@ import {
   createWorkspace,
   E2E_WORKSPACE_DIRECTORY,
   expectTerminalReady,
+  observeTerminalFrames,
   removeWorkspace,
   resetStatusPlugins,
   resetTerminalInputSettings,
@@ -271,50 +272,6 @@ async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]
       return '';
     })
     .toBe('');
-}
-
-async function observeTerminalFrames(
-  page: Page
-): Promise<() => Promise<{ blankFrames: number; invalidRowContainerFrames: number }>> {
-  await page.evaluate(() => {
-    const target = window as typeof window & {
-      __vampireTerminalFrameObservation?: {
-        animationFrame: number;
-        blankFrames: number;
-        invalidRowContainerFrames: number;
-      };
-    };
-    const observation = { animationFrame: 0, blankFrames: 0, invalidRowContainerFrames: 0 };
-    target.__vampireTerminalFrameObservation = observation;
-    const sample = () => {
-      const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
-      const rows = terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
-      if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
-      if (terminal && terminal.querySelectorAll('.xterm-screen > .xterm-rows').length !== 1) {
-        observation.invalidRowContainerFrames += 1;
-      }
-      observation.animationFrame = requestAnimationFrame(sample);
-    };
-    observation.animationFrame = requestAnimationFrame(sample);
-  });
-  return () =>
-    page.evaluate(() => {
-      const target = window as typeof window & {
-        __vampireTerminalFrameObservation?: {
-          animationFrame: number;
-          blankFrames: number;
-          invalidRowContainerFrames: number;
-        };
-      };
-      const observation = target.__vampireTerminalFrameObservation;
-      if (!observation) return { blankFrames: -1, invalidRowContainerFrames: -1 };
-      cancelAnimationFrame(observation.animationFrame);
-      delete target.__vampireTerminalFrameObservation;
-      return {
-        blankFrames: observation.blankFrames,
-        invalidRowContainerFrames: observation.invalidRowContainerFrames,
-      };
-    });
 }
 
 function waitForWorkspaceSnapshot(page: Page): Promise<void> {
@@ -2339,7 +2296,11 @@ test('hands terminal layout between entered devices and restores it on disconnec
       )
       .toBe(true);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-    expect(await stopFrameObservation()).toEqual({ blankFrames: 0, invalidRowContainerFrames: 0 });
+    expect(await stopFrameObservation()).toEqual({
+      blankFrames: 0,
+      invalidRowContainerFrames: 0,
+      unstableMarkerFrames: 0,
+    });
 
     await phonePage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
     await expectTerminalReady(phonePage);
@@ -2358,6 +2319,13 @@ test('hands terminal layout between entered devices and restores it on disconnec
     const phoneHandoff = phonePage.getByText('Sized for another device');
     await expect(desktopHandoff).toBeVisible();
     await expect(phoneHandoff).toBeHidden();
+    // A viewer still measures its own container, but that optimistic local fit
+    // must roll back to the controller's shared geometry when resize is denied.
+    await desktopPage.setViewportSize({ width: 2_200, height: 1_200 });
+    await expect.poll(() => renderedTerminalGeometry(desktopPage)).toMatchObject({ rows: phoneGeometry.rows });
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
+    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
+
     const phoneComposer = phonePage.getByPlaceholder('Compose a message…');
     await phoneComposer.fill('VAMP_TUI_MOBILE_INPUT');
     await phoneComposer.press('Enter');
@@ -2370,6 +2338,8 @@ test('hands terminal layout between entered devices and restores it on disconnec
       .toBe(true);
     await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
 
+    await desktopPage.setViewportSize({ width: 2_560, height: 1_400 });
+    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
     await desktopPage.getByRole('button', { name: 'Use this device' }).click();
     await expect.poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).columns).toBeGreaterThan(240);
     await expect

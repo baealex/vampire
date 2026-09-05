@@ -100,3 +100,57 @@ export async function expectTerminalReady(page: Page): Promise<void> {
   await expect(page.getByRole('application', { name: 'Interactive shell terminal' })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.terminal.screen-ready')).toBeVisible({ timeout: 20_000 });
 }
+
+export async function observeTerminalFrames(
+  page: Page,
+  stableMarker?: string
+): Promise<() => Promise<{ blankFrames: number; invalidRowContainerFrames: number; unstableMarkerFrames: number }>> {
+  await page.evaluate((marker) => {
+    const target = window as typeof window & {
+      __vampireTerminalFrameObservation?: {
+        animationFrame: number;
+        blankFrames: number;
+        invalidRowContainerFrames: number;
+        unstableMarkerFrames: number;
+      };
+    };
+    const observation = {
+      animationFrame: 0,
+      blankFrames: 0,
+      invalidRowContainerFrames: 0,
+      unstableMarkerFrames: 0,
+    };
+    target.__vampireTerminalFrameObservation = observation;
+    const sample = () => {
+      const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
+      const rows = terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+      if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
+      if (rows && marker && rows.textContent?.split(marker).length !== 2) observation.unstableMarkerFrames += 1;
+      if (terminal && terminal.querySelectorAll('.xterm-screen > .xterm-rows').length !== 1) {
+        observation.invalidRowContainerFrames += 1;
+      }
+      observation.animationFrame = requestAnimationFrame(sample);
+    };
+    observation.animationFrame = requestAnimationFrame(sample);
+  }, stableMarker);
+  return () =>
+    page.evaluate(() => {
+      const target = window as typeof window & {
+        __vampireTerminalFrameObservation?: {
+          animationFrame: number;
+          blankFrames: number;
+          invalidRowContainerFrames: number;
+          unstableMarkerFrames: number;
+        };
+      };
+      const observation = target.__vampireTerminalFrameObservation;
+      if (!observation) return { blankFrames: -1, invalidRowContainerFrames: -1, unstableMarkerFrames: -1 };
+      cancelAnimationFrame(observation.animationFrame);
+      delete target.__vampireTerminalFrameObservation;
+      return {
+        blankFrames: observation.blankFrames,
+        invalidRowContainerFrames: observation.invalidRowContainerFrames,
+        unstableMarkerFrames: observation.unstableMarkerFrames,
+      };
+    });
+}
