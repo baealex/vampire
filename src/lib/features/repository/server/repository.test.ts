@@ -743,3 +743,18 @@ test('serves supported workspace images by detected content type', async (t) => 
     (error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file'
   );
 });
+
+test('aggregates multiple batches of new files with Git binary attributes and missing final newlines', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, '.gitattributes'), '*.dat -diff\n');
+  await git(directory, 'add', '.gitattributes');
+  await git(directory, 'commit', '--quiet', '-m', 'attributes');
+  for (let index = 0; index < 11; index += 1) {
+    await writeFile(join(directory, `new ${index}.txt`), 'first\nsecond');
+  }
+  await writeFile(join(directory, 'binary.dat'), 'text forced to binary\n');
+  await writeFile(join(directory, 'nul.bin'), Buffer.from([0, 1, 2, 10]));
+  const snapshot = await readRepositorySnapshot(directory);
+  assert.equal(snapshot.changes.length, 13);
+  assert.deepEqual(snapshot.changeStats, { additions: 22, deletions: 0 });
+});

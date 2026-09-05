@@ -14,24 +14,20 @@ import DropdownMenuItem from '~/lib/shared/ui/DropdownMenuItem.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
 import Spinner from '~/lib/shared/ui/Spinner.svelte';
+import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 import { isUiOverlayOpen } from '~/lib/shared/ui/overlay';
 import { WorkspaceConnectionState } from '~/lib/app/model/workspace-connection-state.svelte';
 import WorkspaceWorkbench from '~/lib/widgets/workspace-workbench/ui/WorkspaceWorkbench.svelte';
 import type { RepositoryTab } from '~/lib/shared/contracts/repository';
 import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.svelte';
 import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
-import WorkspaceAutomationsPage from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsPage.svelte';
 import AppSidebarActions from './AppSidebarActions.svelte';
-import StatusPluginSettings from '~/lib/features/status/ui/StatusPluginSettings.svelte';
-import WorkspaceSettings from '~/lib/features/workspace/ui/WorkspaceSettings.svelte';
 import { WorkspaceState } from '~/lib/features/workspace/model/workspace-state.svelte';
 import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/workspace';
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
 import { clearRecentTerminalRuntimes } from '~/lib/features/terminal/ui/terminal-runtime.ts';
-import AppAutomationsPage from './AppAutomationsPage.svelte';
-import AppSettingsPage from './AppSettingsPage.svelte';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 
 type ManagementView = 'automations' | 'workspace-settings' | 'server-automations' | 'settings' | 'widgets';
@@ -47,6 +43,7 @@ let repositoryPanelOpen = $state(false);
 let repositoryTab = $state<RepositoryTab>('files');
 let reopenWithOpen = $state(false);
 let managementView = $state<ManagementView>();
+let managementLoadAttempt = $state(0);
 let automationEditId = $state<string>();
 let managementOpenedFromApp = false;
 let managementBusy = $state(false);
@@ -615,6 +612,21 @@ onMount(() => {
   <meta name="description" content="A self-hosted browser workspace for persistent tmux-backed terminals.">
 </svelte:head>
 
+{#snippet managementLoadState(failed: boolean)}
+  <ManagementSurface
+    title={failed ? 'Unable to load this page' : 'Loading…'}
+    titleId="management-loading-title"
+    close={closeManagementView}
+  >
+    {#if failed}
+      <p role="alert">The page could not be loaded. Please try again.</p>
+      <Button onclick={() => managementLoadAttempt += 1}>Try again</Button>
+    {:else}
+      <span role="status"><Spinner /> Loading…</span>
+    {/if}
+  </ManagementSurface>
+{/snippet}
+
 <main class:terminal-open={workspaceState.hasOpenWorkspace}>
   {#if connection.checking}
     <section class="loading-state" aria-live="polite">
@@ -673,61 +685,101 @@ onMount(() => {
         </WorkspaceNavigator>
 
         {#if managementView === 'workspace-settings' && workspaceState.activeWorkspace}
-          <WorkspaceSettings
-            workspace={workspaceState.activeWorkspace}
-            profiles={workspaceState.launchProfiles}
-            onClose={closeManagementView}
-            onSave={(workspaceLabel, startupProfileId, composerTemplate) =>
-              workspaceState.updateWorkspaceSettings(
-                workspaceState.activeWorkspace!.id,
-                workspaceLabel,
-                startupProfileId,
-                composerTemplate
-              )}
-            onManageProfiles={() => void openApplicationSettings()}
-            onBusyChange={(value) => managementBusy = value}
-            onDirtyChange={(value) => managementDirty = value}
-          />
+          {#key managementLoadAttempt}
+            {#await import('~/lib/features/workspace/ui/WorkspaceSettings.svelte')}
+              {@render managementLoadState(false)}
+            {:then { default: WorkspaceSettings }}
+              <WorkspaceSettings
+                workspace={workspaceState.activeWorkspace}
+                profiles={workspaceState.launchProfiles}
+                onClose={closeManagementView}
+                onSave={(workspaceLabel, startupProfileId, composerTemplate) =>
+                  workspaceState.updateWorkspaceSettings(
+                    workspaceState.activeWorkspace!.id,
+                    workspaceLabel,
+                    startupProfileId,
+                    composerTemplate
+                  )}
+                onManageProfiles={() => void openApplicationSettings()}
+                onBusyChange={(value) => managementBusy = value}
+                onDirtyChange={(value) => managementDirty = value}
+              />
+            {:catch}
+              {@render managementLoadState(true)}
+            {/await}
+          {/key}
         {:else if managementView === 'settings'}
-          <AppSettingsPage
-            launchProfiles={workspaceState.launchProfiles}
-            defaultStartupProfileId={workspaceState.defaultStartupProfileId}
-            {workspaceShortcutModifier}
-            composerHistorySettings={workspaceState.composerHistorySettings}
-            workspaces={workspaceState.workspaces}
-            close={closeManagementView}
-            onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
-              workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
-            onSaveComposerHistorySettings={(settings) => workspaceState.updateComposerHistorySettings(settings)}
-            onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
-            onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
-            onLogout={connection.authenticationRequired ? () => void logout() : undefined}
-            onBusyChange={(value) => managementBusy = value}
-            onDirtyChange={(value) => managementDirty = value}
-          />
+          {#key managementLoadAttempt}
+            {#await import('./AppSettingsPage.svelte')}
+              {@render managementLoadState(false)}
+            {:then { default: AppSettingsPage }}
+              <AppSettingsPage
+                launchProfiles={workspaceState.launchProfiles}
+                defaultStartupProfileId={workspaceState.defaultStartupProfileId}
+                {workspaceShortcutModifier}
+                composerHistorySettings={workspaceState.composerHistorySettings}
+                workspaces={workspaceState.workspaces}
+                close={closeManagementView}
+                onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
+                  workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
+                onSaveComposerHistorySettings={(settings) => workspaceState.updateComposerHistorySettings(settings)}
+                onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
+                onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
+                onLogout={connection.authenticationRequired ? () => void logout() : undefined}
+                onBusyChange={(value) => managementBusy = value}
+                onDirtyChange={(value) => managementDirty = value}
+              />
+            {:catch}
+              {@render managementLoadState(true)}
+            {/await}
+          {/key}
         {:else if managementView === 'server-automations'}
-          <AppAutomationsPage
-            workspaces={workspaceState.workspaces}
-            close={closeManagementView}
-            onManage={(workspace, automationId) => void openWorkspaceAutomations(workspace, automationId)}
-            onBusyChange={(value) => managementBusy = value}
-          />
+          {#key managementLoadAttempt}
+            {#await import('./AppAutomationsPage.svelte')}
+              {@render managementLoadState(false)}
+            {:then { default: AppAutomationsPage }}
+              <AppAutomationsPage
+                workspaces={workspaceState.workspaces}
+                close={closeManagementView}
+                onManage={(workspace, automationId) => void openWorkspaceAutomations(workspace, automationId)}
+                onBusyChange={(value) => managementBusy = value}
+              />
+            {:catch}
+              {@render managementLoadState(true)}
+            {/await}
+          {/key}
         {:else if managementView === 'widgets'}
-          <StatusPluginSettings
-            workspaces={workspaceState.workspaces}
-            workspaceId={workspaceState.requestedWorkspaceId}
-            close={closeManagementView}
-            onBusyChange={(value) => managementBusy = value}
-            onDirtyChange={(value) => managementDirty = value}
-          />
+          {#key managementLoadAttempt}
+            {#await import('~/lib/features/status/ui/StatusPluginSettings.svelte')}
+              {@render managementLoadState(false)}
+            {:then { default: StatusPluginSettings }}
+              <StatusPluginSettings
+                workspaces={workspaceState.workspaces}
+                workspaceId={workspaceState.requestedWorkspaceId}
+                close={closeManagementView}
+                onBusyChange={(value) => managementBusy = value}
+                onDirtyChange={(value) => managementDirty = value}
+              />
+            {:catch}
+              {@render managementLoadState(true)}
+            {/await}
+          {/key}
         {:else if managementView === 'automations' && workspaceState.activeWorkspace}
           {#key `${workspaceState.activeWorkspace.id}:${automationEditId ?? ''}`}
-            <WorkspaceAutomationsPage
-              workspace={workspaceState.activeWorkspace}
-              initialAutomationId={automationEditId}
-              close={closeManagementView}
-              onBusyChange={(value) => managementBusy = value}
-            />
+            {#key managementLoadAttempt}
+              {#await import('~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsPage.svelte')}
+                {@render managementLoadState(false)}
+              {:then { default: WorkspaceAutomationsPage }}
+                <WorkspaceAutomationsPage
+                  workspace={workspaceState.activeWorkspace}
+                  initialAutomationId={automationEditId}
+                  close={closeManagementView}
+                  onBusyChange={(value) => managementBusy = value}
+                />
+              {:catch}
+                {@render managementLoadState(true)}
+              {/await}
+            {/key}
           {/key}
         {:else if workspaceState.activeWorkspace?.state === 'missing'}
           <section class="unavailable-sheet" aria-labelledby="ended-workspace-title">

@@ -542,6 +542,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   await settingsPage.getByRole('button', { name: 'Save workspace settings' }).click();
   await expect(settingsPage.getByRole('status')).toContainText('Workspace settings saved');
   await settingsPage.getByRole('button', { name: 'Close workspace settings' }).click();
+  await expectTerminalReady(page);
 
   const workspacesResponse = await context.request.get('/api/workspaces');
   expect(workspacesResponse.ok()).toBe(true);
@@ -550,6 +551,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
 
   const prompt = "printf 'VAMP_COMPOSER_TEMPLATE_OK\\n'";
   await page.getByPlaceholder('Compose a message…').fill(prompt);
+  await expect(page.getByRole('button', { name: 'Send to shell', exact: true })).toBeEnabled();
   await page.getByPlaceholder('Compose a message…').press('Enter');
   await expect
     .poll(() => messages.findLast((message) => message.direction === 'client' && message.type === 'submit')?.data)

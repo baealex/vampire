@@ -501,14 +501,22 @@ async function readRepositoryChangeStats(cwd: string, changes: RepositoryChange[
     }
   }
 
-  for (const change of changes) {
-    if (change.status !== '??') continue;
-    const { stdout } = await runGit(
-      cwd,
-      ['diff', '--no-index', '--numstat', '--no-renames', '--', '/dev/null', change.path],
-      { acceptedExitCodes: [0, 1] }
+  // Preserve Git's binary/attribute handling without serializing every new file.
+  // Bound the process count even when an agent creates hundreds of files.
+  const untracked = changes.filter((change) => change.status === '??');
+  const concurrency = 4;
+  for (let offset = 0; offset < untracked.length; offset += concurrency) {
+    const additions = await Promise.all(
+      untracked.slice(offset, offset + concurrency).map(async (change) => {
+        const { stdout } = await runGit(
+          cwd,
+          ['diff', '--no-index', '--numstat', '--no-renames', '--', '/dev/null', change.path],
+          { acceptedExitCodes: [0, 1] }
+        );
+        return parseGitNumstat(stdout);
+      })
     );
-    addRepositoryChangeStats(stats, parseGitNumstat(stdout));
+    for (const addition of additions) addRepositoryChangeStats(stats, addition);
   }
   return stats;
 }
@@ -675,11 +683,7 @@ export async function readRepositorySnapshot(
   const [changes, ignored, git] = await Promise.all([
     readGitChanges(root),
     readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
-    readGitSnapshot(
-      root,
-      root,
-      normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE)
-    ),
+    readGitSnapshot(root, root, normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE)),
   ]);
   return {
     isGitRepository: true,

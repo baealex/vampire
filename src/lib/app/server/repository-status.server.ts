@@ -11,6 +11,7 @@ import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspa
 import { encodeTerminalServerMessage, type TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
 
 const STATUS_SETTLE_MS = 400;
+const MIN_REFRESH_INTERVAL_MS = 1_000;
 const FALLBACK_REFRESH_MS = 10_000;
 
 type Timer = NodeJS.Timeout;
@@ -70,6 +71,7 @@ class RepositoryStatusMonitor {
   #refreshQueued = false;
   #refreshTimer: Timer | undefined;
   #refreshing = false;
+  #lastRefreshAt = 0;
   #sockets = new Set<RepositoryStatusSocket>();
   #startPromise: Promise<void> | undefined;
   #summary: RepositorySummary | undefined;
@@ -175,15 +177,19 @@ class RepositoryStatusMonitor {
       return;
     }
     if (this.#refreshTimer !== undefined) return;
-    this.#refreshTimer = setTimeout(() => {
-      this.#refreshTimer = undefined;
-      void this.#refresh();
-    }, STATUS_SETTLE_MS);
+    this.#refreshTimer = setTimeout(
+      () => {
+        this.#refreshTimer = undefined;
+        void this.#refresh();
+      },
+      Math.max(STATUS_SETTLE_MS, MIN_REFRESH_INTERVAL_MS - (Date.now() - this.#lastRefreshAt))
+    );
   }
 
   async #refresh(): Promise<void> {
     if (this.#disposed || this.#refreshing) return;
     this.#refreshing = true;
+    this.#lastRefreshAt = Date.now();
     try {
       const summary = await readRepositorySummary(this.cwd);
       if (this.#disposed) return;

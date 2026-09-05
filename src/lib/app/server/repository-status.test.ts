@@ -94,6 +94,11 @@ test('pushes Git change counts and releases its watcher with the socket', async 
     socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 1)
   );
 
+  const beforeSameCountEdit = socket.messages.length;
+  await writeFile(join(workspace, 'app.js'), 'export const value = 22;\n');
+  await waitFor(() => socket.messages.length > beforeSameCountEdit);
+  assert.equal(socket.messages.at(-1)?.changeCount, 1, 'content changes must refresh even at the same count');
+
   await git(workspace, 'add', 'app.js');
   await git(workspace, 'commit', '--quiet', '-m', 'update');
   await waitFor(

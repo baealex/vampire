@@ -38,6 +38,8 @@ export type RepositoryClipboard = {
 
 export type RepositoryUploadNoticeKind = '' | 'error';
 
+const STATUS_REFRESH_SETTLE_MS = 200;
+
 type RepositoryWorkspaceStateOptions = {
   isOpen: () => boolean;
 };
@@ -75,6 +77,7 @@ export class RepositoryWorkspaceState {
   #operation: Promise<void> = Promise.resolve();
   #refreshPromise: Promise<void> | undefined;
   #refreshQueued = false;
+  #statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   #discardChangesResolver: ((discard: boolean) => void) | undefined;
   #uploadedFileCount = 0;
   #skippedGitFileCount = 0;
@@ -130,6 +133,10 @@ export class RepositoryWorkspaceState {
   }
 
   async refresh(showLoading = false) {
+    if (this.#statusRefreshTimer !== undefined) {
+      clearTimeout(this.#statusRefreshTimer);
+      this.#statusRefreshTimer = undefined;
+    }
     if (this.#refreshPromise) {
       this.#refreshQueued = true;
       await this.#refreshPromise;
@@ -146,13 +153,25 @@ export class RepositoryWorkspaceState {
           try {
             let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit);
             const activeDirectories: string[] = [];
-            for (const path of this.#loadedDirectories) {
-              try {
-                nextSnapshot = this.#mergeDirectoryListing(nextSnapshot, path, await this.#api.readDirectory(path));
+            const concurrency = 4;
+            for (let offset = 0; offset < this.#loadedDirectories.length; offset += concurrency) {
+              const paths = this.#loadedDirectories.slice(offset, offset + concurrency);
+              const listings = await Promise.all(
+                paths.map(async (path) => {
+                  try {
+                    return await this.#api.readDirectory(path);
+                  } catch (error) {
+                    if (error instanceof RequestError && error.status === 404) return undefined;
+                    throw error;
+                  }
+                })
+              );
+              // Merge in tree order, so a parent's listing cannot erase its children.
+              for (const [index, listing] of listings.entries()) {
+                if (!listing) continue;
+                const path = paths[index];
+                nextSnapshot = this.#mergeDirectoryListing(nextSnapshot, path, listing);
                 activeDirectories.push(path);
-              } catch (error) {
-                if (error instanceof RequestError && error.status === 404) continue;
-                throw error;
               }
             }
             this.#loadedDirectories = activeDirectories;
@@ -710,6 +729,8 @@ export class RepositoryWorkspaceState {
   }
 
   dispose() {
+    if (this.#statusRefreshTimer !== undefined) clearTimeout(this.#statusRefreshTimer);
+    this.#statusRefreshTimer = undefined;
     this.resolveDiscardChanges(false);
   }
 
@@ -729,6 +750,12 @@ export class RepositoryWorkspaceState {
     this.changeCount = changeCount;
     this.worktreeCount = worktreeCount;
     this.branch = branch;
-    if (this.#options.isOpen()) void this.refresh();
+    if (!this.#options.isOpen() || this.#statusRefreshTimer !== undefined) return;
+    // The counts may stay the same while file contents change. Keep that refresh,
+    // but combine status bursts and let an explicit refresh consume the timer.
+    this.#statusRefreshTimer = setTimeout(() => {
+      this.#statusRefreshTimer = undefined;
+      if (this.#options.isOpen()) void this.refresh();
+    }, STATUS_REFRESH_SETTLE_MS);
   }
 }

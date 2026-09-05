@@ -318,3 +318,82 @@ test('collapses nested clipboard selections and pastes each top-level entry once
     conflict: 'rename',
   });
 });
+
+test('coalesces status bursts without dropping same-count content changes', async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => repositorySnapshotResponse());
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  for (let i = 0; i < 10; i += 1) state.handleStatus(1, 1, 'main');
+  expect(fetchMock).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  state.handleStatus(1, 1, 'main');
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  state.dispose();
+});
+
+test('explicit refresh consumes pending status work and disposal cancels it', async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => repositorySnapshotResponse());
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  state.handleStatus(1, 1, 'main');
+  await state.refresh(true);
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  state.handleStatus(1, 1, 'main');
+  state.dispose();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('does not refresh a panel closed before a status timer fires', async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => repositorySnapshotResponse());
+  let open = true;
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => open });
+  state.handleStatus(1, 1, 'main');
+  open = false;
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(fetchMock).not.toHaveBeenCalled();
+  state.dispose();
+});
+
+test('refreshes expanded directories concurrently while preserving nested entries and removing deleted folders', async () => {
+  let refreshing = false;
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (!url.pathname.endsWith('/directory')) return repositorySnapshotResponse();
+    const path = url.searchParams.get('path')!;
+    if (refreshing) {
+      requested.push(path);
+      await ready;
+      if (path === 'removed') return new Response('{}', { status: 404 });
+    }
+    const listing =
+      path === 'src'
+        ? { files: ['src/app.ts'], directories: ['src/nested'], ignored: [], truncated: false }
+        : { files: [path + '/file.ts'], directories: [], ignored: [], truncated: false };
+    return new Response(JSON.stringify(listing));
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  await state.refresh();
+  for (const path of ['src', 'src/nested', 'removed']) await state.loadDirectory(path);
+  refreshing = true;
+  const refresh = state.refresh();
+  try {
+    await vi.waitFor(() => expect(requested).toEqual(['src', 'src/nested', 'removed']));
+  } finally {
+    release();
+    await refresh;
+  }
+  expect(state.snapshot?.files).toEqual(['src/app.ts', 'src/nested/file.ts']);
+  expect(state.errorMessage).toBe('');
+  state.dispose();
+});
