@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Self-hosted web workspace for running Codex, Claude Code, and other terminal-based coding agents.",
   "license": "MIT",
   "type": "module",
