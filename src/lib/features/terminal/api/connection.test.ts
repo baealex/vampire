@@ -124,6 +124,18 @@ function createHarness() {
   };
 }
 
+test('reports a send race as unsent so callers retain their input', () => {
+  const harness = createHarness();
+  harness.connection.start();
+  harness.sockets[0].open();
+  harness.sockets[0].send = () => {
+    throw new Error('Socket closed during send');
+  };
+  assert.equal(harness.connection.send({ type: 'input', data: '/' }), false);
+  assert.equal(harness.connection.send({ type: 'submit', data: 'draft', bracketedPaste: true }), false);
+  harness.connection.stop();
+});
+
 test('reconnects after transient closes and ignores messages from replaced sockets', () => {
   const harness = createHarness();
   harness.connection.start();

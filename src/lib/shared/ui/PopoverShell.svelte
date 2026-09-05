@@ -11,6 +11,7 @@ let {
   alignOffset = 0,
   trapFocus = true,
   onInteractOutside,
+  onOpenAutoFocus,
   onCloseAutoFocus,
   contentEnabled = true,
   contentClass,
@@ -18,6 +19,8 @@ let {
   triggerLabel,
   triggerTitle,
   triggerTone,
+  triggerDisabled = false,
+  triggerAriaKeyShortcuts,
   trigger,
   children,
 }: {
@@ -29,6 +32,7 @@ let {
   alignOffset?: number;
   trapFocus?: boolean;
   onInteractOutside?: (event: Event) => void;
+  onOpenAutoFocus?: (event: Event) => void;
   onCloseAutoFocus?: (event: Event) => void;
   contentEnabled?: boolean;
   contentClass?: string;
@@ -36,6 +40,8 @@ let {
   triggerLabel?: string;
   triggerTitle?: string;
   triggerTone?: string;
+  triggerDisabled?: boolean;
+  triggerAriaKeyShortcuts?: string;
   trigger?: Snippet;
   children?: Snippet;
 } = $props();
@@ -51,8 +57,10 @@ function handleOpenChange(nextOpen: boolean) {
     type="button"
     class={triggerClass}
     aria-label={triggerLabel}
+    aria-keyshortcuts={triggerAriaKeyShortcuts}
     title={triggerTitle}
     data-tone={triggerTone}
+    disabled={triggerDisabled}
   >
     {@render trigger?.()}
   </Popover.Trigger>
@@ -66,6 +74,7 @@ function handleOpenChange(nextOpen: boolean) {
         {alignOffset}
         {trapFocus}
         {onInteractOutside}
+        {onOpenAutoFocus}
         {onCloseAutoFocus}
       >
         {@render children?.()}

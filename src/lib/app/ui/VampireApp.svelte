@@ -29,6 +29,7 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
+import { clearRecentTerminalRuntimes } from '~/lib/features/terminal/ui/terminal-runtime.ts';
 import AppAutomationsPage from './AppAutomationsPage.svelte';
 import AppSettingsPage from './AppSettingsPage.svelte';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
@@ -166,6 +167,8 @@ async function logout() {
   repositoryPanelOpen = false;
   mobilePanel = 'workspaces';
   pushApplicationState('/');
+  await tick();
+  clearRecentTerminalRuntimes();
 }
 
 function guardManagementTransition(action: () => void | Promise<void>): boolean {
@@ -599,6 +602,7 @@ onMount(() => {
   return () => {
     stopConnection();
     workspaceState.dispose();
+    queueMicrotask(clearRecentTerminalRuntimes);
     window.removeEventListener('popstate', handlePopState);
     window.removeEventListener('keydown', handleWorkspaceShortcut, { capture: true });
     window.removeEventListener('keydown', handleOverlayKeydown, { capture: true });

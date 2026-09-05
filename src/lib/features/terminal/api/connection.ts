@@ -261,7 +261,13 @@ export class TerminalConnection {
 
   #sendToSocket(socket: TerminalSocket, message: TerminalClientMessage): boolean {
     if (this.#stopped || this.#socket !== socket || socket.readyState !== SOCKET_OPEN) return false;
-    socket.send(encodeTerminalClientMessage(message));
-    return true;
+    try {
+      socket.send(encodeTerminalClientMessage(message));
+      return true;
+    } catch {
+      // A socket may close between the readyState check and send. Let callers
+      // retain unsent drafts/characters instead of treating them as delivered.
+      return false;
+    }
   }
 }

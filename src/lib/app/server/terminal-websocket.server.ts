@@ -1,20 +1,6 @@
 import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer } from 'ws';
-
-import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
-import {
-  activateTerminalAttachment,
-  createTerminalAttachmentState,
-  fallbackTerminalAttachment,
-  releaseTerminalAttachment,
-  runTerminalOperation,
-  synchronizeTerminalAttachments,
-  terminalAttachmentKey,
-  updateTerminalGeometry,
-  type ManagedTerminalAttachment,
-  type TerminalAttachmentState,
-} from '~/lib/features/terminal/server/terminal-attachments.server.ts';
 import {
   attachTerminal,
   sendTerminalMessage,
@@ -22,16 +8,20 @@ import {
   type TerminalSize,
   type TerminalSizeController,
 } from '~/lib/features/terminal/server/terminal.server.ts';
-import { closeTerminalControlHubs } from '~/lib/features/terminal/server/terminal-control-hub.server.ts';
-import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.server.ts';
-import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
-  TERMINAL_GEOMETRY_PROTOCOL_VERSION,
-  TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION,
-  TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION,
-  TERMINAL_SIZE_LIMITS,
-  TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION,
-} from '~/lib/shared/contracts/terminal-protocol.ts';
+  activateTerminalAttachment,
+  createTerminalAttachmentState,
+  fallbackTerminalAttachment,
+  type ManagedTerminalAttachment,
+  releaseTerminalAttachment,
+  runTerminalOperation,
+  synchronizeTerminalAttachments,
+  type TerminalAttachmentState,
+  terminalAttachmentKey,
+  updateTerminalGeometry,
+} from '~/lib/features/terminal/server/terminal-attachments.server.ts';
+import { closeTerminalControlHubs } from '~/lib/features/terminal/server/terminal-control-hub.server.ts';
+import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import {
   authorizeWebSocketUpgrade,
   installWebSocketHeartbeat,
@@ -39,6 +29,16 @@ import {
   scheduleAuthenticationExpiry,
   webSocketRequestUrl,
 } from '~/lib/server/websocket-support.ts';
+import {
+  TERMINAL_GEOMETRY_PROTOCOL_VERSION,
+  TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION,
+  TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION,
+  TERMINAL_SIZE_LIMITS,
+  TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION,
+  TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION,
+} from '~/lib/shared/contracts/terminal-protocol.ts';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
+import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.server.ts';
 
 const MAX_CONNECTIONS = 32;
 const MAX_PAYLOAD_BYTES = 72 * 1024;
@@ -75,6 +75,7 @@ interface TerminalConnectionContext {
   supportsResetScreenSync: boolean;
   supportsSnapshotIds: boolean;
   supportsOutputSequences: boolean;
+  supportsSubmissionResults: boolean;
   expiresAt?: number;
   sessionId?: string;
 }
@@ -201,6 +202,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
     const supportsResetScreenSync = protocolVersion >= TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION;
     const supportsSnapshotIds = protocolVersion >= TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION;
     const supportsOutputSequences = protocolVersion >= TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION;
+    const supportsSubmissionResults = protocolVersion >= TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION;
     terminalSockets.handleUpgrade(request, socket, head, (websocket) => {
       connectionContexts.set(websocket, {
         workspaceId,
@@ -213,6 +215,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
         supportsResetScreenSync,
         supportsSnapshotIds,
         supportsOutputSequences,
+        supportsSubmissionResults,
         expiresAt: authorization.expiresAt,
         sessionId: authorization.sessionId,
       });
@@ -285,6 +288,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           resetScreenSync: context.supportsResetScreenSync,
           snapshotIds: context.supportsSnapshotIds,
           outputSequences: context.supportsOutputSequences,
+          submissionResults: context.supportsSubmissionResults,
           scheduleOperation: (operation) => runTerminalOperation(state, operation),
           onAttached: async (setIgnoreSize, synchronizeScreen) => {
             attachment.setIgnoreSize = setIgnoreSize;

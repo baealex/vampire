@@ -90,7 +90,9 @@ test('lists the core keyboard shortcuts as fixed interactions', () => {
   expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
   expect(screen.getByText('⌘1–0')).toBeVisible();
   expect(screen.getByText('Compose → Terminal')).toBeVisible();
-  expect(screen.getByText('⌘/')).toBeVisible();
+  expect(screen.getByText('⌘/ · Ctrl+`')).toBeVisible();
+  expect(screen.getByText('Ctrl+Alt+H')).toBeVisible();
+  expect(screen.getByText('Switch input surface')).toBeVisible();
   expect(screen.queryByText(/Ctrl.*Shift.*Enter/i)).not.toBeInTheDocument();
   expect(screen.queryByRole('checkbox', { name: /Compose to Terminal/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Save shortcuts/i })).not.toBeInTheDocument();

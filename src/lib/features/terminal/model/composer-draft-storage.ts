@@ -9,10 +9,13 @@ function composerDraftStorageKey(workspaceId: string, terminalId?: string): stri
 export function loadComposerDraft(
   workspaceId: string,
   terminalId?: string,
-  storage: ComposerDraftStorage = window.localStorage
+  storage?: ComposerDraftStorage
 ): { value: string; available: boolean } {
   try {
-    return { value: storage.getItem(composerDraftStorageKey(workspaceId, terminalId)) ?? '', available: true };
+    return {
+      value: (storage ?? window.localStorage).getItem(composerDraftStorageKey(workspaceId, terminalId)) ?? '',
+      available: true,
+    };
   } catch {
     return { value: '', available: false };
   }
@@ -22,12 +25,13 @@ export function saveComposerDraft(
   workspaceId: string,
   terminalId: string | undefined,
   value: string,
-  storage: ComposerDraftStorage = window.localStorage
+  storage?: ComposerDraftStorage
 ): boolean {
   try {
+    const target = storage ?? window.localStorage;
     const key = composerDraftStorageKey(workspaceId, terminalId);
-    if (value) storage.setItem(key, value);
-    else storage.removeItem(key);
+    if (value) target.setItem(key, value);
+    else target.removeItem(key);
     return true;
   } catch {
     return false;

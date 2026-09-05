@@ -245,41 +245,6 @@ async function saveComposerHistorySettings() {
         </div>
       </section>
 
-      <section class="settings-section" aria-labelledby="terminal-input-settings-title">
-        <div class="settings-section-heading">
-          <div>
-            <div class="settings-title-row">
-              <h2 id="terminal-input-settings-title">Keyboard shortcuts</h2>
-              <span>Desktop</span>
-            </div>
-            <p>Your last focused input follows you between workspaces. Composer drafts remain workspace-specific.</p>
-          </div>
-        </div>
-        <div class="shortcut-list" aria-label="Keyboard shortcuts">
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>{workspaceShortcutModifier}1–0</kbd></span>
-            <span class="shortcut-description">
-              <strong>Switch workspace</strong>
-              <small>Open running workspaces by their current list position.</small>
-            </span>
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>/</kbd></span>
-            <span class="shortcut-description">
-              <strong>Compose → Terminal</strong>
-              <small>From an empty Compose field, focus the terminal and forward the slash.</small>
-            </span>
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>⌘/</kbd></span>
-            <span class="shortcut-description">
-              <strong>Terminal → Compose</strong>
-              <small>Return to Compose without sending a key to the terminal.</small>
-            </span>
-          </div>
-        </div>
-      </section>
-
       <section class="settings-section" aria-labelledby="composer-history-settings-title">
         <div class="settings-section-heading">
           <div>
@@ -483,6 +448,69 @@ async function saveComposerHistorySettings() {
           </Button>
         </section>
       {/if}
+
+      <section class="settings-section" aria-labelledby="terminal-input-settings-title">
+        <div class="settings-section-heading">
+          <div>
+            <div class="settings-title-row">
+              <h2 id="terminal-input-settings-title">Keyboard shortcuts</h2>
+              <span>Desktop</span>
+            </div>
+            <p>Each workspace remembers its input surface, draft, and editing position.</p>
+          </div>
+        </div>
+        <div class="shortcut-list" aria-label="Keyboard shortcuts">
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>{workspaceShortcutModifier}1–0</kbd></span>
+            <span class="shortcut-description">
+              <strong>Switch workspace</strong>
+              <small>Open running workspaces by their current list position.</small>
+            </span>
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>/</kbd></span>
+            <span class="shortcut-description">
+              <strong>Compose → Terminal</strong>
+              <small>From an empty Compose field, focus the terminal and forward the slash.</small>
+            </span>
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>⌘/ · Ctrl+`</kbd></span>
+            <span class="shortcut-description">
+              <strong>Switch input surface</strong>
+              <small>Move between Compose and Terminal while keeping your draft and cursor position.</small>
+            </span>
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>Ctrl+Alt+H</kbd></span>
+            <span class="shortcut-description"
+              ><strong>Search Composer history</strong
+              ><small>From Compose, search previous messages and insert one with Enter.</small></span
+            >
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>Ctrl+Alt+P · Ctrl+Alt+B</kbd></span>
+            <span class="shortcut-description"
+              ><strong>Preview or bypass template</strong
+              ><small>Preview the final message, or toggle template use for the next message.</small></span
+            >
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>Ctrl+Alt+R</kbd></span>
+            <span class="shortcut-description"
+              ><strong>Recover a message</strong
+              ><small>Insert the latest unconfirmed or failed message into Compose without sending it.</small></span
+            >
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>Ctrl+/</kbd></span>
+            <span class="shortcut-description"
+              ><strong>Insert a literal slash</strong
+              ><small>Start a Compose draft with / without switching to Terminal.</small></span
+            >
+          </div>
+        </div>
+      </section>
     </div>
   {/snippet}
 </ManagementSurface>

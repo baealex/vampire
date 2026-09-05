@@ -1,7 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import WebSocket from 'ws';
-
+import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
+import { type TerminalColorSlot, terminalColorReport } from '~/lib/shared/contracts/terminal-color.ts';
 import {
   decodeTerminalClientMessage,
   encodeTerminalServerMessage,
@@ -9,16 +10,18 @@ import {
   TERMINAL_SCROLLBACK_LINES,
   type TerminalHistoryState,
   type TerminalServerMessage,
+  type TerminalSubmissionResult,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
-import { terminalColorReport, type TerminalColorSlot } from '~/lib/shared/contracts/terminal-color.ts';
-import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
-import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
-import { decodeTmuxControlValue } from './tmux-control.server.ts';
+import {
+  executeTerminalSubmission,
+  TerminalSubmissionLedger,
+  terminalSubmissionFailureMessage,
+} from './submission.server.ts';
 import { retainTerminalControlHub } from './terminal-control-hub.server.ts';
-import { TerminalDeliveryBuffer, type TerminalDeliveryBatch } from './terminal-delivery.server.ts';
+import { type TerminalDeliveryBatch, TerminalDeliveryBuffer } from './terminal-delivery.server.ts';
 
+export { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
 export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.server.ts';
-export { terminalSubmissionData, terminalSubmissionSettleMs };
 
 const execFile = promisify(execFileCallback);
 const MAX_INPUT_BYTES = 64 * 1024;
@@ -129,6 +132,7 @@ export interface AttachTerminalOptions {
   resetScreenSync?: boolean;
   snapshotIds?: boolean;
   outputSequences?: boolean;
+  submissionResults?: boolean;
   scheduleOperation?: TerminalOperationScheduler;
   onAttached?: (
     setIgnoreSize: TerminalSizeController,
@@ -515,6 +519,7 @@ export async function attachTerminal(
   const terminalDelivery = new TerminalDeliveryBuffer<QueuedOutput, QueuedScreenSynchronization>(
     MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES
   );
+  const submissionLedger = new TerminalSubmissionLedger();
   const attached = controlHub.ready;
   let inputQueue: Promise<void> = Promise.resolve();
   let pendingInputBytes = 0;
@@ -680,23 +685,39 @@ export async function attachTerminal(
     }
   };
 
-  const sendTerminalSubmission = async (data: string, bracketedPaste: boolean): Promise<void> => {
-    if (!inputAllowed()) return;
-    await sendControlInput(terminalSubmissionData(data, bracketedPaste));
-    if (!inputAllowed()) return;
-    await new Promise((resolve) => setTimeout(resolve, terminalSubmissionSettleMs(bracketedPaste)));
-    if (inputAllowed()) await runControlCommand(`send-keys -t ${paneId} Enter`);
-  };
+  const sendTerminalSubmission = (data: string, bracketedPaste: boolean): Promise<boolean> =>
+    executeTerminalSubmission(data, bracketedPaste, {
+      inputAllowed,
+      sendInput: sendControlInput,
+      sendEnter: async () => {
+        await runControlCommand(`send-keys -t ${paneId} Enter`);
+      },
+    });
 
-  const queueTerminalInput = (data: string, operation: () => Promise<void>, scheduleGlobally = true): void => {
+  const queueTerminalInput = (
+    data: string,
+    operation: () => Promise<unknown>,
+    scheduleGlobally = true,
+    callbacks: { onCompleted?: () => void; onFailed?: (error: unknown) => void } = {}
+  ): void => {
     if (!inputAllowed()) return;
-    const bytes = Buffer.byteLength(data);
-    if (bytes > MAX_INPUT_BYTES) throw new Error('Input is too large.');
-    if (pendingInputBytes + bytes > MAX_PENDING_INPUT_BYTES) {
+    const reportFailure = (error: unknown): void => {
+      if (callbacks.onFailed) {
+        callbacks.onFailed(error);
+        return;
+      }
       sendTerminalMessage(socket, {
         type: 'error',
-        message: 'Terminal input was paused because the server fell behind.',
+        message: error instanceof Error ? error.message : 'Terminal input failed.',
       });
+    };
+    const bytes = Buffer.byteLength(data);
+    if (bytes > MAX_INPUT_BYTES) {
+      reportFailure(new Error('Input is too large.'));
+      return;
+    }
+    if (pendingInputBytes + bytes > MAX_PENDING_INPUT_BYTES) {
+      reportFailure(new Error('Terminal input was paused because the server fell behind.'));
       socket.close(1013, 'terminal input fell behind');
       return;
     }
@@ -705,15 +726,10 @@ export async function attachTerminal(
     inputQueue = inputQueue
       .then(async () => {
         if (!inputAllowed()) return;
-        if (scheduleGlobally) await scheduleTerminalOperation(operation);
-        else await operation();
+        const completed = scheduleGlobally ? await scheduleTerminalOperation(operation) : await operation();
+        if (completed !== false && inputAllowed()) callbacks.onCompleted?.();
       })
-      .catch((error) => {
-        sendTerminalMessage(socket, {
-          type: 'error',
-          message: error instanceof Error ? error.message : 'Terminal input failed.',
-        });
-      })
+      .catch(reportFailure)
       .finally(() => {
         pendingInputBytes -= bytes;
       });
@@ -1244,6 +1260,10 @@ export async function attachTerminal(
   const setIgnoreSize = (ignored: boolean): Promise<void> =>
     scheduleTerminalOperation(() => setIgnoreSizeDirect(ignored));
 
+  const settleTerminalSubmission = (result: TerminalSubmissionResult): void => {
+    if (submissionLedger.settle(result)) sendTerminalMessage(socket, result);
+  };
+
   socket.on('message', (raw, isBinary) => {
     if (isBinary || !inputAllowed()) return;
     const now = Date.now();
@@ -1300,9 +1320,48 @@ export async function attachTerminal(
           await runControlCommand(terminalColorControlCommand(paneId, input.slot, input.color));
         });
       } else if (input.type === 'submit') {
-        queueTerminalInput(input.data, async () => {
+        const requestId = input.requestId;
+        const runSubmission = async (): Promise<boolean> => {
           options.onInput?.();
-          await sendTerminalSubmission(input.data, input.bracketedPaste);
+          return sendTerminalSubmission(input.data, input.bracketedPaste);
+        };
+        if (!options.submissionResults || !requestId) {
+          queueTerminalInput(input.data, runSubmission);
+          return;
+        }
+
+        const registration = submissionLedger.register(requestId);
+        if (registration.state === 'pending') return;
+        if (registration.state === 'settled') {
+          sendTerminalMessage(socket, registration.result);
+          return;
+        }
+        if (registration.state === 'full') {
+          sendTerminalMessage(socket, {
+            type: 'submission-result',
+            requestId,
+            status: 'failed',
+            message: 'Too many terminal submissions are awaiting confirmation.',
+          });
+          return;
+        }
+
+        queueTerminalInput(input.data, runSubmission, true, {
+          onCompleted: () => {
+            settleTerminalSubmission({
+              type: 'submission-result',
+              requestId,
+              status: 'completed',
+            });
+          },
+          onFailed: (error) => {
+            settleTerminalSubmission({
+              type: 'submission-result',
+              requestId,
+              status: 'failed',
+              message: terminalSubmissionFailureMessage(error),
+            });
+          },
         });
       } else if (input.type === 'resize') {
         preferredSize = { columns: input.columns, rows: input.rows };

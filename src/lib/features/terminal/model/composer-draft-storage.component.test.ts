@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { loadComposerDraft, saveComposerDraft } from './composer-draft-storage.ts';
 
 test('keeps Composer drafts separate by workspace and terminal', () => {
@@ -11,9 +11,14 @@ test('keeps Composer drafts separate by workspace and terminal', () => {
 
   expect(saveComposerDraft('workspace/one', undefined, 'Main draft', storage)).toBe(true);
   expect(saveComposerDraft('workspace/one', 'terminal-2', 'Other draft', storage)).toBe(true);
+  expect(saveComposerDraft('workspace/two', undefined, 'Different workspace draft', storage)).toBe(true);
   expect(loadComposerDraft('workspace/one', undefined, storage)).toEqual({ value: 'Main draft', available: true });
   expect(loadComposerDraft('workspace/one', 'terminal-2', storage)).toEqual({
     value: 'Other draft',
+    available: true,
+  });
+  expect(loadComposerDraft('workspace/two', undefined, storage)).toEqual({
+    value: 'Different workspace draft',
     available: true,
   });
 
@@ -36,4 +41,13 @@ test('degrades safely when browser storage is unavailable', () => {
 
   expect(loadComposerDraft('workspace-1', undefined, storage)).toEqual({ value: '', available: false });
   expect(saveComposerDraft('workspace-1', undefined, 'Draft', storage)).toBe(false);
+});
+
+test('catches an unavailable browser storage getter', () => {
+  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+    throw new Error('Storage getter unavailable');
+  });
+
+  expect(loadComposerDraft('workspace-1')).toEqual({ value: '', available: false });
+  expect(saveComposerDraft('workspace-1', undefined, 'Draft')).toBe(false);
 });

@@ -2,29 +2,37 @@
 import CircleAlert from '@lucide/svelte/icons/circle-alert';
 import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-import { onMount, untrack, type Snippet } from 'svelte';
-import Button from '~/lib/shared/ui/Button.svelte';
-import TerminalInputDock from './TerminalInputDock.svelte';
-import ShellOpening from './ShellOpening.svelte';
-import { TerminalImagePasteState } from './image-paste-state.svelte';
-import { TerminalRuntime, type TerminalOpeningStage, type TerminalRuntimeState } from './terminal-runtime.ts';
-import { terminalFontFamily, terminalTheme, THEME_CHANGE_EVENT } from '~/lib/shared/theme/theme.svelte';
+import { onMount, type Snippet, tick, untrack } from 'svelte';
 import {
   parseWorkspaceEntryDragEntries,
-  WORKSPACE_ENTRY_DRAG_TYPE,
-  workspaceEntryDragText,
   type TerminalPathInsertionRequest,
+  WORKSPACE_ENTRY_DRAG_TYPE,
   type WorkspaceEntryDragData,
+  workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
+import { THEME_CHANGE_EVENT, terminalFontFamily, terminalTheme } from '~/lib/shared/theme/theme.svelte';
+import Button from '~/lib/shared/ui/Button.svelte';
+import { SubmissionRecovery } from '../model/submission-recovery.svelte.ts';
+import { TerminalImagePasteState } from './image-paste-state.svelte';
+import ShellOpening from './ShellOpening.svelte';
+import TerminalInputDock from './TerminalInputDock.svelte';
+import {
+  acquireTerminalRuntime,
+  releaseTerminalRuntime,
+  type TerminalOpeningStage,
+  type TerminalRuntime,
+  type TerminalRuntimeState,
+} from './terminal-runtime.ts';
 import '@xterm/xterm/css/xterm.css';
+import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
+import type { ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
+import { hasFinePointer } from '~/lib/shared/ui/layout';
+import { isUiOverlayOpen } from '~/lib/shared/ui/overlay.ts';
 import {
   loadLastFocusedInputSurface,
   saveLastFocusedInputSurface,
   type TerminalInputSurface,
 } from '../model/input-surface-preference.ts';
-import { hasFinePointer } from '~/lib/shared/ui/layout';
-import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
-import type { ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
 
 let {
   workspaceId,
@@ -65,6 +73,7 @@ let {
 let terminalElement: HTMLDivElement;
 let composerElement = $state<HTMLTextAreaElement>();
 let runtime = $state<TerminalRuntime>();
+let submissionRecovery = $state<SubmissionRecovery>();
 let inputOwner = $state<TerminalInputSurface>('compose');
 let terminalError = $state('');
 let connected = $state(false);
@@ -81,21 +90,42 @@ let addingDroppedFiles = $state(false);
 let droppedFileError = $state('');
 let handledPathInsertionToken = 0;
 let savedInputOwner: TerminalInputSurface | undefined;
+let mountFocusBaseline: Element | null = null;
+let initialAutoFocusSuppressed = false;
 const imagePaste = new TerminalImagePasteState(
   untrack(() => workspaceId),
   untrack(() => terminalId),
   () => connected
 );
 
-function preserveRestoredFocus(): boolean {
+function shouldPreserveExistingFocus(): boolean {
+  if (initialAutoFocusSuppressed) return true;
   const activeElement = document.activeElement;
-  if (!(activeElement instanceof HTMLElement) || activeElement.dataset.terminalAutofocus !== 'preserve') return false;
-  delete activeElement.dataset.terminalAutofocus;
-  return true;
+  if (activeElement instanceof HTMLElement && activeElement.dataset.terminalAutofocus === 'preserve') {
+    delete activeElement.dataset.terminalAutofocus;
+    initialAutoFocusSuppressed = true;
+    return true;
+  }
+  if (isUiOverlayOpen()) {
+    initialAutoFocusSuppressed = true;
+    return true;
+  }
+  const baselineWasRemoved = !mountFocusBaseline?.isConnected;
+  const documentHasFallbackFocus =
+    activeElement === null || activeElement === document.body || activeElement === document.documentElement;
+  if (
+    activeElement !== mountFocusBaseline &&
+    activeElement !== composerElement &&
+    !(activeElement instanceof Node && terminalElement.contains(activeElement)) &&
+    !(baselineWasRemoved && documentHasFallbackFocus)
+  ) {
+    initialAutoFocusSuppressed = true;
+    return true;
+  }
+  return false;
 }
 
 function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
-  const becameConnected = state.connected && !connected;
   connected = state.connected;
   controlSizeMismatch = state.controlSizeMismatch;
   controlsTerminal = state.controlsTerminal;
@@ -106,11 +136,6 @@ function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   terminalError = state.error;
   terminalOutputPaused = state.outputPaused;
   terminalReconnecting = state.reconnecting;
-  if (becameConnected && inputOwner === 'compose' && hasFinePointer() && !preserveRestoredFocus()) {
-    requestAnimationFrame(() => {
-      composerElement?.focus({ preventScroll: true });
-    });
-  }
 }
 
 function changeTerminalFontSize(delta: number) {
@@ -120,18 +145,28 @@ function changeTerminalFontSize(delta: number) {
 function chooseInputOwner(mode: TerminalInputSurface) {
   inputOwner = mode;
   if (savedInputOwner === mode) return;
-  saveLastFocusedInputSurface(mode);
+  saveLastFocusedInputSurface(workspaceId, terminalId, mode);
   savedInputOwner = mode;
 }
 
 function focusTerminalInput() {
+  if (!inputReady) {
+    focusComposerInput();
+    return false;
+  }
   chooseInputOwner('terminal');
   runtime?.focus();
+  return true;
 }
 
 function focusComposerInput() {
   chooseInputOwner('compose');
   composerElement?.focus({ preventScroll: true });
+}
+
+function toggleInputSurface() {
+  if (inputOwner === 'terminal') focusComposerInput();
+  else focusTerminalInput();
 }
 
 function dataTransferTypes(event: DragEvent): string[] {
@@ -159,9 +194,7 @@ async function handleTerminalDrop(event: DragEvent) {
   const draggedEntries = raw ? parseWorkspaceEntryDragEntries(raw) : undefined;
   if (draggedEntries?.length) {
     event.preventDefault();
-    chooseInputOwner('terminal');
-    runtime?.focus();
-    runtime?.send(draggedEntries.map(workspaceEntryDragText).join(' '));
+    if (runtime?.send(draggedEntries.map(workspaceEntryDragText).join(' '))) focusTerminalInput();
     return;
   }
   if (!dataTransferTypes(event).includes('Files')) return;
@@ -171,9 +204,7 @@ async function handleTerminalDrop(event: DragEvent) {
   try {
     const entries = await onExternalFileDrop(event.dataTransfer);
     if (entries.length === 0) return;
-    chooseInputOwner('terminal');
-    runtime?.focus();
-    runtime?.send(entries.map(workspaceEntryDragText).join(' '));
+    if (runtime?.send(entries.map(workspaceEntryDragText).join(' '))) focusTerminalInput();
   } catch (error) {
     droppedFileError = error instanceof Error ? error.message : 'The dropped files could not be added.';
   } finally {
@@ -189,21 +220,24 @@ $effect(() => {
 $effect(() => {
   const request = pathInsertionRequest;
   if (!request || request.token === handledPathInsertionToken || !connected || !runtime) return;
+  if (!runtime.send(request.entries.map(workspaceEntryDragText).join(' '))) return;
   handledPathInsertionToken = request.token;
-  chooseInputOwner('terminal');
-  runtime.focus();
-  runtime.send(request.entries.map(workspaceEntryDragText).join(' '));
+  focusTerminalInput();
 });
 
 onMount(() => {
-  savedInputOwner = loadLastFocusedInputSurface().value;
+  submissionRecovery = new SubmissionRecovery(workspaceId, terminalId);
+  const recovery = submissionRecovery;
+  mountFocusBaseline = document.activeElement;
+  savedInputOwner = loadLastFocusedInputSurface(workspaceId, terminalId).value;
   inputOwner = savedInputOwner ?? 'compose';
+  let disposed = false;
   const handleClipboardPaste = (event: ClipboardEvent) => {
     void imagePaste.handleClipboardPaste(event);
   };
   window.addEventListener('paste', handleClipboardPaste, true);
   terminalElement.addEventListener('click', focusTerminalInput);
-  const terminalRuntime = new TerminalRuntime({
+  const terminalRuntime = acquireTerminalRuntime({
     element: terminalElement,
     workspaceId,
     terminalId,
@@ -213,23 +247,33 @@ onMount(() => {
     themeChangeEvent: THEME_CHANGE_EVENT,
     getFontFamily: terminalFontFamily,
     getTheme: terminalTheme,
-    shouldAutoFocus: () => inputOwner === 'terminal' && !preserveRestoredFocus(),
+    shouldAutoFocus: () => inputOwner === 'terminal' && !shouldPreserveExistingFocus(),
     onFontSizeChange: (size) => (fontSize = size),
-    onComposeShortcut: focusComposerInput,
+    onComposeShortcut: toggleInputSurface,
     onInputActivity,
     onTerminalInput: () => chooseInputOwner('terminal'),
     onOutputActivity,
     onRepositoryStatus,
     onStateChange: applyRuntimeState,
     onTerminalTap: focusTerminalInput,
+    onSubmissionResult: (result) => recovery.applyResult(result),
+    onSubmissionUncertain: (requestId) => recovery.markUncertain(requestId),
   });
   runtime = terminalRuntime;
+  recovery.resumePending(terminalRuntime.pendingSubmissionIds);
   terminalRuntime.start();
+  void tick().then(() => {
+    requestAnimationFrame(() => {
+      if (disposed || inputOwner !== 'compose' || !hasFinePointer() || shouldPreserveExistingFocus()) return;
+      composerElement?.focus({ preventScroll: true });
+    });
+  });
 
   return () => {
+    disposed = true;
     window.removeEventListener('paste', handleClipboardPaste, true);
     terminalElement.removeEventListener('click', focusTerminalInput);
-    terminalRuntime.dispose();
+    releaseTerminalRuntime(terminalRuntime);
     imagePaste.dispose();
     if (runtime === terminalRuntime) runtime = undefined;
   };
@@ -322,15 +366,23 @@ onMount(() => {
     </div>
   {/if}
 
+  {#if submissionRecovery?.error || submissionRecovery?.persistenceFailed}
+    <p class="terminal-file-drop-notice" role="status">
+      {submissionRecovery.error || 'Message recovery is available for this visit, but could not be saved in this browser.'}
+    </p>
+  {/if}
   <TerminalInputDock
     bind:composerElement
+    inputSurface={inputOwner}
     {workspaceId}
     {terminalId}
     connected={connected && inputReady}
     {composerTemplate}
     {composerTemplateContext}
     sendControl={(control) => runtime?.sendControl(control)}
-    submit={(data) => runtime?.submit(data) ?? false}
+    submit={(data, draft) => submissionRecovery?.submit(data, draft, (text, requestId) => runtime?.submit(text, requestId) ?? false) ?? false}
+    recoverableSubmissions={submissionRecovery?.entries ?? []}
+    onDismissSubmission={(requestId) => submissionRecovery?.dismiss(requestId)}
     {composerHistoryEnabled}
     scrollPageUp={() => runtime?.scrollPageUp()}
     scrollPageDown={() => runtime?.scrollPageDown()}
@@ -345,10 +397,11 @@ onMount(() => {
     decreaseFontSize={() => changeTerminalFontSize(-1)}
     increaseFontSize={() => changeTerminalFontSize(1)}
     handoffToTerminal={(data) => {
-      chooseInputOwner('terminal');
-      runtime?.focus();
-      runtime?.send(data);
+      if (!runtime?.send(data)) return false;
+      focusTerminalInput();
+      return true;
     }}
+    onToggleInputSurface={toggleInputSurface}
     onComposerFocus={() => chooseInputOwner('compose')}
   />
   {#if children}

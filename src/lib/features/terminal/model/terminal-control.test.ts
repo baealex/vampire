@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isComposeFocusShortcut, terminalControlData, type TerminalControlKey } from './terminal-control.ts';
+import { isInputSurfaceToggleShortcut, type TerminalControlKey, terminalControlData } from './terminal-control.ts';
 
 test('encodes fixed terminal controls independently of cursor mode', () => {
   const controls = [
@@ -29,9 +29,9 @@ test('encodes cursor controls for the active terminal mode', () => {
   }
 });
 
-test('recognizes Compose focus shortcuts without taking terminal control sequences', () => {
-  const shortcut = (changes: Partial<Parameters<typeof isComposeFocusShortcut>[0]>) =>
-    isComposeFocusShortcut({
+test('recognizes cross-platform input surface toggles without taking terminal control sequences', () => {
+  const shortcut = (changes: Partial<Parameters<typeof isInputSurfaceToggleShortcut>[0]>) =>
+    isInputSurfaceToggleShortcut({
       altKey: false,
       code: '',
       ctrlKey: false,
@@ -43,10 +43,17 @@ test('recognizes Compose focus shortcuts without taking terminal control sequenc
     });
 
   assert.equal(shortcut({ code: 'Slash', metaKey: true }), true);
+  assert.equal(shortcut({ code: 'Backquote', ctrlKey: true }), true);
+  assert.equal(shortcut({ code: 'Slash', ctrlKey: true, shiftKey: true }), false);
+  assert.equal(shortcut({ code: 'Backquote', ctrlKey: true, shiftKey: true }), false);
+  assert.equal(shortcut({ code: 'Backquote', ctrlKey: true, isComposing: true }), false);
   assert.equal(shortcut({ code: 'Enter', ctrlKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ code: 'Backslash', metaKey: true }), false);
   assert.equal(shortcut({ code: 'Backquote', metaKey: true }), false);
   assert.equal(shortcut({ code: 'Slash', ctrlKey: true }), false);
+  assert.equal(shortcut({ code: 'Slash', metaKey: true, shiftKey: true }), false);
+  assert.equal(shortcut({ code: 'Slash', ctrlKey: true, metaKey: true, shiftKey: true }), false);
+  assert.equal(shortcut({ altKey: true, code: 'Slash', ctrlKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ code: 'Slash', metaKey: true, repeat: true }), false);
   assert.equal(shortcut({ code: 'Slash', isComposing: true, metaKey: true }), false);
 });

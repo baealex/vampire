@@ -6,12 +6,12 @@ import {
   encodeTerminalClientMessage,
   encodeTerminalServerMessage,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import {
   decodeWorkspaceServerMessage,
   encodeWorkspaceServerMessage,
   type WorkspaceServerMessage,
 } from '~/lib/shared/contracts/workspace-protocol.ts';
-import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 
 function managedWorkspace(overrides: Record<string, unknown> = {}): ManagedWorkspace {
   return {
@@ -62,9 +62,14 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
         type: 'submit',
         data: 'hello\nworld',
         bracketedPaste: true,
+        requestId: 'submission-7',
       })
     ),
-    { type: 'submit', data: 'hello\nworld', bracketedPaste: true }
+    { type: 'submit', data: 'hello\nworld', bracketedPaste: true, requestId: 'submission-7' }
+  );
+  assert.deepEqual(
+    decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'submit', data: 'legacy', bracketedPaste: false })),
+    { type: 'submit', data: 'legacy', bracketedPaste: false }
   );
   assert.deepEqual(
     decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 120, rows: 40 })),
@@ -99,6 +104,14 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
   assert.equal(decodeTerminalClientMessage('{"type":"input","data":12}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello"}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
+  assert.equal(
+    decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":true,"requestId":""}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":true,"requestId":"contains space"}'),
+    undefined
+  );
   assert.equal(decodeTerminalClientMessage('{"type":"snapshot-ready","snapshotId":0}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"terminal-color","slot":9,"color":"#fbfafa"}'), undefined);
   assert.equal(
@@ -187,6 +200,28 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
     ),
     { type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' }
   );
+  assert.deepEqual(
+    decodeTerminalServerMessage(
+      encodeTerminalServerMessage({ type: 'submission-result', requestId: 'submission-7', status: 'completed' })
+    ),
+    { type: 'submission-result', requestId: 'submission-7', status: 'completed' }
+  );
+  assert.deepEqual(
+    decodeTerminalServerMessage(
+      encodeTerminalServerMessage({
+        type: 'submission-result',
+        requestId: 'submission-8',
+        status: 'failed',
+        message: 'tmux command failed',
+      })
+    ),
+    {
+      type: 'submission-result',
+      requestId: 'submission-8',
+      status: 'failed',
+      message: 'tmux command failed',
+    }
+  );
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot","data":"screen","snapshotId":0}'), undefined);
   assert.equal(
@@ -219,6 +254,14 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"repository-status","changeCount":0,"worktreeCount":1,"branch":42}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage('{"type":"submission-result","requestId":"submission-7","status":"failed"}'),
+    undefined
+  );
+  assert.equal(
+    decodeTerminalServerMessage('{"type":"submission-result","requestId":"bad id","status":"completed"}'),
     undefined
   );
 });

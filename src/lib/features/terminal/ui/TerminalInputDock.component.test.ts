@@ -1,10 +1,23 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { loadComposerDraft } from '../model/composer-draft-storage.ts';
+import type { RecoverableComposerSubmission } from '../model/composer-submission.ts';
 import TerminalInputDock from './TerminalInputDock.svelte';
 
-function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', composerTemplate = '{{ prompts }}') {
-  const handoffToTerminal = vi.fn();
+function renderDock(
+  submit = vi.fn(() => true),
+  workspaceId = 'workspace-1',
+  composerTemplate = '{{ prompts }}',
+  options: {
+    handoffSucceeds?: boolean;
+    composerHistoryEnabled?: boolean;
+    recoverableSubmissions?: RecoverableComposerSubmission[];
+  } = {}
+) {
+  const handoffToTerminal = vi.fn(() => options.handoffSucceeds ?? true);
+  const onToggleInputSurface = vi.fn();
+  const onDismissSubmission = vi.fn();
   const sendControl = vi.fn();
   const scrollPageUp = vi.fn();
   const scrollPageDown = vi.fn();
@@ -17,6 +30,8 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', com
     submit,
     sendControl,
     handoffToTerminal,
+    onToggleInputSurface,
+    onDismissSubmission,
     scrollPageUp,
     scrollPageDown,
     onSubmitted,
@@ -31,6 +46,10 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', com
       onSubmitted,
       loadPrompts,
       handoffToTerminal,
+      onToggleInputSurface,
+      composerHistoryEnabled: options.composerHistoryEnabled,
+      recoverableSubmissions: options.recoverableSubmissions,
+      onDismissSubmission,
       onImageSelected: vi.fn(),
       scrollPageUp,
       scrollPageDown,
@@ -55,7 +74,7 @@ test('opens exact workspace Composer history and inserts a selected prompt witho
   expect(screen.queryByText('Review the automation queue')).not.toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'Open Composer history' }));
   expect(await screen.findByText('Review the automation queue')).toBeInTheDocument();
-  await fireEvent.click(await screen.findByRole('button', { name: /Check the current tests/ }));
+  await fireEvent.click(await screen.findByRole('option', { name: /Check the current tests/ }));
 
   expect(screen.getByLabelText('Send text to the shell')).toHaveValue('Check the current tests');
   expect(submit).not.toHaveBeenCalled();
@@ -67,7 +86,7 @@ test('records exact Composer text only after terminal submission succeeds', asyn
   await fireEvent.input(composer, { target: { value: 'Continue the current work' } });
   await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
 
-  expect(submit).toHaveBeenCalledWith('Continue the current work');
+  expect(submit).toHaveBeenCalledWith('Continue the current work', 'Continue the current work');
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith('Continue the current work'));
   expect(composer).toHaveValue('');
 });
@@ -82,7 +101,10 @@ test('applies the workspace template only to the terminal submission', async () 
   await fireEvent.input(composer, { target: { value: 'Implement the request' } });
   await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
 
-  expect(submit).toHaveBeenCalledWith('Workspace: Vampire\n\nImplement the request\n\nVerify before replying.');
+  expect(submit).toHaveBeenCalledWith(
+    'Workspace: Vampire\n\nImplement the request\n\nVerify before replying.',
+    'Implement the request'
+  );
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith('Implement the request'));
 });
 
@@ -96,13 +118,13 @@ test('sends the original message when a stored workspace template is invalid', a
   await fireEvent.input(composer, { target: { value: 'Do not lose this message' } });
   await fireEvent.click(screen.getByRole('button', { name: 'Send to shell' }));
 
-  expect(submit).toHaveBeenCalledWith('Do not lose this message');
+  expect(submit).toHaveBeenCalledWith('Do not lose this message', 'Do not lose this message');
   expect(await screen.findByText(/original message was sent/i)).toBeVisible();
 });
 
 test('keeps Shift+Enter as a composer line break without submitting', async () => {
   const { submit } = renderDock();
-  const composer = screen.getByPlaceholderText('Compose a message…');
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
   await fireEvent.input(composer, { target: { value: 'First line' } });
   await fireEvent.keyDown(composer, { key: 'Enter', shiftKey: true });
 
@@ -110,16 +132,25 @@ test('keeps Shift+Enter as a composer line break without submitting', async () =
   expect(submit).not.toHaveBeenCalled();
 });
 
-test('sends Enter directly to the terminal when Compose is blank', async () => {
+test('retains a whitespace-only draft without submitting or forwarding Enter', async () => {
   const { sendControl, submit, onSubmitted } = renderDock();
   const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.input(composer, { target: { value: '  ' } });
   await fireEvent.keyDown(composer, { key: 'Enter' });
 
-  expect(sendControl).toHaveBeenCalledWith('enter');
+  expect(sendControl).not.toHaveBeenCalled();
   expect(submit).not.toHaveBeenCalled();
   expect(onSubmitted).not.toHaveBeenCalled();
-  expect(composer).toHaveValue('');
+  expect(composer).toHaveValue('  ');
+});
+
+test('sends Enter directly to the terminal only when Compose is exactly empty', async () => {
+  const { sendControl, submit } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  await fireEvent.keyDown(composer, { key: 'Enter' });
+
+  expect(sendControl).toHaveBeenCalledWith('enter');
+  expect(submit).not.toHaveBeenCalled();
 });
 
 test('forwards terminal navigation keys only while Compose is empty', async () => {
@@ -145,6 +176,220 @@ test('hands an initial slash to the interactive terminal without changing the dr
 
   expect(handoffToTerminal).toHaveBeenCalledWith('/');
   expect(composer).toHaveValue('');
+  expect(submit).not.toHaveBeenCalled();
+});
+
+test('keeps an initial slash in Compose when the terminal cannot accept input', async () => {
+  const user = userEvent.setup();
+  const { handoffToTerminal } = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    '{{ prompts }}',
+    { handoffSucceeds: false }
+  );
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  composer.focus();
+
+  await user.keyboard('/');
+
+  expect(handoffToTerminal).toHaveBeenCalledWith('/');
+  expect(composer).toHaveValue('/');
+  expect(composer).toHaveFocus();
+});
+
+test('inserts a literal initial slash with Ctrl+/ without handing off', async () => {
+  const { handoffToTerminal } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+
+  await fireEvent.keyDown(composer, { key: '/', code: 'Slash', ctrlKey: true });
+
+  expect(composer).toHaveValue('/');
+  expect(handoffToTerminal).not.toHaveBeenCalled();
+});
+
+test('toggles between Compose and terminal with either supported shortcut', async () => {
+  const { onToggleInputSurface, submit } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
+  await fireEvent.input(composer, { target: { value: 'Keep this draft' } });
+  composer.setSelectionRange(4, 8);
+
+  await fireEvent.keyDown(composer, { key: '/', code: 'Slash', metaKey: true });
+  await fireEvent.keyDown(composer, { key: '`', code: 'Backquote', ctrlKey: true });
+  await fireEvent.keyDown(composer, { key: '?', code: 'Slash', ctrlKey: true, shiftKey: true });
+  await fireEvent.keyDown(composer, { key: '/', code: 'Slash', metaKey: true, repeat: true });
+
+  expect(onToggleInputSurface).toHaveBeenCalledTimes(2);
+  expect(submit).not.toHaveBeenCalled();
+  expect(composer).toHaveValue('Keep this draft');
+});
+
+test('ignores repeated Enter while allowing repeated terminal arrow navigation', async () => {
+  const { sendControl, submit } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+
+  await fireEvent.input(composer, { target: { value: 'Do not double send' } });
+  await fireEvent.keyDown(composer, { key: 'Enter', repeat: true });
+  expect(submit).not.toHaveBeenCalled();
+  expect(composer).toHaveValue('Do not double send');
+
+  await fireEvent.input(composer, { target: { value: '' } });
+  await fireEvent.keyDown(composer, { key: 'Enter', repeat: true });
+  await fireEvent.keyDown(composer, { key: 'ArrowDown', repeat: true });
+  expect(sendControl).toHaveBeenCalledTimes(1);
+  expect(sendControl).toHaveBeenCalledWith('arrow-down');
+});
+
+test('opens, searches, and inserts Composer history with the keyboard', async () => {
+  const { submit } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
+  await fireEvent.input(composer, { target: { value: 'Before  after' } });
+  composer.setSelectionRange(7, 7);
+  await fireEvent.select(composer);
+
+  await fireEvent.keyDown(composer, { key: 'h', code: 'KeyH', ctrlKey: true, altKey: true });
+  const search = await screen.findByRole('combobox', { name: 'Search sent prompts' });
+  expect(search).toHaveFocus();
+  await fireEvent.input(search, { target: { value: 'current tests' } });
+  expect(screen.queryByText('Review the automation queue')).not.toBeInTheDocument();
+  await fireEvent.keyDown(search, { key: 'ArrowDown' });
+  await fireEvent.keyDown(search, { key: 'Enter' });
+
+  await waitFor(() => expect(composer).toHaveValue('Before Check the current tests after'));
+  await waitFor(() => expect(composer).toHaveFocus());
+  expect(composer.selectionStart).toBe('Before Check the current tests'.length);
+  expect(submit).not.toHaveBeenCalled();
+});
+
+test('restores the Composer selection after closing history with Escape', async () => {
+  renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
+  await fireEvent.input(composer, { target: { value: 'Selection remains' } });
+  composer.setSelectionRange(2, 9, 'forward');
+  await fireEvent.select(composer);
+  await fireEvent.keyDown(composer, { key: 'h', code: 'KeyH', ctrlKey: true, altKey: true });
+  const search = await screen.findByRole('combobox', { name: 'Search sent prompts' });
+
+  await fireEvent.keyDown(search, { key: 'Escape' });
+
+  await waitFor(() => expect(composer).toHaveFocus());
+  expect(composer.selectionStart).toBe(2);
+  expect(composer.selectionEnd).toBe(9);
+});
+
+test('preserves focus chosen outside Composer popovers', async () => {
+  const user = userEvent.setup();
+  renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
+  await fireEvent.input(composer, { target: { value: 'Keep the current draft' } });
+  const outsideButton = document.createElement('button');
+  outsideButton.textContent = 'Outside action';
+  document.body.append(outsideButton);
+
+  try {
+    composer.focus();
+    await fireEvent.keyDown(composer, { key: 'h', code: 'KeyH', ctrlKey: true, altKey: true });
+    expect(await screen.findByRole('combobox', { name: 'Search sent prompts' })).toHaveFocus();
+    await user.click(outsideButton);
+    await waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: 'Search sent prompts' })).not.toBeInTheDocument()
+    );
+    expect(outsideButton).toHaveFocus();
+
+    composer.focus();
+    await fireEvent.keyDown(composer, { key: 'p', code: 'KeyP', ctrlKey: true, altKey: true });
+    expect(await screen.findByRole('heading', { name: 'Final message preview' })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close final message preview' })).toHaveFocus());
+    await user.click(outsideButton);
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Final message preview' })).not.toBeInTheDocument()
+    );
+    expect(outsideButton).toHaveFocus();
+  } finally {
+    outsideButton.remove();
+  }
+});
+
+test('previews the final rendered message and bypasses its template for one submission', async () => {
+  const { submit } = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    'Workspace: {{ workspace.name }}\n\n{{ prompts }}'
+  );
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  await fireEvent.input(composer, { target: { value: 'Inspect this' } });
+
+  await fireEvent.keyDown(composer, { key: 'p', code: 'KeyP', ctrlKey: true, altKey: true });
+  expect(await screen.findByRole('heading', { name: 'Final message preview' })).toBeVisible();
+  expect(document.querySelector('.template-preview pre')?.textContent).toBe('Workspace: Vampire\n\nInspect this');
+  await fireEvent.click(screen.getByRole('button', { name: 'Close final message preview' }));
+  await waitFor(() => expect(composer).toHaveFocus());
+
+  await fireEvent.keyDown(composer, { key: 'b', code: 'KeyB', ctrlKey: true, altKey: true });
+  expect(screen.getByRole('button', { name: 'Apply template to this message' })).toBeVisible();
+  await fireEvent.keyDown(composer, { key: 'Enter' });
+
+  expect(submit).toHaveBeenCalledWith('Inspect this', 'Inspect this');
+  expect(screen.getByRole('button', { name: 'Bypass template for this message' })).toBeVisible();
+});
+
+test('keeps a one-message template bypass when its workspace draft is remounted', async () => {
+  const first = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    'Wrapped: {{ prompts }}'
+  );
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  await fireEvent.input(composer, { target: { value: 'Keep the raw prompt' } });
+  await fireEvent.keyDown(composer, { key: 'b', code: 'KeyB', ctrlKey: true, altKey: true });
+  expect(screen.getByRole('button', { name: 'Apply template to this message' })).toBeVisible();
+  first.result.unmount();
+
+  const submit = vi.fn(() => true);
+  renderDock(submit, 'workspace-1', 'Wrapped: {{ prompts }}');
+  const restoredComposer = await screen.findByPlaceholderText('Compose a message…');
+  await waitFor(() => expect(restoredComposer).toHaveValue('Keep the raw prompt'));
+  expect(screen.getByRole('button', { name: 'Apply template to this message' })).toBeVisible();
+  await fireEvent.keyDown(restoredComposer, { key: 'Enter' });
+
+  expect(submit).toHaveBeenCalledWith('Keep the raw prompt', 'Keep the raw prompt');
+  expect(screen.getByRole('button', { name: 'Bypass template for this message' })).toBeVisible();
+});
+
+test('restores an uncertain submission at the caret without overwriting or resending', async () => {
+  const recoverableSubmissions: RecoverableComposerSubmission[] = [
+    {
+      requestId: 'request-0',
+      draft: 'older draft',
+      status: 'failed',
+      message: 'The submit key was rejected.',
+    },
+    {
+      requestId: 'request-1',
+      draft: 'recovered ',
+      status: 'uncertain',
+      message: 'The acknowledgement timed out.',
+    },
+  ];
+  const { onDismissSubmission, submit } = renderDock(
+    vi.fn(() => true),
+    'workspace-1',
+    '{{ prompts }}',
+    { recoverableSubmissions }
+  );
+  const composer = screen.getByPlaceholderText('Compose a message…') as HTMLTextAreaElement;
+  await fireEvent.input(composer, { target: { value: 'ABCD' } });
+  composer.setSelectionRange(1, 3);
+  await fireEvent.select(composer);
+  expect(screen.getAllByLabelText('Draft excerpt').map((excerpt) => excerpt.textContent)).toEqual([
+    'older draft',
+    'recovered ',
+  ]);
+  expect(screen.getAllByText(/Some input may have reached the terminal/)).toHaveLength(2);
+
+  await fireEvent.keyDown(composer, { key: 'r', code: 'KeyR', ctrlKey: true, altKey: true });
+
+  await waitFor(() => expect(composer).toHaveValue('Arecovered BCD'));
+  expect(onDismissSubmission).toHaveBeenCalledWith('request-1');
   expect(submit).not.toHaveBeenCalled();
 });
 
@@ -195,7 +440,7 @@ test('isolates drafts by workspace and clears one only after a successful submit
   const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.input(composer, { target: { value: 'Keep this draft' } });
   await fireEvent.keyDown(composer, { key: 'Enter' });
-  expect(rejectedSubmit).toHaveBeenCalledWith('Keep this draft');
+  expect(rejectedSubmit).toHaveBeenCalledWith('Keep this draft', 'Keep this draft');
   expect(composer).toHaveValue('Keep this draft');
   first.result.unmount();
 
@@ -211,10 +456,23 @@ test('isolates drafts by workspace and clears one only after a successful submit
   const restoredComposer = await screen.findByPlaceholderText('Compose a message…');
   await waitFor(() => expect(restoredComposer).toHaveValue('Keep this draft'));
   await fireEvent.keyDown(restoredComposer, { key: 'Enter' });
-  expect(acceptedSubmit).toHaveBeenCalledWith('Keep this draft');
+  expect(acceptedSubmit).toHaveBeenCalledWith('Keep this draft', 'Keep this draft');
   expect(restoredComposer).toHaveValue('');
   restored.result.unmount();
 
   renderDock();
   await waitFor(() => expect(screen.getByPlaceholderText('Compose a message…')).toHaveValue(''));
+});
+
+test('flushes the latest draft before attempting a submission that is refused', async () => {
+  const rejectedSubmit = vi.fn(() => false);
+  renderDock(rejectedSubmit);
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  await fireEvent.input(composer, { target: { value: 'Latest edit before transport failure' } });
+
+  await fireEvent.keyDown(composer, { key: 'Enter' });
+
+  expect(rejectedSubmit).toHaveBeenCalled();
+  expect(loadComposerDraft('workspace-1').value).toBe('Latest edit before transport failure');
+  expect(composer).toHaveValue('Latest edit before transport failure');
 });

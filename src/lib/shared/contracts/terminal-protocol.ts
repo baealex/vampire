@@ -5,12 +5,16 @@ export interface TerminalHistoryState {
   available: number;
 }
 
+export type TerminalSubmissionResult =
+  | { type: 'submission-result'; requestId: string; status: 'completed' }
+  | { type: 'submission-result'; requestId: string; status: 'failed'; message: string };
+
 export type TerminalClientMessage =
   | { type: 'activate' }
   | { type: 'snapshot-ready'; snapshotId?: number }
   | { type: 'load-history'; lines: number }
   | { type: 'input'; data: string }
-  | { type: 'submit'; data: string; bracketedPaste: boolean }
+  | { type: 'submit'; data: string; bracketedPaste: boolean; requestId?: string }
   | { type: 'terminal-color'; slot: TerminalColorSlot; color: string }
   | { type: 'resize'; columns: number; rows: number };
 
@@ -37,13 +41,18 @@ export type TerminalServerMessage =
       throughSequence?: number;
     }
   | { type: 'repository-status'; changeCount: number; worktreeCount: number; branch?: string }
+  | TerminalSubmissionResult
   | { type: 'error'; message: string };
 
 export const TERMINAL_GEOMETRY_PROTOCOL_VERSION = 2;
 export const TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION = 3;
 export const TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION = 4;
 export const TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION = 5;
-export const TERMINAL_PROTOCOL_VERSION = 5;
+export const TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION = 6;
+export const TERMINAL_PROTOCOL_VERSION = 6;
+
+export const TERMINAL_SUBMISSION_REQUEST_ID_MAX_LENGTH = 128;
+export const TERMINAL_SUBMISSION_FAILURE_MESSAGE_MAX_LENGTH = 1_024;
 
 export const TERMINAL_SIZE_LIMITS = {
   minimumColumns: 20,
@@ -77,6 +86,14 @@ function isIntegerBetween(value: unknown, minimum: number, maximum: number): boo
   return Number.isInteger(value) && Number(value) >= minimum && Number(value) <= maximum;
 }
 
+export function isTerminalSubmissionRequestId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= TERMINAL_SUBMISSION_REQUEST_ID_MAX_LENGTH &&
+    /^[A-Za-z0-9][A-Za-z0-9._~-]*$/.test(value)
+  );
+}
+
 export function parseTerminalClientMessage(value: unknown): TerminalClientMessage | undefined {
   if (!isRecord(value)) return undefined;
   if (value.type === 'activate') return { type: value.type };
@@ -93,8 +110,18 @@ export function parseTerminalClientMessage(value: unknown): TerminalClientMessag
   if (value.type === 'terminal-color' && isTerminalColorSlot(value.slot) && isTerminalRgbColor(value.color)) {
     return { type: 'terminal-color', slot: value.slot, color: value.color };
   }
-  if (value.type === 'submit' && typeof value.data === 'string' && typeof value.bracketedPaste === 'boolean') {
-    return { type: 'submit', data: value.data, bracketedPaste: value.bracketedPaste };
+  if (
+    value.type === 'submit' &&
+    typeof value.data === 'string' &&
+    typeof value.bracketedPaste === 'boolean' &&
+    (value.requestId === undefined || isTerminalSubmissionRequestId(value.requestId))
+  ) {
+    return {
+      type: 'submit',
+      data: value.data,
+      bracketedPaste: value.bracketedPaste,
+      ...(typeof value.requestId === 'string' ? { requestId: value.requestId } : {}),
+    };
   }
   if (
     value.type === 'resize' &&
@@ -195,6 +222,24 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
       worktreeCount: Number(value.worktreeCount),
       ...(typeof value.branch === 'string' ? { branch: value.branch } : {}),
     };
+  }
+  if (value.type === 'submission-result' && isTerminalSubmissionRequestId(value.requestId)) {
+    if (value.status === 'completed') {
+      return { type: 'submission-result', requestId: value.requestId, status: value.status };
+    }
+    if (
+      value.status === 'failed' &&
+      typeof value.message === 'string' &&
+      value.message.length > 0 &&
+      value.message.length <= TERMINAL_SUBMISSION_FAILURE_MESSAGE_MAX_LENGTH
+    ) {
+      return {
+        type: 'submission-result',
+        requestId: value.requestId,
+        status: value.status,
+        message: value.message,
+      };
+    }
   }
   if (value.type === 'error' && typeof value.message === 'string') return { type: 'error', message: value.message };
   return undefined;
