@@ -123,7 +123,9 @@ export async function observeTerminalFrames(
     target.__vampireTerminalFrameObservation = observation;
     const sample = () => {
       const terminal = document.querySelector('[aria-label="Interactive shell terminal"]');
-      const rows = terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+      const rows =
+        terminal?.querySelector<HTMLElement>('.terminal-render-shield') ??
+        terminal?.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
       if (rows && !Array.from(rows.children).some((row) => Boolean(row.textContent))) observation.blankFrames += 1;
       if (rows && marker && rows.textContent?.split(marker).length !== 2) observation.unstableMarkerFrames += 1;
       if (terminal && terminal.querySelectorAll('.xterm-screen > .xterm-rows').length !== 1) {

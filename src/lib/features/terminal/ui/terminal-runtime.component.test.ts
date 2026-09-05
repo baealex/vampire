@@ -155,6 +155,7 @@ test('returning to a workspace reuses its connection, terminal and reading posit
   expect(doubles.terminals).toHaveLength(1);
   expect(resumedOptions.element.contains(terminal.element)).toBe(true);
   expect(initial.element.contains(terminal.element)).toBe(false);
+  expect(resumedOptions.element.lang).toBe(navigator.language || 'und');
   expect(terminal.buffer.active.viewportY).toBe(75);
   expect(resumedOptions.onStateChange).toHaveBeenCalledWith(expect.objectContaining({ screenReady: true }));
   resumed.dispose();

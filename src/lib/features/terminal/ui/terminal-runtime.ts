@@ -35,6 +35,8 @@ const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
 const TERMINAL_BUFFER_SWITCH_PATTERN = /\u001b\[\?(?:47|1047|1049)[hl]/u;
 const TERMINAL_SYNCHRONIZED_OUTPUT_START = '\u001b[?2026h';
 const TERMINAL_SYNCHRONIZED_OUTPUT_END = '\u001b[?2026l';
+const TERMINAL_RENDER_SHIELD_DEADLINE_MS = 250;
+const TERMINAL_BUFFER_SWITCH_TAIL_LENGTH = 16;
 const MAX_CACHED_OUTPUT_CHARACTERS = 128 * 1024;
 
 export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
@@ -86,6 +88,110 @@ interface TerminalScreenAnchor {
   distanceFromBottom: number;
 }
 
+class TerminalRenderShield {
+  #alternateScreen = false;
+  #element: () => HTMLElement;
+  #frozenText = '';
+  #generation = 0;
+  #overlay: HTMLElement | undefined;
+  #releaseFrame: number | undefined;
+  #sequenceTail = '';
+
+  constructor(element: () => HTMLElement) {
+    this.#element = element;
+  }
+
+  begin(data: string): number | undefined {
+    if (!this.#switchesBuffer(data)) return undefined;
+    const element = this.#element();
+    if (!element.classList.contains('screen-ready')) return undefined;
+    const generation = ++this.#generation;
+    this.#cancelRelease();
+    if (this.#overlay) return generation;
+    const rows = element.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+    const screen = rows?.parentElement;
+    if (!rows || !screen) return undefined;
+    const overlay = rows.cloneNode(true) as HTMLElement;
+    const rowsStyle = getComputedStyle(rows);
+    overlay.classList.remove('xterm-rows', 'xterm-focus');
+    overlay.classList.add('terminal-render-shield');
+    overlay.dataset.terminalRenderShield = '';
+    overlay.style.position = 'absolute';
+    overlay.style.inset = '0';
+    overlay.style.zIndex = '4';
+    overlay.style.overflow = 'hidden';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.color = rowsStyle.color;
+    overlay.style.fontFamily = rowsStyle.fontFamily;
+    overlay.style.fontSize = rowsStyle.fontSize;
+    overlay.style.whiteSpace = 'pre';
+    overlay.style.backgroundColor = getComputedStyle(
+      element.querySelector('.xterm-viewport') ?? screen
+    ).backgroundColor;
+    this.#frozenText = rows.textContent ?? '';
+    screen.appendChild(overlay);
+    this.#overlay = overlay;
+    return generation;
+  }
+
+  settle(generation: number | undefined): void {
+    if (generation === undefined || generation !== this.#generation || !this.#overlay) return;
+    const deadline = performance.now() + TERMINAL_RENDER_SHIELD_DEADLINE_MS;
+    const releaseWhenRepainted = () => {
+      this.#releaseFrame = undefined;
+      if (generation !== this.#generation || !this.#overlay) return;
+      const rows = this.#element().querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
+      const hasContent = Boolean(
+        rows &&
+          Array.from(rows.children).some((row) => Boolean(row.textContent)) &&
+          rows.textContent !== this.#frozenText
+      );
+      if (!hasContent && performance.now() < deadline) {
+        this.#releaseFrame = requestAnimationFrame(releaseWhenRepainted);
+        return;
+      }
+      this.#releaseFrame = requestAnimationFrame(() => {
+        this.#releaseFrame = undefined;
+        if (generation !== this.#generation) return;
+        this.#overlay?.remove();
+        this.#overlay = undefined;
+        this.#frozenText = '';
+      });
+    };
+    this.#releaseFrame = requestAnimationFrame(releaseWhenRepainted);
+  }
+
+  reset(): void {
+    this.#generation += 1;
+    this.#cancelRelease();
+    this.#overlay?.remove();
+    this.#overlay = undefined;
+    this.#frozenText = '';
+    this.#alternateScreen = false;
+    this.#sequenceTail = '';
+  }
+
+  #cancelRelease(): void {
+    if (this.#releaseFrame !== undefined) cancelAnimationFrame(this.#releaseFrame);
+    this.#releaseFrame = undefined;
+  }
+
+  #switchesBuffer(data: string): boolean {
+    const previousLength = this.#sequenceTail.length;
+    const combined = this.#sequenceTail + data;
+    let switches = false;
+    for (const match of combined.matchAll(/\u001b\[\?(?:47|1047|1049)[hl]/gu)) {
+      if ((match.index ?? 0) + match[0].length <= previousLength) continue;
+      const alternateScreen = match[0].endsWith('h');
+      if (alternateScreen === this.#alternateScreen) continue;
+      this.#alternateScreen = alternateScreen;
+      switches = true;
+    }
+    this.#sequenceTail = combined.slice(-TERMINAL_BUFFER_SWITCH_TAIL_LENGTH);
+    return switches;
+  }
+}
+
 export class TerminalRuntime {
   #entryClaimPending = true;
   #connection: TerminalConnection | undefined;
@@ -111,6 +217,7 @@ export class TerminalRuntime {
   #outputActivityTimer: ReturnType<typeof setTimeout> | undefined;
   #removeTouchScroll: () => void = () => undefined;
   #requestedSize: TerminalSize | undefined;
+  #renderShield: TerminalRenderShield | undefined;
   #resizeFrame: number | undefined;
   #screenSync: TerminalScreenSync | undefined;
   #outputSequence = new TerminalOutputSequence();
@@ -180,6 +287,7 @@ export class TerminalRuntime {
     const previousElement = this.#options.element;
     options.element.replaceChildren(...Array.from(previousElement.childNodes));
     this.#options = options;
+    options.element.lang = navigator.language || 'und';
     this.#suspended = false;
     this.#installInteractionListeners();
     this.#resizeObserver?.observe(options.element);
@@ -355,6 +463,7 @@ export class TerminalRuntime {
     this.#scrollDisposable?.dispose();
     this.#connection?.stop();
     this.#screenSync?.dispose();
+    this.#renderShield?.reset();
     this.#terminal?.dispose();
   }
 
@@ -402,6 +511,7 @@ export class TerminalRuntime {
     this.#fit = fitAddon;
     terminal.loadAddon(fitAddon);
     terminal.open(this.#options.element);
+    this.#renderShield = new TerminalRenderShield(() => this.#options.element);
 
     const writeSynchronizedTerminalData = (data: string, complete: () => void): void => {
       // Keep synchronized-output mode active while xterm parses a buffer
@@ -411,17 +521,29 @@ export class TerminalRuntime {
         terminal.write(data, () => terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_END, complete));
       });
     };
-    const writeTerminalData = (data: string, complete: () => void): void => {
-      if (TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) writeSynchronizedTerminalData(data, complete);
-      else terminal.write(data, complete);
+    const writeTerminalData = (data: string, complete: () => void, synchronized = false): void => {
+      const renderShield = this.#renderShield;
+      const shieldGeneration = renderShield?.begin(data);
+      const finish = () => {
+        renderShield?.settle(shieldGeneration);
+        complete();
+      };
+      if (synchronized || TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) writeSynchronizedTerminalData(data, finish);
+      else terminal.write(data, finish);
     };
 
     this.#screenSync = new TerminalScreenSync({
-      reset: () => terminal.reset(),
+      reset: () => {
+        this.#renderShield?.reset();
+        terminal.reset();
+      },
       write: writeTerminalData,
       // RIS resets xterm's private modes, so it must begin inside synchronized
       // output even when the replacement itself does not switch buffers.
-      resetAndWrite: (data, complete) => writeSynchronizedTerminalData(`\u001bc${data}`, complete),
+      resetAndWrite: (data, complete) => {
+        this.#renderShield?.reset();
+        writeTerminalData(`\u001bc${data}`, complete, true);
+      },
       refresh: () => this.#refreshTerminalDisplay(),
       onReadyChange: (ready) => {
         this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
@@ -555,6 +677,7 @@ export class TerminalRuntime {
           this.#screenReplacementAnchor = undefined;
           this.#resetHistoryLoading();
           this.#screenSync?.disconnect();
+          this.#renderShield?.reset();
           if (this.#destroyed) return;
           if (retrying) {
             this.#updateState({ connected: false, controlsTerminal: undefined, error: '', inputReady: false });
@@ -679,6 +802,7 @@ export class TerminalRuntime {
     this.#outputSequence.reset();
     this.#resetHistoryLoading();
     this.#screenSync?.disconnect();
+    this.#renderShield?.reset();
     this.#updateState({ connected: false, controlsTerminal: undefined, error: '', reconnecting: true });
     this.#markSubmissionsUncertain();
     this.#connection?.restart('terminal output sequence gap');

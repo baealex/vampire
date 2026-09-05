@@ -279,11 +279,12 @@ test('keeps a Compose draft focused while scrolling and switches on a deliberate
     const sendButton = element.querySelector('.send-button')?.getBoundingClientRect();
     if (!textarea || !sendButton) return undefined;
     return {
-      centerDelta: Math.abs(textarea.y + textarea.height / 2 - (sendButton.y + sendButton.height / 2)),
-      heightDelta: Math.abs(textarea.height - sendButton.height),
+      bottomDelta: Math.abs(textarea.bottom - sendButton.bottom),
+      textareaTallEnough: textarea.height >= sendButton.height,
     };
   });
-  expect(alignment).toEqual({ centerDelta: 0, heightDelta: 0 });
+  expect(alignment?.bottomDelta).toBeLessThanOrEqual(1);
+  expect(alignment?.textareaTallEnough).toBe(true);
 
   await terminal.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
@@ -677,8 +678,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await workspaceList.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Terminal interaction' })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: /Open the terminal/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
+  await expect(page.getByText('Switch input surface', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expectTerminalReady(page);

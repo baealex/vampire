@@ -914,6 +914,8 @@ function handleImageSelection(event: Event) {
   --dock-inline-start: max(0.55rem, env(safe-area-inset-left));
   --dock-inline-end: max(0.55rem, env(safe-area-inset-right));
   --composer-control-size: 2.5rem;
+  --composer-grid-gap: 0.35rem;
+  --composer-meta-height: 1.88rem;
   min-width: 0;
   position: relative;
   border-top: 1px solid var(--color-border-subtle);
@@ -973,15 +975,19 @@ function handleImageSelection(event: Event) {
 }
 .composer-slot {
   position: relative;
+  height: calc(var(--composer-control-size) + var(--composer-meta-height) + var(--composer-grid-gap) + 0.36rem + 2px);
   margin: 0.35rem var(--dock-inline-end) max(0.5rem, env(safe-area-inset-bottom)) var(--dock-inline-start);
 }
 .composer {
-  position: relative;
+  position: absolute;
   z-index: 4;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
   align-items: end;
-  gap: 0.35rem;
+  gap: var(--composer-grid-gap);
   min-width: 0;
   padding: 0.18rem;
   border: 1px solid var(--color-border);
@@ -990,12 +996,20 @@ function handleImageSelection(event: Event) {
 }
 .composer-meta {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   grid-column: 1 / -1;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
   padding: 0.08rem 0.35rem 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.composer-meta::-webkit-scrollbar {
+  display: none;
+}
+:global(.composer-meta > .composer-template-tools) {
+  flex: 0 0 auto;
 }
 .composer .composer-mode {
   display: inline-flex;
@@ -1149,6 +1163,7 @@ function handleImageSelection(event: Event) {
   .input-dock {
     --dock-inline-start: 0.75rem;
     --dock-inline-end: 0.75rem;
+    --composer-grid-gap: 0.2rem;
   }
   .touch-toolbar {
     padding: 0.4rem var(--dock-inline-end) 0 var(--dock-inline-start);
@@ -1164,13 +1179,21 @@ function handleImageSelection(event: Event) {
   }
   .composer {
     grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
-    gap: 0.2rem;
   }
   .composer-slot {
     margin: 0.6rem var(--dock-inline-end) 0.7rem var(--dock-inline-start);
   }
   .composer textarea {
     font-size: var(--text-body);
+  }
+}
+
+@media (max-height: 22rem) {
+  .composer-slot {
+    height: calc(var(--composer-control-size) + 0.36rem + 2px);
+  }
+  .composer-meta {
+    display: none;
   }
 }
 </style>

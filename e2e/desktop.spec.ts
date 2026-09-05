@@ -456,7 +456,7 @@ test('uses terminal cursor mode for approval controls without taking Compose foc
   await expect(composer).toBeFocused();
 });
 
-test('carries the last focused input across workspaces without losing Composer drafts', async ({ context, page }) => {
+test('keeps each workspace input focus and Composer draft across workspace switches', async ({ context, page }) => {
   await authenticate(context);
   const firstWorkspace = await createWorkspace(context);
   const secondWorkspace = await createWorkspace(context);
@@ -475,10 +475,10 @@ test('carries the last focused input across workspaces without losing Composer d
       .click();
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
     await expectTerminalReady(page);
-    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
-
-    await page.locator('.xterm-helper-textarea').press('Meta+Slash');
     await expect(page.getByPlaceholder('Compose a message…')).toBeFocused();
+
+    await page.getByPlaceholder('Compose a message…').press('Meta+Slash');
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
     await page
       .locator('.workspace-row-shell:not(.selected)')
@@ -486,9 +486,11 @@ test('carries the last focused input across workspaces without losing Composer d
       .click();
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
     await expectTerminalReady(page);
-    await expect(page.getByPlaceholder('Compose a message…')).toBeFocused();
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
     const restoredComposer = page.getByPlaceholder('Compose a message…');
+    await page.locator('.xterm-helper-textarea').press('Meta+Slash');
+    await expect(restoredComposer).toBeFocused();
     await restoredComposer.fill('Keep this unfinished prompt');
 
     await page
@@ -497,9 +499,6 @@ test('carries the last focused input across workspaces without losing Composer d
       .click();
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
     await expectTerminalReady(page);
-    await expect(page.getByPlaceholder('Compose a message…')).toBeFocused();
-
-    await page.getByRole('application', { name: 'Interactive shell terminal' }).click({ position: { x: 80, y: 80 } });
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
     await page
@@ -508,7 +507,7 @@ test('carries the last focused input across workspaces without losing Composer d
       .click();
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
     await expectTerminalReady(page);
-    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+    await expect(page.getByPlaceholder('Compose a message…')).toBeFocused();
     await expect(page.getByPlaceholder('Compose a message…')).toHaveValue('Keep this unfinished prompt');
   } finally {
     await removeWorkspace(context, secondWorkspace.id);
@@ -577,7 +576,7 @@ test('keeps terminal geometry stable while Composer expands and history opens', 
   await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 
   await page.getByRole('button', { name: 'Open Composer history' }).click();
-  await expect(page.getByRole('dialog', { name: 'Composer history' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Composer history' })).toBeVisible();
   await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
   await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 });
@@ -2546,7 +2545,7 @@ test('runs and stops a background command without replacing the main workspace',
   await expect(page.locator('.workspace-group.idle .workspace-row-shell.selected')).toBeVisible({ timeout: 12_000 });
   await backgroundDialog.getByRole('button', { name: `Save command ${longCommand}`, exact: true }).click();
   await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
-  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(0);
+  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(1);
   await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await expect(
     backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
@@ -2560,7 +2559,7 @@ test('runs and stops a background command without replacing the main workspace',
   await page.reload();
   await expectTerminalReady(page);
   await page.getByRole('button', { name: 'Open background processes' }).click();
-  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(0);
+  await expect(backgroundDialog.locator('.favorite-strip')).toHaveCount(1);
   await backgroundDialog.getByRole('button', { name: 'Run background command' }).click();
   await expect(
     backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
