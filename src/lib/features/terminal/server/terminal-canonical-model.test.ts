@@ -44,6 +44,35 @@ test('preserves unicode and both normal and alternate screen state', async () =>
   await Promise.all([model.dispose(), restored.dispose()]);
 });
 
+test('preserves fragmented ANSI output and replay sequences across a burst and restore fence', async () => {
+  const model = new TerminalCanonicalModel({ columns: 40, rows: 5 });
+  try {
+    const chunks = Array.from({ length: 1_024 }, (_, index) => `\r\u001b[2Krow-${index}`);
+    const writes = chunks.map((chunk) => model.write(chunk));
+    const beforeRestore = model.snapshot();
+    const restore = model.restore('새 화면', { columns: 40, rows: 5 });
+    const nextChunks = ['\u001b[', '31m', ' 완료', '\u001b[0m'];
+    const nextWrites = nextChunks.map((chunk) => model.write(chunk));
+    assert.deepEqual(
+      await Promise.all(writes),
+      chunks.map((data, index) => ({ data, sequence: index + 1 }))
+    );
+    assert.match((await beforeRestore).data, /row-1023/);
+    assert.equal((await restore).throughSequence, chunks.length);
+    await Promise.all(nextWrites);
+    assert.deepEqual(
+      (await model.deltasAfter(chunks.length)).entries,
+      nextChunks.map((data, index) => ({ data, sequence: chunks.length + index + 1 }))
+    );
+    const snapshot = await model.snapshot();
+    assert.match(snapshot.data, /새 화면/);
+    assert.match(snapshot.data, /완료/);
+    assert.doesNotMatch(snapshot.data, /row-/);
+  } finally {
+    await model.dispose();
+  }
+});
+
 test('orders resize behind prior parser writes', async () => {
   const model = new TerminalCanonicalModel({ columns: 12, rows: 4 });
   const write = model.write('prior');

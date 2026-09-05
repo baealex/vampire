@@ -526,7 +526,8 @@ test('keeps numbered normal-screen rows unique through repeated mobile resizes',
   await composer.press('Enter');
   const terminalRows = page.locator('.xterm-rows');
   await expect(terminalRows).toContainText('VAMPIRE_UNIQUE_0005');
-  expect((await terminalRows.innerText()).split('for i in $(seq 1 5)')).toHaveLength(2);
+  // The echoed command can wrap across rendered rows on a narrow screen.
+  expect((await terminalRows.innerText()).replace(/\n/g, '').split('for i in $(seq 1 5)')).toHaveLength(2);
   const stopFrameObservation = await observeTerminalFrames(page, 'VAMPIRE_UNIQUE_0005');
 
   for (const height of [620, 860, 540, 915]) {

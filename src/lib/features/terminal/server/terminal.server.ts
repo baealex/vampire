@@ -8,6 +8,7 @@ import {
   encodeTerminalServerMessage,
   TERMINAL_GEOMETRY_LIMITS,
   TERMINAL_SCROLLBACK_LINES,
+  TERMINAL_INPUT_LIMIT_BYTES,
   type TerminalHistoryState,
   type TerminalServerMessage,
   type TerminalSubmissionResult,
@@ -24,7 +25,6 @@ export { terminalSubmissionData, terminalSubmissionSettleMs } from './submission
 export { decodeTmuxControlValue, parseTmuxControlOutput } from './tmux-control.server.ts';
 
 const execFile = promisify(execFileCallback);
-const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_PENDING_INPUT_BYTES = 256 * 1024;
 const TMUX_INPUT_CHUNK_BYTES = 4 * 1024;
 const MAX_MESSAGES_PER_WINDOW = 600;
@@ -609,7 +609,12 @@ export async function attachTerminal(
             history: { loaded: loadedHistory, available: availableHistory },
           };
           if (restoreCanonical)
-            canonicalRestore = controlHub.restoreCanonical(captured.data, geometry, captured.history.loaded);
+            canonicalRestore = controlHub.restoreCanonical(
+              captured.data,
+              geometry,
+              captured.history.loaded,
+              captured.history.available
+            );
         }),
       ]);
       if (!captured) continue;
@@ -712,7 +717,7 @@ export async function attachTerminal(
       });
     };
     const bytes = Buffer.byteLength(data);
-    if (bytes > MAX_INPUT_BYTES) {
+    if (bytes > TERMINAL_INPUT_LIMIT_BYTES) {
       reportFailure(new Error('Input is too large.'));
       return;
     }

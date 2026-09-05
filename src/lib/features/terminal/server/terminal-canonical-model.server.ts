@@ -8,6 +8,7 @@ const { Terminal } = require('@xterm/headless') as typeof import('@xterm/headles
 const { SerializeAddon } = require('@xterm/addon-serialize') as typeof import('@xterm/addon-serialize');
 
 const DEFAULT_OUTPUT_RING_BYTES = 2 * 1024 * 1024;
+const OUTPUT_PARSE_BATCH_BYTES = 32 * 1024;
 
 export interface CanonicalTerminalGeometry {
   columns: number;
@@ -42,6 +43,12 @@ interface RetainedTerminalOutput extends CanonicalTerminalOutput {
   bytes: number;
 }
 
+interface TerminalWriteBatch {
+  chunks: string[];
+  bytes: number;
+  result: Promise<CanonicalTerminalOutput[]>;
+}
+
 function writeTerminal(terminal: HeadlessTerminal, data: string): Promise<void> {
   return new Promise((resolve) => terminal.write(data, resolve));
 }
@@ -57,6 +64,7 @@ export class TerminalCanonicalModel {
   #disposed = false;
   #geometry: CanonicalTerminalGeometry;
   #operationQueue: Promise<void> = Promise.resolve();
+  #pendingWriteBatch: TerminalWriteBatch | undefined;
   #outputRing: RetainedTerminalOutput[] = [];
   #outputRingBytes = 0;
   #outputRingLimit: number;
@@ -82,17 +90,27 @@ export class TerminalCanonicalModel {
   }
 
   write(data: string): Promise<CanonicalTerminalOutput | undefined> {
-    return this.#enqueue(async () => {
-      if (this.#disposed || !data) return undefined;
-      await writeTerminal(this.#terminal, data);
-      const entry: RetainedTerminalOutput = {
-        sequence: ++this.#sequence,
-        data,
-        bytes: Buffer.byteLength(data),
-      };
-      this.#retain(entry);
-      return { sequence: entry.sequence, data: entry.data };
+    if (this.#disposed || !data) return Promise.resolve(undefined);
+    const bytes = Buffer.byteLength(data);
+    const pending = this.#pendingWriteBatch;
+    if (pending && pending.bytes + bytes <= OUTPUT_PARSE_BATCH_BYTES) {
+      const index = pending.chunks.push(data) - 1;
+      pending.bytes += bytes;
+      return pending.result.then((entries) => entries[index]);
+    }
+    const chunks = [data];
+    const result = this.#enqueue(async () => {
+      if (this.#pendingWriteBatch?.chunks === chunks) this.#pendingWriteBatch = undefined;
+      if (this.#disposed) return [];
+      await writeTerminal(this.#terminal, chunks.join(''));
+      return chunks.map((chunk) => {
+        const entry = { sequence: ++this.#sequence, data: chunk, bytes: Buffer.byteLength(chunk) };
+        this.#retain(entry);
+        return { sequence: entry.sequence, data: entry.data };
+      });
     });
+    this.#pendingWriteBatch = { chunks, bytes, result };
+    return result.then((entries) => entries[0]);
   }
 
   resize(geometry: CanonicalTerminalGeometry): Promise<CanonicalTerminalSnapshot> {
@@ -195,6 +213,9 @@ export class TerminalCanonicalModel {
   }
 
   #enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
+    // Observations and geometry/restoration changes seal the preceding batch.
+    // No later output may be parsed on the other side of that sequence fence.
+    this.#pendingWriteBatch = undefined;
     const result = this.#operationQueue.catch(() => undefined).then(operation);
     this.#operationQueue = result.then(
       () => undefined,

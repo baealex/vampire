@@ -1748,6 +1748,54 @@ test('orders a resize reset ahead of output queued before snapshot acknowledgeme
   expect(connectionCount).toBe(1);
 });
 
+test('keeps Compose drafts until tmux delivery is acknowledged and after a lost acknowledgement', async ({
+  context,
+  page,
+}) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const held: Array<{ socket: WebSocketRoute; message: string | Buffer }> = [];
+  let submissions = 0;
+  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      if (JSON.parse(String(message)).type === 'submit') submissions += 1;
+      server.send(message);
+    });
+    server.onMessage((message) => {
+      if (JSON.parse(String(message)).type === 'submission-result') held.push({ socket, message });
+      else socket.send(message);
+    });
+  });
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByLabel('Send text to the shell');
+  const firstPrompt = "printf 'VAMP_DELIVERY_ONE\\n'";
+  await composer.fill(firstPrompt);
+  await page.getByRole('button', { name: 'Send to shell' }).click();
+  await expect.poll(() => held.length).toBe(1);
+  expect(JSON.parse(String(held[0].message)).status).toBe('completed');
+  await expect(page.getByRole('region', { name: 'Compose delivery status' })).toContainText('Sending message');
+  held[0].socket.send(held[0].message);
+  await expect(composer).toHaveValue('');
+  await expect(page.getByRole('region', { name: 'Compose delivery status' })).toBeHidden();
+
+  const uncertainPrompt = "printf 'VAMP_DELIVERY_TWO\\n'";
+  await composer.fill(uncertainPrompt);
+  await page.getByRole('button', { name: 'Send to shell' }).click();
+  await expect.poll(() => held.length).toBe(2);
+  await held[1].socket.close({ code: 1012, reason: 'lost acknowledgement' });
+  await expect(page.getByText(/Check the terminal before sending again/)).toBeVisible();
+  await expect(page.getByLabel('Draft excerpt')).toHaveText(uncertainPrompt);
+  await page.reload();
+  await expectTerminalReady(page);
+  await expect(page.getByLabel('Draft excerpt')).toHaveText(uncertainPrompt);
+  await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(composer).toHaveValue(uncertainPrompt);
+  expect(submissions).toBe(2);
+});
+
 test('loads retained terminal history only after an upward scroll', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -1811,6 +1859,36 @@ test('loads retained terminal history only after an upward scroll', async ({ con
       historyLoaded: initialSnapshot?.historyAvailable,
       historyAvailable: initialSnapshot?.historyAvailable,
     });
+});
+
+test('loads history created after attachment and preserves it through a resize', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await fillTerminalWithNumberedRows(workspace.tmuxSession, 100);
+  const messages: ObservedTerminalMessage[] = [];
+  await observeTerminalMessages(page, messages);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await expect
+    .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
+    .toBeGreaterThan(0);
+  const previousHistory = messages.filter((message) => message.type === 'snapshot').at(-1)!;
+  expect(previousHistory.historyLoaded).toBe(previousHistory.historyAvailable);
+  await page.getByRole('button', { name: 'Scroll to terminal bottom' }).click();
+
+  await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
+  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await expect
+    .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
+    .toBeGreaterThan(800);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expectTerminalReady(page);
+  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
 });
 
 test('preserves alternate-screen row backgrounds after returning to a workspace', async ({ context, page }) => {
@@ -2143,7 +2221,6 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
   const source = [
     `let frame = 0;`,
     `let timer;`,
-    `const payload = Array.from({ length: 24 }, (_, row) => String(row).padStart(2, '0') + ':' + '.'.repeat(90)).join('\\r\\n');`,
     `const finish = () => {`,
     `  if (!timer) return;`,
     `  clearInterval(timer);`,
@@ -2154,6 +2231,7 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
     `const draw = () => {`,
     `  if (!timer) return;`,
     `  frame += 1;`,
+    `  const payload = Array.from({ length: Math.max(1, Math.min(24, process.stdout.rows - 2)) }, (_, row) => String(row).padStart(2, '0') + ':' + '.'.repeat(Math.max(1, Math.min(90, process.stdout.columns - 4)))).join('\\r\\n');`,
     `  process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H' + 'VAMP_FRAME_' + String(frame).padStart(4, '0') + ' ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n' + payload);`,
     `  if (frame >= 240) finish();`,
     `};`,

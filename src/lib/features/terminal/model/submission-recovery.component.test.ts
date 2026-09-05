@@ -97,3 +97,15 @@ test('visiting empty terminals does not evict a draft when storage is unavailabl
   for (let index = 0; index < 40; index++) new SubmissionRecovery(`empty-recovery-${index}`, undefined, broken);
   expect(new SubmissionRecovery('recovery-retained', undefined, broken).entries[0].draft).toBe('keep me');
 });
+
+test('rejects oversized UTF-8 or encoded messages without sending or replacing the draft', () => {
+  const recovery = new SubmissionRecovery('recovery-size-limit', undefined, storage());
+  const send = vi.fn(() => true);
+  for (const data of ['한'.repeat(22_000), '\n'.repeat(40_000)]) {
+    expect(recovery.submit(data, 'original draft', send)).toBe(false);
+    expect(recovery.error).toContain('too large');
+    expect(recovery.entries).toEqual([]);
+  }
+  expect(send).not.toHaveBeenCalled();
+  expect(recovery.submit('a'.repeat(64 * 1024), 'accepted draft', send)).toBe(true);
+});

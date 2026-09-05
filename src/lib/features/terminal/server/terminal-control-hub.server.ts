@@ -211,9 +211,14 @@ export class TerminalControlHub {
   restoreCanonical(
     data: string,
     geometry: CanonicalTerminalGeometry,
-    loadedHistory = this.#loadedHistory
+    loadedHistory = this.#loadedHistory,
+    availableHistory = this.#availableHistory
   ): Promise<CanonicalTerminalSnapshot> {
-    return this.#canonicalModel.restore(data, geometry, undefined, loadedHistory);
+    return this.#canonicalModel.restore(data, geometry, undefined, loadedHistory).then((snapshot) => {
+      this.#loadedHistory = loadedHistory;
+      this.#availableHistory = availableHistory;
+      return snapshot;
+    });
   }
 
   async snapshot(scrollback: number): Promise<CanonicalTerminalSnapshot> {

@@ -1,4 +1,9 @@
-import type { TerminalSubmissionResult } from '~/lib/shared/contracts/terminal-protocol.ts';
+import {
+  encodeTerminalClientMessage,
+  TERMINAL_INPUT_LIMIT_BYTES,
+  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
+  type TerminalSubmissionResult,
+} from '~/lib/shared/contracts/terminal-protocol.ts';
 import { terminalSessionKey } from './recent-terminal-cache.ts';
 import { TerminalSubmissionTracker, type TerminalTrackedSubmission } from './submission-tracker.ts';
 
@@ -53,6 +58,15 @@ export class SubmissionRecovery {
     const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
       byte.toString(16).padStart(2, '0')
     ).join('');
+    const encoder = new TextEncoder();
+    const encoded = encodeTerminalClientMessage({ type: 'submit', data, requestId, bracketedPaste: false });
+    if (
+      encoder.encode(data).byteLength > TERMINAL_INPUT_LIMIT_BYTES ||
+      encoder.encode(encoded).byteLength > TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES
+    ) {
+      this.error = 'This message is too large. Shorten it before sending. Your draft has been kept.';
+      return false;
+    }
     if (!this.#tracker.track({ requestId, draft })) return false;
     // Save the raw draft before the transport accepts anything.
     this.#publish();

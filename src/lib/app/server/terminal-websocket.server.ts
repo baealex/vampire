@@ -35,13 +35,13 @@ import {
   TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION,
   TERMINAL_SIZE_LIMITS,
   TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION,
+  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
   TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
 import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.server.ts';
 
 const MAX_CONNECTIONS = 32;
-const MAX_PAYLOAD_BYTES = 72 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const FALLBACK_ACTIVATION_RETRY_MS = 250;
 const FALLBACK_ACTIVATION_ATTEMPTS = 3;
@@ -164,7 +164,7 @@ function requestedTerminalHistory(url: URL): number | undefined {
 export function installTerminalWebSocket(server: HttpServer): () => void {
   const terminalSockets = new WebSocketServer({
     noServer: true,
-    maxPayload: MAX_PAYLOAD_BYTES,
+    maxPayload: TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
     perMessageDeflate: false,
   });
 

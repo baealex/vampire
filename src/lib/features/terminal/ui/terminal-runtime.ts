@@ -99,6 +99,7 @@ export class TerminalRuntime {
   #historyEnabled = false;
   #historyLoadPending = false;
   #historyLoaded = 0;
+  #historyMayHaveGrown = false;
   #historyMaximum: number = TERMINAL_SCROLLBACK_LINES.standard;
   #inputDisposable: { dispose(): void } | undefined;
   #inputNoticeAt = 0;
@@ -529,7 +530,10 @@ export class TerminalRuntime {
               this.#updateHistoryState(message.history);
               if (message.reset) this.#rememberScreenReplacementAnchor();
               this.#screenSync?.replaceScreen(message.data, message.reset);
-            } else this.#screenSync?.pushOutput(message.data);
+            } else {
+              if (message.data) this.#historyMayHaveGrown = true;
+              this.#screenSync?.pushOutput(message.data);
+            }
           } else if (message.type === 'submission-result') {
             const timer = this.#submissionTimers.get(message.requestId);
             if (timer) clearTimeout(timer);
@@ -600,7 +604,8 @@ export class TerminalRuntime {
       !this.#state.screenReady ||
       !this.#historyEnabled ||
       this.#historyLoadPending ||
-      this.#historyLoaded >= this.#historyAvailable ||
+      (this.#historyLoaded >= this.#historyAvailable && !this.#historyMayHaveGrown) ||
+      this.#historyLoaded >= this.#historyMaximum ||
       terminal.buffer.active.type !== 'normal'
     )
       return false;
@@ -645,12 +650,14 @@ export class TerminalRuntime {
 
   #updateHistoryState(history: TerminalHistoryState | undefined): void {
     if (!history) return;
+    this.#historyMayHaveGrown = false;
     this.#historyEnabled = true;
     this.#historyLoaded = history.loaded;
     this.#historyAvailable = history.available;
   }
 
   #resetHistoryLoading(): void {
+    this.#historyMayHaveGrown = false;
     this.#historyAnchor = undefined;
     this.#historyAvailable = 0;
     this.#historyEnabled = false;
@@ -685,24 +692,8 @@ export class TerminalRuntime {
   ): void {
     if (!context.isCurrent()) return;
     this.#screenReplacementAnchor = undefined;
-    const anchor = this.#historyAnchor;
-    const buffer = this.#terminal?.buffer.active;
-    if (
-      history &&
-      this.#historyLoadPending &&
-      anchor &&
-      buffer?.type === 'normal' &&
-      history.loaded <= this.#historyLoaded
-    ) {
-      this.#historyEnabled = true;
-      this.#historyLoaded = history.loaded;
-      this.#historyAvailable = history.available;
-      if (anchor.toTop) this.#terminal?.scrollToTop();
-      this.#historyAnchor = undefined;
-      this.#historyLoadPending = false;
-      context.send({ type: 'snapshot-ready', ...(snapshotId === undefined ? {} : { snapshotId }) });
-      return;
-    }
+    // Same-sized history snapshots may contain newer output; apply their contents and fence together.
+    this.#historyMayHaveGrown = false;
     this.#screenSync?.beginSnapshot(data, {
       isCurrent: context.isCurrent,
       acknowledge: () => context.send({ type: 'snapshot-ready', ...(snapshotId === undefined ? {} : { snapshotId }) }),
