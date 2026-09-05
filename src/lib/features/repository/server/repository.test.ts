@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -488,6 +488,33 @@ test('renames or replaces upload conflicts only when explicitly requested', asyn
   });
   assert.deepEqual(replaced, { path: 'assets/archive.bin', size: 11, renamed: false });
   assert.equal(await readFile(join(directory, replaced.path), 'utf8'), 'replacement');
+});
+
+test('uploads keep staged content private and preserve existing file permissions', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX file permissions are required.');
+  const directory = await createRepository(t);
+  for (const mode of [0o600, 0o640, 0o755]) {
+    const path = join(directory, 'protected-file');
+    await writeFile(path, 'original');
+    await chmod(path, mode);
+    const content = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          const staged = (await readdir(directory)).filter((name) => name.startsWith('.vampire-upload-'));
+          assert.equal(staged.length, 1);
+          assert.equal((await stat(join(directory, staged[0]!))).mode & 0o777, 0o600);
+          controller.enqueue(Buffer.from('replacement'));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 }
+    );
+    await uploadWorkspaceFile(directory, 'protected-file', content, { conflict: 'overwrite' });
+    assert.equal((await stat(path)).mode & 0o777, mode);
+    assert.equal(await readFile(path, 'utf8'), 'replacement');
+  }
+  await uploadWorkspaceFile(directory, 'new-secret', Buffer.from('private'));
+  assert.equal((await stat(join(directory, 'new-secret'))).mode & 0o777, 0o600);
 });
 
 test('keeps uploads inside the workspace and protects git metadata', async (t) => {

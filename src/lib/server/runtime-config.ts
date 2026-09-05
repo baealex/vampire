@@ -136,6 +136,20 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
   };
 }
 
+export function developmentRuntimeConfig(args: string[], env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+  const options = args[0] === '--' ? args.slice(1) : args;
+  if (options.some((argument) => argument !== '--allow-network')) {
+    throw new Error('Unknown development option. Use pnpm dev --allow-network to allow VPN or LAN access.');
+  }
+  const config = runtimeConfig(env);
+  if (config.externalAccess && !options.includes('--allow-network')) {
+    throw new Error(
+      'Development network access requires pnpm dev --allow-network. For local-only development, unset VAMPIRE_HOST and VAMPIRE_PUBLIC_ORIGIN / VAMPIRE_ADAPTER_ORIGIN or configure loopback addresses.'
+    );
+  }
+  return config;
+}
+
 function headerValue(headers: IncomingHttpHeaders, name: string): string | undefined {
   const value = headers[name];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;

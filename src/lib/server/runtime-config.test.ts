@@ -6,6 +6,7 @@ import {
   configureAdapterRequestOrigin,
   configuredPublicOrigin,
   configuredToken,
+  developmentRuntimeConfig,
   expectedRequestOrigin,
   isLoopbackHost,
   listeningUrl,
@@ -192,4 +193,34 @@ test('loads development env files as defaults without overriding the shell', () 
 test('formats usable wildcard and IPv6 listening URLs', () => {
   assert.equal(listeningUrl({ host: '0.0.0.0', port: 7677 }), 'http://localhost:7677');
   assert.equal(listeningUrl({ host: '::1', port: 7677 }), 'http://[::1]:7677');
+});
+
+test('development stays local unless network access is explicitly enabled', () => {
+  assert.equal(developmentRuntimeConfig([], {}).host, '127.0.0.1');
+  for (const host of ['127.0.0.1', 'localhost', '::1']) {
+    assert.equal(developmentRuntimeConfig([], { VAMPIRE_HOST: host }).externalAccess, false);
+  }
+  for (const host of ['192.168.1.10', '100.64.0.10', '0.0.0.0', '::', 'dev.example.com']) {
+    const env = { VAMPIRE_HOST: host, VAMPIRE_TOKEN: 'development test token' };
+    assert.throws(() => developmentRuntimeConfig([], env), /--allow-network/);
+    assert.equal(developmentRuntimeConfig(['--allow-network'], env).host, host);
+  }
+});
+
+test('development network opt-in also covers remote proxy origins and preserves authentication checks', () => {
+  for (const originKey of ['VAMPIRE_PUBLIC_ORIGIN', 'VAMPIRE_ADAPTER_ORIGIN']) {
+    const env = { [originKey]: 'https://dev.example.com', VAMPIRE_TOKEN: 'development test token' };
+    assert.throws(() => developmentRuntimeConfig([], env), /--allow-network/);
+    assert.equal(developmentRuntimeConfig(['--', '--allow-network'], env).externalAccess, true);
+  }
+  assert.throws(
+    () => developmentRuntimeConfig(['--allow-network'], { VAMPIRE_HOST: '192.168.1.10' }),
+    /without VAMPIRE_TOKEN/
+  );
+  assert.throws(
+    () => developmentRuntimeConfig([], { VAMPIRE_HOST: '192.168.1.10', VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1' }),
+    /--allow-network/
+  );
+  assert.equal(developmentRuntimeConfig(['--allow-network'], {}).host, '127.0.0.1');
+  assert.throws(() => developmentRuntimeConfig(['--allow-netwrok'], {}), /Unknown development option/);
 });

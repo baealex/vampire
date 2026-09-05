@@ -1089,13 +1089,15 @@ async function writeUploadContent(
 
 async function writeTemporaryUpload(
   parent: string,
-  content: Uint8Array | ReadableStream<Uint8Array>
+  content: Uint8Array | ReadableStream<Uint8Array>,
+  mode = 0o600
 ): Promise<{ path: string; size: number }> {
   const path = join(parent, `${TEMPORARY_UPLOAD_PREFIX}${randomUUID()}`);
   let handle: FileHandle | undefined;
   try {
-    handle = await open(path, 'wx', 0o666);
+    handle = await open(path, 'wx', 0o600);
     const size = await writeUploadContent(handle, content);
+    await handle.chmod(mode);
     await handle.sync();
     return { path, size };
   } catch (cause) {
@@ -1132,11 +1134,13 @@ export async function uploadWorkspaceFile(
   const conflict = options.conflict ?? 'reject';
   const requested = await resolveNewUploadTarget(cwd, path);
   let destinationTarget = requested.target;
+  let destinationMode = 0o600;
   if (conflict === 'overwrite') {
     const writable = await resolveWritableFile(cwd, requested.normalizedPath);
     destinationTarget = writable.target;
+    if (writable.exists) destinationMode = writable.details.mode & 0o777;
   }
-  const temporary = await writeTemporaryUpload(dirname(destinationTarget), content).catch((cause) => {
+  const temporary = await writeTemporaryUpload(dirname(destinationTarget), content, destinationMode).catch((cause) => {
     if (cause instanceof RepositoryReadError) throw cause;
     throw repositoryError('command-failed', 'The file could not be added.');
   });

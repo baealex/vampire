@@ -52,7 +52,7 @@ The browser submits the TOKEN only to `/api/login`. A successful login creates a
 
 Login verification is deliberately expensive and rate-limited. Request admission and a body deadline bound concurrent pre-verification work, while only an actual failed TOKEN verification contributes to credential backoff. This improves resistance to guessing but cannot make a weak or reused password safe, prevent every login-denial attack, or replace proxy-level connection and request limits on an Internet-reachable deployment. Behind a reverse proxy, configure `VAMPIRE_ADAPTER_ADDRESS_HEADER` only when the proxy overwrites it; otherwise Vampire deliberately falls back to its shared account limit instead of treating the proxy address as an individual client.
 
-The Vite development server contains module and HMR endpoints outside Vampire's application session boundary. Vampire therefore refuses non-loopback development binds. Do not expose `pnpm dev` through a remote reverse proxy; use the production server for remote testing.
+The Vite development server contains module and HMR endpoints outside Vampire's application session boundary. Vampire defaults to loopback and refuses non-loopback development binds or configured public origins unless `pnpm dev --allow-network` is explicitly used. This option permits intentional VPN or LAN development access without disabling the normal token requirement. Restrict access to trusted devices with VPN access rules or a firewall; a remote reverse proxy must protect Vite's development endpoints as well as the application. Prefer the production server for general remote use.
 
 Vampire provides authentication and defense-in-depth controls, but it is not a sandbox, privilege boundary, or multi-tenant terminal service. Host compromise, malicious shell commands, exposed credentials, and insecure reverse-proxy configuration are outside the protection that the application alone can provide.
 
@@ -72,7 +72,7 @@ Image paste temporarily changes the server computer's clipboard. Uploads are siz
 
 ## Repository viewer considerations
 
-The repository viewer exposes files and Git diffs from every managed workspace to an authenticated browser. It is read-only, limits preview sizes, rejects path traversal, and resolves symlinks before checking that a target remains inside the workspace. These checks reduce accidental exposure; they do not make an untrusted workspace safe.
+The repository viewer exposes files and Git diffs from every managed workspace to an authenticated browser. It supports file reads, edits, uploads, and file management; it limits preview sizes, rejects path traversal, and resolves symlinks before checking that a target remains inside the workspace. Uploads are staged with owner-only permissions; new uploads remain owner-only, and overwrites preserve the existing POSIX access and executable mode bits. These checks reduce accidental exposure; they do not make an untrusted workspace safe.
 
 Do not add a workspace that contains secrets an authenticated Vampire user should not be able to read. Run Vampire with an operating-system account whose file permissions match the intended access boundary.
 

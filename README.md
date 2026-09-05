@@ -117,7 +117,13 @@ pnpm check
 pnpm test
 ```
 
-The Vite development server is forcibly restricted to loopback and must not be exposed through a remote bind or reverse proxy. To exercise authentication during development, put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file.
+The Vite development server defaults to loopback. A non-loopback `VAMPIRE_HOST` or public origin requires an explicit `--allow-network` option on each invocation; otherwise startup is refused. To intentionally access development over a trusted VPN or LAN, set a development-only `VAMPIRE_TOKEN` in the ignored `.env` file and run:
+
+```sh
+VAMPIRE_HOST=100.64.0.10 pnpm dev --allow-network
+```
+
+Replace the example address with this computer's VPN or LAN address. The option permits the configured address; it does not change the default bind address or disable token authentication. Vite module and HMR endpoints are outside the application's login boundary, so restrict network access to trusted devices using VPN access rules or a firewall. A remote reverse proxy also needs this network opt-in and must protect those development endpoints itself.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow.
 
