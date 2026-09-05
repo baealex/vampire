@@ -41,7 +41,6 @@ test('requires confirmation before removal and keeps a failed removal retryable'
     closeWorkspace: vi.fn(async () => ({ ok: true })),
     remove,
     onSettings: vi.fn(),
-    onAlias: vi.fn(),
     onNewWorktree: vi.fn(),
     onAutomations: vi.fn(),
   });
@@ -77,7 +76,6 @@ test('does not warn about note deletion when the workspace note is empty', async
     closeWorkspace: vi.fn(async () => ({ ok: true })),
     remove: vi.fn(async () => ({ ok: true })),
     onSettings: vi.fn(),
-    onAlias: vi.fn(),
     onNewWorktree: vi.fn(),
     onAutomations: vi.fn(),
   });

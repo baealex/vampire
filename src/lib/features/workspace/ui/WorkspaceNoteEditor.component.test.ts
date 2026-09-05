@@ -20,7 +20,8 @@ type EditorCallbacks = {
   close: () => void;
   save: (note: string) => Promise<void>;
   loadAgentAction: () => Promise<WorkspaceAgentActionDescriptor>;
-  queueAgentAction: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  submitAgentAction: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  askAgentAvailable: boolean;
   onBusyChange: (busy: boolean) => void;
   onFlushAvailable: (flush: (() => Promise<boolean>) | undefined) => void;
   onPanelLockChange: (locked: boolean) => void;
@@ -30,7 +31,7 @@ const agentAction: WorkspaceAgentActionDescriptor = {
   id: 'note',
   title: 'Ask agent about this note',
   description: 'The note path is supplied as context.',
-  target: { workspaceId: 'workspace-1', workspaceLabel: 'Project', agentLabel: 'codex' },
+  target: { workspaceId: 'workspace-1', workspaceLabel: 'Project', processLabel: 'node' },
   context: [{ label: 'Workspace note', value: '/state/workspace-1.note.md' }],
   requestLabel: 'What should the agent do?',
   requestPlaceholder: 'Organize the note.',
@@ -39,8 +40,8 @@ const agentAction: WorkspaceAgentActionDescriptor = {
 
 const submission: WorkspaceAgentActionSubmission = {
   actionId: 'note',
-  status: 'queued',
-  queuedAt: 1,
+  status: 'submitted',
+  submittedAt: 1,
   prompt: 'Prompt',
 };
 
@@ -49,7 +50,8 @@ function renderEditor({
   close = vi.fn(),
   save = vi.fn(async () => undefined),
   loadAgentAction = vi.fn(async () => agentAction),
-  queueAgentAction = vi.fn(async () => submission),
+  submitAgentAction = vi.fn(async () => submission),
+  askAgentAvailable = true,
   onBusyChange = vi.fn(),
   onFlushAvailable = vi.fn(),
   onPanelLockChange = vi.fn(),
@@ -60,7 +62,8 @@ function renderEditor({
     close,
     save,
     loadAgentAction,
-    queueAgentAction,
+    submitAgentAction,
+    askAgentAvailable,
     onBusyChange,
     onFlushAvailable,
     onPanelLockChange,
@@ -70,12 +73,21 @@ function renderEditor({
     close,
     save,
     loadAgentAction,
-    queueAgentAction,
+    submitAgentAction,
+    askAgentAvailable,
     onBusyChange,
     onFlushAvailable,
     onPanelLockChange,
   };
 }
+
+test('disables Ask agent before opening when the main terminal has no foreground process', async () => {
+  renderEditor({ askAgentAvailable: false });
+  await screen.findByRole('textbox', { name: 'Workspace note' });
+
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeDisabled();
+  expect(screen.getByText('Start a foreground process in the main terminal to use Ask agent.')).toBeVisible();
+});
 
 test('autosaves the latest draft after the user pauses typing', async () => {
   const user = userEvent.setup();
@@ -139,7 +151,7 @@ test('saves the latest draft when a workspace switch unmounts the editor before 
     close: vi.fn(),
     save,
     loadAgentAction: vi.fn(async () => agentAction),
-    queueAgentAction: vi.fn(async () => submission),
+    submitAgentAction: vi.fn(async () => submission),
   });
   const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
 
@@ -215,7 +227,7 @@ test('keeps the close action available in panel mode', async () => {
     close,
     save: vi.fn(async () => undefined),
     loadAgentAction: vi.fn(async () => agentAction),
-    queueAgentAction: vi.fn(async () => submission),
+    submitAgentAction: vi.fn(async () => submission),
     panel: true,
   });
 
@@ -229,8 +241,8 @@ test('shows the note path inside the panel and saves the latest draft before que
   const user = userEvent.setup();
   const pendingSave = deferred();
   const save = vi.fn(() => pendingSave.promise);
-  const queueAgentAction = vi.fn(async () => submission);
-  renderEditor({ save, queueAgentAction });
+  const submitAgentAction = vi.fn(async () => submission);
+  renderEditor({ save, submitAgentAction });
   const textarea = await screen.findByRole('textbox', { name: 'Workspace note' });
 
   await user.clear(textarea);
@@ -247,26 +259,27 @@ test('shows the note path inside the panel and saves the latest draft before que
 
   expect(save).toHaveBeenCalledTimes(1);
   expect(save).toHaveBeenCalledWith('Keep this latest draft');
-  expect(queueAgentAction).not.toHaveBeenCalled();
+  expect(submitAgentAction).not.toHaveBeenCalled();
 
   pendingSave.resolve();
 
-  await waitFor(() => expect(queueAgentAction).toHaveBeenCalledTimes(1));
-  expect(queueAgentAction).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
-  expect(await screen.findByText('Sent to the main agent session.')).toBeInTheDocument();
+  await waitFor(() => expect(submitAgentAction).toHaveBeenCalledTimes(1));
+  expect(submitAgentAction).toHaveBeenCalledWith('Preserve everything and add only the current blocker.');
+  expect(screen.queryByText('Sent to the main terminal process.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toHaveFocus();
 });
 
 test('locks panel transitions while an agent request is being submitted', async () => {
   const user = userEvent.setup();
   let finishQueue!: (value: WorkspaceAgentActionSubmission) => void;
-  const queueAgentAction = vi.fn(
+  const submitAgentAction = vi.fn(
     () =>
       new Promise<WorkspaceAgentActionSubmission>((resolve) => {
         finishQueue = resolve;
       })
   );
   const onPanelLockChange = vi.fn();
-  renderEditor({ queueAgentAction, onPanelLockChange });
+  renderEditor({ submitAgentAction, onPanelLockChange });
 
   await screen.findByRole('textbox', { name: 'Workspace note' });
   await user.click(screen.getByRole('button', { name: 'Ask agent…' }));

@@ -8,7 +8,7 @@ import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
 import {
   loadWorkspaceAgentAction,
-  queueWorkspaceAgentAction as queueWorkspaceAgentActionRequest,
+  submitWorkspaceAgentAction as submitWorkspaceAgentActionRequest,
 } from '~/lib/shared/api/workspace-agent-actions.ts';
 import type {
   WorkspaceAgentActionDescriptor,
@@ -24,7 +24,8 @@ let {
   close,
   save,
   loadAgentAction = () => loadWorkspaceAgentAction(workspaceId, 'note'),
-  queueAgentAction = (request: string) => queueWorkspaceAgentActionRequest(workspaceId, 'note', request),
+  submitAgentAction = (request: string) => submitWorkspaceAgentActionRequest(workspaceId, 'note', request),
+  askAgentAvailable = true,
   panel = false,
   onBusyChange = () => undefined,
   onFlushAvailable = () => undefined,
@@ -35,7 +36,8 @@ let {
   close: () => void;
   save: (note: string) => Promise<void>;
   loadAgentAction?: () => Promise<WorkspaceAgentActionDescriptor>;
-  queueAgentAction?: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  submitAgentAction?: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  askAgentAvailable?: boolean;
   panel?: boolean;
   onBusyChange?: (busy: boolean) => void;
   onFlushAvailable?: (flush: (() => Promise<boolean>) | undefined) => void;
@@ -55,7 +57,7 @@ let savePromise: Promise<void> | undefined;
 let agentNoteSyncTimer: ReturnType<typeof setInterval> | undefined;
 let agentDialogOpen = $state(false);
 let agentSubmitting = $state(false);
-let agentUpdateQueued = $state(false);
+let agentUpdatePending = $state(false);
 let agentUpdateMessage = $state('');
 let refreshingAgentNote = false;
 let destroyed = false;
@@ -170,8 +172,8 @@ async function refreshAgentNote() {
     if (destroyed || note === savedNote || draft !== savedNote) return;
     draft = note;
     savedNote = note;
-    if (agentUpdateQueued) {
-      agentUpdateQueued = false;
+    if (agentUpdatePending) {
+      agentUpdatePending = false;
       agentUpdateMessage = 'The note changed. Live sync is on.';
     }
   } catch {
@@ -191,12 +193,12 @@ async function submitAgentRequest(request: string): Promise<WorkspaceAgentAction
   clearSaveTimer();
   await saveDraft();
   if (draft !== savedNote) throw new Error(saveError || 'Save the note before asking the agent.');
-  return queueAgentAction(request);
+  return submitAgentAction(request);
 }
 
-function handleAgentRequestQueued() {
-  agentUpdateQueued = true;
-  agentUpdateMessage = 'Sent to the main agent session.';
+function handleAgentRequestSubmitted() {
+  agentUpdatePending = true;
+  agentUpdateMessage = '';
   startAgentNoteSync();
 }
 
@@ -240,7 +242,7 @@ onDestroy(() => {
         close={() => void closeAgentView()}
         load={loadAgentAction}
         submit={submitAgentRequest}
-        onQueued={handleAgentRequestQueued}
+        onSubmitted={handleAgentRequestSubmitted}
         onSubmittingChange={(value) => agentSubmitting = value}
       />
     </div>
@@ -300,12 +302,17 @@ onDestroy(() => {
             variant="secondary"
             block
             onclick={() => (agentDialogOpen = true)}
-            disabled={Boolean(saveError)}
+            disabled={Boolean(saveError) || !askAgentAvailable}
+            title={askAgentAvailable ? undefined : 'Start a foreground process in the main terminal first.'}
           >
             <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
             Ask agent…
           </Button>
-          <p>Send this note and your request to this workspace's main agent.</p>
+          <p>
+            {askAgentAvailable
+              ? "Send this note and your request to this workspace's main process."
+              : 'Start a foreground process in the main terminal to use Ask agent.'}
+          </p>
         </div>
         {#if agentUpdateMessage}
           <p class="note-agent-status" role="status">{agentUpdateMessage}</p>

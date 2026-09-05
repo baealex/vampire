@@ -10,7 +10,7 @@ const running: TmuxSession = {
   createdAt: 1,
   lastOutputAt: 1,
   attachedClients: 0,
-  foregroundProcess: { kind: 'command', label: 'codex' },
+  foregroundProcess: { kind: 'command', label: 'node' },
   terminals: [
     {
       id: '@1',
@@ -18,7 +18,7 @@ const running: TmuxSession = {
       name: 'main',
       active: false,
       lastOutputAt: 1,
-      foregroundProcess: { kind: 'command', label: 'codex' },
+      foregroundProcess: { kind: 'command', label: 'node' },
       command: null,
       startedAt: null,
       state: 'running',
@@ -66,7 +66,7 @@ const automation: WorkspaceAutomation = {
   lastError: null,
 };
 
-test('automation submission targets the recognized main agent without reading its screen', () => {
+test('automation submission targets any foreground command in the main terminal without reading its screen', () => {
   assert.equal(automationSubmissionTerminal(running)?.id, '@1');
   assert.equal(
     automationSubmissionTerminal({
@@ -77,7 +77,7 @@ test('automation submission targets the recognized main agent without reading it
   );
 });
 
-test('prepares one literal prompt submission while the recognized agent is running', async () => {
+test('prepares one literal prompt submission while a foreground command is running', async () => {
   const submissions: Array<[string, string, string]> = [];
   const ready = await prepareAutomationSubmission(stored, automation, {
     listTmuxSessions: async () => [running],

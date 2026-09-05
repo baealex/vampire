@@ -1,12 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { userEvent } from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
-import { DEFAULT_TERMINAL_INPUT_SETTINGS } from '~/lib/shared/contracts/terminal-input.ts';
 import TerminalInputDock from './TerminalInputDock.svelte';
 
 function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', composerTemplate = '{{ prompts }}') {
   const handoffToTerminal = vi.fn();
-  const send = vi.fn();
+  const sendControl = vi.fn();
   const scrollPageUp = vi.fn();
   const scrollPageDown = vi.fn();
   const onSubmitted = vi.fn(async () => undefined);
@@ -16,7 +15,7 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', com
   ]);
   return {
     submit,
-    send,
+    sendControl,
     handoffToTerminal,
     scrollPageUp,
     scrollPageDown,
@@ -27,7 +26,7 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', com
       connected: true,
       composerTemplate,
       composerTemplateContext: { workspace: { name: 'Vampire', cwd: '/work/vampire' } },
-      send,
+      sendControl,
       submit,
       onSubmitted,
       loadPrompts,
@@ -48,7 +47,6 @@ function renderDock(submit = vi.fn(() => true), workspaceId = 'workspace-1', com
 
 beforeEach(() => {
   window.localStorage.clear();
-  terminalInputPreferences.apply(DEFAULT_TERMINAL_INPUT_SETTINGS);
 });
 
 test('opens exact workspace Composer history and inserts a selected prompt without sending it', async () => {
@@ -104,7 +102,7 @@ test('sends the original message when a stored workspace template is invalid', a
 
 test('keeps Shift+Enter as a composer line break without submitting', async () => {
   const { submit } = renderDock();
-  const composer = screen.getByPlaceholderText('Send to shell…');
+  const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.input(composer, { target: { value: 'First line' } });
   await fireEvent.keyDown(composer, { key: 'Enter', shiftKey: true });
 
@@ -112,9 +110,37 @@ test('keeps Shift+Enter as a composer line break without submitting', async () =
   expect(submit).not.toHaveBeenCalled();
 });
 
+test('sends Enter directly to the terminal when Compose is blank', async () => {
+  const { sendControl, submit, onSubmitted } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  await fireEvent.input(composer, { target: { value: '  ' } });
+  await fireEvent.keyDown(composer, { key: 'Enter' });
+
+  expect(sendControl).toHaveBeenCalledWith('enter');
+  expect(submit).not.toHaveBeenCalled();
+  expect(onSubmitted).not.toHaveBeenCalled();
+  expect(composer).toHaveValue('');
+});
+
+test('forwards terminal navigation keys only while Compose is empty', async () => {
+  const { sendControl } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+
+  await fireEvent.keyDown(composer, { key: 'ArrowDown' });
+  await fireEvent.keyDown(composer, { key: 'Escape' });
+  expect(sendControl).toHaveBeenNthCalledWith(1, 'arrow-down');
+  expect(sendControl).toHaveBeenNthCalledWith(2, 'escape');
+
+  await fireEvent.input(composer, { target: { value: 'Draft in progress' } });
+  await fireEvent.keyDown(composer, { key: 'ArrowDown' });
+  await fireEvent.keyDown(composer, { key: 'Escape' });
+  expect(sendControl).toHaveBeenCalledTimes(2);
+  expect(composer).toHaveValue('Draft in progress');
+});
+
 test('hands an initial slash to the interactive terminal without changing the draft', async () => {
   const { handoffToTerminal, submit } = renderDock();
-  const composer = screen.getByPlaceholderText('Send to shell…');
+  const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.keyDown(composer, { key: '/' });
 
   expect(handoffToTerminal).toHaveBeenCalledWith('/');
@@ -132,20 +158,41 @@ test('moves through terminal history one page at a time', async () => {
   expect(scrollPageDown).toHaveBeenCalledOnce();
 });
 
+test('sends Backspace to the terminal without submitting Compose', async () => {
+  const { sendControl, submit } = renderDock();
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Backspace' }));
+
+  expect(sendControl).toHaveBeenCalledWith('backspace');
+  expect(submit).not.toHaveBeenCalled();
+});
+
+test('keeps Compose focused after a one-shot terminal control', async () => {
+  const user = userEvent.setup();
+  const { sendControl } = renderDock();
+  const composer = screen.getByPlaceholderText('Compose a message…');
+  composer.focus();
+
+  await user.click(screen.getByRole('button', { name: 'Arrow up' }));
+
+  expect(sendControl).toHaveBeenCalledWith('arrow-up');
+  expect(composer).toHaveFocus();
+});
+
 test('restores an unsent composer draft after remounting the terminal', async () => {
   const first = renderDock();
-  const composer = screen.getByPlaceholderText('Send to shell…');
+  const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.input(composer, { target: { value: 'Unsent 한글 draft' } });
   first.result.unmount();
 
   renderDock();
-  await waitFor(() => expect(screen.getByPlaceholderText('Send to shell…')).toHaveValue('Unsent 한글 draft'));
+  await waitFor(() => expect(screen.getByPlaceholderText('Compose a message…')).toHaveValue('Unsent 한글 draft'));
 });
 
 test('isolates drafts by workspace and clears one only after a successful submit', async () => {
   const rejectedSubmit = vi.fn(() => false);
   const first = renderDock(rejectedSubmit);
-  const composer = screen.getByPlaceholderText('Send to shell…');
+  const composer = screen.getByPlaceholderText('Compose a message…');
   await fireEvent.input(composer, { target: { value: 'Keep this draft' } });
   await fireEvent.keyDown(composer, { key: 'Enter' });
   expect(rejectedSubmit).toHaveBeenCalledWith('Keep this draft');
@@ -156,12 +203,12 @@ test('isolates drafts by workspace and clears one only after a successful submit
     vi.fn(() => true),
     'workspace-2'
   );
-  await waitFor(() => expect(screen.getByPlaceholderText('Send to shell…')).toHaveValue(''));
+  await waitFor(() => expect(screen.getByPlaceholderText('Compose a message…')).toHaveValue(''));
   other.result.unmount();
 
   const acceptedSubmit = vi.fn(() => true);
   const restored = renderDock(acceptedSubmit);
-  const restoredComposer = await screen.findByPlaceholderText('Send to shell…');
+  const restoredComposer = await screen.findByPlaceholderText('Compose a message…');
   await waitFor(() => expect(restoredComposer).toHaveValue('Keep this draft'));
   await fireEvent.keyDown(restoredComposer, { key: 'Enter' });
   expect(acceptedSubmit).toHaveBeenCalledWith('Keep this draft');
@@ -169,5 +216,5 @@ test('isolates drafts by workspace and clears one only after a successful submit
   restored.result.unmount();
 
   renderDock();
-  await waitFor(() => expect(screen.getByPlaceholderText('Send to shell…')).toHaveValue(''));
+  await waitFor(() => expect(screen.getByPlaceholderText('Compose a message…')).toHaveValue(''));
 });

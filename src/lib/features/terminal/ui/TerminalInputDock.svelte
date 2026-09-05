@@ -9,7 +9,8 @@ import {
   WORKSPACE_ENTRY_DRAG_TYPE,
   workspaceEntryDragText,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
-import { terminalInputPreferences } from '../model/input-preferences.svelte.ts';
+import { loadComposerDraft, saveComposerDraft } from '../model/composer-draft-storage.ts';
+import type { TerminalControlKey } from '../model/terminal-control.ts';
 import { renderComposerTemplate, type ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
 import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 
@@ -19,7 +20,7 @@ let {
   connected,
   composerTemplate,
   composerTemplateContext,
-  send,
+  sendControl,
   submit,
   composerHistoryEnabled = true,
   onSubmitted,
@@ -43,7 +44,7 @@ let {
   connected: boolean;
   composerTemplate?: string;
   composerTemplateContext: ComposerTemplateContext;
-  send: (data: string) => void;
+  sendControl: (control: TerminalControlKey) => void;
   submit: (data: string) => boolean;
   composerHistoryEnabled?: boolean;
   onSubmitted: (prompt: string) => Promise<void>;
@@ -67,25 +68,13 @@ let imageInputElement: HTMLInputElement;
 let composerMessage = $state('');
 let composerDropActive = $state(false);
 let composerResizeFrame: number | undefined;
-let draftStorageKey = '';
 let draftStorageReady = false;
 let draftPersistenceFailed = $state(false);
-
-const COMPOSER_DRAFT_STORAGE_PREFIX = 'vampire:terminal-composer-draft:v1';
-
-function composerDraftStorageKey(workspace: string, terminal?: string): string {
-  return `${COMPOSER_DRAFT_STORAGE_PREFIX}:${encodeURIComponent(workspace)}:${encodeURIComponent(terminal ?? 'main')}`;
-}
+let terminalControlFocusTarget: HTMLElement | undefined;
 
 function persistComposerDraft(value = composerMessage) {
   if (!draftStorageReady) return;
-  try {
-    if (value) window.localStorage.setItem(draftStorageKey, value);
-    else window.localStorage.removeItem(draftStorageKey);
-    draftPersistenceFailed = false;
-  } catch {
-    draftPersistenceFailed = true;
-  }
+  draftPersistenceFailed = !saveComposerDraft(workspaceId, terminalId, value);
 }
 
 function updateComposerMessage(value: string) {
@@ -94,13 +83,10 @@ function updateComposerMessage(value: string) {
 }
 
 onMount(() => {
-  draftStorageKey = composerDraftStorageKey(workspaceId, terminalId);
   draftStorageReady = true;
-  try {
-    composerMessage = window.localStorage.getItem(draftStorageKey) ?? '';
-  } catch {
-    draftPersistenceFailed = true;
-  }
+  const restoredDraft = loadComposerDraft(workspaceId, terminalId);
+  composerMessage = restoredDraft.value;
+  draftPersistenceFailed = !restoredDraft.available;
   requestAnimationFrame(resizeComposer);
 });
 let promptHistoryOpen = $state(false);
@@ -120,12 +106,40 @@ function preventButtonFocus(event: PointerEvent) {
   event.preventDefault();
 }
 
-function sendControl(data: string) {
-  send(data);
+function prepareTerminalControl(event: PointerEvent) {
+  event.preventDefault();
+  const focusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+  terminalControlFocusTarget = focusTarget;
+  if (!focusTarget) return;
+  requestAnimationFrame(() => {
+    if (terminalControlFocusTarget === focusTarget) restoreTerminalControlFocus();
+  });
+}
+
+function restoreTerminalControlFocus() {
+  const focusTarget = terminalControlFocusTarget;
+  terminalControlFocusTarget = undefined;
+  if (focusTarget?.isConnected) focusTarget.focus({ preventScroll: true });
+}
+
+function sendTerminalControl(control: TerminalControlKey) {
+  sendControl(control);
+  restoreTerminalControlFocus();
+}
+
+function runTerminalControl(action: () => void) {
+  action();
+  restoreTerminalControlFocus();
 }
 
 function sendComposerMessage() {
-  if (!connected || !composerMessage.trim()) return;
+  if (!connected) return;
+  if (!composerMessage.trim()) {
+    if (composerMessage) updateComposerMessage('');
+    sendTerminalControl('enter');
+    requestAnimationFrame(resizeComposer);
+    return;
+  }
   const submittedPrompt = composerMessage;
   const rendered = renderComposerTemplate(composerTemplate, submittedPrompt, composerTemplateContext);
   if (!submit(rendered.text)) return;
@@ -250,7 +264,6 @@ function handleComposerInput(event: Event) {
 
 function shouldHandoffSlash(data: string | null): boolean {
   return (
-    terminalInputPreferences.slashHandoff &&
     data === '/' &&
     composerMessage.length === 0 &&
     (composerElement?.selectionStart ?? 0) === 0 &&
@@ -281,6 +294,22 @@ function handleComposerKeydown(event: KeyboardEvent) {
     handoffToTerminal('/');
     return;
   }
+  if (!composerMessage && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    const terminalControl = (
+      {
+        Escape: 'escape',
+        ArrowUp: 'arrow-up',
+        ArrowDown: 'arrow-down',
+        ArrowLeft: 'arrow-left',
+        ArrowRight: 'arrow-right',
+      } satisfies Record<string, TerminalControlKey>
+    )[event.key];
+    if (terminalControl) {
+      event.preventDefault();
+      sendTerminalControl(terminalControl);
+      return;
+    }
+  }
   if (event.key === 'Enter') {
     event.preventDefault();
     if (event.shiftKey) insertComposerLineBreak();
@@ -296,13 +325,13 @@ function handleImageSelection(event: Event) {
 }
 </script>
 
-<div class="input-dock" class:compose-first={terminalInputPreferences.mode === 'compose'}>
+<div class="input-dock">
   <div class="touch-toolbar" role="group" aria-label="Terminal controls">
     <button
       type="button"
       disabled={!connected}
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('escape')}
     >
       Esc
     </button>
@@ -310,20 +339,34 @@ function handleImageSelection(event: Event) {
       type="button"
       class="wide-key"
       disabled={!connected}
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u0003')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('interrupt')}
     >
       Ctrl+C
     </button>
-    <button type="button" disabled={!connected} onpointerdown={preventButtonFocus} onclick={() => sendControl('\t')}>
+    <button
+      type="button"
+      disabled={!connected}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('tab')}
+    >
       Tab
     </button>
     <button
       type="button"
       class="wide-key"
       disabled={!connected}
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\r')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('backspace')}
+    >
+      Backspace
+    </button>
+    <button
+      type="button"
+      class="wide-key"
+      disabled={!connected}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('enter')}
     >
       Enter
     </button>
@@ -332,8 +375,8 @@ function handleImageSelection(event: Event) {
       type="button"
       disabled={!connected}
       aria-label="Arrow up"
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b[A')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('arrow-up')}
     >
       ↑
     </button>
@@ -341,8 +384,8 @@ function handleImageSelection(event: Event) {
       type="button"
       disabled={!connected}
       aria-label="Arrow down"
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b[B')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('arrow-down')}
     >
       ↓
     </button>
@@ -350,8 +393,8 @@ function handleImageSelection(event: Event) {
       type="button"
       disabled={!connected}
       aria-label="Arrow left"
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b[D')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('arrow-left')}
     >
       ←
     </button>
@@ -359,8 +402,8 @@ function handleImageSelection(event: Event) {
       type="button"
       disabled={!connected}
       aria-label="Arrow right"
-      onpointerdown={preventButtonFocus}
-      onclick={() => sendControl('\u001b[C')}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => sendTerminalControl('arrow-right')}
     >
       →
     </button>
@@ -370,8 +413,8 @@ function handleImageSelection(event: Event) {
       class="wide-key"
       aria-label="Scroll to terminal top"
       title="Scroll to top"
-      onpointerdown={preventButtonFocus}
-      onclick={scrollToTop}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(scrollToTop)}
     >
       Top
     </button>
@@ -380,8 +423,8 @@ function handleImageSelection(event: Event) {
       class="wide-key"
       aria-label="Scroll terminal up one page"
       title="Scroll up one page"
-      onpointerdown={preventButtonFocus}
-      onclick={scrollPageUp}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(scrollPageUp)}
     >
       PgUp
     </button>
@@ -390,8 +433,8 @@ function handleImageSelection(event: Event) {
       class="wide-key"
       aria-label="Scroll terminal down one page"
       title="Scroll down one page"
-      onpointerdown={preventButtonFocus}
-      onclick={scrollPageDown}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(scrollPageDown)}
     >
       PgDn
     </button>
@@ -400,8 +443,8 @@ function handleImageSelection(event: Event) {
       class="wide-key"
       aria-label="Scroll to terminal bottom"
       title="Scroll to bottom"
-      onpointerdown={preventButtonFocus}
-      onclick={scrollToBottom}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(scrollToBottom)}
     >
       Bottom
     </button>
@@ -411,8 +454,8 @@ function handleImageSelection(event: Event) {
       aria-label="Decrease terminal text size"
       title={`Decrease text size (currently ${fontSize}px)`}
       disabled={fontSize <= minimumFontSize}
-      onpointerdown={preventButtonFocus}
-      onclick={decreaseFontSize}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(decreaseFontSize)}
     >
       A−
     </button>
@@ -421,8 +464,8 @@ function handleImageSelection(event: Event) {
       aria-label="Increase terminal text size"
       title={`Increase text size (currently ${fontSize}px)`}
       disabled={fontSize >= maximumFontSize}
-      onpointerdown={preventButtonFocus}
-      onclick={increaseFontSize}
+      onpointerdown={prepareTerminalControl}
+      onclick={() => runTerminalControl(increaseFontSize)}
     >
       A+
     </button>
@@ -494,7 +537,8 @@ function handleImageSelection(event: Event) {
         onkeydown={handleComposerKeydown}
         onfocus={onComposerFocus}
         rows="1"
-        placeholder="Send to shell…"
+        placeholder="Compose a message…"
+        title="Focus from the terminal with Command+/"
         autocapitalize="off"
         autocomplete="off"
         spellcheck="false"
@@ -783,19 +827,16 @@ function handleImageSelection(event: Event) {
     --dock-inline-start: 0.75rem;
     --dock-inline-end: 0.75rem;
   }
-  .input-dock:not(.compose-first) .touch-toolbar {
-    display: none;
-  }
-  .input-dock.compose-first .touch-toolbar {
+  .touch-toolbar {
     padding: 0.4rem var(--dock-inline-end) 0 var(--dock-inline-start);
   }
-  .input-dock.compose-first .touch-toolbar button {
+  .touch-toolbar button {
     min-width: 2.25rem;
     height: 2rem;
     min-height: 2rem;
     padding-inline: 0.55rem;
   }
-  .input-dock.compose-first .toolbar-divider {
+  .toolbar-divider {
     height: 1.65rem;
   }
   .composer {

@@ -20,7 +20,6 @@ import WorkspaceWorkbench from '~/lib/widgets/workspace-workbench/ui/WorkspaceWo
 import type { RepositoryTab } from '~/lib/shared/contracts/repository';
 import NewWorktreeDialog from '~/lib/features/workspace/ui/NewWorktreeDialog.svelte';
 import WorkspaceNavigator from '~/lib/features/workspace/ui/WorkspaceNavigator.svelte';
-import WorkspaceAliasDialog from '~/lib/features/workspace/ui/WorkspaceAliasDialog.svelte';
 import WorkspaceAutomationsPage from '~/lib/widgets/workspace-workbench/ui/WorkspaceAutomationsPage.svelte';
 import AppSidebarActions from './AppSidebarActions.svelte';
 import StatusPluginSettings from '~/lib/features/status/ui/StatusPluginSettings.svelte';
@@ -30,12 +29,11 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
-import { terminalInputPreferences } from '~/lib/features/terminal/model/input-preferences.svelte.ts';
 import AppAutomationsPage from './AppAutomationsPage.svelte';
 import AppSettingsPage from './AppSettingsPage.svelte';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 
-type ManagementView = 'automations' | 'server-automations' | 'settings' | 'widgets';
+type ManagementView = 'automations' | 'workspace-settings' | 'server-automations' | 'settings' | 'widgets';
 
 let {
   initialWorkspaceId = undefined,
@@ -46,9 +44,7 @@ let {
 let mobilePanel = $state<MobilePanel | undefined>(undefined);
 let repositoryPanelOpen = $state(false);
 let repositoryTab = $state<RepositoryTab>('files');
-let workspaceSettingsOpen = $state(false);
 let reopenWithOpen = $state(false);
-let workspaceAliasWorkspace = $state<ManagedWorkspace>();
 let managementView = $state<ManagementView>();
 let automationEditId = $state<string>();
 let managementOpenedFromApp = false;
@@ -103,17 +99,12 @@ const workspaceState: WorkspaceState = new WorkspaceState({
   isWorkspaceObserved: (workspaceId) => terminalIsObserved(workspaceId),
 });
 
-$effect(() => {
-  if (connection.authenticated) void terminalInputPreferences.refresh();
-});
 function terminalIsObserved(workspaceId: string): boolean {
   return (
     workspaceState.requestedWorkspaceId === workspaceId &&
     presentedTerminalWorkspaceId === workspaceId &&
     document.visibilityState === 'visible' &&
     mobilePanel === undefined &&
-    !workspaceSettingsOpen &&
-    !workspaceAliasWorkspace &&
     !worktreeSourceWorkspace &&
     !managementView
   );
@@ -167,9 +158,7 @@ function unlock() {
 async function logout() {
   if (!(await connection.logout())) return;
   workspaceState.reset();
-  workspaceSettingsOpen = false;
   reopenWithOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = undefined;
   listeningPortsOpen = false;
@@ -198,9 +187,7 @@ async function openWorkspace(managedWorkspace: ManagedWorkspace) {
   if (guardManagementTransition(() => openWorkspace(managedWorkspace))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   const alreadySelected = workspaceState.requestedWorkspaceId === managedWorkspace.id;
-  workspaceSettingsOpen = false;
   reopenWithOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = undefined;
   managementOpenedFromApp = false;
@@ -209,33 +196,25 @@ async function openWorkspace(managedWorkspace: ManagedWorkspace) {
   restorePanelAfterWorkspaceChange();
 }
 
-async function openStartupProfile(managedWorkspace: ManagedWorkspace) {
-  if (guardManagementTransition(() => openStartupProfile(managedWorkspace))) return;
+async function openWorkspaceSettings(managedWorkspace: ManagedWorkspace) {
+  if (guardManagementTransition(() => openWorkspaceSettings(managedWorkspace))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
-  managementView = undefined;
   if (workspaceState.requestedWorkspaceId !== managedWorkspace.id) {
-    workspaceState.openWorkspace(managedWorkspace);
-    restorePanelAfterWorkspaceChange();
+    workspaceState.syncLocation(`/workspaces/${encodeURIComponent(managedWorkspace.id)}`);
   }
-  repositoryPanelOpen = false;
+  managementView = 'workspace-settings';
+  automationEditId = undefined;
+  managementBusy = false;
+  managementDirty = false;
+  managementOpenedFromApp = true;
   mobilePanel = undefined;
-  workspaceSettingsOpen = true;
-}
-
-function openWorkspaceAlias(managedWorkspace: ManagedWorkspace) {
-  if (guardManagementTransition(() => openWorkspaceAlias(managedWorkspace))) return;
-  workspaceSettingsOpen = false;
-  worktreeSourceWorkspace = undefined;
-  workspaceAliasWorkspace = managedWorkspace;
+  pushApplicationState(`/workspaces/${encodeURIComponent(managedWorkspace.id)}/settings`);
 }
 
 async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace, automationId?: string) {
   if (guardManagementTransition(() => openWorkspaceAutomations(managedWorkspace, automationId))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
-  workspaceSettingsOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   if (workspaceState.requestedWorkspaceId !== managedWorkspace.id) {
     workspaceState.syncLocation(`/workspaces/${encodeURIComponent(managedWorkspace.id)}`);
@@ -253,8 +232,6 @@ async function openWorkspaceAutomations(managedWorkspace: ManagedWorkspace, auto
 async function openApplicationSettings() {
   if (guardManagementTransition(() => openApplicationSettings())) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
-  workspaceSettingsOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = 'settings';
   automationEditId = undefined;
@@ -269,8 +246,6 @@ async function openApplicationSettings() {
 async function openServerAutomations(workspaceId?: string) {
   if (guardManagementTransition(() => openServerAutomations(workspaceId))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
-  workspaceSettingsOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = 'server-automations';
   automationEditId = undefined;
@@ -287,8 +262,6 @@ async function openServerAutomations(workspaceId?: string) {
 async function openStatusWidgets(workspaceId?: string) {
   if (guardManagementTransition(() => openStatusWidgets(workspaceId))) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
-  workspaceSettingsOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = 'widgets';
   automationEditId = undefined;
@@ -306,7 +279,7 @@ async function restoreManagementTrigger(view: ManagementView) {
   // surface. Other management pages still restore the control that opened them.
   if (view === 'settings') return;
   let target = document.querySelector<HTMLElement>('[aria-label="Manage status widgets"]');
-  if (view === 'automations') {
+  if (view === 'automations' || view === 'workspace-settings') {
     const workspaceActions = document.querySelector<HTMLElement>(
       '.workspace-row-shell.selected [aria-label^="Workspace actions for"]'
     );
@@ -374,16 +347,8 @@ function cancelManagementClosePrompt() {
   managementClosePrompt = false;
 }
 
-async function saveWorkspaceAlias(alias: string): Promise<{ ok: boolean; error?: string }> {
-  const managedWorkspace = workspaceAliasWorkspace;
-  if (!managedWorkspace) return { ok: false, error: 'Workspace is no longer available.' };
-  return workspaceState.updateWorkspaceAlias(managedWorkspace.id, alias);
-}
-
 function openNewWorktree(managedWorkspace: ManagedWorkspace) {
   if (guardManagementTransition(() => openNewWorktree(managedWorkspace))) return;
-  workspaceSettingsOpen = false;
-  workspaceAliasWorkspace = undefined;
   managementView = undefined;
   worktreeSourceWorkspace = managedWorkspace;
 }
@@ -403,16 +368,13 @@ async function createIsolatedWorkspace(name: string): Promise<{ ok: boolean; err
 }
 
 async function createWorkspace() {
-  workspaceState.newWorkspaceOpen = false;
   if (guardManagementTransition(() => void createWorkspace())) return;
   if (workspaceNavigationGuard && !(await workspaceNavigationGuard())) return;
   if (await workspaceState.createWorkspace(tmuxStatus?.available)) restorePanelAfterWorkspaceChange();
 }
 
 function clearActiveWorkspace() {
-  workspaceSettingsOpen = false;
   reopenWithOpen = false;
-  workspaceAliasWorkspace = undefined;
   worktreeSourceWorkspace = undefined;
   managementView = undefined;
   mobilePanel = 'workspaces';
@@ -429,8 +391,13 @@ function closeWorkspaceNavigator() {
 
 function syncWorkspaceFromLocation(pathname = location.pathname) {
   const previousManagementView = managementView;
+  const workspaceSettingsMatch = /^\/workspaces\/([^/]+)\/settings\/?$/.exec(pathname);
   const automationMatch = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(pathname);
-  if (automationMatch) {
+  if (workspaceSettingsMatch) {
+    managementView = 'workspace-settings';
+    automationEditId = undefined;
+    workspaceState.syncLocation(`/workspaces/${workspaceSettingsMatch[1]}`);
+  } else if (automationMatch) {
     managementView = 'automations';
     automationEditId = new URLSearchParams(location.search).get('edit') ?? undefined;
     workspaceState.syncLocation(`/workspaces/${automationMatch[1]}`);
@@ -531,11 +498,6 @@ function handleWorkspaceShortcut(event: KeyboardEvent) {
 function handleOverlayKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
   if (isUiOverlayOpen()) return;
-  if (workspaceSettingsOpen) {
-    event.preventDefault();
-    workspaceSettingsOpen = false;
-    return;
-  }
   if (mobilePanel === 'workspaces' && workspaceState.hasOpenWorkspace) {
     event.preventDefault();
     closeWorkspaceNavigator();
@@ -690,8 +652,7 @@ onMount(() => {
           onOrderModeChange={(mode) => workspaceState.setWorkspaceOrderMode(mode)}
           onReorder={(draggedId, targetId, position) => workspaceState.reorderWorkspace(draggedId, targetId, position)}
           onOpen={openWorkspace}
-          onSettings={openStartupProfile}
-          onAlias={openWorkspaceAlias}
+          onSettings={openWorkspaceSettings}
           onNewWorktree={openNewWorktree}
           onAutomations={openWorkspaceAutomations}
           workspaceAction={workspaceState.workspaceAction}
@@ -707,30 +668,32 @@ onMount(() => {
           {/snippet}
         </WorkspaceNavigator>
 
-        {#if managementView === 'settings'}
+        {#if managementView === 'workspace-settings' && workspaceState.activeWorkspace}
+          <WorkspaceSettings
+            workspace={workspaceState.activeWorkspace}
+            profiles={workspaceState.launchProfiles}
+            onClose={closeManagementView}
+            onSave={(workspaceLabel, startupProfileId, composerTemplate) =>
+              workspaceState.updateWorkspaceSettings(
+                workspaceState.activeWorkspace!.id,
+                workspaceLabel,
+                startupProfileId,
+                composerTemplate
+              )}
+            onManageProfiles={() => void openApplicationSettings()}
+            onBusyChange={(value) => managementBusy = value}
+            onDirtyChange={(value) => managementDirty = value}
+          />
+        {:else if managementView === 'settings'}
           <AppSettingsPage
             launchProfiles={workspaceState.launchProfiles}
             defaultStartupProfileId={workspaceState.defaultStartupProfileId}
-            terminalInputSettings={terminalInputPreferences.settings}
-            terminalInputSettingsReady={terminalInputPreferences.loaded}
-            terminalInputSettingsError={terminalInputPreferences.loadError}
+            {workspaceShortcutModifier}
             composerHistorySettings={workspaceState.composerHistorySettings}
             workspaces={workspaceState.workspaces}
             close={closeManagementView}
             onSaveLaunchProfiles={(profiles, defaultProfileId, applyDefaultToAll) =>
               workspaceState.updateLaunchProfileSettings(profiles, defaultProfileId, applyDefaultToAll)}
-            onSaveTerminalInputSettings={async (settings) => {
-              try {
-                await terminalInputPreferences.update(settings);
-                return { ok: true };
-              } catch (error) {
-                return {
-                  ok: false,
-                  error: error instanceof Error ? error.message : 'Unable to save terminal input settings.',
-                };
-              }
-            }}
-            onReloadTerminalInputSettings={() => terminalInputPreferences.refresh()}
             onSaveComposerHistorySettings={(settings) => workspaceState.updateComposerHistorySettings(settings)}
             onManageAutomations={() => void openServerAutomations(workspaceState.requestedWorkspaceId)}
             onManageWidgets={() => void openStatusWidgets(workspaceState.requestedWorkspaceId)}
@@ -924,31 +887,19 @@ onMount(() => {
 
         {#if managementClosePrompt}
           <ConfirmDialog
-            title={managementView === 'settings' ? 'Discard unsaved settings?' : 'Discard unsaved widget changes?'}
-            description={managementView === 'settings'
-              ? 'Your application setting changes have not been saved. Discard them and leave settings?'
-              : 'Your widget edits have not been saved. Discard them and leave status widget settings?'}
+            title={managementView === 'workspace-settings'
+              ? 'Discard workspace setting changes?'
+              : managementView === 'settings'
+                ? 'Discard unsaved settings?'
+                : 'Discard unsaved widget changes?'}
+            description={managementView === 'workspace-settings'
+              ? 'Your workspace setting changes have not been saved. Discard them and leave settings?'
+              : managementView === 'settings'
+                ? 'Your application setting changes have not been saved. Discard them and leave settings?'
+                : 'Your widget edits have not been saved. Discard them and leave status widget settings?'}
             confirmLabel="Discard changes"
             close={cancelManagementClosePrompt}
             onConfirm={discardManagementChanges}
-          />
-        {/if}
-
-        {#if workspaceSettingsOpen && workspaceState.activeWorkspace}
-          <WorkspaceSettings
-            workspace={workspaceState.activeWorkspace}
-            profiles={workspaceState.launchProfiles}
-            onClose={() => workspaceSettingsOpen = false}
-            onSave={(startupProfileId, composerTemplate) =>
-              workspaceState.updateWorkspaceSettings(
-                workspaceState.activeWorkspace!.id,
-                startupProfileId,
-                composerTemplate
-              )}
-            onManageProfiles={() => {
-              workspaceSettingsOpen = false;
-              void openApplicationSettings();
-            }}
           />
         {/if}
 
@@ -961,14 +912,6 @@ onMount(() => {
             source={worktreeSourceWorkspace}
             close={() => worktreeSourceWorkspace = undefined}
             onCreate={createIsolatedWorkspace}
-          />
-        {/if}
-
-        {#if workspaceAliasWorkspace}
-          <WorkspaceAliasDialog
-            workspace={workspaceState.workspaces.find((candidate) => candidate.id === workspaceAliasWorkspace?.id) ?? workspaceAliasWorkspace}
-            close={() => workspaceAliasWorkspace = undefined}
-            onSave={saveWorkspaceAlias}
           />
         {/if}
       </div>

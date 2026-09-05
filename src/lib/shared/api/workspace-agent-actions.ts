@@ -35,7 +35,7 @@ export function loadWorkspaceAgentAction(
   ).then(({ action }) => action);
 }
 
-export function queueWorkspaceAgentAction(
+export function submitWorkspaceAgentAction(
   workspaceId: string,
   actionId: WorkspaceAgentActionId,
   request: string
@@ -47,6 +47,6 @@ export function queueWorkspaceAgentAction(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ request }),
     },
-    'Unable to queue the agent request'
+    'Unable to send the agent request'
   ).then(({ submission }) => submission);
 }

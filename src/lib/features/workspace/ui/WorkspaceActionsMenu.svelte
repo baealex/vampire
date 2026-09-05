@@ -3,7 +3,6 @@ import Clock3 from '@lucide/svelte/icons/clock-3';
 import Ellipsis from '@lucide/svelte/icons/ellipsis';
 import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 import LogOut from '@lucide/svelte/icons/log-out';
-import Tags from '@lucide/svelte/icons/tags';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import DropdownMenuGroup from '~/lib/shared/ui/DropdownMenuGroup.svelte';
@@ -22,7 +21,6 @@ let {
   closeWorkspace,
   remove,
   onSettings,
-  onAlias,
   onNewWorktree,
   onAutomations,
 }: {
@@ -33,7 +31,6 @@ let {
   closeWorkspace: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   remove: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   onSettings: (workspace: ManagedWorkspace) => void;
-  onAlias: (workspace: ManagedWorkspace) => void;
   onNewWorktree: (workspace: ManagedWorkspace) => void;
   onAutomations: (workspace: ManagedWorkspace) => void;
 } = $props();
@@ -126,10 +123,6 @@ async function confirmSelectedAction() {
       </div>
     {:else}
       <DropdownMenuGroup label="Configuration">
-        <DropdownMenuItem onSelect={() => onAlias(workspace)}>
-          <Tags size={16} strokeWidth={1.8} aria-hidden="true" />
-          {workspace.workspaceLabel?.trim() ? 'Edit workspace alias' : 'Set workspace alias'}
-        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onSettings(workspace)}>
           <Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
           Workspace settings

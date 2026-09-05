@@ -27,6 +27,7 @@ import {
   readManagedWorkspaceComposerPromptPreview,
 } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
 import { prepareWorkspaceAutomationRequestRemoval } from '~/lib/features/workspace/server/workspace-automation-request-files.server.ts';
+import { prepareWorkspaceBackgroundRequestRemoval } from '~/lib/features/workspace/server/workspace-background-request-files.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
@@ -48,7 +49,12 @@ import {
 } from '~/lib/features/repository/server/git-worktree.server.ts';
 import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
-import type { LaunchProfile, LaunchProfileSettings, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import {
+  WORKSPACE_ALIAS_MAX_LENGTH,
+  type LaunchProfile,
+  type LaunchProfileSettings,
+  type WorkspacePreferences,
+} from '~/lib/shared/contracts/workspace.ts';
 import type { WorkspaceComposerPromptPreview } from '~/lib/shared/contracts/workspace-composer-history.ts';
 import {
   DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
@@ -56,9 +62,8 @@ import {
 } from '~/lib/shared/contracts/workspace-composer-template.ts';
 import { validateComposerTemplate } from '~/lib/shared/lib/composer-template.ts';
 
-export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
 export const MAX_BACKGROUND_PROCESSES = 8;
-export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS };
+export { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS, WORKSPACE_ALIAS_MAX_LENGTH };
 
 export interface ManagedWorkspace extends Omit<StoredWorkspace, 'automations'> {
   notePreview: string;
@@ -303,22 +308,23 @@ export async function updateManagedWorkspacePreferences(input: WorkspacePreferen
 
 export async function updateManagedWorkspaceSettings(
   id: string,
-  input: { startupProfileId: string | null; composerTemplate: string }
-): Promise<{ startupProfileId: string | null; composerTemplate: string }> {
+  input: { workspaceLabel: string; startupProfileId: string | null; composerTemplate: string }
+): Promise<{ workspaceLabel: string; startupProfileId: string | null; composerTemplate: string }> {
   return exclusively(async () => {
     const state = await readState();
     const index = state.workspaces.findIndex((workspace) => workspace.id === id);
     if (index < 0) throw new WorkspaceMutationError('not-found', 'Workspace was not found.');
 
+    const workspaceLabel = normalizeWorkspaceAlias(input.workspaceLabel);
     const startupProfileId = input.startupProfileId?.trim() ?? null;
     if (startupProfileId !== null && !state.launchProfiles.some((profile) => profile.id === startupProfileId)) {
       throw new WorkspaceMutationError('invalid-startup-profile', 'The startup profile was not found.');
     }
     const composerTemplate = validateWorkspaceComposerTemplate(input.composerTemplate);
     const workspaces = [...state.workspaces];
-    workspaces[index] = { ...workspaces[index], startupProfileId, composerTemplate };
+    workspaces[index] = { ...workspaces[index], workspaceLabel, startupProfileId, composerTemplate };
     await writeState({ ...state, workspaces });
-    return { startupProfileId, composerTemplate };
+    return { workspaceLabel, startupProfileId, composerTemplate };
   });
 }
 
@@ -903,10 +909,11 @@ export async function removeManagedWorkspace(id: string): Promise<void> {
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
+    const removeBackgroundRequests = await prepareWorkspaceBackgroundRequestRemoval(stored.id);
     const removeWorkspaceState = await prepareStructuredWorkspaceStateRemoval(stored.id);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
+    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests(), removeBackgroundRequests()]);
     await removeWorkspaceState();
   });
 }
@@ -920,11 +927,12 @@ export async function stopAndRemoveManagedWorkspace(id: string): Promise<void> {
     const removeNote = await prepareManagedWorkspaceNoteRemoval(stored.id);
     const removeComposerHistory = await prepareManagedWorkspaceComposerHistoryRemoval(stored.id);
     const removeAutomationRequests = await prepareWorkspaceAutomationRequestRemoval(stored.id);
+    const removeBackgroundRequests = await prepareWorkspaceBackgroundRequestRemoval(stored.id);
     const removeWorkspaceState = await prepareStructuredWorkspaceStateRemoval(stored.id);
     await killTmuxSession(stored.tmuxSession);
     await cleanupManagedWorktree(stored);
     await writeState({ ...state, workspaces: state.workspaces.filter((workspace) => workspace.id !== id) });
-    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests()]);
+    await Promise.all([removeNote(), removeComposerHistory(), removeAutomationRequests(), removeBackgroundRequests()]);
     await removeWorkspaceState();
   });
 }

@@ -1,13 +1,20 @@
 <script lang="ts">
+import Eye from '@lucide/svelte/icons/eye';
+import MessageSquareText from '@lucide/svelte/icons/message-square-text';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Save from '@lucide/svelte/icons/save';
+import Send from '@lucide/svelte/icons/send';
 import { untrack } from 'svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
-import ConfirmDialog from '~/lib/shared/ui/ConfirmDialog.svelte';
-import DialogActions from '~/lib/shared/ui/DialogActions.svelte';
-import DialogShell from '~/lib/shared/ui/DialogShell.svelte';
+import CodeEditor from '~/lib/shared/ui/CodeEditor.svelte';
+import Input from '~/lib/shared/ui/Input.svelte';
+import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 import Textarea from '~/lib/shared/ui/Textarea.svelte';
-import type { LaunchProfile, ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import {
+  WORKSPACE_ALIAS_MAX_LENGTH,
+  type LaunchProfile,
+  type ManagedWorkspace,
+} from '~/lib/shared/contracts/workspace.ts';
 import {
   DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
   WORKSPACE_COMPOSER_TEMPLATE_MAX_LENGTH,
@@ -25,33 +32,66 @@ let {
   onClose,
   onSave,
   onManageProfiles,
+  onBusyChange = () => undefined,
+  onDirtyChange = () => undefined,
 }: {
   workspace: ManagedWorkspace;
   profiles: LaunchProfile[];
   onClose: () => void;
-  onSave: (startupProfileId: string | null, composerTemplate: string) => Promise<{ ok: boolean; error?: string }>;
+  onSave: (
+    workspaceLabel: string,
+    startupProfileId: string | null,
+    composerTemplate: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   onManageProfiles: () => void;
+  onBusyChange?: (busy: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 } = $props();
 
+let workspaceLabel = $state(untrack(() => workspace.workspaceLabel?.trim() ?? ''));
+let syncedWorkspaceLabel = $state(untrack(() => workspace.workspaceLabel?.trim() ?? ''));
 let selectedProfileId = $state<string | null>(untrack(() => workspace.startupProfileId));
 let syncedSelection = $state(untrack(() => workspace.startupProfileId));
 let composerTemplate = $state(untrack(() => workspace.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE));
 let syncedComposerTemplate = $state(untrack(() => workspace.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE));
 let previewPrompt = $state('Review the current changes and continue the work.');
-let templateElement = $state<HTMLTextAreaElement>();
+let previewOpen = $state(false);
+let templateEditor = $state<{ focus: () => void; insert: (text: string) => void }>();
 let saving = $state(false);
 let savingError = $state('');
-let discardPrompt = $state(false);
+let savedMessage = $state('');
 const workspaceName = $derived(getWorkspaceName(workspace));
+const previewWorkspaceName = $derived(getWorkspaceName({ ...workspace, workspaceLabel: workspaceLabel.trim() }));
+const aliasValidationError = $derived(
+  /[\0\r\n\t]/.test(workspaceLabel) || workspaceLabel.trim().length > WORKSPACE_ALIAS_MAX_LENGTH
+    ? `Aliases must stay on one line and be ${WORKSPACE_ALIAS_MAX_LENGTH} characters or fewer.`
+    : ''
+);
 const templateValidationError = $derived(validateComposerTemplate(composerTemplate));
 const preview = $derived(
   renderComposerTemplate(composerTemplate, previewPrompt, {
-    workspace: { name: workspaceName, cwd: workspace.cwd },
+    workspace: { name: previewWorkspaceName, cwd: workspace.cwd },
   })
 );
 const hasUnsavedChanges = $derived(
-  selectedProfileId !== syncedSelection || composerTemplate !== syncedComposerTemplate
+  workspaceLabel.trim() !== syncedWorkspaceLabel ||
+    selectedProfileId !== syncedSelection ||
+    composerTemplate !== syncedComposerTemplate
 );
+
+$effect(() => onBusyChange(saving));
+$effect(() => onDirtyChange(hasUnsavedChanges));
+$effect(() => {
+  if (hasUnsavedChanges) savedMessage = '';
+});
+
+$effect(() => {
+  const incoming = workspace.workspaceLabel?.trim() ?? '';
+  if (incoming === syncedWorkspaceLabel) return;
+  if (untrack(() => workspaceLabel.trim()) !== syncedWorkspaceLabel) return;
+  workspaceLabel = incoming;
+  syncedWorkspaceLabel = incoming;
+});
 
 $effect(() => {
   const incoming = workspace.startupProfileId;
@@ -76,77 +116,84 @@ $effect(() => {
 });
 
 function insertVariable(token: string) {
-  const start = templateElement?.selectionStart ?? composerTemplate.length;
-  const end = templateElement?.selectionEnd ?? start;
-  composerTemplate = `${composerTemplate.slice(0, start)}${token}${composerTemplate.slice(end)}`;
-  const caret = start + token.length;
-  requestAnimationFrame(() => {
-    templateElement?.focus();
-    templateElement?.setSelectionRange(caret, caret);
-  });
-}
-
-function requestClose() {
-  if (saving) return;
-  if (hasUnsavedChanges) {
-    discardPrompt = true;
-    return;
-  }
-  onClose();
+  if (templateEditor) templateEditor.insert(token);
+  else composerTemplate += token;
 }
 
 async function save() {
-  if (templateValidationError) return;
+  if (templateValidationError || aliasValidationError) return;
   saving = true;
   savingError = '';
+  savedMessage = '';
   try {
-    const result = await onSave(selectedProfileId, composerTemplate);
+    const normalizedWorkspaceLabel = workspaceLabel.trim();
+    const result = await onSave(normalizedWorkspaceLabel, selectedProfileId, composerTemplate);
     if (!result.ok) {
       savingError = result.error ?? 'Unable to save workspace settings.';
       return;
     }
+    workspaceLabel = normalizedWorkspaceLabel;
+    syncedWorkspaceLabel = normalizedWorkspaceLabel;
     syncedSelection = selectedProfileId;
     syncedComposerTemplate = composerTemplate;
-    onClose();
+    savedMessage = 'Workspace settings saved.';
   } finally {
     saving = false;
   }
 }
 </script>
 
-<DialogShell
+<ManagementSurface
   eyebrow={workspaceName}
   title="Workspace settings"
-  close={requestClose}
-  variant="inspect"
-  closeDisabled={saving}
-  footerVisible={saving || hasUnsavedChanges}
+  titleId="workspace-settings-title"
+  close={onClose}
+  closeLabel="Close workspace settings"
+  busy={saving}
 >
   {#snippet children()}
     <div class="workspace-settings-dialog">
-      <section class="settings-group" aria-labelledby="composer-template-title">
+      <section class="settings-group" aria-labelledby="workspace-identity-title">
         <div class="group-heading">
           <div>
-            <h3 id="composer-template-title">Compose template</h3>
-            <p>Wrap every message sent from Compose with instructions and workspace context.</p>
+            <h2 id="workspace-identity-title">Identity</h2>
+            <p>Choose the name Vampire shows without changing the project folder.</p>
           </div>
           <span class="scope-badge">Workspace</span>
         </div>
 
-        <label class="template-field" for="composer-template">
-          <span>Template</span>
-          <Textarea
-            id="composer-template"
-            bind:element={templateElement}
-            bind:value={composerTemplate}
-            rows={8}
-            size="code"
-            maxlength={WORKSPACE_COMPOSER_TEMPLATE_MAX_LENGTH}
+        <label class="alias-field" for="workspace-alias">
+          <span>Alias</span>
+          <Input
+            id="workspace-alias"
+            bind:value={workspaceLabel}
+            maxlength={WORKSPACE_ALIAS_MAX_LENGTH}
+            placeholder="Use folder name"
             disabled={saving}
-            spellcheck={false}
-            ariaDescribedby="composer-template-guide composer-template-feedback"
+            autocomplete="off"
+            ariaDescribedby="workspace-alias-help"
           />
         </label>
+        <p id="workspace-alias-help" class="field-help">
+          Leave empty to use the folder name. Each worktree keeps its own workspace name.
+        </p>
+        {#if aliasValidationError}
+          <p class="feedback" role="alert">{aliasValidationError}</p>
+        {/if}
+        <div class="workspace-path">
+          <span>Directory</span>
+          <code>{workspace.cwd}</code>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="composer-template-title">
+        <div class="group-heading">
+          <div>
+            <h2 id="composer-template-title">Compose template</h2>
+            <p>Wrap every message sent from Compose with instructions and workspace context.</p>
+          </div>
+          <span class="scope-badge">Workspace</span>
+        </div>
 
         <div class="variable-guide" id="composer-template-guide">
           <div>
@@ -168,45 +215,98 @@ async function save() {
           </div>
         </div>
 
-        <div id="composer-template-feedback">
-          {#if templateValidationError}
-            <p class="feedback" role="alert">
-              {templateValidationError}
-              The original Compose message is always used as a safe fallback.
-            </p>
-          {:else if preview.error}
-            <p class="feedback" role="alert">{preview.error}</p>
-          {/if}
-        </div>
-
-        <div class="preview-grid">
-          <label class="preview-input" for="composer-preview-prompt">
-            <span>Preview message</span>
-            <Textarea
-              id="composer-preview-prompt"
-              bind:value={previewPrompt}
-              rows={3}
-              maxlength={4_096}
-              disabled={saving}
-              spellcheck={false}
-            />
-          </label>
-          <div class="preview-output">
-            <div>
-              <span>Sent to the shell</span>
-              {#if preview.usedFallback}
-                <small>Original message fallback</small>
-              {/if}
+        <div class="template-column">
+          <div class="template-field">
+            <div class="template-field-heading">
+              <span>Template source</span>
+              <small
+                >{composerTemplate.length.toLocaleString()}
+                / {WORKSPACE_COMPOSER_TEMPLATE_MAX_LENGTH.toLocaleString()}</small
+              >
             </div>
-            <pre>{preview.text}</pre>
+            <CodeEditor
+              value={composerTemplate}
+              ariaLabel="Template source"
+              placeholder={'Write the instructions wrapped around {{ prompts }}'}
+              maxlength={WORKSPACE_COMPOSER_TEMPLATE_MAX_LENGTH}
+              disabled={saving}
+              compact
+              onReady={(controller) => templateEditor = controller}
+              onValueChange={(value) => composerTemplate = value}
+            />
           </div>
+
+          <div id="composer-template-feedback">
+            {#if templateValidationError}
+              <p class="feedback" role="alert">
+                {templateValidationError}
+                The original Compose message is always used as a safe fallback.
+              </p>
+            {:else if preview.error}
+              <p class="feedback" role="alert">{preview.error}</p>
+            {/if}
+          </div>
+
+          <div class="preview-control">
+            <p>
+              {composerTemplate === DEFAULT_WORKSPACE_COMPOSER_TEMPLATE
+                ? 'Compose messages are currently sent unchanged.'
+                : 'Check the exact main-shell payload only when you need it.'}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              ariaExpanded={previewOpen}
+              ariaControls="composer-template-preview"
+              onclick={() => previewOpen = !previewOpen}
+            >
+              <Eye size={15} strokeWidth={1.8} aria-hidden="true" />
+              <span>{previewOpen ? 'Hide preview' : 'Preview payload'}</span>
+            </Button>
+          </div>
+
+          {#if previewOpen}
+            <div id="composer-template-preview" class="compose-preview" aria-labelledby="compose-preview-title">
+              <div class="compose-preview-heading">
+                <div>
+                  <h3 id="compose-preview-title">Payload preview</h3>
+                  <p>Try an example message before saving the template.</p>
+                </div>
+                <small>{previewWorkspaceName}</small>
+              </div>
+              <div class="preview-comparison">
+                <label class="preview-input" for="composer-preview-prompt">
+                  <span><MessageSquareText size={15} strokeWidth={1.8} aria-hidden="true" /> Compose message</span>
+                  <Textarea
+                    id="composer-preview-prompt"
+                    bind:value={previewPrompt}
+                    rows={3}
+                    maxlength={4_096}
+                    disabled={saving}
+                    spellcheck={false}
+                  />
+                </label>
+                <div class="preview-output">
+                  <div>
+                    <span><Send size={15} strokeWidth={1.8} aria-hidden="true" /> Main shell payload</span>
+                    {#if preview.usedFallback}
+                      <small>Safe fallback: original message</small>
+                    {:else}
+                      <small>Exact payload</small>
+                    {/if}
+                  </div>
+                  <pre>{preview.text}</pre>
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
       </section>
 
       <section class="settings-group" aria-labelledby="startup-profile-title">
         <div class="group-heading profile-heading">
           <div>
-            <h3 id="startup-profile-title">Startup profile</h3>
+            <h2 id="startup-profile-title">Startup profile</h2>
             <p>The selected command runs the next time this shell is opened. Running terminals are not changed.</p>
           </div>
           <Button
@@ -259,31 +359,25 @@ async function save() {
       {#if savingError}
         <p class="feedback" role="alert">{savingError}</p>
       {/if}
+      {#if savedMessage}
+        <p class="saved-message" role="status">{savedMessage}</p>
+      {/if}
     </div>
   {/snippet}
 
   {#snippet footer()}
-    <DialogActions>
-      <Button variant="primary" onclick={() => void save()} disabled={saving || Boolean(templateValidationError)}>
+    <div class="settings-actions">
+      <Button
+        variant="primary"
+        onclick={() => void save()}
+        disabled={saving || !hasUnsavedChanges || Boolean(templateValidationError) || Boolean(aliasValidationError)}
+      >
         <Save size={15} strokeWidth={1.9} aria-hidden="true" />
         <span>{saving ? 'Saving…' : 'Save workspace settings'}</span>
       </Button>
-    </DialogActions>
+    </div>
   {/snippet}
-</DialogShell>
-
-{#if discardPrompt}
-  <ConfirmDialog
-    title="Discard workspace setting changes?"
-    description="Your Compose template or startup profile change has not been saved."
-    confirmLabel="Discard changes"
-    close={() => discardPrompt = false}
-    onConfirm={async () => {
-      discardPrompt = false;
-      onClose();
-    }}
-  />
-{/if}
+</ManagementSurface>
 
 <style>
 .workspace-settings-dialog {
@@ -306,8 +400,9 @@ async function save() {
   justify-content: space-between;
   gap: 1rem;
 }
-.group-heading h3,
-.template-field > span,
+.group-heading h2,
+.alias-field > span,
+.template-field-heading > span,
 .preview-input > span,
 .preview-output > div > span,
 .variable-guide strong {
@@ -332,14 +427,60 @@ async function save() {
   color: var(--color-text-tertiary);
   font-size: var(--text-nano);
 }
+.alias-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.field-help {
+  margin: -0.2rem 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: var(--leading-ui);
+}
+.workspace-path {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-control-background);
+}
+.workspace-path span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+}
+.workspace-path code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .template-field,
 .preview-input {
   display: grid;
   gap: 0.35rem;
   min-width: 0;
 }
-.template-field :global(.textarea--code) {
-  min-height: 9.5rem;
+.template-field-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.template-field-heading small {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-nano);
+}
+.template-column {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
 }
 .variable-guide {
   display: grid;
@@ -381,13 +522,79 @@ async function save() {
   font-family: var(--font-mono);
   font-size: var(--text-nano);
 }
-.preview-grid {
+.preview-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.preview-control p {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.preview-control :global(.vampire-button) {
+  flex: 0 0 auto;
+}
+.compose-preview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.65rem;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 44%),
+    var(--color-panel);
+}
+.compose-preview-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.compose-preview-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+.compose-preview-heading > small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+}
+.compose-preview-heading h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-title);
+  font-weight: var(--weight-strong);
+}
+.compose-preview-heading p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+.compose-preview-heading > small {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-input > span,
+.preview-output > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .preview-input :global(textarea) {
-  min-height: 8rem;
+  min-height: 5.5rem;
+  background: var(--color-field-background);
+}
+.preview-comparison {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
 }
 .preview-output {
   display: grid;
@@ -406,14 +613,14 @@ async function save() {
   font-size: var(--text-nano);
 }
 .preview-output pre {
-  min-height: 8rem;
-  max-height: 15rem;
+  min-height: 5.5rem;
+  max-height: 12rem;
   margin: 0;
   padding: var(--space-4) var(--control-padding-inline-sm);
   overflow: auto;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid color-mix(in srgb, var(--color-command) 38%, var(--color-border));
   border-radius: var(--radius-sm);
-  background: var(--color-field-background);
+  background: var(--color-code-background);
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--text-caption);
@@ -489,17 +696,40 @@ async function save() {
   background: var(--color-danger-surface-hover);
   color: var(--color-danger-text);
 }
+.saved-message {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-success-surface);
+  color: var(--color-success-text);
+  font-size: var(--text-caption);
+  line-height: var(--leading-body);
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
 @media (max-width: 38rem) {
   .group-heading,
   .profile-heading {
     align-items: stretch;
     flex-direction: column;
   }
+  .scope-badge {
+    align-self: flex-start;
+  }
   .profile-heading :global(.vampire-button) {
     align-self: flex-start;
   }
-  .preview-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .preview-control {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (min-width: 64rem) {
+  .preview-comparison {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
   }
 }
 </style>

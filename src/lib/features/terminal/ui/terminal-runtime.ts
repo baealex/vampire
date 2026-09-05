@@ -19,6 +19,7 @@ import { TerminalScreenSync } from './screen-sync.ts';
 import { installTerminalTouchScroll } from './touch-scroll.ts';
 import { TerminalOutputSequence } from './output-sequence.ts';
 import { COMPACT_MEDIA_QUERY, hasFinePointer } from '~/lib/shared/ui/layout';
+import { isComposeFocusShortcut, terminalControlData, type TerminalControlKey } from '../model/terminal-control.ts';
 
 const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
@@ -55,7 +56,9 @@ export interface TerminalRuntimeOptions {
   getTheme: () => ITheme;
   shouldAutoFocus: () => boolean;
   onFontSizeChange: (size: number) => void;
+  onComposeShortcut: () => void;
   onInputActivity: (workspaceId: string, timestamp: number) => void;
+  onTerminalInput: () => void;
   onOutputActivity: (workspaceId: string, active: boolean, timestamp?: number) => void;
   onRepositoryStatus: (changeCount: number, worktreeCount: number, branch?: string) => void;
   onStateChange: (state: Readonly<TerminalRuntimeState>) => void;
@@ -160,16 +163,6 @@ export class TerminalRuntime {
     this.#terminal?.focus();
   }
 
-  shouldPreserveDirectFocus(): boolean {
-    const terminal = this.#terminal;
-    return Boolean(
-      terminal &&
-        (terminal.hasSelection() ||
-          terminal.buffer.active.type === 'alternate' ||
-          terminal.modes.mouseTrackingMode !== 'none')
-    );
-  }
-
   scrollToTop(): void {
     if (!this.#requestHistory({ toTop: true, loadAll: true })) this.#terminal?.scrollToTop();
   }
@@ -197,6 +190,10 @@ export class TerminalRuntime {
   send(data: string): void {
     if (!this.#connection?.send({ type: 'input', data })) return;
     this.#markInputActivity();
+  }
+
+  sendControl(control: TerminalControlKey): void {
+    this.send(terminalControlData(control, this.#terminal?.modes.applicationCursorKeysMode === true));
   }
 
   submit(data: string): boolean {
@@ -328,6 +325,12 @@ export class TerminalRuntime {
       onOverflow: () => this.#pauseOutput(),
     });
     terminal.attachCustomKeyEventHandler((event) => {
+      if (isComposeFocusShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.type === 'keydown') this.#options.onComposeShortcut();
+        return false;
+      }
       if (event.key !== 'Enter' || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return true;
       event.preventDefault();
       if (event.type === 'keydown') this.send('\u001b[13;2u');
@@ -780,6 +783,7 @@ export class TerminalRuntime {
   #handleTerminalData(data: string): void {
     const reports = parseTerminalColorReports(data);
     if (!reports) {
+      this.#options.onTerminalInput();
       this.send(data);
       return;
     }

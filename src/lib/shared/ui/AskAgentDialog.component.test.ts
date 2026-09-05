@@ -11,7 +11,7 @@ const descriptor: WorkspaceAgentActionDescriptor = {
   id: 'status-widget',
   title: 'Create a status widget with an agent',
   description: 'Vampire supplies the live widget contract.',
-  target: { workspaceId: 'workspace-1', workspaceLabel: 'Vampire', agentLabel: 'codex' },
+  target: { workspaceId: 'workspace-1', workspaceLabel: 'Vampire', processLabel: 'node' },
   context: [
     { label: 'Widget configuration', value: '/state/status-plugins.json' },
     { label: 'Widget guide', value: '/state/agent-guides/status-widget.md' },
@@ -23,8 +23,8 @@ const descriptor: WorkspaceAgentActionDescriptor = {
 
 const submission: WorkspaceAgentActionSubmission = {
   actionId: 'status-widget',
-  status: 'queued',
-  queuedAt: 1,
+  status: 'submitted',
+  submittedAt: 1,
   prompt: 'Create the widget.',
 };
 
@@ -32,17 +32,17 @@ test('shows supplied context and submits only the user request', async () => {
   const user = userEvent.setup();
   const close = vi.fn();
   const submit = vi.fn(async () => submission);
-  const onQueued = vi.fn();
+  const onSubmitted = vi.fn();
   render(AskAgentDialog, {
     close,
     load: vi.fn(async () => descriptor),
     submit,
-    onQueued,
+    onSubmitted,
   });
 
   expect(await screen.findByText('/state/status-plugins.json')).toBeInTheDocument();
   expect(screen.getByText('/state/agent-guides/status-widget.md')).toBeInTheDocument();
-  expect(screen.getByText('codex')).toBeInTheDocument();
+  expect(screen.getByText('node')).toBeInTheDocument();
   expect(screen.getByText('Vampire')).toBeInTheDocument();
 
   const request = screen.getByRole('textbox', { name: 'What widget should the agent create?' });
@@ -52,7 +52,7 @@ test('shows supplied context and submits only the user request', async () => {
   await user.click(send);
 
   await waitFor(() => expect(submit).toHaveBeenCalledWith('Show unread GitHub notifications.'));
-  expect(onQueued).toHaveBeenCalledWith(submission);
+  expect(onSubmitted).toHaveBeenCalledWith(submission);
   expect(close).toHaveBeenCalledTimes(1);
 });
 
@@ -60,11 +60,11 @@ test('keeps the dialog open and offers retry when context loading fails', async 
   const user = userEvent.setup();
   const load = vi
     .fn<() => Promise<WorkspaceAgentActionDescriptor>>()
-    .mockRejectedValueOnce(new Error('Start a supported agent.'))
+    .mockRejectedValueOnce(new Error('Start a foreground process.'))
     .mockResolvedValueOnce(descriptor);
   render(AskAgentDialog, { close: vi.fn(), load, submit: vi.fn(async () => submission) });
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Start a supported agent.');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Start a foreground process.');
   await user.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText('/state/status-plugins.json')).toBeInTheDocument();
   expect(load).toHaveBeenCalledTimes(2);

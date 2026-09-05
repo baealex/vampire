@@ -15,7 +15,7 @@ let {
   close,
   load,
   submit,
-  onQueued = () => undefined,
+  onSubmitted = () => undefined,
   onSubmittingChange = () => undefined,
   embedded = false,
   showTarget = true,
@@ -24,7 +24,7 @@ let {
   close: () => void;
   load: () => Promise<WorkspaceAgentActionDescriptor>;
   submit: (request: string) => Promise<WorkspaceAgentActionSubmission>;
-  onQueued?: (submission: WorkspaceAgentActionSubmission) => void;
+  onSubmitted?: (submission: WorkspaceAgentActionSubmission) => void;
   onSubmittingChange?: (submitting: boolean) => void;
   embedded?: boolean;
   showTarget?: boolean;
@@ -63,10 +63,10 @@ async function submitRequest() {
   errorMessage = '';
   try {
     const submission = await submit(request.trim());
-    onQueued(submission);
+    onSubmitted(submission);
     close();
   } catch (error) {
-    errorMessage = error instanceof Error ? error.message : 'The agent request could not be queued.';
+    errorMessage = error instanceof Error ? error.message : 'The agent request could not be sent.';
   } finally {
     submitting = false;
     onSubmittingChange(false);
@@ -96,7 +96,7 @@ function handleEmbeddedKeydown(event: KeyboardEvent) {
       {#if showTarget}
         <div class="ask-agent__target">
           <span>Send to</span>
-          <strong>{descriptor.target.agentLabel}</strong>
+          <strong>{descriptor.target.processLabel}</strong>
           <small>{descriptor.target.workspaceLabel}</small>
         </div>
       {/if}
@@ -149,7 +149,7 @@ function handleEmbeddedKeydown(event: KeyboardEvent) {
       disabled={!descriptor || !request.trim() || loading || submitting}
     >
       <Send size={15} strokeWidth={1.9} aria-hidden="true" />
-      <span>{submitting ? 'Queuing…' : 'Send to agent'}</span>
+      <span>{submitting ? 'Sending…' : 'Send to agent'}</span>
     </Button>
   {/if}
 {/snippet}

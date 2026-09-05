@@ -1,22 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  inferAgentState,
-  isAgentProcessLabel,
-} from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
+import { inferAgentState } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 
-const codex = { kind: 'command' as const, label: 'codex' };
-
-test('recognizes supported terminal agent process labels', () => {
-  assert.equal(isAgentProcessLabel('codex'), true);
-  assert.equal(isAgentProcessLabel('Claude'), true);
-  assert.equal(isAgentProcessLabel('node'), false);
-});
+const foregroundCommand = { kind: 'command' as const, label: 'project-runner' };
 
 test('keeps an agent working while its interrupt status is visible', () => {
   assert.equal(
     inferAgentState(
-      codex,
+      foregroundCommand,
       `
 • Ran pnpm check
 
@@ -32,7 +23,7 @@ test('keeps an agent working while its interrupt status is visible', () => {
 test('marks an agent waiting only after its working status has cleared', () => {
   assert.equal(
     inferAgentState(
-      codex,
+      foregroundCommand,
       `
 The change is complete.
 
@@ -45,6 +36,7 @@ The change is complete.
   );
 });
 
-test('does not inspect arbitrary foreground commands as agents', () => {
-  assert.equal(inferAgentState({ kind: 'command', label: 'node' }, 'esc to interrupt\n> '), null);
+test('infers display state for an arbitrary foreground command', () => {
+  assert.equal(inferAgentState({ kind: 'command', label: 'node' }, '> '), 'waiting');
+  assert.equal(inferAgentState({ kind: 'shell', label: 'zsh' }, '> '), null);
 });

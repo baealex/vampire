@@ -22,7 +22,7 @@ import Input from '~/lib/shared/ui/Input.svelte';
 import Select from '~/lib/shared/ui/Select.svelte';
 import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
-import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions.ts';
+import { loadWorkspaceAgentAction, submitWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions.ts';
 import {
   cloneStatusPlugins,
   createStatusPluginPreset,
@@ -37,7 +37,7 @@ import {
 } from '~/lib/shared/contracts/status-plugin.ts';
 import StatusWidgetGuide from './StatusWidgetGuide.svelte';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
-import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
+import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 
 type StatusPluginResponse = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
 type SettingsView = 'list' | 'detail';
@@ -70,18 +70,14 @@ let viewBeforeGuide = $state<SettingsView>('list');
 let selectedPluginId = $state<string>();
 let selectedTargetWorkspaceId = $state('');
 let agentSubmitting = $state(false);
-let agentMessage = $state('');
 const hasUnsavedChanges = $derived(JSON.stringify(plugins) !== loadedPlugins);
 const atCapacity = $derived(plugins.length >= MAX_STATUS_PLUGINS);
 const selectedPlugin = $derived(plugins.find((plugin) => plugin.id === selectedPluginId));
 const agentTargets = $derived(
   workspaces
     .flatMap((workspace) => {
-      const main = workspace.terminals.find((terminal) => terminal.index === 0);
-      const process = main?.foregroundProcess ?? workspace.foregroundProcess;
-      return workspace.state === 'running' && process?.kind === 'command' && isAgentProcessLabel(process.label)
-        ? [{ workspace, agentLabel: process.label }]
-        : [];
+      const process = mainWorkspacePromptTarget(workspace);
+      return process ? [{ workspace, processLabel: process.label }] : [];
     })
     .sort((left, right) => right.workspace.lastActiveAt - left.workspace.lastActiveAt)
 );
@@ -208,16 +204,15 @@ function openAgentView() {
     return;
   }
   const targetWorkspaceId =
-    (workspaceId && workspaces.some((workspace) => workspace.id === workspaceId) ? workspaceId : undefined) ??
+    agentTargets.find(({ workspace }) => workspace.id === workspaceId)?.workspace.id ??
     (agentTargets.some(({ workspace }) => workspace.id === selectedTargetWorkspaceId)
       ? selectedTargetWorkspaceId
       : agentTargets[0]?.workspace.id);
   if (!targetWorkspaceId) {
-    errorMessage = 'Start a supported agent in a workspace before using Ask agent.';
+    errorMessage = 'Start a foreground process in a workspace’s main terminal before using Ask agent.';
     return;
   }
   selectedTargetWorkspaceId = targetWorkspaceId;
-  agentMessage = '';
   errorMessage = '';
   view = 'agent';
 }
@@ -331,15 +326,15 @@ onDestroy(() => unsubscribe?.());
             {#if selectedFallbackWorkspace}
               <option value={selectedFallbackWorkspace.id}>
                 {selectedFallbackWorkspace.workspaceLabel?.trim() || selectedFallbackWorkspace.cwd}
-                · checking agent…
+                · checking process…
               </option>
             {:else if agentTargets.length === 0}
-              <option value="">No running main agent</option>
+              <option value="">No running foreground process</option>
             {/if}
             {#each agentTargets as target (target.workspace.id)}
               <option value={target.workspace.id}>
                 {target.workspace.workspaceLabel?.trim() || target.workspace.cwd}
-                · {target.agentLabel}
+                · {target.processLabel}
               </option>
             {/each}
           </Select>
@@ -353,16 +348,14 @@ onDestroy(() => unsubscribe?.());
               showEmbeddedBack={false}
               close={() => void closeAgentView()}
               load={() => loadWorkspaceAgentAction(selectedTargetWorkspaceId, 'status-widget')}
-              submit={(request) => queueWorkspaceAgentAction(selectedTargetWorkspaceId, 'status-widget', request)}
-              onQueued={() => {
-                agentMessage = 'Widget request sent to the selected main agent.';
-                void load(true);
-              }}
+              submit={(request) => submitWorkspaceAgentAction(selectedTargetWorkspaceId, 'status-widget', request)}
               onSubmittingChange={(value) => agentSubmitting = value}
             />
           {/key}
         {:else}
-          <DialogEmptyState>Start a supported agent in a workspace to create a widget with Ask Agent.</DialogEmptyState>
+          <DialogEmptyState
+            >Start a foreground process in a workspace’s main terminal to use Ask Agent.</DialogEmptyState
+          >
         {/if}
       </div>
     {:else}
@@ -380,7 +373,12 @@ onDestroy(() => unsubscribe?.());
                 variant="secondary"
                 size="sm"
                 onclick={openAgentView}
-                disabled={loading}
+                disabled={loading || hasUnsavedChanges || agentTargets.length === 0}
+                title={hasUnsavedChanges
+                  ? 'Save widget changes before using Ask agent.'
+                  : agentTargets.length === 0
+                    ? 'Start a foreground process in a workspace’s main terminal first.'
+                    : undefined}
               >
                 <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
                 <span>Ask agent…</span>
@@ -482,11 +480,8 @@ onDestroy(() => unsubscribe?.());
             <p class="status-agent-hint">
               Save changes before asking an agent to update the global widget configuration.
             </p>
-          {:else if !selectedTargetWorkspaceId}
-            <p class="status-agent-hint">Start a supported agent in a workspace to use Ask Agent.</p>
-          {/if}
-          {#if agentMessage}
-            <p class="status-feedback success" role="status">{agentMessage}</p>
+          {:else if agentTargets.length === 0}
+            <p class="status-agent-hint">Start a foreground process in a workspace’s main terminal to use Ask Agent.</p>
           {/if}
         {:else if selectedPlugin}
           <div class="status-detail">
@@ -604,9 +599,6 @@ onDestroy(() => unsubscribe?.());
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
-}
-.status-feedback.success {
-  color: var(--color-success-text);
 }
 .status-loading {
   margin: 0;

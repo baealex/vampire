@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
-import { isAgentProcessLabel, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+import { mainWorkspacePromptTarget, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 
 type ForegroundProcess = {
   kind: 'shell' | 'command';
@@ -13,6 +13,8 @@ type AgentWorkspace = {
   state: 'running' | 'missing';
   terminals?: Array<{
     id: string;
+    index: number;
+    state: 'running' | 'exited';
     foregroundProcess?: ForegroundProcess | null;
   }>;
 };
@@ -20,13 +22,10 @@ type AgentWorkspace = {
 const execFile = promisify(execFileCallback);
 const RECENT_SCREEN_LINES = 14;
 
-export { isAgentProcessLabel };
-
 // Infer only the coarse turn boundary. Terminal content is neither retained
 // nor returned to callers.
 export function inferAgentState(process: ForegroundProcess | null | undefined, output: string): AgentState {
-  if (process?.kind !== 'command' || !isAgentProcessLabel(process.label)) return null;
-  const label = process.label.toLowerCase();
+  if (process?.kind !== 'command') return null;
   const recentLines = output.replace(/\r/g, '').split('\n').slice(-RECENT_SCREEN_LINES);
   const recent = recentLines.join('\n');
 
@@ -35,12 +34,7 @@ export function inferAgentState(process: ForegroundProcess | null | undefined, o
   if (/(?:esc|escape)\s+to\s+(?:interrupt|cancel)/i.test(recent)) return 'working';
   if (/press\s+(?:esc|escape).{0,24}(?:interrupt|cancel)/i.test(recent)) return 'working';
 
-  const promptPattern =
-    label === 'codex'
-      ? /^\s*›(?:\s|$)/
-      : label === 'claude' || label === 'claude-code'
-        ? /^\s*❯(?:\s|$)/
-        : /^\s*[❯›>](?:\s|$)/;
+  const promptPattern = /^\s*[❯›>](?:\s|$)/;
   return recentLines.some((line) => promptPattern.test(line)) ? 'waiting' : null;
 }
 
@@ -49,16 +43,9 @@ export async function readWorkspaceAgentStates(workspaces: Iterable<AgentWorkspa
   const captures: Promise<void>[] = [];
   for (const workspace of workspaces) {
     states.set(workspace.id, null);
-    const mainTerminal = workspace.terminals?.[0];
-    const process = mainTerminal?.foregroundProcess;
-    if (
-      workspace.state !== 'running' ||
-      !mainTerminal ||
-      !/^@\d+$/.test(mainTerminal.id) ||
-      process?.kind !== 'command' ||
-      !isAgentProcessLabel(process.label)
-    )
-      continue;
+    const mainTerminal = workspace.terminals?.find((terminal) => terminal.index === 0);
+    const process = mainWorkspacePromptTarget(workspace);
+    if (!mainTerminal || !/^@\d+$/.test(mainTerminal.id) || !process) continue;
 
     captures.push(
       (async () => {

@@ -48,12 +48,26 @@ let manualPath = $state('');
 let listing = $state<DirectoryListing>();
 let loading = $state(false);
 let errorMessage = $state('');
+let directoryFilter = $state('');
+let showHiddenDirectories = $state(false);
+let submittedPath = $state('');
 let requestSequence = 0;
+const hiddenDirectoryCount = $derived(
+  (listing?.directories ?? []).filter((directory) => directory.name.startsWith('.')).length
+);
+const visibleDirectories = $derived(
+  (listing?.directories ?? []).filter((directory) => {
+    if (!showHiddenDirectories && directory.name.startsWith('.')) return false;
+    return directory.name.toLocaleLowerCase().includes(directoryFilter.trim().toLocaleLowerCase());
+  })
+);
+const visibleStartError = $derived(manualPath === submittedPath ? startError : '');
 
 async function load(path?: string, fallbackToRoots = false) {
   const sequence = ++requestSequence;
   loading = true;
   errorMessage = '';
+  directoryFilter = '';
   const query = path ? `?path=${encodeURIComponent(path)}` : '';
 
   try {
@@ -62,7 +76,12 @@ async function load(path?: string, fallbackToRoots = false) {
       undefined,
       'Unable to read workspace directories.'
     );
-    if (sequence === requestSequence) listing = nextListing;
+    if (sequence !== requestSequence) return;
+    if (!path && !nextListing.current && nextListing.roots.length === 1) {
+      await load(nextListing.roots[0].path);
+      return;
+    }
+    listing = nextListing;
   } catch (cause) {
     if (fallbackToRoots && path && sequence === requestSequence) {
       await load();
@@ -80,6 +99,7 @@ function submitWorkspace(path: string) {
   const normalizedPath = path.trim();
   if (!normalizedPath || starting || tmuxAvailable === false) return;
   manualPath = normalizedPath;
+  submittedPath = normalizedPath;
   onCreate(normalizedPath);
 }
 
@@ -94,32 +114,66 @@ onMount(() => {
 });
 </script>
 
-<DialogShell eyebrow="New workspace" title="Open a project" {close} closeDisabled={starting}>
+<DialogShell eyebrow="New workspace" title="Open a project" variant="form" {close} closeDisabled={starting}>
   {#snippet children()}
     <div class="directory-picker">
-      <p class="directory-picker-description">
-        Choose a folder on the server. Only directories configured as workspace roots are available.
-      </p>
-
-      {#if loading}
-        <div class="directory-picker-status" role="status">
-          <LoaderCircle class="directory-picker-loading-icon" size={17} strokeWidth={1.8} aria-hidden="true" />
-          <span>Loading folders…</span>
+      <form class="directory-picker-manual" onsubmit={submitManualPath}>
+        <div class="directory-picker-manual-heading">
+          <label for="workspace-path">Project path</label>
+          <span>Paste an absolute path from one of the server’s allowed workspace roots.</span>
         </div>
-      {:else if errorMessage}
-        <div class="directory-picker-error" role="alert">
-          <p>{errorMessage}</p>
-          <Button
-            class="directory-picker-retry"
-            size="sm"
-            variant="secondary"
-            onclick={() => load(listing?.current?.path)}
-          >
-            Try again
+        <div class="directory-picker-input-row">
+          <Input
+            id="workspace-path"
+            type="text"
+            bind:value={manualPath}
+            placeholder="/Users/you/project"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+            disabled={starting}
+            ariaInvalid={Boolean(visibleStartError)}
+            ariaDescribedby={visibleStartError ? 'workspace-start-error' : undefined}
+            mono
+          />
+          <Button variant="primary" type="submit" disabled={starting || tmuxAvailable === false || !manualPath.trim()}>
+            {starting ? 'Opening…' : 'Open'}
           </Button>
         </div>
-      {:else if listing?.current}
-        <div class="directory-picker-current">
+        {#if visibleStartError}
+          <p id="workspace-start-error" class="directory-picker-start-error" role="alert">{visibleStartError}</p>
+        {/if}
+        {#if tmuxAvailable === false}
+          <p class="directory-picker-note">Install tmux on the server before opening a workspace.</p>
+        {/if}
+      </form>
+
+      <section class="directory-browser" aria-labelledby="workspace-browser-heading">
+        <header class="directory-browser-heading">
+          <div>
+            <h3 id="workspace-browser-heading">Browse folders</h3>
+            <p>Only folders allowed by the server are shown.</p>
+          </div>
+        </header>
+
+        {#if loading}
+          <div class="directory-picker-status" role="status">
+            <LoaderCircle class="directory-picker-loading-icon" size={17} strokeWidth={1.8} aria-hidden="true" />
+            <span>Loading folders…</span>
+          </div>
+        {:else if errorMessage}
+          <div class="directory-picker-error" role="alert">
+            <p>{errorMessage}</p>
+            <Button
+              class="directory-picker-retry"
+              size="sm"
+              variant="secondary"
+              onclick={() => load(listing?.current?.path)}
+            >
+              Try again
+            </Button>
+          </div>
+        {:else if listing?.current}
           <div class="directory-picker-current-heading">
             <button
               class="directory-picker-icon-button"
@@ -135,87 +189,84 @@ onMount(() => {
               <strong>{listing.current.label}</strong>
               <span title={listing.current.path}>{listing.current.path}</span>
             </div>
+            <Button
+              class="directory-picker-open-current"
+              size="sm"
+              variant="secondary"
+              onclick={() => submitWorkspace(listing?.current?.path ?? '')}
+              disabled={starting || tmuxAvailable === false}
+            >
+              Open this folder
+            </Button>
           </div>
-          <Button
-            variant="primary"
-            block
-            onclick={() => submitWorkspace(listing?.current?.path ?? '')}
-            disabled={starting || tmuxAvailable === false}
-          >
-            {starting ? 'Opening…' : 'Open workspace here'}
-          </Button>
-        </div>
 
-        {#if listing.directories.length > 0}
-          <div class="directory-picker-list">
-            {#each listing.directories as directory (directory.path)}
-              <button class="directory-picker-entry" type="button" onclick={() => load(directory.path)}>
-                <Folder size={17} strokeWidth={1.7} aria-hidden="true" />
-                <span class="directory-picker-entry-text">
-                  <strong>{directory.name}</strong>
-                  <small>{directory.path}</small>
-                </span>
-                <ChevronRight size={16} strokeWidth={1.8} aria-hidden="true" />
+          {#if listing.directories.length > 0}
+            {#if (showHiddenDirectories ? listing.directories.length : listing.directories.length - hiddenDirectoryCount) > 8 || directoryFilter}
+              <Input
+                type="search"
+                bind:value={directoryFilter}
+                placeholder="Filter folders"
+                ariaLabel="Filter folders"
+                size="sm"
+              />
+            {/if}
+            <div class="directory-picker-list">
+              {#each visibleDirectories as directory (directory.path)}
+                <button class="directory-picker-entry" type="button" onclick={() => load(directory.path)}>
+                  <Folder size={17} strokeWidth={1.7} aria-hidden="true" />
+                  <span class="directory-picker-entry-text">
+                    <strong>{directory.name}</strong>
+                    <small>{directory.path}</small>
+                  </span>
+                  <ChevronRight size={16} strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              {/each}
+              {#if visibleDirectories.length === 0}
+                <p class="directory-picker-empty directory-picker-empty-list">
+                  {directoryFilter ? 'No folders match this filter.' : 'No visible folders here.'}
+                </p>
+              {/if}
+            </div>
+
+            {#if hiddenDirectoryCount > 0}
+              <button
+                class="directory-picker-hidden-toggle"
+                type="button"
+                aria-pressed={showHiddenDirectories}
+                onclick={() => (showHiddenDirectories = !showHiddenDirectories)}
+              >
+                {showHiddenDirectories ? 'Hide' : 'Show'} {hiddenDirectoryCount} hidden
+                {hiddenDirectoryCount === 1 ? 'folder' : 'folders'}
               </button>
-            {/each}
-          </div>
-        {:else}
-          <p class="directory-picker-empty">There are no folders inside this directory.</p>
-        {/if}
+            {/if}
+          {:else}
+            <p class="directory-picker-empty">There are no folders inside this directory.</p>
+          {/if}
 
-        {#if listing.truncated}
-          <p class="directory-picker-note">Only the first 512 folders are shown.</p>
+          {#if listing.truncated}
+            <p class="directory-picker-note">Only the first 512 folders are shown.</p>
+          {/if}
+        {:else if listing}
+          {#if listing.roots.length > 0}
+            <div class="directory-picker-list">
+              {#each listing.roots as root (root.id)}
+                <button class="directory-picker-entry" type="button" onclick={() => load(root.path)}>
+                  <Folder size={17} strokeWidth={1.7} aria-hidden="true" />
+                  <span class="directory-picker-entry-text">
+                    <strong>{root.label}</strong>
+                    <small>{root.path}</small>
+                  </span>
+                  <ChevronRight size={16} strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="directory-picker-empty">
+              No workspace roots are available. Configure <code>VAMPIRE_WORKSPACE_ROOTS</code> on the server.
+            </p>
+          {/if}
         {/if}
-      {:else if listing}
-        <p class="directory-picker-description">Select one of the server’s allowed roots to start browsing.</p>
-        {#if listing.roots.length > 0}
-          <div class="directory-picker-list">
-            {#each listing.roots as root (root.id)}
-              <button class="directory-picker-entry" type="button" onclick={() => load(root.path)}>
-                <Folder size={17} strokeWidth={1.7} aria-hidden="true" />
-                <span class="directory-picker-entry-text">
-                  <strong>{root.label}</strong>
-                  <small>{root.path}</small>
-                </span>
-                <ChevronRight size={16} strokeWidth={1.8} aria-hidden="true" />
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <p class="directory-picker-empty">
-            No workspace roots are available. Configure <code>VAMPIRE_WORKSPACE_ROOTS</code> on the server.
-          </p>
-        {/if}
-      {/if}
-
-      {#if startError}
-        <p class="directory-picker-start-error" role="alert">{startError}</p>
-      {/if}
-      {#if tmuxAvailable === false}
-        <p class="directory-picker-note">Install tmux on the server before opening a workspace.</p>
-      {/if}
-
-      <form class="directory-picker-manual" onsubmit={submitManualPath}>
-        <div class="directory-picker-manual-heading">
-          <label for="workspace-path">Or enter a path manually</label>
-          <span>Use an absolute path on the server.</span>
-        </div>
-        <div class="directory-picker-input-row">
-          <Input
-            id="workspace-path"
-            type="text"
-            bind:value={manualPath}
-            placeholder="/Users/you/project"
-            autocapitalize="off"
-            autocomplete="off"
-            spellcheck="false"
-            disabled={starting}
-          />
-          <Button size="sm" variant="secondary" type="submit" disabled={starting || tmuxAvailable === false}>
-            Open path
-          </Button>
-        </div>
-      </form>
+      </section>
     </div>
   {/snippet}
 </DialogShell>
@@ -224,15 +275,35 @@ onMount(() => {
 .directory-picker {
   display: grid;
   min-width: 0;
-  gap: 0.85rem;
+  gap: 1rem;
 }
-.directory-picker-description,
 .directory-picker-empty,
 .directory-picker-note {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--text-label);
   line-height: var(--leading-body);
+}
+.directory-browser {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding-top: 0.15rem;
+}
+.directory-browser-heading h3,
+.directory-browser-heading p {
+  margin: 0;
+}
+.directory-browser-heading h3 {
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.directory-browser-heading p {
+  margin-top: 0.12rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
 }
 .directory-picker-list {
   display: grid;
@@ -290,17 +361,13 @@ onMount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.directory-picker-current {
-  display: grid;
-  gap: 0.75rem;
-  padding-bottom: 0.1rem;
-}
 .directory-picker-current-heading {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.6rem;
   min-width: 0;
+  padding: 0.15rem 0;
 }
 .directory-picker-current-path {
   display: grid;
@@ -341,8 +408,10 @@ onMount(() => {
 .directory-picker-manual {
   display: grid;
   gap: 0.55rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--color-border);
+  padding: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
 }
 .directory-picker-manual-heading {
   display: grid;
@@ -369,7 +438,7 @@ onMount(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 8rem;
+  min-height: 6rem;
   color: var(--color-text-secondary);
   font-size: var(--text-label);
 }
@@ -379,6 +448,10 @@ onMount(() => {
 .directory-picker-error {
   display: grid;
   gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-surface);
 }
 :global(.directory-picker-retry) {
   justify-self: start;
@@ -391,9 +464,29 @@ onMount(() => {
 }
 .directory-picker-start-error {
   margin: 0;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--text-label);
   line-height: var(--leading-body);
+}
+.directory-picker-hidden-toggle {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .directory-picker-hidden-toggle:hover {
+    color: var(--color-text);
+  }
+}
+.directory-picker-empty-list {
+  padding: 1rem;
+  color: var(--color-text-tertiary);
+  text-align: center;
 }
 .directory-picker-note {
   color: var(--color-text-tertiary);
@@ -413,6 +506,19 @@ onMount(() => {
 @media (prefers-reduced-motion: reduce) {
   :global(.directory-picker-loading-icon) {
     animation: none;
+  }
+}
+
+@media (max-width: 32rem) {
+  .directory-picker-input-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .directory-picker-current-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  :global(.directory-picker-open-current) {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }
 </style>

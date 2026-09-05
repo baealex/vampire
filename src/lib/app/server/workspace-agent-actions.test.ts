@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 import { WorkspaceAutomationMutationError } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import type { ManagedWorkspace } from './workspace-registry.server.ts';
 import {
   describeWorkspaceAgentAction,
-  queueWorkspaceAgentAction,
+  submitWorkspaceAgentAction,
   WorkspaceAgentActionError,
   type WorkspaceAgentActionDependencies,
 } from './workspace-agent-actions.server.ts';
@@ -26,7 +25,7 @@ function workspace(): ManagedWorkspace {
     state: 'running',
     lastOutputAt: 1,
     attachedClients: 0,
-    foregroundProcess: { kind: 'command', label: 'codex' },
+    foregroundProcess: { kind: 'command', label: 'project-runner' },
     terminals: [
       {
         id: '@1',
@@ -34,7 +33,7 @@ function workspace(): ManagedWorkspace {
         name: 'main',
         active: true,
         lastOutputAt: 1,
-        foregroundProcess: { kind: 'command', label: 'codex' },
+        foregroundProcess: { kind: 'command', label: 'project-runner' },
         command: null,
         startedAt: null,
         state: 'running',
@@ -44,29 +43,6 @@ function workspace(): ManagedWorkspace {
     agentState: 'waiting',
     isGitRepository: true,
     workspaceAvailable: true,
-  };
-}
-
-function queuedAutomation(
-  actionId: 'note' | 'status-widget' | 'automation',
-  prompt: string,
-  now: number
-): WorkspaceAutomation {
-  return {
-    id: 'request-1',
-    kind: 'agent-action',
-    agentActionId: actionId,
-    name: 'Agent request',
-    prompt,
-    schedule: { type: 'once', runAt: now },
-    enabled: true,
-    nextRunAt: now,
-    createdAt: now,
-    updatedAt: now,
-    lastAttemptAt: null,
-    lastRunAt: null,
-    lastOutcome: null,
-    lastError: null,
   };
 }
 
@@ -89,46 +65,53 @@ function dependencies(overrides: Partial<WorkspaceAgentActionDependencies> = {})
         "node '/state/agent-guides/apply-workspace-automation.mjs' '/state/automation-requests/workspace-1.draft.json' '/state/automation-requests/workspace-1.ready.json'",
     }),
     assertAutomationCapacity: async () => undefined,
-    queuePrompt: async (_workspaceId, input, now) => queuedAutomation(input.actionId, input.prompt, now ?? 0),
+    ensureBackgroundSupport: async () => ({
+      requestPath: '/state/agent-support/requests/background/workspace-1.draft.json',
+      guidePath: '/state/agent-support/guides/workspace-background.md',
+      applyPath: '/state/agent-support/guides/apply-workspace-background.mjs',
+      applyCommand:
+        "node '/state/agent-support/guides/apply-workspace-background.mjs' '/state/agent-support/requests/background/workspace-1.draft.json' '/state/agent-support/requests/background/workspace-1.ready.json'",
+    }),
+    assertBackgroundCapacity: async () => undefined,
+    submitPrompt: async () => undefined,
     ...overrides,
   };
 }
 
-test('describes the exact note path and queues a minimal visible prompt', async () => {
-  const queued: Array<{ workspaceId: string; actionId: string; prompt: string }> = [];
+test('describes the exact note path and immediately submits a minimal prompt', async () => {
+  const submitted: Array<[string, string, string]> = [];
   const support = dependencies({
-    queuePrompt: async (workspaceId, input, now) => {
-      queued.push({ workspaceId, actionId: input.actionId, prompt: input.prompt });
-      return queuedAutomation(input.actionId, input.prompt, now ?? 0);
+    submitPrompt: async (...input) => {
+      submitted.push(input);
     },
   });
   const descriptor = await describeWorkspaceAgentAction('workspace-1', 'note', support);
   assert.deepEqual(descriptor.target, {
     workspaceId: 'workspace-1',
     workspaceLabel: 'Project',
-    agentLabel: 'codex',
+    processLabel: 'project-runner',
   });
   assert.equal(descriptor.context[0]?.value, '/state/workspace-1.note.md');
 
-  const submission = await queueWorkspaceAgentAction(
+  const submission = await submitWorkspaceAgentAction(
     'workspace-1',
     'note',
     'Organize the blocker and next step.',
     1_000,
     support
   );
-  assert.equal(submission.status, 'queued');
-  assert.deepEqual(queued, [
-    {
-      workspaceId: 'workspace-1',
-      actionId: 'note',
-      prompt: [
+  assert.equal(submission.status, 'submitted');
+  assert.deepEqual(submitted, [
+    [
+      'vampire-workspace-1',
+      '@1',
+      [
         'Vampire workspace note: "/state/workspace-1.note.md"',
         '',
         'User request:',
         'Organize the blocker and next step.',
       ].join('\n'),
-    },
+    ],
   ]);
   assert.doesNotMatch(submission.prompt, /preserve|do not edit|level-two headings/i);
 });
@@ -144,7 +127,7 @@ test('supplies the current widget configuration, guide, and validator to the mai
     ]
   );
 
-  const submission = await queueWorkspaceAgentAction(
+  const submission = await submitWorkspaceAgentAction(
     'workspace-1',
     'status-widget',
     'Show unread GitHub notifications.',
@@ -166,7 +149,7 @@ test('supplies an isolated automation management request, guide, and apply comma
     ['Prepared when sent']
   );
 
-  const submission = await queueWorkspaceAgentAction(
+  const submission = await submitWorkspaceAgentAction(
     'workspace-1',
     'automation',
     'Every weekday at 9 AM, review open work.',
@@ -195,11 +178,33 @@ test('materializes automation support only when the request is submitted', async
   });
   await describeWorkspaceAgentAction('workspace-1', 'automation', support);
   assert.equal(materializations, 0);
-  await queueWorkspaceAgentAction('workspace-1', 'automation', 'Create a daily review.', 4_000, support);
+  await submitWorkspaceAgentAction('workspace-1', 'automation', 'Create a daily review.', 4_000, support);
   assert.equal(materializations, 1);
 });
 
-test('rejects stopped, shell-only, and empty agent requests before queuing', async () => {
+test('supplies an isolated Background favorites request without asking the agent to run commands', async () => {
+  const descriptor = await describeWorkspaceAgentAction('workspace-1', 'background', dependencies());
+  assert.equal(descriptor.title, 'Manage Background commands with an agent');
+  assert.deepEqual(
+    descriptor.context.map((item) => item.value),
+    ['Prepared when sent']
+  );
+
+  const submission = await submitWorkspaceAgentAction(
+    'workspace-1',
+    'background',
+    'Save only the development server and test watcher.',
+    4_500,
+    dependencies()
+  );
+  assert.match(submission.prompt, /currentFavoriteCommands snapshot/);
+  assert.match(submission.prompt, /workspace-background\.md/);
+  assert.match(submission.prompt, /apply-workspace-background\.mjs/);
+  assert.match(submission.prompt, /Do not run the saved commands/);
+  assert.match(submission.prompt, /Save only the development server and test watcher/);
+});
+
+test('rejects stopped, shell-only, and empty agent requests before sending', async () => {
   const stopped = workspace();
   stopped.state = 'missing';
   await assert.rejects(
@@ -211,16 +216,16 @@ test('rejects stopped, shell-only, and empty agent requests before queuing', asy
   shellOnly.terminals[0]!.foregroundProcess = { kind: 'shell', label: 'zsh' };
   await assert.rejects(
     describeWorkspaceAgentAction('workspace-1', 'note', dependencies({ findWorkspace: async () => shellOnly })),
-    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'no-agent'
+    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'no-process'
   );
 
   await assert.rejects(
-    queueWorkspaceAgentAction('workspace-1', 'note', '   ', 1, dependencies()),
+    submitWorkspaceAgentAction('workspace-1', 'note', '   ', 1, dependencies()),
     (error) => error instanceof WorkspaceAgentActionError && error.reason === 'invalid-request'
   );
 });
 
-test('rejects automation agent requests before queuing when pending request capacity is full', async () => {
+test('rejects automation agent requests before sending when pending request capacity is full', async () => {
   await assert.rejects(
     describeWorkspaceAgentAction(
       'workspace-1',

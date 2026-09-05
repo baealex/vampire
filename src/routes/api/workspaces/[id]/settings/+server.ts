@@ -11,7 +11,10 @@ export const PUT: RequestHandler = async (event) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw error(400, 'Workspace settings are required.');
   }
-  const { startupProfileId, composerTemplate } = body as Record<string, unknown>;
+  const { workspaceLabel, startupProfileId, composerTemplate } = body as Record<string, unknown>;
+  if (typeof workspaceLabel !== 'string') {
+    throw error(400, 'A workspace alias is required. Use an empty string to show the folder name.');
+  }
   if (startupProfileId !== null && typeof startupProfileId !== 'string') {
     throw error(400, 'The startup profile must be a profile ID or null.');
   }
@@ -20,7 +23,7 @@ export const PUT: RequestHandler = async (event) => {
   }
 
   try {
-    return json(await updateManagedWorkspaceSettings(id, { startupProfileId, composerTemplate }));
+    return json(await updateManagedWorkspaceSettings(id, { workspaceLabel, startupProfileId, composerTemplate }));
   } catch (cause) {
     if (cause instanceof WorkspaceMutationError) {
       throw error(cause.reason === 'not-found' ? 404 : 400, cause.message);

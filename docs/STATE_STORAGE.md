@@ -24,7 +24,8 @@ Vampire groups persistent state by owner and lifecycle. The layout may change on
 ├── agent-support/
 │   ├── guides/
 │   └── requests/
-│       └── automations/
+│       ├── automations/
+│       └── background/
 ├── backups/
 │   └── 0001-organize-state-directory/
 │       ├── manifest.json
@@ -53,7 +54,9 @@ The workspace registry, global workspace settings, launch profiles, and every wo
 
 If the process stops between these steps, the next read or startup replays the journal idempotently. A malformed journal, mixed revisions, missing workspace document, symlink, or unexpected removal target fails closed instead of overwriting state.
 
-The migration never exposes the aggregate registry documents to an agent. Structured agent-assisted changes, including Automation and the planned Background flow, use an isolated request file, server-side schema and conflict validation, a temporary output, and atomic application by the server. Feature-specific editable files such as notes and status widgets remain bounded by their own contracts and validators.
+The migration never exposes the aggregate registry documents to an agent. Structured agent-assisted changes, including Automation and Background favorites, use an isolated request file, server-side schema and conflict validation, a temporary output, and atomic application by the server. Feature-specific editable files such as notes and status widgets remain bounded by their own contracts and validators.
+
+Background agent requests contain only a bounded snapshot of one workspace's saved commands and an editable `add`/`remove` operation. The generated apply command stages the request without editing `background.json`; the server rejects stale snapshots, duplicates, over-limit results, malformed commands, and recognizable inline secrets before committing the workspace documents. Applying favorites never creates a tmux process or runs a command. Worktrees inherit a copy of their source workspace's favorites when they are created and diverge independently afterward.
 
 ## Version ledger
 

@@ -17,12 +17,18 @@ let {
   ariaLabel,
   placeholder = '',
   maxlength,
+  disabled = false,
+  compact = false,
+  onReady = () => undefined,
   onValueChange = () => undefined,
 }: {
   value?: string;
   ariaLabel: string;
   placeholder?: string;
   maxlength?: number;
+  disabled?: boolean;
+  compact?: boolean;
+  onReady?: (controller: { focus: () => void; insert: (text: string) => void } | undefined) => void;
   onValueChange?: (value: string) => void;
 } = $props();
 
@@ -30,6 +36,7 @@ let editorHost = $state<HTMLDivElement>();
 let editorView: EditorView | undefined;
 let editorReady = $state(false);
 const themeCompartment = new Compartment();
+const editableCompartment = new Compartment();
 
 function editorTheme(dark: boolean): Extension {
   return EditorView.theme(
@@ -94,6 +101,14 @@ $effect(() => {
 });
 
 $effect(() => {
+  const editable = !disabled;
+  if (!editorReady || !editorView) return;
+  editorView.dispatch({
+    effects: editableCompartment.reconfigure([EditorState.readOnly.of(!editable), EditorView.editable.of(editable)]),
+  });
+});
+
+$effect(() => {
   const nextValue = value;
   if (!editorReady || !editorView || editorView.state.doc.toString() === nextValue) return;
   editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: nextValue } });
@@ -103,6 +118,7 @@ onMount(() => {
   if (!editorHost) return;
   const extensions: Extension[] = [
     themeCompartment.of(editorTheme(themeState.current === 'dark')),
+    editableCompartment.of([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]),
     lineNumbers(),
     EditorView.lineWrapping,
     drawSelection(),
@@ -127,15 +143,29 @@ onMount(() => {
     parent: editorHost,
   });
   editorReady = true;
+  onReady({
+    focus: () => editorView?.focus(),
+    insert: (text) => {
+      if (!editorView || disabled) return;
+      const selection = editorView.state.selection.main;
+      editorView.dispatch({
+        changes: { from: selection.from, to: selection.to, insert: text },
+        selection: { anchor: selection.from + text.length },
+        scrollIntoView: true,
+      });
+      editorView.focus();
+    },
+  });
 
   return () => {
+    onReady(undefined);
     editorView?.destroy();
     editorView = undefined;
   };
 });
 </script>
 
-<div class="code-editor">
+<div class="code-editor" class:compact>
   <div bind:this={editorHost} class="editor-host"></div>
 </div>
 
@@ -152,6 +182,9 @@ onMount(() => {
 .code-editor:focus-within {
   border-color: var(--color-accent);
   box-shadow: var(--shadow-accent-focus);
+}
+.code-editor.compact {
+  height: clamp(13rem, 30dvh, 22rem);
 }
 .editor-host,
 .editor-host :global(.cm-editor) {

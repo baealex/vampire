@@ -3,10 +3,20 @@ import Play from '@lucide/svelte/icons/play';
 import Plus from '@lucide/svelte/icons/plus';
 import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 import Square from '@lucide/svelte/icons/square';
+import Sparkles from '@lucide/svelte/icons/sparkles';
 import Star from '@lucide/svelte/icons/star';
 import Trash2 from '@lucide/svelte/icons/trash-2';
-import { onMount, untrack } from 'svelte';
+import { onMount, tick, untrack } from 'svelte';
+import {
+  loadWorkspaceAgentAction,
+  submitWorkspaceAgentAction as submitWorkspaceAgentActionRequest,
+} from '~/lib/shared/api/workspace-agent-actions';
+import type {
+  WorkspaceAgentActionDescriptor,
+  WorkspaceAgentActionSubmission,
+} from '~/lib/shared/contracts/workspace-agent-actions';
 import type { WorkspaceTerminal } from '~/lib/shared/contracts/workspace';
+import AskAgentDialog from '~/lib/shared/ui/AskAgentDialog.svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import DialogEmptyState from '~/lib/shared/ui/DialogEmptyState.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
@@ -14,6 +24,7 @@ import WorkspacePanelHeader from '~/lib/shared/ui/WorkspacePanelHeader.svelte';
 
 let {
   open,
+  workspaceId,
   onOpenChange,
   panelId,
   triggerId,
@@ -28,8 +39,12 @@ let {
   onLoadOutput,
   onFavorite,
   onRemoveFavorite,
+  loadAgentAction = () => loadWorkspaceAgentAction(workspaceId, 'background'),
+  submitAgentAction = (request: string) => submitWorkspaceAgentActionRequest(workspaceId, 'background', request),
+  askAgentAvailable = true,
 }: {
   open: boolean;
+  workspaceId: string;
   onOpenChange: (open: boolean) => void;
   panelId: string;
   triggerId: string;
@@ -44,9 +59,12 @@ let {
   onLoadOutput: (processId: string) => Promise<string>;
   onFavorite: (command: string) => Promise<boolean>;
   onRemoveFavorite: (command: string) => Promise<boolean>;
+  loadAgentAction?: () => Promise<WorkspaceAgentActionDescriptor>;
+  submitAgentAction?: (request: string) => Promise<WorkspaceAgentActionSubmission>;
+  askAgentAvailable?: boolean;
 } = $props();
 
-type View = 'list' | 'runner' | 'output';
+type View = 'list' | 'runner' | 'output' | 'agent';
 
 let command = $state('');
 let commandInput = $state<HTMLInputElement>();
@@ -55,6 +73,7 @@ let selectedProcessId = $state<string>();
 let output = $state('');
 let outputError = $state('');
 let outputLoading = $state(false);
+let agentSubmitting = $state(false);
 let now = $state(Date.now());
 let previouslyOpen = false;
 const orderedProcesses = $derived([...processes].sort((left, right) => left.index - right.index));
@@ -156,6 +175,16 @@ function processCountLabel(count: number): string {
 function openRunner() {
   view = 'runner';
   queueMicrotask(() => commandInput?.focus());
+}
+
+function openAgent() {
+  view = 'agent';
+}
+
+async function closeAgent() {
+  view = 'list';
+  await tick();
+  document.getElementById(`${panelId}-ask-agent-trigger`)?.focus();
 }
 
 function showProcessList() {
@@ -399,65 +428,91 @@ function closePanel() {
   id={panelId}
   class="background-panel"
   class:open
-  aria-labelledby={`${panelId}-title`}
+  aria-labelledby={view === 'agent' ? undefined : `${panelId}-title`}
+  aria-label={view === 'agent' ? 'Manage Background commands with an agent' : undefined}
   aria-hidden={!open}
   inert={!open}
 >
-  <WorkspacePanelHeader
-    title={dialogTitle}
-    titleId={`${panelId}-title`}
-    subtitle={dialogSubtitle}
-    subtitleMonospace={view === 'output'}
-    close={closePanel}
-    closeLabel="Close background manager"
-    onBack={view === 'list' ? undefined : showProcessList}
-    backLabel="Back to background processes"
-  >
-    {#snippet actions()}
-      {#if view === 'list'}
-        <Button
-          variant="icon"
-          class="background-run-action"
-          onclick={openRunner}
-          ariaLabel="Run background command"
-          title="Run background command"
-        >
-          <Plus size={18} strokeWidth={1.9} aria-hidden="true" />
-        </Button>
-      {/if}
-    {/snippet}
-  </WorkspacePanelHeader>
-  <div class="background-view" class:output-view={view === 'output'}>
-    {#if view === 'list'}
-      <section class="process-section" aria-labelledby={`${panelId}-processes-heading`}>
-        <header class="section-heading">
-          <strong id={`${panelId}-processes-heading`}>Processes</strong>
-          <span>{processCountLabel(orderedProcesses.length)}</span>
-        </header>
-        <div class="background-content">{@render processList()}</div>
-      </section>
-    {:else if view === 'runner'}
-      {@render commandRunner()}
-      {@render favorites()}
-    {:else if selectedProcess}
-      <div class="background-detail-bar">
-        <div class="process-detail-meta">
-          <span
-            class="process-status"
-            class:running={selectedProcess.state === 'running'}
-            class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
-            class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
-            >{processStatus(selectedProcess)}</span
+  {#if view === 'agent'}
+    <div class="background-agent-view">
+      <AskAgentDialog
+        embedded
+        close={() => void closeAgent()}
+        load={loadAgentAction}
+        submit={submitAgentAction}
+        onSubmittingChange={(value) => agentSubmitting = value}
+      />
+    </div>
+  {:else}
+    <WorkspacePanelHeader
+      title={dialogTitle}
+      titleId={`${panelId}-title`}
+      subtitle={dialogSubtitle}
+      subtitleMonospace={view === 'output'}
+      close={closePanel}
+      closeLabel="Close background manager"
+      onBack={view === 'list' ? undefined : showProcessList}
+      backLabel="Back to background processes"
+    >
+      {#snippet actions()}
+        {#if view === 'list'}
+          <Button
+            id={`${panelId}-ask-agent-trigger`}
+            variant="icon"
+            onclick={openAgent}
+            disabled={agentSubmitting || !askAgentAvailable}
+            ariaLabel="Ask agent to manage saved commands"
+            title={askAgentAvailable
+              ? 'Ask agent to manage saved commands'
+              : 'Start a foreground process in the main terminal first.'}
           >
-          {#if processAge(selectedProcess)}
-            <time title={`Started ${processAge(selectedProcess)} ago`}>{processAge(selectedProcess)} ago</time>
-          {/if}
+            <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" />
+          </Button>
+          <Button
+            variant="icon"
+            class="background-run-action"
+            onclick={openRunner}
+            ariaLabel="Run background command"
+            title="Run background command"
+          >
+            <Plus size={18} strokeWidth={1.9} aria-hidden="true" />
+          </Button>
+        {/if}
+      {/snippet}
+    </WorkspacePanelHeader>
+    <div class="background-view" class:output-view={view === 'output'}>
+      {#if view === 'list'}
+        {@render favorites()}
+        <section class="process-section" aria-labelledby={`${panelId}-processes-heading`}>
+          <header class="section-heading">
+            <strong id={`${panelId}-processes-heading`}>Processes</strong>
+            <span>{processCountLabel(orderedProcesses.length)}</span>
+          </header>
+          <div class="background-content">{@render processList()}</div>
+        </section>
+      {:else if view === 'runner'}
+        {@render commandRunner()}
+        {@render favorites()}
+      {:else if selectedProcess}
+        <div class="background-detail-bar">
+          <div class="process-detail-meta">
+            <span
+              class="process-status"
+              class:running={selectedProcess.state === 'running'}
+              class:finished={selectedProcess.state === 'exited' && selectedProcess.exitCode === 0}
+              class:failed={selectedProcess.state === 'exited' && selectedProcess.exitCode !== null && selectedProcess.exitCode !== 0}
+              >{processStatus(selectedProcess)}</span
+            >
+            {#if processAge(selectedProcess)}
+              <time title={`Started ${processAge(selectedProcess)} ago`}>{processAge(selectedProcess)} ago</time>
+            {/if}
+          </div>
+          {@render processActions(selectedProcess, false)}
         </div>
-        {@render processActions(selectedProcess, false)}
-      </div>
-      {@render processOutput(selectedProcess)}
-    {/if}
-  </div>
+        {@render processOutput(selectedProcess)}
+      {/if}
+    </div>
+  {/if}
 </aside>
 
 <style>
@@ -494,6 +549,12 @@ function closePanel() {
   min-height: 0;
   overflow: hidden;
   background: var(--color-panel);
+}
+.background-agent-view {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
 }
 .background-runner {
   flex: 0 0 auto;

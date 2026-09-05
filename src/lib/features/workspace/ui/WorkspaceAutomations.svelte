@@ -10,7 +10,7 @@ import Trash2 from '@lucide/svelte/icons/trash-2';
 import Sparkles from '@lucide/svelte/icons/sparkles';
 import { queryCache, type QuerySnapshot } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
-import { loadWorkspaceAgentAction, queueWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions';
+import { loadWorkspaceAgentAction, submitWorkspaceAgentAction } from '~/lib/shared/api/workspace-agent-actions';
 import {
   MAX_AUTOMATION_INTERVAL_MS,
   MIN_AUTOMATION_INTERVAL_MS,
@@ -37,12 +37,14 @@ let {
   onBusyChange = () => undefined,
   editorMode = $bindable(),
   showEditorHeader = true,
+  askAgentAvailable = true,
 }: {
   workspaceId: string;
   initialAutomationId?: string;
   onBusyChange?: (busy: boolean) => void;
   editorMode?: AutomationEditorMode;
   showEditorHeader?: boolean;
+  askAgentAvailable?: boolean;
 } = $props();
 
 type WorkspaceAutomationsResponse = { automations: WorkspaceAutomation[] };
@@ -69,7 +71,6 @@ let weeklyTime = $state('09:00');
 let weekdays = $state<WorkspaceAutomationWeekday[]>([1, 2, 3, 4, 5]);
 let timeZone = $state('UTC');
 let askAgentOpen = $state(false);
-let agentMessage = $state('');
 let now = $state(Date.now());
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let nameInput = $state<HTMLInputElement>();
@@ -398,8 +399,7 @@ onDestroy(() => {
     embedded
     close={() => void closeAskAgent()}
     load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
-    submit={(request) => queueWorkspaceAgentAction(workspaceId, 'automation', request)}
-    onQueued={() => agentMessage = 'Automation request sent. Its create or update will appear after validation.'}
+    submit={(request) => submitWorkspaceAgentAction(workspaceId, 'automation', request)}
     onSubmittingChange={(value) => agentSubmitting = value}
   />
 {:else if editorMode}
@@ -554,8 +554,9 @@ onDestroy(() => {
           id="automation-ask-agent-trigger"
           variant="secondary"
           size="sm"
-          disabled={mutationBusy}
-          onclick={() => { agentMessage = ''; askAgentOpen = true; }}
+          disabled={mutationBusy || !askAgentAvailable}
+          title={askAgentAvailable ? undefined : 'Start a foreground process in the main terminal first.'}
+          onclick={() => (askAgentOpen = true)}
         >
           <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
           Ask agent…
@@ -567,8 +568,8 @@ onDestroy(() => {
       </div>
     </div>
 
-    {#if agentMessage}
-      <p class="automation-agent-message" role="status">{agentMessage}</p>
+    {#if !askAgentAvailable}
+      <p class="automation-agent-hint">Start a foreground process in the main terminal to use Ask agent.</p>
     {/if}
 
     {#if mutationError}
@@ -671,9 +672,9 @@ onDestroy(() => {
   justify-content: flex-end;
   gap: 0.5rem;
 }
-.automation-agent-message {
+.automation-agent-hint {
   margin: 0;
-  color: var(--color-success-text);
+  color: var(--color-text-tertiary);
   font-size: var(--text-caption);
   line-height: var(--leading-ui);
 }

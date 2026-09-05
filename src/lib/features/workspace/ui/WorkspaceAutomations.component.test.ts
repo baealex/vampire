@@ -14,6 +14,16 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 }
 
+test('disables Ask agent before opening when the main terminal has no foreground process', () => {
+  queryCache.set(QUERY, { automations: [] });
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ automations: [] }));
+
+  render(WorkspaceAutomations, { workspaceId: WORKSPACE_ID, askAgentAvailable: false });
+
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeDisabled();
+  expect(screen.getByText('Start a foreground process in the main terminal to use Ask agent.')).toBeVisible();
+});
+
 test('creates a weekly automation with the selected local weekdays and time', async () => {
   const user = userEvent.setup();
   queryCache.set(QUERY, { automations: [] });
@@ -76,7 +86,7 @@ test('opens the automation Ask agent flow with its managed request context', asy
           id: 'automation',
           title: 'Manage automations with an agent',
           description: 'Vampire supplies safe automation support.',
-          target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', agentLabel: 'codex' },
+          target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', processLabel: 'node' },
           context: [
             { label: 'Automation request', value: '/state/automation-requests/request.draft.json' },
             { label: 'Automation guide', value: '/state/agent-guides/workspace-automation.md' },
@@ -198,7 +208,7 @@ test('reports an embedded agent submission as busy until it settles', async () =
     if (init?.method === 'POST') {
       await new Promise<void>((resolve) => (finishSubmission = resolve));
       return json({
-        submission: { actionId: 'automation', status: 'queued', queuedAt: 1, prompt: 'Create it.' },
+        submission: { actionId: 'automation', status: 'submitted', submittedAt: 1, prompt: 'Create it.' },
       });
     }
     if (String(input).includes('/agent-actions/automation')) {
@@ -207,7 +217,7 @@ test('reports an embedded agent submission as busy until it settles', async () =
           id: 'automation',
           title: 'Manage automations with an agent',
           description: 'Vampire supplies safe automation support.',
-          target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', agentLabel: 'codex' },
+          target: { workspaceId: WORKSPACE_ID, workspaceLabel: 'Vampire', processLabel: 'node' },
           context: [],
           requestLabel: 'What should the agent create or change?',
           requestPlaceholder: 'Change “Daily review” to weekdays at 9 AM.',
@@ -230,7 +240,8 @@ test('reports an embedded agent submission as busy until it settles', async () =
 
   finishSubmission?.();
   await waitFor(() => expect(busyChanges.at(-1)).toBe(false));
-  expect(screen.getByRole('status')).toHaveTextContent('Automation request sent');
+  expect(screen.queryByText(/Automation request sent/)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toHaveFocus();
 });
 
 test('blocks form submission while a list mutation is pending', async () => {

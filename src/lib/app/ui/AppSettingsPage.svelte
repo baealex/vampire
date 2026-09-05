@@ -6,7 +6,6 @@ import Save from '@lucide/svelte/icons/save';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import { untrack } from 'svelte';
-import type { TerminalInputMode, TerminalInputSettings } from '~/lib/shared/contracts/terminal-input.ts';
 import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
 import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
@@ -23,15 +22,11 @@ import Select from '~/lib/shared/ui/Select.svelte';
 let {
   launchProfiles,
   defaultStartupProfileId,
-  terminalInputSettings,
-  terminalInputSettingsReady = true,
-  terminalInputSettingsError = '',
+  workspaceShortcutModifier = '⌘',
   composerHistorySettings,
   workspaces,
   close,
   onSaveLaunchProfiles,
-  onSaveTerminalInputSettings,
-  onReloadTerminalInputSettings = async () => undefined,
   onSaveComposerHistorySettings,
   onManageAutomations,
   onManageWidgets,
@@ -41,9 +36,7 @@ let {
 }: {
   launchProfiles: LaunchProfile[];
   defaultStartupProfileId: string | null;
-  terminalInputSettings: TerminalInputSettings;
-  terminalInputSettingsReady?: boolean;
-  terminalInputSettingsError?: string;
+  workspaceShortcutModifier?: string;
   composerHistorySettings: WorkspaceComposerHistorySettings;
   workspaces: ManagedWorkspace[];
   close: () => void;
@@ -52,8 +45,6 @@ let {
     defaultProfileId: string | null,
     applyDefaultToAll: boolean
   ) => Promise<{ ok: boolean; error?: string }>;
-  onSaveTerminalInputSettings: (settings: TerminalInputSettings) => Promise<{ ok: boolean; error?: string }>;
-  onReloadTerminalInputSettings?: () => Promise<void>;
   onSaveComposerHistorySettings: (
     settings: WorkspaceComposerHistorySettings
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -71,11 +62,6 @@ let syncedDefaultProfileId = $state(untrack(() => defaultStartupProfileId ?? '')
 let saving = $state(false);
 let savingError = $state('');
 let savedMessage = $state('');
-let inputMode = $state<TerminalInputMode>(untrack(() => terminalInputSettings.mode));
-let slashHandoff = $state(untrack(() => terminalInputSettings.slashHandoff));
-let syncedTerminalInputSettings = $state(JSON.stringify(untrack(() => terminalInputSettings)));
-let terminalInputSavingError = $state('');
-let terminalInputSavedMessage = $state('');
 let historyEnabled = $state(untrack(() => composerHistorySettings.enabled));
 let historyLimit = $state(String(untrack(() => composerHistorySettings.limit)));
 let syncedHistorySettings = $state(JSON.stringify(untrack(() => composerHistorySettings)));
@@ -83,9 +69,6 @@ let historySavingError = $state('');
 let historySavedMessage = $state('');
 const profileChanges = $derived(
   JSON.stringify(editableProfiles) !== syncedProfiles || selectedDefaultProfileId !== syncedDefaultProfileId
-);
-const terminalInputChanges = $derived(
-  JSON.stringify({ mode: inputMode, slashHandoff }) !== syncedTerminalInputSettings
 );
 const historyChanges = $derived(
   JSON.stringify({ enabled: historyEnabled, limit: Number(historyLimit) }) !== syncedHistorySettings
@@ -103,16 +86,7 @@ $effect(() => {
 });
 
 $effect(() => {
-  onDirtyChange(profileChanges || terminalInputChanges || historyChanges);
-});
-
-$effect(() => {
-  if (!terminalInputSettingsReady) return;
-  const incoming = JSON.stringify(terminalInputSettings);
-  if (incoming === syncedTerminalInputSettings || untrack(() => terminalInputChanges)) return;
-  inputMode = terminalInputSettings.mode;
-  slashHandoff = terminalInputSettings.slashHandoff;
-  syncedTerminalInputSettings = incoming;
+  onDirtyChange(profileChanges || historyChanges);
 });
 
 $effect(() => {
@@ -125,31 +99,6 @@ $effect(() => {
 
 function setTheme(preference: AppThemePreference) {
   themeState.setPreference(preference);
-}
-
-function setInputMode(mode: TerminalInputMode) {
-  inputMode = mode;
-}
-
-async function saveTerminalInputSettings() {
-  terminalInputSavingError = '';
-  terminalInputSavedMessage = '';
-  if (!terminalInputSettingsReady) return;
-  const settings = { mode: inputMode, slashHandoff };
-  saving = true;
-  onBusyChange(true);
-  try {
-    const result = await onSaveTerminalInputSettings(settings);
-    if (!result.ok) {
-      terminalInputSavingError = result.error ?? 'Unable to save terminal input settings.';
-      return;
-    }
-    syncedTerminalInputSettings = JSON.stringify(settings);
-    terminalInputSavedMessage = 'Terminal input settings saved for this server.';
-  } finally {
-    saving = false;
-    onBusyChange(false);
-  }
 }
 
 function addProfile() {
@@ -300,71 +249,34 @@ async function saveComposerHistorySettings() {
         <div class="settings-section-heading">
           <div>
             <div class="settings-title-row">
-              <h2 id="terminal-input-settings-title">Terminal input</h2>
-              <span>Server</span>
+              <h2 id="terminal-input-settings-title">Keyboard shortcuts</h2>
+              <span>Desktop</span>
             </div>
-            <p>Shared by every browser connected to this server.</p>
+            <p>Your last focused input follows you between workspaces. Composer drafts remain workspace-specific.</p>
           </div>
         </div>
-        <div class="choice-grid" role="radiogroup" aria-label="Default terminal input">
-          <label class:active={inputMode === 'compose'} class="choice-card">
-            <input
-              type="radio"
-              name="terminal-input-mode"
-              value="compose"
-              checked={inputMode === 'compose'}
-              disabled={saving || !terminalInputSettingsReady}
-              onchange={() => setInputMode('compose')}
-            >
-            <span>
-              <strong>Compose first</strong>
-              <small>Open with the message editor ready for drafting, editing, and images.</small>
+        <div class="shortcut-list" aria-label="Keyboard shortcuts">
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>{workspaceShortcutModifier}1–0</kbd></span>
+            <span class="shortcut-description">
+              <strong>Switch workspace</strong>
+              <small>Open running workspaces by their current list position.</small>
             </span>
-          </label>
-          <label class:active={inputMode === 'terminal'} class="choice-card">
-            <input
-              type="radio"
-              name="terminal-input-mode"
-              value="terminal"
-              checked={inputMode === 'terminal'}
-              disabled={saving || !terminalInputSettingsReady}
-              onchange={() => setInputMode('terminal')}
-            >
-            <span>
-              <strong>Terminal first</strong>
-              <small>Open with the live PTY ready for slash commands and interactive tools.</small>
-            </span>
-          </label>
-        </div>
-        <label class="toggle-row">
-          <input type="checkbox" bind:checked={slashHandoff} disabled={saving || !terminalInputSettingsReady}>
-          <span>
-            <strong>Open the terminal with <kbd>/</kbd></strong>
-            <small>Typing / in an empty Compose field focuses the terminal and forwards the slash.</small>
-          </span>
-        </label>
-        <div class="profile-actions">
-          <div aria-live="polite">
-            {#if terminalInputSettingsError}
-              <p class="feedback feedback--error" role="alert">{terminalInputSettingsError}</p>
-              <Button variant="secondary" size="sm" onclick={() => void onReloadTerminalInputSettings()}>
-                Retry loading
-              </Button>
-            {:else if terminalInputSavingError}
-              <p class="feedback feedback--error" role="alert">{terminalInputSavingError}</p>
-            {:else if terminalInputSavedMessage}
-              <p class="feedback">{terminalInputSavedMessage}</p>
-            {/if}
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onclick={() => void saveTerminalInputSettings()}
-            disabled={saving || !terminalInputSettingsReady || !terminalInputChanges}
-          >
-            <Save size={15} strokeWidth={1.9} aria-hidden="true" />
-            <span>{saving ? 'Saving…' : 'Save terminal input'}</span>
-          </Button>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>/</kbd></span>
+            <span class="shortcut-description">
+              <strong>Compose → Terminal</strong>
+              <small>From an empty Compose field, focus the terminal and forward the slash.</small>
+            </span>
+          </div>
+          <div class="shortcut-row">
+            <span class="shortcut-keys"><kbd>⌘/</kbd></span>
+            <span class="shortcut-description">
+              <strong>Terminal → Compose</strong>
+              <small>Return to Compose without sending a key to the terminal.</small>
+            </span>
+          </div>
         </div>
       </section>
 
@@ -699,6 +611,44 @@ async function saveComposerHistorySettings() {
   gap: 0.65rem;
   padding: 0.2rem 0.1rem;
   cursor: pointer;
+}
+.shortcut-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-control-background);
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+.shortcut-row + .shortcut-row {
+  border-top: 1px solid var(--color-border);
+}
+.shortcut-keys {
+  display: flex;
+  flex: 0 0 5.75rem;
+  align-items: center;
+}
+.shortcut-description {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.shortcut-description strong {
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.shortcut-description small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: var(--leading-body);
 }
 kbd,
 code {

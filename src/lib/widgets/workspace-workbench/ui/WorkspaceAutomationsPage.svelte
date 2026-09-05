@@ -4,6 +4,7 @@ import WorkspaceAutomations, {
 } from '~/lib/features/workspace/ui/WorkspaceAutomations.svelte';
 import { workspaceName } from '~/lib/features/workspace/model/workspace-view.ts';
 import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
+import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
 
 let {
@@ -38,6 +39,7 @@ $effect(() => onBusyChange(busy));
     {initialAutomationId}
     bind:editorMode
     showEditorHeader={false}
+    askAgentAvailable={Boolean(mainWorkspacePromptTarget(workspace))}
     onBusyChange={(value) => busy = value}
   />
 </ManagementSurface>

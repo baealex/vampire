@@ -41,7 +41,8 @@ console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 console.log(`Development tmux socket: ${developmentEnvironment.tmuxSocketName}`);
 console.log(`State layout version: ${stateMigration.layoutVersion}`);
-console.log('Automatic startup profiles, automations, and status widget commands are disabled.');
+console.log('Automatic startup profiles, scheduled prompts, and status widget commands are disabled.');
+console.log('User-triggered agent request imports remain enabled.');
 
 let closing = false;
 const shutdown = () => {

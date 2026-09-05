@@ -11,20 +11,17 @@ import {
   type TmuxSession,
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
-import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
+import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
 import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
+import { importWorkspaceBackgroundAgentRequests } from '~/lib/features/workspace/server/workspace-background-agent-support.server.ts';
 import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
 
 const AUTOMATION_POLL_INTERVAL_MS = 2_000;
 
 export function automationSubmissionTerminal(tmuxSession: TmuxSession | undefined): TmuxTerminal | undefined {
-  const mainTerminal = tmuxSession?.terminals[0];
-  const process = mainTerminal?.foregroundProcess;
-  return mainTerminal?.index === 0 &&
-    mainTerminal.state === 'running' &&
-    process?.kind === 'command' &&
-    isAgentProcessLabel(process.label)
+  const mainTerminal = tmuxSession?.terminals.find((terminal) => terminal.index === 0);
+  return tmuxSession && mainTerminal && mainWorkspacePromptTarget({ state: 'running', ...tmuxSession })
     ? mainTerminal
     : undefined;
 }
@@ -53,8 +50,13 @@ export async function prepareAutomationSubmission(
   return () => dependencies.submitPrompt(stored.tmuxSession, terminal.id, automation.prompt);
 }
 
-export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void> {
+export async function importWorkspaceAgentRequests(): Promise<void> {
+  await importWorkspaceBackgroundAgentRequests();
   await importWorkspaceAutomationAgentRequests();
+}
+
+export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void> {
+  await importWorkspaceAgentRequests();
   const due = await listDueManagedWorkspaceAutomations(now);
   for (const candidate of due) {
     try {
@@ -65,7 +67,7 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
         (stored, automation) => prepareAutomationSubmission(stored, automation)
       );
     } catch {
-      // One unreadable workspace must not stop other users' queued automations.
+      // One unreadable workspace must not stop other users' scheduled automations.
     }
   }
 }
@@ -73,11 +75,11 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
 export async function installWorkspaceAutomationRunner(): Promise<() => void> {
   await migrateManagedWorkspaceComposerHistories();
   await migrateManagedWorkspaceNotes();
-  if (!automaticCommandsAllowed()) return () => undefined;
+  const runTick = automaticCommandsAllowed() ? runWorkspaceAutomationTick : importWorkspaceAgentRequests;
   let activeTick: Promise<void> | undefined;
   const tick = () => {
     if (activeTick) return;
-    activeTick = runWorkspaceAutomationTick()
+    activeTick = runTick()
       .catch(() => undefined)
       .finally(() => {
         activeTick = undefined;

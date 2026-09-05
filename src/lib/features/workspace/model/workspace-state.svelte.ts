@@ -300,7 +300,7 @@ export class WorkspaceState {
     this.#activity.applyWorkspaces([...previousWorkspaces.values()], nextWorkspaces, this.workspacesLoaded);
     this.syncManualWorkspaceOrder();
     if (!this.workspacesLoaded) {
-      this.newWorkspaceOpen = this.workspaces.length === 0;
+      if (this.workspaces.length === 0) this.newWorkspaceOpen = true;
       this.workspacesLoaded = true;
     }
   }
@@ -548,16 +548,21 @@ export class WorkspaceState {
 
   async updateWorkspaceSettings(
     workspaceId: string,
+    workspaceLabel: string,
     startupProfileId: string | null,
     composerTemplate: string
   ): Promise<{ ok: boolean; error?: string }> {
     try {
-      const saved = await requestJson<{ startupProfileId: string | null; composerTemplate: string }>(
+      const saved = await requestJson<{
+        workspaceLabel: string;
+        startupProfileId: string | null;
+        composerTemplate: string;
+      }>(
         `/api/workspaces/${encodeURIComponent(workspaceId)}/settings`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ startupProfileId, composerTemplate }),
+          body: JSON.stringify({ workspaceLabel, startupProfileId, composerTemplate }),
         },
         'Unable to save workspace settings'
       );

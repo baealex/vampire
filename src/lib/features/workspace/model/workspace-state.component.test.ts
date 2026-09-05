@@ -50,6 +50,16 @@ test('does not let an older workspace update rewind activity timestamps', () => 
   current.dispose();
 });
 
+test('does not close a workspace dialog opened while the initial workspace list is loading', () => {
+  const current = state();
+  current.newWorkspaceOpen = true;
+
+  current.applyWorkspaceSnapshot([workspace('one')]);
+
+  expect(current.newWorkspaceOpen).toBe(true);
+  current.dispose();
+});
+
 test('clears the background busy state and exposes the API error after a failed start', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(JSON.stringify({ message: 'background service unavailable' }), {
@@ -161,6 +171,7 @@ test('saves workspace settings together and applies the returned template locall
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(
       JSON.stringify({
+        workspaceLabel: 'Vampire',
         startupProfileId: 'codex',
         composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
       }),
@@ -170,19 +181,21 @@ test('saves workspace settings together and applies the returned template locall
   const current = state();
   current.applyWorkspaceSnapshot([workspace('one')]);
 
-  await expect(current.updateWorkspaceSettings('one', 'codex', 'Read AGENTS.md.\n\n{{ prompts }}')).resolves.toEqual({
-    ok: true,
-  });
+  await expect(
+    current.updateWorkspaceSettings('one', 'Vampire', 'codex', 'Read AGENTS.md.\n\n{{ prompts }}')
+  ).resolves.toEqual({ ok: true });
 
   expect(fetchMock).toHaveBeenCalledWith('/api/workspaces/one/settings', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      workspaceLabel: 'Vampire',
       startupProfileId: 'codex',
       composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
     }),
   });
   expect(current.workspaces[0]).toMatchObject({
+    workspaceLabel: 'Vampire',
     startupProfileId: 'codex',
     composerTemplate: 'Read AGENTS.md.\n\n{{ prompts }}',
   });

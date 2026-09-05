@@ -1,5 +1,4 @@
 import type { ManagedWorkspace, WorkspaceOrderMode, WorkspaceProcess } from '~/lib/shared/contracts/workspace.ts';
-import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
 
 export const WORKSPACE_OUTPUT_SETTLE_MS = 8_000;
 export const WORKSPACE_AGENT_OUTPUT_SETTLE_MS = 30_000;
@@ -51,9 +50,7 @@ export function workspaceProcess(workspace: ManagedWorkspace): WorkspaceProcess 
 
 export function workspaceOutputSettleMs(workspace: ManagedWorkspace): number {
   const process = workspaceProcess(workspace);
-  return process?.kind === 'command' && isAgentProcessLabel(process.label)
-    ? WORKSPACE_AGENT_OUTPUT_SETTLE_MS
-    : WORKSPACE_OUTPUT_SETTLE_MS;
+  return process?.kind === 'command' ? WORKSPACE_AGENT_OUTPUT_SETTLE_MS : WORKSPACE_OUTPUT_SETTLE_MS;
 }
 
 export function workspaceTrackedOutputAt(workspace: ManagedWorkspace): number | null {

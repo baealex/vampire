@@ -19,6 +19,7 @@ import { RepositoryWorkspaceState } from '~/lib/features/repository/model/worksp
 import { repositoryNavigationPaths } from '~/lib/features/repository/model/view';
 import type { RepositorySelection, RepositoryTab } from '~/lib/shared/contracts/repository';
 import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
+import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 
 let {
   workspace,
@@ -95,6 +96,7 @@ const backgroundOpen = $derived(desktop ? backgroundPanelOpen : mobilePanel === 
 const sidePanelOpen = $derived(repositoryOpen || noteOpen || backgroundOpen);
 const orderedTerminals = $derived([...workspace.terminals].sort((left, right) => left.index - right.index));
 const backgroundProcesses = $derived(orderedTerminals.slice(1));
+const askAgentAvailable = $derived(Boolean(mainWorkspacePromptTarget(workspace)));
 const backgroundPanelId = $derived(`background-manager-${workspace.id}`);
 const backgroundTriggerId = $derived(`background-trigger-${workspace.id}`);
 const repository = new RepositoryWorkspaceState(
@@ -386,6 +388,7 @@ onMount(() => {
     <WorkspaceNoteEditor
       panel
       workspaceId={workspace.id}
+      {askAgentAvailable}
       getNote={(refresh) => onLoadNote(workspace.id, refresh)}
       save={(note) => onUpdateNote(workspace.id, note)}
       close={closeNotePanel}
@@ -396,6 +399,8 @@ onMount(() => {
 
   <BackgroundProcesses
     open={backgroundOpen}
+    workspaceId={workspace.id}
+    {askAgentAvailable}
     onOpenChange={(open) => open ? void toggleBackground() : closeBackgroundPanel()}
     panelId={backgroundPanelId}
     triggerId={backgroundTriggerId}

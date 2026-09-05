@@ -87,9 +87,10 @@ test('keeps a rejected selection open and submits it again on retry', async () =
 
   await user.click(screen.getByRole('button', { name: 'Save workspace settings' }));
 
-  await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  expect(await screen.findByRole('status')).toHaveTextContent('Workspace settings saved.');
+  expect(onClose).not.toHaveBeenCalled();
   expect(onSave).toHaveBeenCalledTimes(2);
-  expect(onSave).toHaveBeenLastCalledWith('profile-2', '{{ prompts }}');
+  expect(onSave).toHaveBeenLastCalledWith('', 'profile-2', '{{ prompts }}');
 });
 
 test('opens shared profile management from the workspace selector', async () => {
@@ -108,32 +109,36 @@ test('opens shared profile management from the workspace selector', async () => 
 });
 
 test('guides variable insertion and previews the exact message sent to the shell', async () => {
+  const user = userEvent.setup();
   const onSave = vi.fn(async () => ({ ok: true }));
   render(WorkspaceSettings, {
-    workspace: workspace({ workspaceLabel: 'Vampire' }),
+    workspace: workspace({
+      workspaceLabel: 'Vampire',
+      composerTemplate: 'Workspace: {{ workspace.name }}\nRead AGENTS.md first.\n\n{{ prompts }}',
+    }),
     profiles,
     onClose: vi.fn(),
     onSave,
     onManageProfiles: vi.fn(),
   });
 
-  const template = screen.getByRole('textbox', { name: 'Template' });
-  await fireEvent.input(template, {
-    target: { value: 'Workspace: {{ workspace.name }}\nRead AGENTS.md first.\n\n{{ prompts }}' },
-  });
-  const previewMessage = screen.getByRole('textbox', { name: 'Preview message' });
+  expect(screen.queryByRole('textbox', { name: 'Compose message' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Preview payload' }));
+  const previewMessage = screen.getByRole('textbox', { name: 'Compose message' });
   await fireEvent.input(previewMessage, { target: { value: 'Implement the request' } });
 
-  const previewOutput = screen.getByText('Sent to the shell').closest('.preview-output')?.querySelector('pre');
+  const previewOutput = screen.getByText('Main shell payload').closest('.preview-output')?.querySelector('pre');
   expect(previewOutput?.textContent).toBe('Workspace: Vampire\nRead AGENTS.md first.\n\nImplement the request');
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Save workspace settings' }));
+  await fireEvent.input(screen.getByRole('textbox', { name: 'Alias' }), { target: { value: 'Vampire app' } });
+  await user.click(screen.getByRole('button', { name: 'Save workspace settings' }));
   expect(onSave).toHaveBeenCalledWith(
+    'Vampire app',
     'profile-1',
     'Workspace: {{ workspace.name }}\nRead AGENTS.md first.\n\n{{ prompts }}'
   );
 });
 
-test('prevents saving when the prompt slot is removed and offers an insertion control', async () => {
+test('uses the code editor insertion control and rejects a duplicate prompt slot', async () => {
   const user = userEvent.setup();
   render(WorkspaceSettings, {
     workspace: workspace(),
@@ -143,36 +148,26 @@ test('prevents saving when the prompt slot is removed and offers an insertion co
     onManageProfiles: vi.fn(),
   });
 
-  const template = screen.getByRole('textbox', { name: 'Template' });
-  await user.clear(template);
-  await user.type(template, 'Read the workspace instructions first.');
-
-  expect(await screen.findByRole('alert')).toHaveTextContent('Add {{ prompts }}');
-  expect(screen.getByRole('button', { name: 'Save workspace settings' })).toBeDisabled();
-
   await user.click(screen.getByRole('button', { name: /Prompt.*\{\{ prompts \}\}/ }));
-  expect(template).toHaveValue('Read the workspace instructions first.{{ prompts }}');
-  expect(screen.getByRole('button', { name: 'Save workspace settings' })).toBeEnabled();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Use {{ prompts }} exactly once');
+  expect(screen.getByRole('button', { name: 'Save workspace settings' })).toBeDisabled();
 });
 
-test('confirms before discarding an edited workspace template', async () => {
+test('reports page-level dirty state and delegates closing to the parent', async () => {
   const user = userEvent.setup();
   const onClose = vi.fn();
+  const onDirtyChange = vi.fn();
   render(WorkspaceSettings, {
     workspace: workspace(),
     profiles,
     onClose,
     onSave: vi.fn(async () => ({ ok: true })),
     onManageProfiles: vi.fn(),
+    onDirtyChange,
   });
 
-  await fireEvent.input(screen.getByRole('textbox', { name: 'Template' }), {
-    target: { value: 'Read AGENTS.md.\n\n{{ prompts }}' },
-  });
-  await user.click(screen.getByRole('button', { name: 'Close' }));
-
-  expect(screen.getByRole('alertdialog', { name: 'Discard workspace setting changes?' })).toBeVisible();
-  expect(onClose).not.toHaveBeenCalled();
-  await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+  await user.type(screen.getByRole('textbox', { name: 'Alias' }), 'Vampire');
+  await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+  await user.click(screen.getByRole('button', { name: 'Close workspace settings' }));
   await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
 });

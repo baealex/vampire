@@ -1,6 +1,6 @@
 export const WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH = 4_000;
 
-export const WORKSPACE_AGENT_ACTION_IDS = ['note', 'status-widget', 'automation'] as const;
+export const WORKSPACE_AGENT_ACTION_IDS = ['note', 'status-widget', 'automation', 'background'] as const;
 
 export type WorkspaceAgentActionId = (typeof WORKSPACE_AGENT_ACTION_IDS)[number];
 
@@ -17,7 +17,7 @@ export type WorkspaceAgentActionDescriptor = {
   target: {
     workspaceId: string;
     workspaceLabel: string;
-    agentLabel: string;
+    processLabel: string;
   };
   context: WorkspaceAgentActionContext[];
   requestLabel: string;
@@ -27,8 +27,8 @@ export type WorkspaceAgentActionDescriptor = {
 
 export type WorkspaceAgentActionSubmission = {
   actionId: WorkspaceAgentActionId;
-  status: 'queued';
-  queuedAt: number;
+  status: 'submitted';
+  submittedAt: number;
   prompt: string;
 };
 

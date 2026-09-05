@@ -29,7 +29,6 @@ let {
   onCloseWorkspace,
   onRemoveWorkspace,
   onSettings,
-  onAlias,
   onNewWorktree,
   onAutomations,
   onCreate,
@@ -57,7 +56,6 @@ let {
   onCloseWorkspace: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   onRemoveWorkspace: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   onSettings: (workspace: ManagedWorkspace) => void;
-  onAlias: (workspace: ManagedWorkspace) => void;
   onNewWorktree: (workspace: ManagedWorkspace) => void;
   onAutomations: (workspace: ManagedWorkspace) => void;
   onCreate: () => void;
@@ -102,7 +100,6 @@ function createWorkspace(path: string) {
       {onCloseWorkspace}
       {onRemoveWorkspace}
       {onSettings}
-      {onAlias}
       {onNewWorktree}
       {onAutomations}
       onNewWorkspace={openNewWorkspace}

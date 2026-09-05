@@ -1,7 +1,23 @@
 export type AgentState = 'working' | 'waiting' | null;
 
-const AGENT_PROCESS_LABELS = new Set(['aider', 'claude', 'claude-code', 'codex', 'gemini', 'opencode']);
+export type WorkspacePromptTargetProcess = {
+  kind: 'shell' | 'command';
+  label: string;
+};
 
-export function isAgentProcessLabel(label: string): boolean {
-  return AGENT_PROCESS_LABELS.has(label.trim().toLowerCase());
+type WorkspacePromptTarget = {
+  state: 'running' | 'missing';
+  terminals?: Array<{
+    index: number;
+    state: 'running' | 'exited';
+    foregroundProcess?: WorkspacePromptTargetProcess | null;
+  }>;
+};
+
+export function mainWorkspacePromptTarget(workspace: WorkspacePromptTarget): WorkspacePromptTargetProcess | null {
+  if (workspace.state !== 'running') return null;
+  const mainTerminal = workspace.terminals?.find((terminal) => terminal.index === 0);
+  if (!mainTerminal || mainTerminal.state !== 'running') return null;
+  const process = mainTerminal.foregroundProcess;
+  return process?.kind === 'command' && process.label.trim() ? process : null;
 }

@@ -3,14 +3,19 @@ import {
   ensureManagedWorkspaceNoteFile,
   managedWorkspaceNotePath,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
-import { queueManagedWorkspaceAgentPrompt } from '~/lib/features/workspace/server/workspace-automations.server.ts';
+import { submitTmuxPrompt } from '~/lib/features/terminal/server/tmux.server.ts';
 import { ensureStatusWidgetAgentSupport } from '~/lib/features/status/server/status-widget-agent-support.server.ts';
 import {
   assertWorkspaceAutomationAgentCapacity,
   discardWorkspaceAutomationAgentSupport,
   reserveWorkspaceAutomationAgentSupport,
 } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
-import { isAgentProcessLabel } from '~/lib/shared/contracts/workspace-agent.ts';
+import {
+  assertWorkspaceBackgroundAgentCapacity,
+  discardWorkspaceBackgroundAgentSupport,
+  reserveWorkspaceBackgroundAgentSupport,
+} from '~/lib/features/workspace/server/workspace-background-agent-support.server.ts';
+import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 import {
   WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
   type WorkspaceAgentActionDescriptor,
@@ -21,7 +26,7 @@ import {
 export type WorkspaceAgentActionErrorReason =
   | 'not-found'
   | 'not-running'
-  | 'no-agent'
+  | 'no-process'
   | 'invalid-request'
   | 'unsupported-action';
 
@@ -37,12 +42,13 @@ export class WorkspaceAgentActionError extends Error {
 type AgentTarget = {
   workspaceId: string;
   workspaceLabel: string;
-  agentLabel: string;
+  processLabel: string;
+  tmuxSession: string;
+  terminalId: string;
 };
 
 type PreparedAgentAction = {
   descriptor: WorkspaceAgentActionDescriptor;
-  name: string;
   prompt: (request: string) => string;
   discard?: () => Promise<void>;
 };
@@ -60,7 +66,9 @@ export type WorkspaceAgentActionDependencies = {
   ensureStatusWidgetSupport: typeof ensureStatusWidgetAgentSupport;
   ensureAutomationSupport: typeof reserveWorkspaceAutomationAgentSupport;
   assertAutomationCapacity: typeof assertWorkspaceAutomationAgentCapacity;
-  queuePrompt: typeof queueManagedWorkspaceAgentPrompt;
+  ensureBackgroundSupport: typeof reserveWorkspaceBackgroundAgentSupport;
+  assertBackgroundCapacity: typeof assertWorkspaceBackgroundAgentCapacity;
+  submitPrompt: typeof submitTmuxPrompt;
 };
 
 const defaultDependencies: WorkspaceAgentActionDependencies = {
@@ -70,19 +78,13 @@ const defaultDependencies: WorkspaceAgentActionDependencies = {
   ensureStatusWidgetSupport: ensureStatusWidgetAgentSupport,
   ensureAutomationSupport: reserveWorkspaceAutomationAgentSupport,
   assertAutomationCapacity: assertWorkspaceAutomationAgentCapacity,
-  queuePrompt: queueManagedWorkspaceAgentPrompt,
+  ensureBackgroundSupport: reserveWorkspaceBackgroundAgentSupport,
+  assertBackgroundCapacity: assertWorkspaceBackgroundAgentCapacity,
+  submitPrompt: submitTmuxPrompt,
 };
 
 function workspaceLabel(workspace: ManagedWorkspace): string {
   return workspace.workspaceLabel?.trim() || workspace.cwd;
-}
-
-function mainAgentLabel(workspace: ManagedWorkspace): string | undefined {
-  const mainTerminal = workspace.terminals.find((terminal) => terminal.index === 0);
-  if (mainTerminal?.state !== 'running') return undefined;
-  const process = mainTerminal?.foregroundProcess;
-  if (process?.kind !== 'command' || !isAgentProcessLabel(process.label)) return undefined;
-  return process.label;
 }
 
 async function requireAgentTarget(
@@ -94,17 +96,34 @@ async function requireAgentTarget(
   if (workspace.state !== 'running') {
     throw new WorkspaceAgentActionError('not-running', 'Open this workspace before asking its agent.');
   }
-  const agentLabel = mainAgentLabel(workspace);
-  if (!agentLabel) {
+  const process = mainWorkspacePromptTarget(workspace);
+  if (!process) {
     throw new WorkspaceAgentActionError(
-      'no-agent',
-      'Start a supported agent in the main terminal before using Ask agent.'
+      'no-process',
+      'Start a foreground process in the main terminal before using Ask agent.'
+    );
+  }
+  const mainTerminal = workspace.terminals.find((terminal) => terminal.index === 0);
+  if (!mainTerminal) {
+    throw new WorkspaceAgentActionError(
+      'no-process',
+      'Start a foreground process in the main terminal before using Ask agent.'
     );
   }
   return {
     workspaceId: workspace.id,
     workspaceLabel: workspaceLabel(workspace),
-    agentLabel,
+    processLabel: process.label,
+    tmuxSession: workspace.tmuxSession,
+    terminalId: mainTerminal.id,
+  };
+}
+
+function publicAgentTarget(target: AgentTarget): WorkspaceAgentActionDescriptor['target'] {
+  return {
+    workspaceId: target.workspaceId,
+    workspaceLabel: target.workspaceLabel,
+    processLabel: target.processLabel,
   };
 }
 
@@ -123,14 +142,13 @@ async function prepareNoteAction(
       id: 'note',
       title: 'Ask agent about this note',
       description: 'The note path is supplied as context. You decide how the agent should read or update it.',
-      target,
+      target: publicAgentTarget(target),
       context: [{ label: 'Workspace note', value: notePath }],
       requestLabel: 'What should the agent do?',
       requestPlaceholder: 'For example: organize the important context and next steps.',
       defaultRequest:
         'Review the current workspace state and organize this note with the important context and next steps.',
     },
-    name: 'Workspace note request',
     prompt: (request) => notePrompt(notePath, request),
   };
 }
@@ -163,7 +181,7 @@ async function prepareStatusWidgetAction(
       id: 'status-widget',
       title: 'Create a status widget with an agent',
       description: 'Vampire supplies its live configuration, current widget contract, and validator.',
-      target,
+      target: publicAgentTarget(target),
       context: [
         {
           label: 'Widget configuration',
@@ -181,7 +199,6 @@ async function prepareStatusWidgetAction(
       requestPlaceholder: 'For example: show unread GitHub notifications and link to the notifications page.',
       defaultRequest: '',
     },
-    name: 'Status widget request',
     prompt: (request) => statusWidgetPrompt(support, request),
   };
 }
@@ -217,7 +234,7 @@ async function prepareAutomationAction(
       title: 'Manage automations with an agent',
       description:
         'Vampire supplies the current automation snapshot, an isolated operation draft, and a safe apply command.',
-      target,
+      target: publicAgentTarget(target),
       context: support
         ? [
             { label: 'Automation request', value: support.requestPath },
@@ -236,7 +253,6 @@ async function prepareAutomationAction(
       requestPlaceholder: 'For example: change “Daily review” to weekdays at 9 AM, or create a weekly project check.',
       defaultRequest: '',
     },
-    name: 'Workspace automation request',
     prompt: (request) => {
       if (!support) throw new Error('Automation agent support was not prepared.');
       return automationPrompt(support, request);
@@ -245,10 +261,69 @@ async function prepareAutomationAction(
   };
 }
 
+function backgroundPrompt(
+  support: Awaited<ReturnType<typeof reserveWorkspaceBackgroundAgentSupport>>,
+  request: string
+): string {
+  return [
+    'Update this Vampire workspace’s saved Background commands using the supported request files below.',
+    '',
+    `Draft request: ${JSON.stringify(support.requestPath)}`,
+    `Current guide: ${JSON.stringify(support.guidePath)}`,
+    `Apply command: ${support.applyCommand}`,
+    '',
+    'Read the guide and currentFavoriteCommands snapshot, edit only the operation field in the supplied draft, run the apply command, and report the commands you staged. Do not run the saved commands.',
+    '',
+    'User request:',
+    request,
+  ].join('\n');
+}
+
+async function prepareBackgroundAction(
+  target: AgentTarget,
+  dependencies: WorkspaceAgentActionDependencies,
+  materialize: boolean
+): Promise<PreparedAgentAction> {
+  if (!materialize) await dependencies.assertBackgroundCapacity(target.workspaceId);
+  const support = materialize ? await dependencies.ensureBackgroundSupport(target.workspaceId) : undefined;
+  return {
+    descriptor: {
+      id: 'background',
+      title: 'Manage Background commands with an agent',
+      description:
+        'Vampire supplies only the current saved commands, an isolated add-or-remove draft, and a safe apply command.',
+      target: publicAgentTarget(target),
+      context: support
+        ? [
+            { label: 'Background request', value: support.requestPath },
+            { label: 'Background guide', value: support.guidePath },
+            { label: 'Apply command', value: support.applyCommand },
+          ]
+        : [
+            {
+              label: 'Agent support',
+              value: 'Prepared when sent',
+              description: 'Vampire snapshots only this workspace’s saved Background commands.',
+            },
+          ],
+      requestLabel: 'Which commands should the agent manage?',
+      requestPlaceholder:
+        'For example: find and save the development server and test watch commands, without removing existing commands.',
+      defaultRequest: '',
+    },
+    prompt: (request) => {
+      if (!support) throw new Error('Background agent support was not prepared.');
+      return backgroundPrompt(support, request);
+    },
+    ...(support ? { discard: () => discardWorkspaceBackgroundAgentSupport(support) } : {}),
+  };
+}
+
 const AGENT_ACTION_PREPARERS = {
   note: prepareNoteAction,
   'status-widget': prepareStatusWidgetAction,
   automation: prepareAutomationAction,
+  background: prepareBackgroundAction,
 } satisfies Record<WorkspaceAgentActionId, PrepareAgentAction>;
 
 async function prepareAgentAction(
@@ -256,11 +331,14 @@ async function prepareAgentAction(
   actionId: WorkspaceAgentActionId,
   dependencies: WorkspaceAgentActionDependencies,
   materialize = false
-): Promise<PreparedAgentAction> {
+): Promise<PreparedAgentAction & { delivery: Pick<AgentTarget, 'tmuxSession' | 'terminalId'> }> {
   const target = await requireAgentTarget(workspaceId, dependencies);
   const prepare = AGENT_ACTION_PREPARERS[actionId];
   if (!prepare) throw new WorkspaceAgentActionError('unsupported-action', 'Agent action is not supported.');
-  return prepare(target, dependencies, materialize);
+  return {
+    ...(await prepare(target, dependencies, materialize)),
+    delivery: { tmuxSession: target.tmuxSession, terminalId: target.terminalId },
+  };
 }
 
 function normalizeRequest(value: unknown): string {
@@ -282,7 +360,7 @@ export async function describeWorkspaceAgentAction(
   return (await prepareAgentAction(workspaceId, actionId, dependencies)).descriptor;
 }
 
-export async function queueWorkspaceAgentAction(
+export async function submitWorkspaceAgentAction(
   workspaceId: string,
   actionId: WorkspaceAgentActionId,
   value: unknown,
@@ -293,18 +371,10 @@ export async function queueWorkspaceAgentAction(
   const action = await prepareAgentAction(workspaceId, actionId, dependencies, true);
   const prompt = action.prompt(request);
   try {
-    await dependencies.queuePrompt(
-      workspaceId,
-      {
-        actionId,
-        name: action.name,
-        prompt,
-      },
-      now
-    );
+    await dependencies.submitPrompt(action.delivery.tmuxSession, action.delivery.terminalId, prompt);
   } catch (error) {
     await action.discard?.().catch(() => undefined);
     throw error;
   }
-  return { actionId, status: 'queued', queuedAt: now, prompt };
+  return { actionId, status: 'submitted', submittedAt: now, prompt };
 }

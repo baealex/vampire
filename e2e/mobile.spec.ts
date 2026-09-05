@@ -64,7 +64,7 @@ test('keeps a terminal connection failure inside the mobile viewport', async ({ 
   expect(errorBox).not.toBeNull();
   expect(errorBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
   expect(errorBox!.y + errorBox!.height).toBeLessThanOrEqual(frameBox!.y + frameBox!.height + 1);
-  await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
+  await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -76,7 +76,7 @@ test('keeps direct terminal input and the composer independently available on mo
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
   await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
   await expect(hiddenTerminalInput).not.toHaveAttribute('readonly', '');
@@ -258,19 +258,20 @@ test('keeps touch scrolling after the terminal takes direct input ownership', as
     .toBeLessThan(bottomMinimum);
 });
 
-test('keeps Compose First ownership after scrolling the terminal', async ({ context, page }) => {
+test('keeps a Compose draft focused while scrolling and switches on a deliberate terminal tap', async ({
+  context,
+  page,
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
-  const settings = await context.request.put('/api/terminal-input/settings', {
-    data: { mode: 'compose', slashHandoff: true },
-  });
-  expect(settings.ok()).toBe(true);
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
+  await composer.fill('Keep this unfinished prompt');
+  await expect(composer).toBeFocused();
 
   const alignment = await page.locator('.composer').evaluate((element) => {
     const textarea = element.querySelector('textarea')?.getBoundingClientRect();
@@ -300,8 +301,11 @@ test('keeps Compose First ownership after scrolling the terminal', async ({ cont
     element.dispatchEvent(pointer('pointermove', startY + 80));
     element.dispatchEvent(pointer('pointerup', startY + 80));
   });
+  await expect(composer).toBeFocused();
 
   await terminal.tap({ position: { x: 96, y: 96 } });
+  await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+  await composer.tap();
   await expect(composer).toBeFocused();
 });
 
@@ -324,7 +328,7 @@ test('keeps mobile composition visible while terminal output and viewport geomet
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   await composer.focus();
   await composer.evaluate((input) => {
     input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
@@ -404,7 +408,7 @@ test('resizes terminal geometry to keep the mobile keyboard from hiding active c
   await expectTerminalReady(page);
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   await composer.focus();
   await expect(composer).toBeFocused();
   await page.waitForTimeout(250);
@@ -480,7 +484,7 @@ test('keeps a usable terminal and composer in an extreme keyboard-height viewpor
   await expectTerminalReady(page);
   await page.setViewportSize({ width: 320, height: 280 });
 
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   await expect(composer).toBeVisible();
   await composer.fill('extreme viewport input');
   await expect(composer).toHaveValue('extreme viewport input');
@@ -516,7 +520,7 @@ test('keeps numbered normal-screen rows unique through repeated mobile resizes',
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   await composer.fill(`for i in $(seq 1 5); do printf 'VAMPIRE_UNIQUE_%04d\\n' "$i"; done`);
   await composer.press('Enter');
   const terminalRows = page.locator('.xterm-rows');
@@ -542,7 +546,7 @@ test('keeps a full-screen TUI coherent through repeated mobile resizes', async (
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   const tuiCommand = `node -e "const draw=()=>process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b[48;5;22m TUI-READY '+process.stdout.columns+'x'+process.stdout.rows+' \\x1b[0m');process.on('SIGWINCH',draw);process.on('SIGINT',()=>{process.stdout.write('\\x1b[?1049l');process.exit(0)});draw();setInterval(()=>{},1000)"`;
   await composer.fill(tuiCommand);
   await composer.press('Enter');
@@ -607,7 +611,7 @@ test('preserves mobile composition through a reconnect snapshot', async ({ conte
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await firstConnectionOpened;
   await expectTerminalReady(page);
-  const composer = page.getByPlaceholder('Send to shell…');
+  const composer = page.getByPlaceholder('Compose a message…');
   await composer.focus();
 
   await composer.evaluate((input, value) => {
@@ -663,7 +667,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await workspaceList.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
-  await expect(page.getByRole('radio', { name: /Compose first/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Terminal interaction' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /Open the terminal/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expectTerminalReady(page);
@@ -692,7 +697,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.locator('.xterm-rows')).toContainText(
     '한글 日本語 简体中文 Русский Ελληνικά العربية עברית हिन्दी ไทย 😀'
   );
-  await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
+  await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll to terminal top' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll terminal up one page' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Scroll terminal down one page' })).toBeVisible();
@@ -810,7 +815,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
   await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
-  await expect(page.getByPlaceholder('Send to shell…')).toBeVisible();
+  await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
   const notePanel = page.locator('.workspace-note-panel');

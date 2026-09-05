@@ -37,7 +37,6 @@ function props(currentWorkspace: ManagedWorkspace, workspaceAction?: 'close') {
     onCloseWorkspace: vi.fn(async () => ({ ok: true })),
     onRemoveWorkspace: vi.fn(async () => ({ ok: true })),
     onSettings: vi.fn(),
-    onAlias: vi.fn(),
     onNewWorktree: vi.fn(),
     onAutomations: vi.fn(),
     onNewWorkspace: vi.fn(),

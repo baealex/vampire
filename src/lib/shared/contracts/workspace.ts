@@ -1,6 +1,8 @@
 import type { AgentState } from './workspace-agent.ts';
 import type { WorkspaceComposerPromptPreview } from './workspace-composer-history.ts';
 
+export const WORKSPACE_ALIAS_MAX_LENGTH = 80;
+
 export type LaunchProfile = {
   id: string;
   name: string;

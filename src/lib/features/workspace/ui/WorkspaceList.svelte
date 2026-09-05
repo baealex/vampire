@@ -38,7 +38,6 @@ let {
   onCloseWorkspace,
   onRemoveWorkspace,
   onSettings,
-  onAlias,
   onNewWorktree,
   onAutomations,
   onNewWorkspace,
@@ -55,7 +54,6 @@ let {
   onCloseWorkspace: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   onRemoveWorkspace: (workspace: ManagedWorkspace) => Promise<{ ok: boolean; error?: string }>;
   onSettings: (workspace: ManagedWorkspace) => void;
-  onAlias: (workspace: ManagedWorkspace) => void;
   onNewWorktree: (workspace: ManagedWorkspace) => void;
   onAutomations: (workspace: ManagedWorkspace) => void;
   onNewWorkspace: () => void;
@@ -285,7 +283,6 @@ async function runWorkspaceAction(
           closeWorkspace={(target) => runWorkspaceAction(target, onCloseWorkspace)}
           remove={(target) => runWorkspaceAction(target, onRemoveWorkspace)}
           onSettings={(target) => void openWorkspaceDialog(target, onSettings)}
-          onAlias={(target) => void openWorkspaceDialog(target, onAlias)}
           onNewWorktree={(target) => void openWorkspaceDialog(target, onNewWorktree)}
           onAutomations={(target) => void openWorkspaceDialog(target, onAutomations)}
         />

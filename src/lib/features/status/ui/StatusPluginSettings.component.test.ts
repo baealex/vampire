@@ -21,9 +21,9 @@ function plugin(name: string, command = 'echo ready'): StatusPlugin {
 function agentWorkspace(
   id: string,
   label: string,
-  agentLabel: string,
+  processLabel: string,
   lastActiveAt: number,
-  terminalAgentLabel: string | null = agentLabel
+  terminalProcessLabel: string | null = processLabel
 ): ManagedWorkspace {
   return {
     id,
@@ -39,7 +39,7 @@ function agentWorkspace(
     lastOutputAt: null,
     state: 'running',
     attachedClients: 1,
-    foregroundProcess: { kind: 'command', label: agentLabel },
+    foregroundProcess: { kind: 'command', label: processLabel },
     terminals: [
       {
         id: `terminal-${id}`,
@@ -47,8 +47,8 @@ function agentWorkspace(
         name: 'main',
         active: true,
         lastOutputAt: null,
-        foregroundProcess: terminalAgentLabel ? { kind: 'command', label: terminalAgentLabel } : null,
-        command: agentLabel,
+        foregroundProcess: terminalProcessLabel ? { kind: 'command', label: terminalProcessLabel } : null,
+        command: processLabel,
         startedAt: 1,
         state: 'running',
         exitCode: null,
@@ -102,15 +102,13 @@ test('does not replace an unsaved widget draft with a background refresh', async
   expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
 
-test('opens Ask Agent from the workspace process summary when the terminal detail is stale', async () => {
+test('ignores a stale process summary and targets a running main terminal', async () => {
   const user = userEvent.setup();
   const initial = { plugins: [], presets: [] };
   const workspaces = [
     agentWorkspace('workspace-1', 'Project one', 'codex', 1, null),
     agentWorkspace('workspace-2', 'Project two', 'claude', 2),
   ];
-  workspaces[0]!.terminals[0]!.state = 'exited';
-  workspaces[0]!.foregroundProcess = { kind: 'shell', label: 'zsh' };
   queryCache.set(STATUS_PLUGINS_QUERY, initial);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input);
@@ -125,7 +123,7 @@ test('opens Ask Agent from the workspace process summary when the terminal detai
             target: {
               workspaceId,
               workspaceLabel: workspaceId === 'workspace-1' ? 'Project one' : 'Project two',
-              agentLabel: workspaceId === 'workspace-1' ? 'codex' : 'claude',
+              processLabel: workspaceId === 'workspace-1' ? 'codex' : 'claude',
             },
             context: [],
             requestLabel: 'What widget should the agent create?',
@@ -144,7 +142,7 @@ test('opens Ask Agent from the workspace process summary when the terminal detai
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Create a status widget with an agent' })).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: /^Send to/ })).toHaveValue('workspace-1');
+  expect(screen.getByRole('combobox', { name: /^Send to/ })).toHaveValue('workspace-2');
   expect(screen.getByRole('textbox', { name: 'What widget should the agent create?' })).toHaveFocus();
 });
 
@@ -164,13 +162,11 @@ test('requires unsaved widget changes to be saved before Ask Agent', async () =>
   await user.click(screen.getByRole('button', { name: 'Edit Original widget' }));
   await user.type(screen.getByRole('textbox', { name: 'Name' }), ' changed');
   await user.click(screen.getByRole('button', { name: 'Back to status widgets' }));
-  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeDisabled();
   expect(
     screen.getByText('Save changes before asking an agent to update the global widget configuration.')
   ).toBeVisible();
-  await user.click(screen.getByRole('button', { name: 'Ask agent…' }));
-  expect(screen.getByRole('alert')).toHaveTextContent('Save your widget changes before asking an agent.');
-
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Ask agent…' })).toBeEnabled();
 });

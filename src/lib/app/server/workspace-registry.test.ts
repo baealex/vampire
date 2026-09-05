@@ -147,21 +147,25 @@ test('saves a workspace Composer template with its startup profile and rejects u
   const composerTemplate = 'Date: {{ today }}\n\n{{ prompts }}\n\nRead AGENTS.md before replying.';
   assert.deepEqual(
     await updateManagedWorkspaceSettings('workspace-1', {
+      workspaceLabel: 'Vampire',
       startupProfileId: 'codex',
       composerTemplate,
     }),
     {
+      workspaceLabel: 'Vampire',
       startupProfileId: 'codex',
       composerTemplate,
     }
   );
   const saved = await readWorkspaceStore();
+  assert.equal(saved.workspaces[0]?.workspaceLabel, 'Vampire');
   assert.equal(saved.workspaces[0]?.startupProfileId, 'codex');
   assert.equal(saved.workspaces[0]?.composerTemplate, composerTemplate);
 
   await assert.rejects(
     () =>
       updateManagedWorkspaceSettings('workspace-1', {
+        workspaceLabel: 'Changed after failed save',
         startupProfileId: null,
         composerTemplate: 'The prompt slot is missing.',
       }),

@@ -185,13 +185,13 @@ test('extends active while output continues and re-enters active from review', (
   assert.equal(harness.state(), 'active');
 });
 
-test('gives recognized terminal agents a longer fallback for silent tool work', () => {
+test('gives foreground commands a longer fallback for silent work', () => {
   now = 1_000_000;
   const harness = createHarness();
   harness.setWorkspaces([
     {
       ...harness.workspaces[0],
-      foregroundProcess: { kind: 'command', label: 'codex' },
+      foregroundProcess: { kind: 'command', label: 'project-runner' },
     },
   ]);
   harness.controller.recordWorkspaceOutput('workspace-1', true, now, false);
