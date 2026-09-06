@@ -685,7 +685,12 @@ test('keeps Composer fixed and follows the caret through line breaks and history
   await composer.press('Shift+Enter');
   await expect
     .poll(() =>
-      composer.evaluate((element) => Math.abs(element.scrollTop - parseFloat(getComputedStyle(element).lineHeight)))
+      composer.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const lineHeight = parseFloat(style.lineHeight);
+        const paddingBottom = parseFloat(style.paddingBottom);
+        return Math.abs(element.scrollTop - (lineHeight + paddingBottom));
+      })
     )
     .toBeLessThan(2);
   await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
