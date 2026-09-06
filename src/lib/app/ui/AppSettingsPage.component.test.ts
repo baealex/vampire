@@ -67,7 +67,13 @@ test('keeps listening ports out of application settings', () => {
   expect(screen.queryByText('Listening ports')).not.toBeInTheDocument();
 });
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false }))
+  );
+});
 
 test('explains Compose-only history and saves its server retention policy', async () => {
   const user = userEvent.setup();
@@ -90,9 +96,11 @@ test('lists the core keyboard shortcuts as fixed interactions', () => {
   expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
   expect(screen.getByText('⌘1–0')).toBeVisible();
   expect(screen.getByText('Compose → Terminal')).toBeVisible();
-  expect(screen.getByText('⌘/ · Ctrl+`')).toBeVisible();
+  expect(screen.getByText('⌘ /')).toBeVisible();
   expect(screen.getByText('Ctrl+Alt+H')).toBeVisible();
-  expect(screen.getByText('Switch input surface')).toBeVisible();
+  expect(screen.queryByText('Ctrl+Alt+P')).not.toBeInTheDocument();
+  expect(screen.queryByText('Ctrl+Alt+B')).not.toBeInTheDocument();
+  expect(screen.getByText('Switch input')).toBeVisible();
   expect(screen.queryByText(/Ctrl.*Shift.*Enter/i)).not.toBeInTheDocument();
   expect(screen.queryByRole('checkbox', { name: /Compose to Terminal/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Save shortcuts/i })).not.toBeInTheDocument();
@@ -102,7 +110,7 @@ test('applies a changed default profile to every workspace on save', async () =>
   const user = userEvent.setup();
   const { onSaveLaunchProfiles } = renderSettings();
 
-  await user.selectOptions(screen.getByRole('combobox'), 'claude');
+  await user.selectOptions(screen.getByRole('combobox', { name: /Default for all workspaces/ }), 'claude');
   await user.click(screen.getByRole('button', { name: 'Save profiles' }));
 
   expect(onSaveLaunchProfiles).toHaveBeenCalledWith(profiles, 'claude', true);

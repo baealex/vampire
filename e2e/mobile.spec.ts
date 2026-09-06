@@ -477,7 +477,10 @@ test('resizes terminal geometry to keep the mobile keyboard from hiding active c
   await expect(composer).toBeFocused();
 });
 
-test('keeps a usable terminal and composer in an extreme keyboard-height viewport', async ({ context, page }) => {
+test('keeps a usable terminal and composer in an extreme keyboard-height viewport', async ({
+  context,
+  page,
+}, testInfo) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -485,6 +488,11 @@ test('keeps a usable terminal and composer in an extreme keyboard-height viewpor
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   await page.setViewportSize({ width: 320, height: 280 });
+  await expect(page.getByRole('button', { name: 'Switch between Compose and Terminal' })).toBeVisible();
+  await expect
+    .poll(() => page.locator('.composer-slot').evaluate((element) => element.getBoundingClientRect().height))
+    .toBeLessThanOrEqual(52);
+  await page.screenshot({ path: testInfo.outputPath('composer-small-viewport.png') });
 
   const composer = page.getByPlaceholder('Compose a message…');
   await expect(composer).toBeVisible();
@@ -513,6 +521,55 @@ test('keeps a usable terminal and composer in an extreme keyboard-height viewpor
       })
     )
     .toEqual({ composerFits: true, frameFits: true, usableRows: true, scrollFits: true });
+});
+
+test('keeps a wide single-line composer and opens secondary actions on a narrow screen', async ({
+  context,
+  page,
+}, testInfo) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByPlaceholder('Compose a message…');
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(150);
+  await expect
+    .poll(() => page.locator('.composer').evaluate((element) => element.getBoundingClientRect().height))
+    .toBeLessThanOrEqual(52);
+  const actions = page.getByRole('button', { name: 'More message actions' });
+  await actions.click();
+  await expect(page.getByRole('button', { name: 'Bypass template for this message' })).toHaveCount(0);
+  await expect(page.locator('.composer-action-list button')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Preview final message' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Expand composer' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open Composer history' }).click();
+  await expect(page.getByRole('region', { name: 'Composer history' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Search sent prompts' }).press('Escape');
+  await expect(composer).toBeFocused();
+  await composer.fill('Review this change');
+  await actions.click();
+  await expect(page.locator('.composer-action-list button')).toHaveCount(2);
+  await composer.click();
+  await expect(page.locator('.composer-action-list')).toBeHidden();
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('Review this change');
+  await actions.click();
+  const fileChooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Send an image to the shell' }).click();
+  expect((await fileChooser).isMultiple()).toBe(false);
+  await actions.click();
+  await expect(page.locator('.composer-action-list')).toBeVisible();
+  await page.setViewportSize({ width: 900, height: 640 });
+  await expect(actions).toBeHidden();
+  await expect(page.locator('.composer-action-list')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open Composer history' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send an image to the shell' })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect(actions).toBeVisible();
+  await composer.fill('');
+  await page.screenshot({ path: testInfo.outputPath('composer-mobile.png') });
 });
 
 test('keeps numbered normal-screen rows unique through repeated mobile resizes', async ({ context, page }) => {
@@ -830,8 +887,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
   const notePanel = page.locator('.workspace-note-panel');
-  await expect(notePanel.getByRole('region', { name: 'Workspace note' })).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Workspace note' })).toHaveCount(0);
+  await expect(notePanel.getByRole('region', { name: 'Note', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Note', exact: true })).toHaveCount(0);
   await notePanel.getByRole('button', { name: 'Close workspace note' }).click();
   await expect(notePanel).toHaveAttribute('aria-hidden', 'true');
   await expect(notePanel).toHaveAttribute('inert', '');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -236,6 +236,33 @@ test('development startup requires an explicit marked non-production state direc
   assert.match(prepared.tmuxSocketName, /^vampire-dev-[a-f0-9]{16}$/);
   assert.equal(env.VAMPIRE_TMUX_SOCKET_NAME, prepared.tmuxSocketName);
   assert.equal(env.VAMPIRE_SAFE_DEVELOPMENT, '1');
+});
+
+test('explicit existing-state startup retains state and tmux while disabling automatic commands', async (t) => {
+  const root = await temporaryRoot(t);
+  const homeDirectory = join(root, 'home');
+  const liveState = join(homeDirectory, '.vampire');
+  await mkdir(liveState, { recursive: true });
+  const registry = '{"version":1,"workspaces":[]}\n';
+  await writeFile(join(liveState, 'registry.json'), registry);
+
+  for (const socket of [undefined, 'custom-existing']) {
+    const env: NodeJS.ProcessEnv = { VAMPIRE_STATE_DIR: liveState, VAMPIRE_TMUX_SOCKET_NAME: socket };
+    const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory, useExistingState: true });
+    assert.equal(prepared.stateDirectory, await realpath(liveState));
+    assert.equal(prepared.tmuxSocketName, socket ?? 'default');
+    assert.equal(env.VAMPIRE_TMUX_SOCKET_NAME, prepared.tmuxSocketName);
+    assert.equal(env.VAMPIRE_SAFE_DEVELOPMENT, '1');
+  }
+  assert.equal(await readFile(join(liveState, 'registry.json'), 'utf8'), registry);
+  assert.deepEqual(await readdir(liveState), ['registry.json']);
+  await assert.rejects(
+    prepareDevelopmentEnvironment(
+      { VAMPIRE_STATE_DIR: liveState, VAMPIRE_TMUX_SOCKET_NAME: '../invalid' },
+      { homeDirectory, useExistingState: true }
+    ),
+    /socket name is invalid/
+  );
 });
 
 test('development startup resolves symlinks before comparing with the production state path', async (t) => {

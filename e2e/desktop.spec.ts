@@ -23,6 +23,11 @@ declare global {
   interface Window {
     __vampireObservedWorkspaceStates: string[];
     __vampireWorkspaceStateTimer: number;
+    __vampireOutputProbe?: {
+      frame: number;
+      seen: Set<number>;
+      samples: Array<{ producedAt: number; renderedAt: number }>;
+    };
   }
 }
 
@@ -364,7 +369,10 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
   });
 }
 
-test('switches input focus directly and keeps Shift+Enter distinct in the terminal', async ({ context, page }) => {
+test('switches input focus directly and keeps Shift+Enter distinct in the terminal', async ({
+  context,
+  page,
+}, testInfo) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -376,14 +384,55 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
   const composer = page.getByPlaceholder('Compose a message…');
   const terminalInput = page.locator('.xterm-helper-textarea');
   await expect(composer).toBeFocused();
-  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeHidden();
 
+  const inputSwitch = page.getByRole('button', { name: 'Switch between Compose and Terminal' });
+  await expect(inputSwitch).toContainText('Switch input');
+  await expect(inputSwitch.locator('kbd')).toBeVisible();
+  await inputSwitch.click();
+  await expect(terminalInput).toBeFocused();
+  await inputSwitch.click();
+  await expect(composer).toBeFocused();
+  await page.setViewportSize({ width: 1280, height: 480 });
+  expect((await page.locator('.input-dock').boundingBox())!.height).toBeLessThan(75);
+
+  await composer.fill('한글');
+  await composer.press('Space');
+  await composer.pressSequentially('English');
+  await expect(composer).toHaveValue('한글 English');
+  const textMetrics = await composer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    const canvas = document.createElement('canvas').getContext('2d')!;
+    canvas.font = `${style.fontSize} ${style.fontFamily}`;
+    const space = canvas.measureText(' ').width;
+    const contentCenter = bounds.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2;
+    return { space, font: style.fontFamily, centerOffset: contentCenter - (bounds.top + bounds.height / 2) };
+  });
+  expect(Math.abs(textMetrics.centerOffset)).toBeLessThan(1);
+  expect(textMetrics.font).not.toContain('Mono');
+  await page.screenshot({ path: testInfo.outputPath('compact-desktop-composer.png') });
+  await composer.fill('');
+
+  for (const [key, data] of [
+    ['Backspace', '\u007f'],
+    ['Escape', '\u001b'],
+    ['ArrowDown', '\u001b[B'],
+    ['ArrowLeft', '\u001b[D'],
+    ['ArrowRight', '\u001b[C'],
+  ]) {
+    await composer.press(key);
+    await expect
+      .poll(() => messages.some((message) => message.direction === 'client' && message.data === data))
+      .toBe(true);
+    await expect(composer).toBeFocused();
+  }
   await composer.press('Enter');
   await expect(composer).toBeFocused();
   await expect
     .poll(() => messages.some((message) => message.direction === 'client' && message.data === '\r'))
     .toBe(true);
-  await page.getByRole('button', { name: 'Arrow up' }).click();
+  await composer.press('ArrowUp');
   await expect(composer).toBeFocused();
   await expect
     .poll(() => messages.some((message) => message.direction === 'client' && message.data === '\u001b[A'))
@@ -392,7 +441,7 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
   const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
   await terminal.click({ position: { x: 80, y: 80 } });
   await expect(terminalInput).toBeFocused();
-  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeHidden();
 
   const inputMessagesBeforeComposeShortcut = messages.filter(
     (message) => message.direction === 'client' && message.type === 'input'
@@ -415,7 +464,7 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
   await expect(terminal.locator('.xterm-selection > div')).not.toHaveCount(0);
   await composer.click();
   await expect(composer).toBeFocused();
-  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeHidden();
 
   await composer.pressSequentially('/');
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
@@ -429,7 +478,36 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
     .toBe(true);
 });
 
-test('uses terminal cursor mode for approval controls without taking Compose focus', async ({ context, page }) => {
+test('persists terminal text size from settings and keeps shortcuts readable', async ({ context, page }, testInfo) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await expect(page.getByRole('button', { name: 'Terminal display settings' })).toHaveCount(0);
+  await page.getByRole('region', { name: 'Workspace list' }).getByRole('button', { name: 'Open settings' }).click();
+  await page.getByRole('combobox', { name: 'Terminal text size' }).selectOption('18');
+  const shortcuts = page.locator('.shortcut-list');
+  await shortcuts.screenshot({ path: testInfo.outputPath('keyboard-shortcuts-desktop.png') });
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expect(page.getByRole('button', { name: 'Close workspace navigator' })).toBeHidden();
+  await shortcuts.screenshot({ path: testInfo.outputPath('keyboard-shortcuts-narrow.png') });
+  for (const key of await shortcuts.locator('kbd').all()) {
+    expect(await key.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expectTerminalReady(page);
+  await expect(page.locator('.xterm-rows')).toHaveCSS('font-size', '18px');
+  await page.reload();
+  await expectTerminalReady(page);
+  await expect(page.locator('.xterm-rows')).toHaveCSS('font-size', '18px');
+});
+
+test('uses terminal cursor mode for keyboard approval controls while preserving the Compose draft', async ({
+  context,
+  page,
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -442,7 +520,9 @@ test('uses terminal cursor mode for approval controls without taking Compose foc
   await expect(composer).toBeFocused();
 
   await composer.fill('Keep this Compose draft');
-  await page.getByRole('button', { name: 'Arrow down' }).click();
+  await page.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.press('ArrowDown');
+  await composer.focus();
   await expect(page.locator('.xterm-rows')).toContainText('APPROVAL_SELECTED_DOWN');
   await expect(composer).toBeFocused();
   await expect(composer).toHaveValue('Keep this Compose draft');
@@ -533,10 +613,10 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   const template = '# Read AGENTS.md before working.\n{{ prompts }}\n# Verify the result before replying.';
   await settingsPage.getByRole('textbox', { name: 'Template source' }).fill(template);
   await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
-  await settingsPage.getByRole('button', { name: 'Preview payload' }).click();
-  await settingsPage.getByRole('textbox', { name: 'Compose message' }).fill('Implement the request');
+  await settingsPage.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
   await expect(settingsPage.locator('.preview-output pre')).toHaveText(
-    '# Read AGENTS.md before working.\nImplement the request\n# Verify the result before replying.'
+    '# Read AGENTS.md before working.\n[Your message]\n# Verify the result before replying.'
   );
   await settingsPage.getByRole('button', { name: 'Save workspace settings' }).click();
   await expect(settingsPage.getByRole('status')).toContainText('Workspace settings saved');
@@ -558,20 +638,59 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_COMPOSER_TEMPLATE_OK');
 });
 
-test('keeps terminal geometry stable while Composer expands and history opens', async ({ context, page }) => {
+test('keeps Composer fixed and follows the caret through line breaks and history', async ({
+  context,
+  page,
+}, testInfo) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  await expect(page.getByRole('button', { name: 'More message actions' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Open Composer history' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send an image to the shell' })).toBeVisible();
   const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
+  await page.screenshot({ path: testInfo.outputPath('composer-desktop.png') });
+  // An empty composer reserves a single input row, including its border and padding.
+  await expect
+    .poll(() => page.locator('.composer-slot').evaluate((element) => element.getBoundingClientRect().height))
+    .toBeLessThanOrEqual(52);
   const terminalRows = page.locator('.xterm-rows');
   const initialRenderedRows = await terminalRows.evaluate((rows) => rows.childElementCount);
   const composer = page.getByPlaceholder('Compose a message…');
 
+  await expect(page.locator('.composer-line-count')).toBeHidden();
   await composer.fill('First line\nSecond line\nThird line\nFourth line');
-  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(80);
+  await expect(page.locator('.composer-line-count')).toHaveText('+ 3 lines');
+  await expect(composer).toHaveCSS('scrollbar-width', 'none');
+  await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
+  for (let line = 0; line < 4; line += 1) {
+    await composer.press('Shift+Enter');
+    await composer.pressSequentially(`New line ${line}`);
+  }
+  const endPosition = await composer.evaluate((element) => ({
+    top: element.scrollTop,
+    height: element.clientHeight,
+    total: element.scrollHeight,
+    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+    caret: (element as HTMLTextAreaElement).selectionStart,
+    length: (element as HTMLTextAreaElement).value.length,
+  }));
+  expect(endPosition.caret).toBe(endPosition.length);
+  expect(endPosition.top).toBeGreaterThan(0);
+  expect(endPosition.top + endPosition.height).toBeGreaterThanOrEqual(endPosition.total - endPosition.lineHeight);
+  await composer.evaluate((element) => (element as HTMLTextAreaElement).setSelectionRange(0, 0));
+  await composer.press('Shift+Enter');
+  await expect
+    .poll(() =>
+      composer.evaluate((element) => Math.abs(element.scrollTop - parseFloat(getComputedStyle(element).lineHeight)))
+    )
+    .toBeLessThan(2);
+  await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
+  await expect(page.locator('.composer-line-count')).toHaveText('+ 8 lines');
+  await page.screenshot({ path: testInfo.outputPath('fixed-multiline-composer.png') });
   await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
   await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 
@@ -849,7 +968,7 @@ test('immediately delivers workspace requests to the foreground process without 
 
   await page.getByRole('button', { name: 'Add workspace note' }).click();
   const notePanel = page.locator('.workspace-note-panel');
-  const noteView = notePanel.getByRole('region', { name: 'Workspace note' });
+  const noteView = notePanel.getByRole('region', { name: 'Note', exact: true });
   await expect(noteView).toBeVisible();
   const noteInput = noteView.getByRole('textbox', { name: 'Workspace note' });
   await noteInput.fill('Existing project context');
@@ -1771,11 +1890,13 @@ test('keeps Compose drafts until tmux delivery is acknowledged and after a lost 
   await expectTerminalReady(page);
   const composer = page.getByLabel('Send text to the shell');
   const firstPrompt = "printf 'VAMP_DELIVERY_ONE\\n'";
+  const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
   await composer.fill(firstPrompt);
   await page.getByRole('button', { name: 'Send to shell' }).click();
   await expect.poll(() => held.length).toBe(1);
   expect(JSON.parse(String(held[0].message)).status).toBe('completed');
   await expect(page.getByRole('region', { name: 'Compose delivery status' })).toContainText('Sending message');
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
   held[0].socket.send(held[0].message);
   await expect(composer).toHaveValue('');
   await expect(page.getByRole('region', { name: 'Compose delivery status' })).toBeHidden();
@@ -1787,6 +1908,7 @@ test('keeps Compose drafts until tmux delivery is acknowledged and after a lost 
   await held[1].socket.close({ code: 1012, reason: 'lost acknowledgement' });
   await expect(page.getByText(/Check the terminal before sending again/)).toBeVisible();
   await expect(page.getByLabel('Draft excerpt')).toHaveText(uncertainPrompt);
+  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
   await page.reload();
   await expectTerminalReady(page);
   await expect(page.getByLabel('Draft excerpt')).toHaveText(uncertainPrompt);
@@ -1869,24 +1991,24 @@ test('loads history created after attachment and preserves it through a resize',
   await observeTerminalMessages(page, messages);
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await page.locator('.xterm-helper-textarea').press('Shift+Home');
   await expect
     .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
     .toBeGreaterThan(0);
   const previousHistory = messages.filter((message) => message.type === 'snapshot').at(-1)!;
   expect(previousHistory.historyLoaded).toBe(previousHistory.historyAvailable);
-  await page.getByRole('button', { name: 'Scroll to terminal bottom' }).click();
+  await page.locator('.xterm-helper-textarea').press('Shift+End');
 
   await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
-  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await page.locator('.xterm-helper-textarea').press('Shift+Home');
   await expect
     .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
     .toBeGreaterThan(800);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
   await page.setViewportSize({ width: 900, height: 700 });
   await expectTerminalReady(page);
-  await page.getByRole('button', { name: 'Scroll to terminal top' }).click();
+  await page.locator('.xterm-helper-textarea').press('Shift+Home');
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
 });
 
@@ -2112,6 +2234,7 @@ test('keeps keyboard terminal input available on a wide touch display', async ({
     await expectTerminalReady(page);
     await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
     await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
     await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
     const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
     const hiddenTerminalInput = terminal.locator('.xterm-helper-textarea');
@@ -2265,6 +2388,155 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
   const renderedText = (await renderedTerminalRows(page)).join('\n');
   expect(renderedText.match(/VAMP_STRESS_DONE/gu)).toHaveLength(1);
   await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
+});
+
+test('measures sustained tmux output delivery and keeps the final screen and input intact', async ({
+  context,
+  page,
+}, testInfo) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const wireSamples = new Map<number, number>();
+  const deliveries: Array<{
+    at: number;
+    type: string;
+    bytes: number;
+    screenSync?: boolean;
+    markers: number;
+    geometry?: string;
+  }> = [];
+  const errors: string[] = [];
+  let connections = 0;
+  page.on('websocket', (socket) => {
+    if (!socket.url().includes('/terminal')) return;
+    connections += 1;
+    let tail = '';
+    socket.on('framereceived', ({ payload }) => {
+      const message = JSON.parse(String(payload)) as {
+        type: string;
+        data?: string;
+        message?: string;
+        screenSync?: boolean;
+        columns?: number;
+        rows?: number;
+      };
+      deliveries.push({
+        at: Date.now(),
+        type: message.type,
+        bytes: Buffer.byteLength(message.data ?? ''),
+        screenSync: message.screenSync,
+        markers: [...(message.data ?? '').matchAll(/VAMP_PROBE_(\d{13})_/gu)].length,
+        geometry: message.columns === undefined ? undefined : `${message.columns}x${message.rows}`,
+      });
+      if (message.type === 'error') errors.push(message.message ?? 'Terminal error');
+      if (message.type !== 'output' || !message.data) return;
+      const text = tail + message.data;
+      for (const match of text.matchAll(/VAMP_PROBE_(\d{13})_/gu)) {
+        const producedAt = Number(match[1]);
+        if (!wireSamples.has(producedAt)) wireSamples.set(producedAt, Date.now());
+      }
+      tail = text.slice(-40);
+    });
+    socket.on('framesent', ({ payload }) => {
+      const message = JSON.parse(String(payload)) as { type: string; columns?: number; rows?: number };
+      if (message.type === 'resize' || message.type === 'activate')
+        deliveries.push({
+          at: Date.now(),
+          type: `client-${message.type}`,
+          bytes: 0,
+          markers: 0,
+          geometry: `${message.columns}x${message.rows}`,
+        });
+    });
+  });
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const initialConnections = connections;
+  const workloadStarted = Date.now();
+  await page.evaluate(() => {
+    const probe = {
+      frame: 0,
+      seen: new Set<number>(),
+      samples: [] as Array<{ producedAt: number; renderedAt: number }>,
+    };
+    window.__vampireOutputProbe = probe;
+    const sample = () => {
+      const text = document.querySelector('.xterm-screen > .xterm-rows')?.textContent ?? '';
+      for (const match of text.matchAll(/VAMP_PROBE_(\d{13})_/gu)) {
+        const producedAt = Number(match[1]);
+        if (probe.seen.has(producedAt)) continue;
+        probe.seen.add(producedAt);
+        probe.samples.push({ producedAt, renderedAt: Date.now() });
+      }
+      probe.frame = requestAnimationFrame(sample);
+    };
+    probe.frame = requestAnimationFrame(sample);
+  });
+  const source = [
+    `let frame = 0;`,
+    `const timer = setInterval(() => {`,
+    `  const rows = Array.from({ length: 20 }, (_, row) => '\\x1b[32m' + String(frame).padStart(3, '0') + ':' + String(row).padStart(2, '0') + ' 한글 output ' + '.'.repeat(40) + '\\x1b[0m\\r\\n').join('');`,
+    `  process.stdout.write(rows + 'VAMP_PROBE_' + Date.now() + '_' + frame + '\\r\\n');`,
+    `  if (++frame === 100) { clearInterval(timer); process.stdout.write('VAMP_PROBE_DONE\\r\\n'); }`,
+    `}, 20);`,
+  ].join('');
+  const composer = page.getByPlaceholder('Compose a message…');
+  await composer.fill(
+    `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString('utf8'))"`
+  );
+  await composer.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_PROBE_DONE', { timeout: 15_000 });
+  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+  const samples = await page.evaluate(() => {
+    const probe = window.__vampireOutputProbe;
+    if (!probe) throw new Error('Output probe did not start.');
+    cancelAnimationFrame(probe.frame);
+    delete window.__vampireOutputProbe;
+    return probe.samples;
+  });
+  expect(samples.length).toBeGreaterThan(0);
+  const deliveryPath = testInfo.outputPath('terminal-deliveries.json');
+  await writeFile(deliveryPath, JSON.stringify({ deliveries, samples, wire: [...wireSamples] }, null, 2));
+  await testInfo.attach('terminal-deliveries', { path: deliveryPath, contentType: 'application/json' });
+  expect(wireSamples.size).toBe(100);
+  expect(errors).toEqual([]);
+  expect(connections).toBe(initialConnections);
+  expect(deliveries.filter((delivery) => delivery.at >= workloadStarted && delivery.type === 'client-resize')).toEqual(
+    []
+  );
+  await composer.fill("printf 'VAMP_INPUT_%s\\n' OK");
+  const inputStarted = Date.now();
+  await composer.press('Enter');
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_INPUT_OK');
+  await expect(composer).toHaveValue('');
+  const summarize = (values: number[]) => {
+    const sorted = values.toSorted((a, b) => a - b);
+    return {
+      count: sorted.length,
+      p50: sorted[Math.floor(sorted.length * 0.5)],
+      p95: sorted[Math.floor(sorted.length * 0.95)],
+      maximum: sorted.at(-1),
+    };
+  };
+  const latencyPath = testInfo.outputPath('terminal-output-latency.json');
+  const paintTimes = [...new Set(samples.map((sample) => sample.renderedAt))];
+  await writeFile(
+    latencyPath,
+    JSON.stringify(
+      {
+        workload: '100 frames, 20 ANSI/Unicode rows per frame, 20 ms producer interval; local loopback',
+        producerToWireMs: summarize([...wireSamples].map(([producedAt, receivedAt]) => receivedAt - producedAt)),
+        producerToObservedDomMs: summarize(samples.map(({ producedAt, renderedAt }) => renderedAt - producedAt)),
+        visibleUpdateGapMs: summarize(paintTimes.slice(1).map((time, index) => time - paintTimes[index])),
+        inputToObservedResultMs: Date.now() - inputStarted,
+        note: 'Observed DOM samples can skip intermediate frames. Playwright wire callbacks and input assertions add observation overhead; these are diagnostic timings, not CI speed thresholds.',
+      },
+      null,
+      2
+    )
+  );
+  await testInfo.attach('terminal-output-latency', { path: latencyPath, contentType: 'application/json' });
 });
 
 test('restores a pending-autowrap cursor before the next terminal character', async ({ browser }) => {

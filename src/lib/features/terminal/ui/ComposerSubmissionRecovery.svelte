@@ -52,10 +52,22 @@ let {
 
 <style>
 .submission-recovery {
+  /* Delivery acknowledgements must not resize the pane and trigger a tmux redraw. */
+  position: absolute;
+  z-index: 5;
+  right: var(--dock-inline-end);
+  bottom: 100%;
+  left: var(--dock-inline-start);
   display: grid;
   gap: 0.35rem;
+  max-height: min(20rem, 50dvh);
   margin: 0;
-  padding: 0.4rem var(--dock-inline-end) 0 var(--dock-inline-start);
+  padding: 0.4rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
 }
 .submission-recovery article {
   display: flex;

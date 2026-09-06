@@ -18,8 +18,8 @@ function command(changes: Partial<Parameters<typeof composerKeyboardCommand>[0]>
 
 test('maps Composer-only keyboard commands without consuming repeats or IME input', () => {
   assert.equal(command({ altKey: true, code: 'KeyH', ctrlKey: true }), 'history');
-  assert.equal(command({ altKey: true, code: 'KeyP', ctrlKey: true }), 'preview-template');
-  assert.equal(command({ altKey: true, code: 'KeyB', ctrlKey: true }), 'toggle-template');
+  assert.equal(command({ altKey: true, code: 'KeyP', ctrlKey: true }), undefined);
+  assert.equal(command({ altKey: true, code: 'KeyB', ctrlKey: true }), undefined);
   assert.equal(command({ altKey: true, code: 'KeyR', ctrlKey: true }), 'restore-submission');
   assert.equal(command({ code: 'Slash', ctrlKey: true }), 'insert-slash');
   assert.equal(command({ altKey: true, code: 'KeyH', ctrlKey: true, repeat: true }), undefined);

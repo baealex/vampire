@@ -138,8 +138,8 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
 
 export function developmentRuntimeConfig(args: string[], env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const options = args[0] === '--' ? args.slice(1) : args;
-  if (options.some((argument) => argument !== '--allow-network')) {
-    throw new Error('Unknown development option. Use pnpm dev --allow-network to allow VPN or LAN access.');
+  if (options.some((argument) => !['--allow-network', '--use-existing-state'].includes(argument))) {
+    throw new Error('Unknown development option. Supported options: --allow-network, --use-existing-state.');
   }
   const config = runtimeConfig(env);
   if (config.externalAccess && !options.includes('--allow-network')) {

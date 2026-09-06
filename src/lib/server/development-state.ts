@@ -397,6 +397,7 @@ export async function prepareDevelopmentStateCopy(
 
 export type PrepareDevelopmentEnvironmentOptions = {
   homeDirectory?: string;
+  useExistingState?: boolean;
 };
 
 export type PreparedDevelopmentEnvironment = {
@@ -416,6 +417,14 @@ export async function prepareDevelopmentEnvironment(
   }
 
   const stateDirectory = await assertDirectory(resolve(requestedStateDirectory), 'The development state directory');
+  if (options.useExistingState) {
+    const tmuxSocketName = env.VAMPIRE_TMUX_SOCKET_NAME?.trim() || 'default';
+    if (!TMUX_SOCKET_NAME_PATTERN.test(tmuxSocketName)) throw new Error('The development tmux socket name is invalid.');
+    env.VAMPIRE_STATE_DIR = stateDirectory;
+    env.VAMPIRE_TMUX_SOCKET_NAME = tmuxSocketName;
+    env.VAMPIRE_SAFE_DEVELOPMENT = '1';
+    return { stateDirectory, tmuxSocketName };
+  }
   const productionStateDirectory = await canonicalPotentialPath(join(options.homeDirectory ?? homedir(), '.vampire'));
   if (pathsOverlap(stateDirectory, productionStateDirectory)) {
     throw new Error('The development server refuses to use or contain the production state directory.');

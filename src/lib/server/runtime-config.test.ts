@@ -196,6 +196,15 @@ test('formats usable wildcard and IPv6 listening URLs', () => {
 });
 
 test('development stays local unless network access is explicitly enabled', () => {
+  assert.equal(developmentRuntimeConfig(['--', '--use-existing-state'], {}).host, '127.0.0.1');
+  assert.throws(
+    () =>
+      developmentRuntimeConfig(['--use-existing-state'], {
+        VAMPIRE_HOST: '0.0.0.0',
+        VAMPIRE_TOKEN: 'test development token',
+      }),
+    /--allow-network/
+  );
   assert.equal(developmentRuntimeConfig([], {}).host, '127.0.0.1');
   for (const host of ['127.0.0.1', 'localhost', '::1']) {
     assert.equal(developmentRuntimeConfig([], { VAMPIRE_HOST: host }).externalAccess, false);

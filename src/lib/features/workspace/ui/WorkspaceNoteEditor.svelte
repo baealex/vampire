@@ -228,6 +228,20 @@ onDestroy(() => {
 });
 </script>
 
+{#snippet askAgentAction()}
+  <Button
+    id="workspace-note-ask-agent"
+    variant="secondary"
+    size="sm"
+    onclick={() => (agentDialogOpen = true)}
+    disabled={noteLoading || !noteLoaded || Boolean(saveError) || !askAgentAvailable}
+    title={askAgentAvailable ? 'Ask agent about this note' : 'Start a foreground process in the main terminal first.'}
+  >
+    <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+    Ask agent…
+  </Button>
+{/snippet}
+
 <section
   class="note-editor"
   class:panel
@@ -249,27 +263,32 @@ onDestroy(() => {
   {:else}
     {#if panel}
       <WorkspacePanelHeader
-        title="Workspace note"
+        title="Note"
         titleId="workspace-note-title"
-        subtitle="Keep the next step here."
         close={() => void closeEditor()}
         closeLabel="Close workspace note"
-      />
+      >
+        {#snippet actions()}
+          {@render askAgentAction()}
+        {/snippet}
+      </WorkspacePanelHeader>
     {:else}
       <header>
         <div>
-          <h2 id="workspace-note-title">Workspace note</h2>
-          <p>Keep the next step here.</p>
+          <h2 id="workspace-note-title">Note</h2>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="close-button"
-          onclick={() => void closeEditor()}
-          ariaLabel="Close workspace note"
-        >
-          <X size={17} strokeWidth={1.9} aria-hidden="true" />
-        </Button>
+        <div class="note-header-actions">
+          {@render askAgentAction()}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="close-button"
+            onclick={() => void closeEditor()}
+            ariaLabel="Close workspace note"
+          >
+            <X size={17} strokeWidth={1.9} aria-hidden="true" />
+          </Button>
+        </div>
       </header>
     {/if}
     <form>
@@ -296,24 +315,9 @@ onDestroy(() => {
         {#if saveError}
           <p class="note-error" role="alert">{saveError}</p>
         {/if}
-        <div class="agent-note-action">
-          <Button
-            id="workspace-note-ask-agent"
-            variant="secondary"
-            block
-            onclick={() => (agentDialogOpen = true)}
-            disabled={Boolean(saveError) || !askAgentAvailable}
-            title={askAgentAvailable ? undefined : 'Start a foreground process in the main terminal first.'}
-          >
-            <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
-            Ask agent…
-          </Button>
-          <p>
-            {askAgentAvailable
-              ? "Send this note and your request to this workspace's main process."
-              : 'Start a foreground process in the main terminal to use Ask agent.'}
-          </p>
-        </div>
+        {#if !askAgentAvailable}
+          <p class="note-agent-hint">Start a foreground process in the main terminal to use Ask agent.</p>
+        {/if}
         {#if agentUpdateMessage}
           <p class="note-agent-status" role="status">{agentUpdateMessage}</p>
         {/if}
@@ -372,12 +376,6 @@ h2 {
   font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
 }
-header p {
-  margin: 0.25rem 0 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-ui);
-}
 :global(.close-button) {
   flex: 0 0 auto;
   width: 2rem;
@@ -428,13 +426,13 @@ form {
   font-size: var(--text-label);
   line-height: var(--leading-ui);
 }
-.agent-note-action {
-  display: grid;
-  gap: 0.38rem;
-  padding-top: 0.2rem;
-  border-top: 1px solid var(--color-border-subtle);
+.note-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
 }
-.agent-note-action p,
+.note-agent-hint,
 .note-agent-status {
   margin: 0;
   color: var(--color-text-tertiary);

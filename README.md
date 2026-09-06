@@ -117,6 +117,14 @@ pnpm check
 pnpm test
 ```
 
+Development normally requires a marked development state copy. To explicitly use your existing settings, workspaces, and tmux sessions instead, run:
+
+```sh
+VAMPIRE_STATE_DIR="$HOME/.vampire" VAMPIRE_PORT=7677 pnpm dev --use-existing-state
+```
+
+This option writes changes directly to the selected state directory and uses the existing tmux socket (`default`, or `VAMPIRE_TMUX_SOCKET_NAME` when configured). Automatic startup profiles, scheduled prompts, and status widget commands remain disabled in development.
+
 The Vite development server defaults to loopback. A non-loopback `VAMPIRE_HOST` or public origin requires an explicit `--allow-network` option on each invocation; otherwise startup is refused. To intentionally access development over a trusted VPN or LAN, set a development-only `VAMPIRE_TOKEN` in the ignored `.env` file and run:
 
 ```sh

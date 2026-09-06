@@ -108,7 +108,7 @@ test('opens shared profile management from the workspace selector', async () => 
   expect(onManageProfiles).toHaveBeenCalledOnce();
 });
 
-test('guides variable insertion and previews the exact message sent to the shell', async () => {
+test('previews template variables with a message placeholder and saves the template', async () => {
   const user = userEvent.setup();
   const onSave = vi.fn(async () => ({ ok: true }));
   render(WorkspaceSettings, {
@@ -123,13 +123,13 @@ test('guides variable insertion and previews the exact message sent to the shell
   });
 
   expect(screen.queryByRole('textbox', { name: 'Compose message' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Preview payload' }));
-  const previewMessage = screen.getByRole('textbox', { name: 'Compose message' });
-  await fireEvent.input(previewMessage, { target: { value: 'Implement the request' } });
+  await user.click(screen.getByRole('button', { name: 'Preview' }));
+  expect(screen.queryByRole('textbox', { name: 'Compose message' })).not.toBeInTheDocument();
 
-  const previewOutput = screen.getByText('Main shell payload').closest('.preview-output')?.querySelector('pre');
-  expect(previewOutput?.textContent).toBe('Workspace: Vampire\nRead AGENTS.md first.\n\nImplement the request');
+  const previewOutput = screen.getByRole('region', { name: 'Template preview' }).querySelector('pre');
+  expect(previewOutput?.textContent).toBe('Workspace: Vampire\nRead AGENTS.md first.\n\n[Your message]');
   await fireEvent.input(screen.getByRole('textbox', { name: 'Alias' }), { target: { value: 'Vampire app' } });
+  expect(previewOutput?.textContent).toBe('Workspace: Vampire app\nRead AGENTS.md first.\n\n[Your message]');
   await user.click(screen.getByRole('button', { name: 'Save workspace settings' }));
   expect(onSave).toHaveBeenCalledWith(
     'Vampire app',

@@ -14,6 +14,24 @@ type TerminalShortcutEvent = Pick<
   'altKey' | 'code' | 'ctrlKey' | 'isComposing' | 'metaKey' | 'repeat' | 'shiftKey'
 >;
 
+export function terminalScrollCommand(
+  event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>
+): 'top' | 'bottom' | 'up' | 'down' | undefined {
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return undefined;
+  switch (event.key) {
+    case 'Home':
+      return 'top';
+    case 'End':
+      return 'bottom';
+    case 'PageUp':
+      return 'up';
+    case 'PageDown':
+      return 'down';
+    default:
+      return undefined;
+  }
+}
+
 const FIXED_CONTROL_DATA: Partial<Record<TerminalControlKey, string>> = {
   escape: '\u001b',
   interrupt: '\u0003',

@@ -12,8 +12,11 @@ import { installWorkspaceAutomationRunner } from './workspace-automation-runner.
 const fileEnvironment = loadEnv('development', process.cwd(), 'VAMPIRE_');
 applyVampireEnvironmentDefaults(fileEnvironment);
 delete fileEnvironment.VAMPIRE_TOKEN;
-const config = developmentRuntimeConfig(process.argv.slice(2));
-const developmentEnvironment = await prepareDevelopmentEnvironment();
+const args = process.argv.slice(2);
+const config = developmentRuntimeConfig(args);
+const developmentEnvironment = await prepareDevelopmentEnvironment(process.env, {
+  useExistingState: args.includes('--use-existing-state'),
+});
 const stateMigration = await runStateMigrations({ stateDirectory: developmentEnvironment.stateDirectory });
 
 await initializeAuthentication();

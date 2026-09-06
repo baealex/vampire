@@ -458,7 +458,8 @@ function closePanel() {
         {#if view === 'list'}
           <Button
             id={`${panelId}-ask-agent-trigger`}
-            variant="icon"
+            variant="secondary"
+            size="sm"
             onclick={openAgent}
             disabled={agentSubmitting || !askAgentAvailable}
             ariaLabel="Ask agent to manage saved commands"
@@ -466,7 +467,8 @@ function closePanel() {
               ? 'Ask agent to manage saved commands'
               : 'Start a foreground process in the main terminal first.'}
           >
-            <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" />
+            <Sparkles size={16} strokeWidth={1.8} aria-hidden="true" />
+            Ask agent…
           </Button>
           <Button
             variant="icon"

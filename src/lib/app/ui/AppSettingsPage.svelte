@@ -5,7 +5,14 @@ import Plus from '@lucide/svelte/icons/plus';
 import Save from '@lucide/svelte/icons/save';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Trash2 from '@lucide/svelte/icons/trash-2';
-import { untrack } from 'svelte';
+import { onMount, untrack } from 'svelte';
+import {
+  loadTerminalFontSize,
+  saveTerminalFontSize,
+  MINIMUM_TERMINAL_FONT_SIZE,
+  MAXIMUM_TERMINAL_FONT_SIZE,
+} from '~/lib/features/terminal/model/terminal-display-preference.ts';
+import { COMPACT_MEDIA_QUERY } from '~/lib/shared/ui/layout.ts';
 import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
 import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
@@ -54,6 +61,60 @@ let {
   onBusyChange?: (busy: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 } = $props();
+
+let terminalFontSize = $state(14);
+let terminalFontSaveFailed = $state(false);
+onMount(() => {
+  terminalFontSize = loadTerminalFontSize(window.matchMedia(COMPACT_MEDIA_QUERY).matches ? 12 : 14);
+});
+function changeTerminalFontSize(event: Event) {
+  const size = Number((event.currentTarget as HTMLSelectElement).value);
+  terminalFontSaveFailed = !saveTerminalFontSize(size);
+  if (!terminalFontSaveFailed) terminalFontSize = size;
+}
+
+const keyboardShortcuts = $derived([
+  {
+    title: 'Switch input',
+    keys: [workspaceShortcutModifier === '⌘' ? '⌘ /' : 'Ctrl + `'],
+    description: 'Switch between Compose and Terminal, keeping your draft and cursor position.',
+  },
+  {
+    title: 'Switch workspace',
+    keys: [`${workspaceShortcutModifier}1–0`],
+    description: 'Open a running workspace by its position in the list.',
+  },
+  {
+    title: 'Compose → Terminal',
+    keys: ['/'],
+    description: 'In an empty Compose field, type / to focus the terminal and send the slash.',
+  },
+  {
+    title: 'Scroll terminal history',
+    keys: ['Shift+PageUp', 'Shift+PageDown'],
+    description: 'Scroll one page with the terminal focused or Compose empty.',
+  },
+  {
+    title: 'Jump to top or bottom',
+    keys: ['Shift+Home', 'Shift+End'],
+    description: 'Jump through terminal history with the terminal focused or Compose empty.',
+  },
+  {
+    title: 'Search Composer history',
+    keys: ['Ctrl+Alt+H'],
+    description: 'Search previous messages and insert one with Enter.',
+  },
+  {
+    title: 'Recover a message',
+    keys: ['Ctrl+Alt+R'],
+    description: 'Insert the latest unconfirmed or failed message without sending it.',
+  },
+  {
+    title: 'Insert a literal slash',
+    keys: ['Ctrl+/'],
+    description: 'Start a Compose draft with / without switching to Terminal.',
+  },
+]);
 
 let editableProfiles = $state<LaunchProfile[]>(untrack(() => launchProfiles.map((profile) => ({ ...profile }))));
 let selectedDefaultProfileId = $state(untrack(() => defaultStartupProfileId ?? ''));
@@ -243,6 +304,20 @@ async function saveComposerHistorySettings() {
             </label>
           {/each}
         </div>
+        <label class="history-limit-field">
+          <span>
+            <strong>Terminal text size</strong>
+            <small>Applies when you open or return to a terminal in this browser.</small>
+          </span>
+          <Select ariaLabel="Terminal text size" value={String(terminalFontSize)} onchange={changeTerminalFontSize}>
+            {#each Array.from({ length: MAXIMUM_TERMINAL_FONT_SIZE - MINIMUM_TERMINAL_FONT_SIZE + 1 }, (_, index) => MINIMUM_TERMINAL_FONT_SIZE + index) as size (size)}
+              <option value={size}>{size}px</option>
+            {/each}
+          </Select>
+        </label>
+        {#if terminalFontSaveFailed}
+          <p role="alert">The text size could not be saved in this browser.</p>
+        {/if}
       </section>
 
       <section class="settings-section" aria-labelledby="composer-history-settings-title">
@@ -460,55 +535,19 @@ async function saveComposerHistorySettings() {
           </div>
         </div>
         <div class="shortcut-list" aria-label="Keyboard shortcuts">
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>{workspaceShortcutModifier}1–0</kbd></span>
-            <span class="shortcut-description">
-              <strong>Switch workspace</strong>
-              <small>Open running workspaces by their current list position.</small>
-            </span>
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>/</kbd></span>
-            <span class="shortcut-description">
-              <strong>Compose → Terminal</strong>
-              <small>From an empty Compose field, focus the terminal and forward the slash.</small>
-            </span>
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>⌘/ · Ctrl+`</kbd></span>
-            <span class="shortcut-description">
-              <strong>Switch input surface</strong>
-              <small>Move between Compose and Terminal while keeping your draft and cursor position.</small>
-            </span>
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>Ctrl+Alt+H</kbd></span>
-            <span class="shortcut-description"
-              ><strong>Search Composer history</strong
-              ><small>From Compose, search previous messages and insert one with Enter.</small></span
-            >
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>Ctrl+Alt+P · Ctrl+Alt+B</kbd></span>
-            <span class="shortcut-description"
-              ><strong>Preview or bypass template</strong
-              ><small>Preview the final message, or toggle template use for the next message.</small></span
-            >
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>Ctrl+Alt+R</kbd></span>
-            <span class="shortcut-description"
-              ><strong>Recover a message</strong
-              ><small>Insert the latest unconfirmed or failed message into Compose without sending it.</small></span
-            >
-          </div>
-          <div class="shortcut-row">
-            <span class="shortcut-keys"><kbd>Ctrl+/</kbd></span>
-            <span class="shortcut-description"
-              ><strong>Insert a literal slash</strong
-              ><small>Start a Compose draft with / without switching to Terminal.</small></span
-            >
-          </div>
+          {#each keyboardShortcuts as shortcut (shortcut.title)}
+            <div class="shortcut-row">
+              <span class="shortcut-description">
+                <strong>{shortcut.title}</strong>
+                <small>{shortcut.description}</small>
+              </span>
+              <span class="shortcut-keys">
+                {#each shortcut.keys as key (key)}
+                  <kbd>{key}</kbd>
+                {/each}
+              </span>
+            </div>
+          {/each}
         </div>
       </section>
     </div>
@@ -648,19 +687,21 @@ async function saveComposerHistorySettings() {
   background: var(--color-control-background);
 }
 .shortcut-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.75rem;
   min-width: 0;
-  padding: 0.75rem;
+  padding: 0.65rem 0.75rem;
 }
 .shortcut-row + .shortcut-row {
   border-top: 1px solid var(--color-border);
 }
 .shortcut-keys {
   display: flex;
-  flex: 0 0 5.75rem;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.35rem;
 }
 .shortcut-description {
   display: grid;
@@ -675,7 +716,7 @@ async function saveComposerHistorySettings() {
 }
 .shortcut-description small {
   color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
+  font-size: var(--text-caption);
   line-height: var(--leading-body);
 }
 kbd,
@@ -687,7 +728,15 @@ kbd {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-xs);
   background: var(--color-control-background);
-  font-size: 0.9em;
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+  white-space: nowrap;
+}
+@media (max-width: 40rem) {
+  .shortcut-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.45rem;
+  }
 }
 .default-profile-field {
   display: grid;

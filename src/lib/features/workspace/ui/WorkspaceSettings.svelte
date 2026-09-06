@@ -1,15 +1,12 @@
 <script lang="ts">
 import Eye from '@lucide/svelte/icons/eye';
-import MessageSquareText from '@lucide/svelte/icons/message-square-text';
 import Settings2 from '@lucide/svelte/icons/settings-2';
 import Save from '@lucide/svelte/icons/save';
-import Send from '@lucide/svelte/icons/send';
 import { untrack } from 'svelte';
 import Button from '~/lib/shared/ui/Button.svelte';
 import CodeEditor from '~/lib/shared/ui/CodeEditor.svelte';
 import Input from '~/lib/shared/ui/Input.svelte';
 import ManagementSurface from '~/lib/shared/ui/ManagementSurface.svelte';
-import Textarea from '~/lib/shared/ui/Textarea.svelte';
 import {
   WORKSPACE_ALIAS_MAX_LENGTH,
   type LaunchProfile,
@@ -54,7 +51,6 @@ let selectedProfileId = $state<string | null>(untrack(() => workspace.startupPro
 let syncedSelection = $state(untrack(() => workspace.startupProfileId));
 let composerTemplate = $state(untrack(() => workspace.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE));
 let syncedComposerTemplate = $state(untrack(() => workspace.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE));
-let previewPrompt = $state('Review the current changes and continue the work.');
 let previewOpen = $state(false);
 let templateEditor = $state<{ focus: () => void; insert: (text: string) => void }>();
 let saving = $state(false);
@@ -69,7 +65,7 @@ const aliasValidationError = $derived(
 );
 const templateValidationError = $derived(validateComposerTemplate(composerTemplate));
 const preview = $derived(
-  renderComposerTemplate(composerTemplate, previewPrompt, {
+  renderComposerTemplate(composerTemplate, '[Your message]', {
     workspace: { name: previewWorkspaceName, cwd: workspace.cwd },
   })
 );
@@ -248,11 +244,6 @@ async function save() {
           </div>
 
           <div class="preview-control">
-            <p>
-              {composerTemplate === DEFAULT_WORKSPACE_COMPOSER_TEMPLATE
-                ? 'Compose messages are currently sent unchanged.'
-                : 'Check the exact main-shell payload only when you need it.'}
-            </p>
             <Button
               variant="secondary"
               size="sm"
@@ -261,43 +252,13 @@ async function save() {
               onclick={() => previewOpen = !previewOpen}
             >
               <Eye size={15} strokeWidth={1.8} aria-hidden="true" />
-              <span>{previewOpen ? 'Hide preview' : 'Preview payload'}</span>
+              <span>{previewOpen ? 'Hide preview' : 'Preview'}</span>
             </Button>
           </div>
 
           {#if previewOpen}
-            <div id="composer-template-preview" class="compose-preview" aria-labelledby="compose-preview-title">
-              <div class="compose-preview-heading">
-                <div>
-                  <h3 id="compose-preview-title">Payload preview</h3>
-                  <p>Try an example message before saving the template.</p>
-                </div>
-                <small>{previewWorkspaceName}</small>
-              </div>
-              <div class="preview-comparison">
-                <label class="preview-input" for="composer-preview-prompt">
-                  <span><MessageSquareText size={15} strokeWidth={1.8} aria-hidden="true" /> Compose message</span>
-                  <Textarea
-                    id="composer-preview-prompt"
-                    bind:value={previewPrompt}
-                    rows={3}
-                    maxlength={4_096}
-                    disabled={saving}
-                    spellcheck={false}
-                  />
-                </label>
-                <div class="preview-output">
-                  <div>
-                    <span><Send size={15} strokeWidth={1.8} aria-hidden="true" /> Main shell payload</span>
-                    {#if preview.usedFallback}
-                      <small>Safe fallback: original message</small>
-                    {:else}
-                      <small>Exact payload</small>
-                    {/if}
-                  </div>
-                  <pre>{preview.text}</pre>
-                </div>
-              </div>
+            <div id="composer-template-preview" class="preview-output" role="region" aria-label="Template preview">
+              <pre>{preview.text}</pre>
             </div>
           {/if}
         </div>
@@ -403,8 +364,6 @@ async function save() {
 .group-heading h2,
 .alias-field > span,
 .template-field-heading > span,
-.preview-input > span,
-.preview-output > div > span,
 .variable-guide strong {
   margin: 0;
   color: var(--color-text);
@@ -460,8 +419,7 @@ async function save() {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.template-field,
-.preview-input {
+.template-field {
   display: grid;
   gap: 0.35rem;
   min-width: 0;
@@ -524,101 +482,16 @@ async function save() {
 }
 .preview-control {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.preview-control p {
-  margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-ui);
-}
-.preview-control :global(.vampire-button) {
-  flex: 0 0 auto;
-}
-.compose-preview {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-  padding: var(--space-4);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 44%),
-    var(--color-panel);
-}
-.compose-preview-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.compose-preview-heading > div {
-  display: grid;
-  gap: 0.2rem;
-}
-.compose-preview-heading > small {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-}
-.compose-preview-heading h3 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--text-title);
-  font-weight: var(--weight-strong);
-}
-.compose-preview-heading p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  line-height: var(--leading-ui);
-}
-.compose-preview-heading > small {
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.preview-input > span,
-.preview-output > div > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.preview-input :global(textarea) {
-  min-height: 5.5rem;
-  background: var(--color-field-background);
-}
-.preview-comparison {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
 }
 .preview-output {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 0.35rem;
   min-width: 0;
 }
-.preview-output > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.preview-output small {
-  color: var(--color-warning-text, var(--color-text-tertiary));
-  font-size: var(--text-nano);
-}
 .preview-output pre {
-  min-height: 5.5rem;
   max-height: 12rem;
   margin: 0;
   padding: var(--space-4) var(--control-padding-inline-sm);
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-command) 38%, var(--color-border));
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-code-background);
   color: var(--color-text);
@@ -720,16 +593,6 @@ async function save() {
   }
   .profile-heading :global(.vampire-button) {
     align-self: flex-start;
-  }
-  .preview-control {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-@media (min-width: 64rem) {
-  .preview-comparison {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: start;
   }
 }
 </style>

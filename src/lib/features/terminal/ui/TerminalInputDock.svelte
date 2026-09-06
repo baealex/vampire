@@ -1,6 +1,9 @@
 <script lang="ts">
 import Send from '@lucide/svelte/icons/send';
 import ImagePlus from '@lucide/svelte/icons/image-plus';
+import ArrowLeftRight from '@lucide/svelte/icons/arrow-left-right';
+import Ellipsis from '@lucide/svelte/icons/ellipsis';
+import PopoverShell from '~/lib/shared/ui/PopoverShell.svelte';
 import { onDestroy, onMount } from 'svelte';
 import {
   parseWorkspaceEntryDragEntries,
@@ -17,14 +20,16 @@ import {
   type ComposerEditorState,
 } from '../model/composer-editor-state.ts';
 import { composerKeyboardCommand } from '../model/composer-keyboard.ts';
-import { loadComposerTemplateBypass, saveComposerTemplateBypass } from '../model/composer-message-options.ts';
 import type { RecoverableComposerSubmission } from '../model/composer-submission.ts';
-import { isInputSurfaceToggleShortcut, type TerminalControlKey } from '../model/terminal-control.ts';
+import {
+  isInputSurfaceToggleShortcut,
+  terminalScrollCommand,
+  type TerminalControlKey,
+} from '../model/terminal-control.ts';
 import { renderComposerTemplate, type ComposerTemplateContext } from '~/lib/shared/lib/composer-template.ts';
 import type { WorkspaceComposerPrompt } from '~/lib/shared/contracts/workspace-composer-history.ts';
 import ComposerHistoryDialog from './ComposerHistoryDialog.svelte';
 import ComposerSubmissionRecovery from './ComposerSubmissionRecovery.svelte';
-import ComposerTemplateTools from './ComposerTemplateTools.svelte';
 
 let {
   workspaceId,
@@ -43,11 +48,6 @@ let {
   scrollPageDown,
   scrollToTop,
   scrollToBottom,
-  fontSize,
-  minimumFontSize,
-  maximumFontSize,
-  decreaseFontSize,
-  increaseFontSize,
   handoffToTerminal,
   onToggleInputSurface,
   onComposerFocus = () => undefined,
@@ -71,11 +71,6 @@ let {
   scrollPageDown: () => void;
   scrollToTop: () => void;
   scrollToBottom: () => void;
-  fontSize: number;
-  minimumFontSize: number;
-  maximumFontSize: number;
-  decreaseFontSize: () => void;
-  increaseFontSize: () => void;
   handoffToTerminal: (data: string) => boolean;
   onToggleInputSurface: () => void;
   onComposerFocus?: () => void;
@@ -86,8 +81,12 @@ let {
 
 let imageInputElement: HTMLInputElement;
 let composerMessage = $state('');
+let additionalComposerLines = $state(0);
+let lineMeasurementQueued = false;
 let composerDropActive = $state(false);
-let composerResizeFrame: number | undefined;
+let messageActionsOpen = $state(false);
+let inputShortcut = $state('Ctrl + `');
+let messageActionHandoff = false;
 let draftPersistenceTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingDraftValue = '';
 let editorPersistenceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -95,7 +94,6 @@ let pendingEditorState: ComposerEditorState | undefined;
 let draftStorageReady = false;
 let draftPersistenceFailed = $state(false);
 let editorPersistenceFailed = $state(false);
-let messageOptionsPersistenceFailed = $state(false);
 let savedEditorState: ComposerEditorState | undefined;
 let overlayEditorState: ComposerEditorState | undefined;
 let terminalControlFocusTarget: HTMLElement | undefined;
@@ -111,6 +109,24 @@ function deferFrame(callback: () => void) {
   });
   deferredFrames.add(frame);
 }
+
+function measureComposerLines() {
+  if (!composerElement || lineMeasurementQueued) return;
+  lineMeasurementQueued = true;
+  deferFrame(() => {
+    lineMeasurementQueued = false;
+    if (!composerElement) return;
+    const lineHeight = Number.parseFloat(getComputedStyle(composerElement).lineHeight);
+    additionalComposerLines =
+      composerMessage && lineHeight > 0 ? Math.max(0, Math.round(composerElement.scrollHeight / lineHeight) - 1) : 0;
+  });
+}
+
+$effect(() => {
+  void composerMessage;
+  void composerElement;
+  measureComposerLines();
+});
 
 function flushComposerDraft(value = pendingDraftValue) {
   if (!draftStorageReady) return;
@@ -133,10 +149,7 @@ function persistComposerDraft(value = composerMessage, immediate = false) {
 
 function updateComposerMessage(value: string, immediate = false) {
   composerMessage = value;
-  if (value.length === 0 && templateBypassed) {
-    templateBypassed = false;
-    messageOptionsPersistenceFailed = !saveComposerTemplateBypass(workspaceId, terminalId, false);
-  }
+
   persistComposerDraft(value, immediate);
 }
 
@@ -174,23 +187,18 @@ function restoreComposerFocus(state = overlayEditorState ?? savedEditorState) {
     composerElement.focus({ preventScroll: true });
     if (state) savedEditorState = restoreComposerEditorState(composerElement, state);
     persistComposerEditorState();
-    resizeComposer();
   });
 }
 
 onMount(() => {
+  inputShortcut = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘ /' : 'Ctrl + `';
   draftStorageReady = true;
   const restoredDraft = loadComposerDraft(workspaceId, terminalId);
   const restoredEditor = loadComposerEditorState(workspaceId, terminalId);
-  const restoredTemplateBypass = loadComposerTemplateBypass(workspaceId, terminalId);
   composerMessage = restoredDraft.value;
   draftPersistenceFailed = !restoredDraft.available;
   editorPersistenceFailed = !restoredEditor.available;
-  messageOptionsPersistenceFailed = !restoredTemplateBypass.available;
-  templateBypassed = composerMessage.length > 0 && restoredTemplateBypass.value;
-  if (composerMessage.length === 0 && restoredTemplateBypass.value) {
-    messageOptionsPersistenceFailed = !saveComposerTemplateBypass(workspaceId, terminalId, false);
-  }
+
   savedEditorState = restoredEditor.value;
   pendingDraftValue = composerMessage;
   const handlePageHide = () => {
@@ -199,13 +207,25 @@ onMount(() => {
     flushComposerEditorState();
   };
   window.addEventListener('pagehide', handlePageHide);
+  const closeDesktopActions = () => {
+    if (messageActionsOpen && window.matchMedia?.('(max-width: 32rem)').matches === false) {
+      messageActionHandoff = true;
+      messageActionsOpen = false;
+    }
+  };
+  window.addEventListener('resize', closeDesktopActions);
+  const lineObserver = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measureComposerLines);
+  if (composerElement) lineObserver?.observe(composerElement);
   deferFrame(() => {
-    resizeComposer();
     if (composerElement && savedEditorState) {
       savedEditorState = restoreComposerEditorState(composerElement, savedEditorState);
     }
   });
-  return () => window.removeEventListener('pagehide', handlePageHide);
+  return () => {
+    window.removeEventListener('pagehide', handlePageHide);
+    window.removeEventListener('resize', closeDesktopActions);
+    lineObserver?.disconnect();
+  };
 });
 let promptHistoryOpen = $state(false);
 let promptHistoryLoading = $state(false);
@@ -214,10 +234,6 @@ let promptHistory = $state<WorkspaceComposerPrompt[]>([]);
 let promptHistoryLoaded = false;
 let promptSaveError = $state('');
 let composerTemplateWarning = $state('');
-let templateBypassed = $state(false);
-let templatePreviewOpen = $state(false);
-let templatePreviewText = $state('');
-let templatePreviewWarning = $state('');
 
 onDestroy(() => {
   disposed = true;
@@ -227,7 +243,6 @@ onDestroy(() => {
   flushComposerEditorState();
   if (draftPersistenceTimer !== undefined) clearTimeout(draftPersistenceTimer);
   if (editorPersistenceTimer !== undefined) clearTimeout(editorPersistenceTimer);
-  if (composerResizeFrame !== undefined) cancelAnimationFrame(composerResizeFrame);
   for (const frame of deferredFrames) cancelAnimationFrame(frame);
   deferredFrames.clear();
   terminalControlFocusTarget = undefined;
@@ -264,31 +279,27 @@ function runTerminalControl(action: () => void) {
 }
 
 function renderSubmittedPrompt(prompt: string) {
-  if (templateBypassed) return { text: prompt, usedFallback: false };
   return renderComposerTemplate(composerTemplate, prompt, composerTemplateContext);
 }
 
-function sendComposerMessage() {
-  if (!connected) return;
-  if (!composerMessage.trim()) return;
+function sendComposerMessage(): boolean {
+  if (!connected) return false;
+  if (!composerMessage.trim()) return false;
   const submittedPrompt = composerMessage;
   const rendered = renderSubmittedPrompt(submittedPrompt);
   flushComposerDraft(submittedPrompt);
-  if (!submit(rendered.text, submittedPrompt)) return;
-  composerTemplateWarning =
-    !templateBypassed && rendered.error
-      ? `The Compose template could not be applied, so the original message was sent. ${rendered.error}`
-      : '';
+  if (!submit(rendered.text, submittedPrompt)) return false;
+  composerTemplateWarning = rendered.error
+    ? `The Compose template could not be applied, so the original message was sent. ${rendered.error}`
+    : '';
   updateComposerMessage('', true);
-  templateBypassed = false;
   savedEditorState = { selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', scrollTop: 0 };
   if (!composerHistoryEnabled) {
     deferFrame(() => {
-      resizeComposer();
       composerElement?.focus();
       persistComposerEditorState(true);
     });
-    return;
+    return true;
   }
   promptSaveError = '';
   void onSubmitted(submittedPrompt)
@@ -304,10 +315,10 @@ function sendComposerMessage() {
       promptSaveError = error instanceof Error ? error.message : 'Vampire could not save this prompt to history.';
     });
   deferFrame(() => {
-    resizeComposer();
     composerElement?.focus();
     persistComposerEditorState(true);
   });
+  return true;
 }
 
 async function openPromptHistory() {
@@ -368,37 +379,6 @@ function insertComposerPrompt(prompt: string) {
   restoreComposerFocus(nextEditorState);
 }
 
-function toggleTemplateBypass() {
-  if (!composerMessage) return;
-  templateBypassed = !templateBypassed;
-  messageOptionsPersistenceFailed = !saveComposerTemplateBypass(workspaceId, terminalId, templateBypassed);
-  composerTemplateWarning = '';
-}
-
-function openTemplatePreview() {
-  if (!composerMessage || templatePreviewOpen) return;
-  captureOverlayEditorState();
-  const preview = renderSubmittedPrompt(composerMessage);
-  templatePreviewText = preview.text;
-  templatePreviewWarning =
-    !templateBypassed && preview.error
-      ? `The template cannot be applied. Compose will submit the original message. ${preview.error}`
-      : '';
-  templatePreviewOpen = true;
-}
-
-function closeTemplatePreview() {
-  if (!templatePreviewOpen) return;
-  templatePreviewOpen = false;
-  restoreComposerFocus();
-}
-
-function dismissTemplatePreviewOutside() {
-  if (!templatePreviewOpen) return;
-  templatePreviewOpen = false;
-  overlayEditorState = undefined;
-}
-
 function restoreSubmission(submission: RecoverableComposerSubmission) {
   const selection = composerElement
     ? captureComposerEditorState(composerElement)
@@ -430,17 +410,6 @@ function restoreLatestSubmission(): boolean {
     return true;
   }
   return false;
-}
-
-function resizeComposer() {
-  if (disposed || !composerElement || composerResizeFrame !== undefined) return;
-  composerResizeFrame = requestAnimationFrame(() => {
-    composerResizeFrame = undefined;
-    if (disposed || !composerElement) return;
-    composerElement.style.height = 'auto';
-    const nextHeight = Math.min(composerElement.scrollHeight, 128);
-    composerElement.style.height = `${nextHeight}px`;
-  });
 }
 
 function hasWorkspaceEntry(event: DragEvent): boolean {
@@ -483,7 +452,6 @@ function handleComposerInput(event: Event) {
   updateComposerMessage(element.value);
   savedEditorState = captureComposerEditorState(element);
   persistComposerEditorState();
-  resizeComposer();
 }
 
 function handleComposerSelectionChange() {
@@ -516,18 +484,6 @@ function handleComposerBeforeInput(event: InputEvent) {
   persistComposerEditorState(true);
 }
 
-function insertComposerLineBreak() {
-  const start = composerElement?.selectionStart ?? composerMessage.length;
-  const end = composerElement?.selectionEnd ?? start;
-  updateComposerMessage(composerMessage.slice(0, start) + '\n' + composerMessage.slice(end));
-  restoreComposerFocus({
-    selectionStart: start + 1,
-    selectionEnd: start + 1,
-    selectionDirection: 'none',
-    scrollTop: composerElement?.scrollTop ?? 0,
-  });
-}
-
 function insertLiteralSlash() {
   const start = composerElement?.selectionStart ?? composerMessage.length;
   const end = composerElement?.selectionEnd ?? start;
@@ -550,18 +506,6 @@ function handleComposerCommand(event: KeyboardEvent): boolean {
     void openPromptHistory();
     return true;
   }
-  if (command === 'preview-template') {
-    if (!composerMessage) return false;
-    event.preventDefault();
-    openTemplatePreview();
-    return true;
-  }
-  if (command === 'toggle-template') {
-    if (!composerMessage) return false;
-    event.preventDefault();
-    toggleTemplateBypass();
-    return true;
-  }
   if (command === 'restore-submission') {
     if (!recoverableSubmissions.some((submission) => submission.status !== 'pending')) return false;
     event.preventDefault();
@@ -582,6 +526,12 @@ function handleComposerKeydown(event: KeyboardEvent) {
     toggleInputSurface();
     return;
   }
+  const scrollCommand = composerMessage.length === 0 ? terminalScrollCommand(event) : undefined;
+  if (scrollCommand) {
+    event.preventDefault();
+    ({ top: scrollToTop, bottom: scrollToBottom, up: scrollPageUp, down: scrollPageDown })[scrollCommand]();
+    return;
+  }
   if (handleComposerCommand(event)) return;
   if (!event.ctrlKey && !event.metaKey && !event.altKey && shouldHandoffSlash(event.key)) {
     if (handoffToTerminal('/')) {
@@ -599,6 +549,7 @@ function handleComposerKeydown(event: KeyboardEvent) {
     const terminalControl = (
       {
         Escape: 'escape',
+        Backspace: 'backspace',
         ArrowUp: 'arrow-up',
         ArrowDown: 'arrow-down',
         ArrowLeft: 'arrow-left',
@@ -612,12 +563,23 @@ function handleComposerKeydown(event: KeyboardEvent) {
     }
   }
   if (event.key === 'Enter') {
+    if (event.shiftKey) return;
     event.preventDefault();
-    if (event.shiftKey) insertComposerLineBreak();
-    else if (composerMessage.length === 0) {
+    if (composerMessage.length === 0) {
       if (connected) sendTerminalControl('enter');
     } else sendComposerMessage();
   }
+}
+
+function openMessageAction(action: () => void, handoffFocus = true) {
+  messageActionHandoff = handoffFocus;
+  messageActionsOpen = false;
+  action();
+}
+
+function closeMessageActionsFocus(event: Event) {
+  if (messageActionHandoff) event.preventDefault();
+  messageActionHandoff = false;
 }
 
 function toggleInputSurface() {
@@ -757,27 +719,6 @@ function handleImageSelection(event: Event) {
     >
       Bottom
     </button>
-    <span class="toolbar-divider" aria-hidden="true"></span>
-    <button
-      type="button"
-      aria-label="Decrease terminal text size"
-      title={`Decrease text size (currently ${fontSize}px)`}
-      disabled={fontSize <= minimumFontSize}
-      onpointerdown={prepareTerminalControl}
-      onclick={() => runTerminalControl(decreaseFontSize)}
-    >
-      A−
-    </button>
-    <button
-      type="button"
-      aria-label="Increase terminal text size"
-      title={`Increase text size (currently ${fontSize}px)`}
-      disabled={fontSize >= maximumFontSize}
-      onpointerdown={prepareTerminalControl}
-      onclick={() => runTerminalControl(increaseFontSize)}
-    >
-      A+
-    </button>
   </div>
   <ComposerSubmissionRecovery
     submissions={recoverableSubmissions}
@@ -803,41 +744,19 @@ function handleImageSelection(event: Event) {
       ondragleave={handleComposerDragLeave}
       ondrop={handleComposerDrop}
     >
-      <div class="composer-meta">
+      <div class="composer-input-tools">
         <button
           class="composer-mode"
           type="button"
           onclick={toggleInputSurface}
-          aria-label={`Input target: ${inputSurface === 'terminal' ? 'Terminal' : 'Compose'}. Switch input target`}
+          aria-label="Switch between Compose and Terminal"
           aria-keyshortcuts="Meta+/ Control+`"
-          title="Switch input target (Command+/ or Ctrl+`)"
+          title={`Switch to ${inputSurface === 'terminal' ? 'Compose' : 'Terminal'} (${inputShortcut})`}
         >
-          <span class:active={inputSurface === 'compose'}>Compose</span>
-          <span aria-hidden="true">↔</span>
-          <span class:active={inputSurface === 'terminal'}>Terminal</span>
+          <ArrowLeftRight size={18} strokeWidth={1.8} aria-hidden="true" />
+          <span>Switch input</span>
+          <kbd aria-hidden="true">{inputShortcut}</kbd>
         </button>
-        <ComposerTemplateTools
-          bypassed={templateBypassed}
-          hasDraft={composerMessage.length > 0}
-          previewOpen={templatePreviewOpen}
-          previewText={templatePreviewText}
-          previewWarning={templatePreviewWarning}
-          toggleBypass={toggleTemplateBypass}
-          openPreview={openTemplatePreview}
-          closePreview={closeTemplatePreview}
-          dismissPreviewOutside={dismissTemplatePreviewOutside}
-        />
-        <span class="composer-shortcut" aria-live="polite">
-          {#if inputSurface === 'terminal'}
-            Terminal receives typing · ⌘/ or Ctrl+` returns
-          {:else if composerMessage.length === 0}
-            / commands · ↑↓ Enter controls Terminal
-          {:else if composerMessage.trim()}
-            Enter sends · Shift+Enter adds a line
-          {:else}
-            Whitespace draft retained · add text to send
-          {/if}
-        </span>
       </div>
       <label class="visually-hidden" for="shell-message">Send text to the shell</label>
       <input
@@ -848,47 +767,90 @@ function handleImageSelection(event: Event) {
         onchange={handleImageSelection}
         tabindex="-1"
       >
-      <textarea
-        id="shell-message"
-        bind:this={composerElement}
-        value={composerMessage}
-        oninput={handleComposerInput}
-        onbeforeinput={handleComposerBeforeInput}
-        onkeydown={handleComposerKeydown}
-        onfocus={handleComposerFocus}
-        onblur={handleComposerBlur}
-        onselect={handleComposerSelectionChange}
-        onscroll={handleComposerSelectionChange}
-        rows="1"
-        placeholder="Compose a message…"
-        title="Switch to the terminal with Command+/ or Ctrl+`"
-        aria-keyshortcuts="Meta+/ Control+` Control+Alt+H Control+Alt+P Control+Alt+B Control+Alt+R Control+/"
-        autocapitalize="off"
-        autocomplete="off"
-        spellcheck="false"
-      ></textarea>
-      {#if composerHistoryEnabled}
-        <ComposerHistoryDialog
-          open={promptHistoryOpen}
-          prompts={promptHistory}
-          loading={promptHistoryLoading}
-          error={promptHistoryError}
-          requestOpen={() => void openPromptHistory()}
-          close={closePromptHistory}
-          dismissOutside={dismissPromptHistoryOutside}
-          select={insertComposerPrompt}
-        />
-      {/if}
-      <button
-        class="image-button"
-        type="button"
-        onclick={() => imageInputElement?.click()}
-        disabled={!connected}
-        aria-label="Send an image to the shell"
-        title="Send an image"
+      <div class="composer-editor">
+        <label class="composer-editor-field" for="shell-message">
+          <textarea
+            id="shell-message"
+            bind:this={composerElement}
+            value={composerMessage}
+            oninput={handleComposerInput}
+            onbeforeinput={handleComposerBeforeInput}
+            onkeydown={handleComposerKeydown}
+            onfocus={handleComposerFocus}
+            onblur={handleComposerBlur}
+            onselect={handleComposerSelectionChange}
+            onscroll={handleComposerSelectionChange}
+            rows="1"
+            placeholder="Compose a message…"
+            title="Switch to the terminal with Command+/ or Ctrl+`"
+            aria-keyshortcuts="Meta+/ Control+` Control+Alt+H Control+Alt+R Control+/"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          ></textarea>
+        </label>
+        {#if additionalComposerLines > 0}
+          <span class="composer-line-count">
+            + {additionalComposerLines} {additionalComposerLines === 1 ? 'line' : 'lines'}
+          </span>
+        {/if}
+      </div>
+      <div class="composer-secondary-actions">
+        {#if composerHistoryEnabled}
+          <ComposerHistoryDialog
+            open={promptHistoryOpen}
+            prompts={promptHistory}
+            loading={promptHistoryLoading}
+            error={promptHistoryError}
+            requestOpen={() => void openPromptHistory()}
+            close={closePromptHistory}
+            dismissOutside={dismissPromptHistoryOutside}
+            select={insertComposerPrompt}
+          />
+        {/if}
+        <button
+          class="image-button"
+          type="button"
+          onclick={() => imageInputElement?.click()}
+          disabled={!connected}
+          aria-label="Send an image to the shell"
+          title="Send an image"
+        >
+          <ImagePlus size={18} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </div>
+      <PopoverShell
+        bind:open={messageActionsOpen}
+        side="top"
+        align="end"
+        trapFocus={false}
+        triggerClass="composer-actions-trigger"
+        triggerLabel="More message actions"
+        triggerTitle="Message actions"
+        contentClass="composer-actions-popover"
+        onInteractOutside={() => { messageActionHandoff = true; messageActionsOpen = false; }}
+        onCloseAutoFocus={closeMessageActionsFocus}
       >
-        <ImagePlus size={18} strokeWidth={1.8} aria-hidden="true" />
-      </button>
+        {#snippet trigger()}
+          <Ellipsis size={18} strokeWidth={1.8} aria-hidden="true" />
+        {/snippet}
+        {#snippet children()}
+          <div class="composer-action-list" data-vampire-overlay>
+            {#if composerHistoryEnabled}
+              <button type="button" onclick={() => openMessageAction(() => void openPromptHistory())}>
+                Open Composer history
+              </button>
+            {/if}
+            <button
+              type="button"
+              disabled={!connected}
+              onclick={() => openMessageAction(() => imageInputElement?.click(), false)}
+            >
+              Send an image to the shell
+            </button>
+          </div>
+        {/snippet}
+      </PopoverShell>
       <button
         class="send-button"
         type="button"
@@ -902,7 +864,7 @@ function handleImageSelection(event: Event) {
       </button>
     </div>
   </div>
-  {#if draftPersistenceFailed || editorPersistenceFailed || messageOptionsPersistenceFailed}
+  {#if draftPersistenceFailed || editorPersistenceFailed}
     <p class="draft-persistence-error" role="status">
       This draft or its editing position could not be saved in this browser.
     </p>
@@ -915,7 +877,6 @@ function handleImageSelection(event: Event) {
   --dock-inline-end: max(0.55rem, env(safe-area-inset-right));
   --composer-control-size: 2.5rem;
   --composer-grid-gap: 0.35rem;
-  --composer-meta-height: 1.88rem;
   min-width: 0;
   position: relative;
   border-top: 1px solid var(--color-border-subtle);
@@ -975,7 +936,7 @@ function handleImageSelection(event: Event) {
 }
 .composer-slot {
   position: relative;
-  height: calc(var(--composer-control-size) + var(--composer-meta-height) + var(--composer-grid-gap) + 0.36rem + 2px);
+  height: calc(var(--composer-control-size) + 0.36rem + 2px);
   margin: 0.35rem var(--dock-inline-end) max(0.5rem, env(safe-area-inset-bottom)) var(--dock-inline-start);
 }
 .composer {
@@ -985,7 +946,7 @@ function handleImageSelection(event: Event) {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
+  grid-template-columns: auto minmax(0, 1fr) repeat(3, var(--composer-control-size));
   align-items: end;
   gap: var(--composer-grid-gap);
   min-width: 0;
@@ -994,63 +955,137 @@ function handleImageSelection(event: Event) {
   border-radius: 0.78rem;
   background: var(--color-control-background);
 }
-.composer-meta {
-  display: flex;
-  flex-wrap: nowrap;
-  grid-column: 1 / -1;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-  padding: 0.08rem 0.35rem 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.composer-meta::-webkit-scrollbar {
-  display: none;
-}
-:global(.composer-meta > .composer-template-tools) {
-  flex: 0 0 auto;
-}
 .composer .composer-mode {
   display: inline-flex;
   align-items: center;
-  gap: 0.28rem;
+  justify-content: center;
+  gap: 0.35rem;
   width: auto;
-  min-width: 0;
-  height: 1.8rem;
-  padding: 0 0.48rem;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
+  min-width: var(--composer-control-size);
+  padding: 0 0.5rem;
+  background: transparent;
+  color: var(--color-text-secondary);
   font: inherit;
-  font-size: var(--text-micro);
-  cursor: pointer;
+  font-size: var(--text-caption);
 }
-.composer-mode span {
-  color: var(--color-text-disabled);
+.composer-input-tools {
+  display: flex;
+  align-items: center;
 }
-.composer-mode span.active {
-  color: var(--color-text);
-  font-weight: var(--weight-semibold);
+.composer-mode kbd {
+  display: none;
+  padding: 0.12rem 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  color: var(--color-text-secondary);
+  font: inherit;
+  white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) {
+  .touch-toolbar {
+    display: none;
+  }
+  .composer-mode kbd {
+    display: inline-block;
+  }
+}
+.composer .composer-mode:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 @media (hover: hover) {
   .composer .composer-mode:hover {
     background: var(--color-surface-hover);
+    color: var(--color-text);
   }
 }
-.composer-shortcut {
-  display: none;
-  flex: 1 1 16rem;
-  min-width: 0;
-  margin-left: auto;
-  color: var(--color-text-disabled);
-  font-size: var(--text-micro);
-  overflow-wrap: anywhere;
-  text-align: right;
-}
 .composer.history-disabled {
-  grid-template-columns: minmax(0, 1fr) repeat(2, var(--composer-control-size));
+  grid-template-columns: auto minmax(0, 1fr) repeat(2, var(--composer-control-size));
+}
+.composer-secondary-actions {
+  display: contents;
+}
+:global(.composer-actions-trigger) {
+  display: none;
+  width: var(--composer-control-size);
+  height: var(--composer-control-size);
+  padding: 0;
+  border: 0;
+  border-radius: 0.58rem;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+:global(.composer-actions-trigger:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+:global(.composer-actions-popover) {
+  z-index: 70;
+  min-width: 13rem;
+  max-width: calc(100vw - 1rem);
+  padding: 0.35rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-popover);
+}
+.composer-action-list {
+  display: grid;
+  gap: 0.2rem;
+}
+.composer-action-list button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.composer-action-list button:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+.composer-action-list button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .composer-action-list button:hover:not(:disabled),
+  :global(.composer-actions-trigger:hover) {
+    background: var(--color-surface-hover);
+  }
+}
+@media (max-width: 32rem) {
+  :global(.composer-actions-trigger) {
+    display: grid;
+    place-items: center;
+  }
+  .composer,
+  .composer.history-disabled {
+    grid-template-columns: var(--composer-control-size) minmax(0, 1fr) repeat(2, var(--composer-control-size));
+  }
+  .composer-mode span {
+    display: none;
+  }
+  .composer-secondary-actions {
+    /* Keep the hidden popup triggers anchored to the visible actions button. */
+    position: absolute;
+    right: calc(var(--composer-control-size) + var(--composer-grid-gap) + 0.18rem);
+    bottom: 0.18rem;
+    display: grid;
+    width: var(--composer-control-size);
+    height: var(--composer-control-size);
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .composer-secondary-actions > :global(*) {
+    grid-area: 1 / 1;
+  }
 }
 .composer:focus-within {
   border-color: var(--color-accent);
@@ -1072,13 +1107,30 @@ function handleImageSelection(event: Event) {
   white-space: nowrap;
   border: 0;
 }
+.composer-editor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--composer-control-size);
+}
+.composer-editor-field {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
 .composer textarea {
   width: 100%;
   min-width: 0;
-  min-height: var(--composer-control-size);
-  max-height: 8rem;
-  padding: 0.52rem 0.62rem;
+  min-height: 1lh;
+  height: 1lh;
+  max-height: 1lh;
+  padding: 0 0.62rem;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
   resize: none;
   border: 0;
   border-radius: var(--radius-sm);
@@ -1086,9 +1138,30 @@ function handleImageSelection(event: Event) {
   background: transparent;
   color: var(--color-text);
   font: inherit;
-  font-family: var(--font-mono);
   font-size: 1rem;
   line-height: var(--leading-ui);
+}
+.composer textarea::-webkit-scrollbar {
+  display: none;
+}
+.composer .composer-line-count {
+  position: absolute;
+  right: 0.62rem;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.composer textarea:placeholder-shown {
+  white-space: pre;
 }
 .composer textarea::placeholder {
   color: var(--color-field-placeholder);
@@ -1153,12 +1226,6 @@ function handleImageSelection(event: Event) {
   cursor: default;
 }
 
-@media (min-width: 64rem) {
-  .composer-shortcut {
-    display: inline;
-  }
-}
-
 @media (any-pointer: fine) {
   .input-dock {
     --dock-inline-start: 0.75rem;
@@ -1177,23 +1244,11 @@ function handleImageSelection(event: Event) {
   .toolbar-divider {
     height: 1.65rem;
   }
-  .composer {
-    grid-template-columns: minmax(0, 1fr) repeat(3, var(--composer-control-size));
-  }
   .composer-slot {
     margin: 0.6rem var(--dock-inline-end) 0.7rem var(--dock-inline-start);
   }
   .composer textarea {
     font-size: var(--text-body);
-  }
-}
-
-@media (max-height: 22rem) {
-  .composer-slot {
-    height: calc(var(--composer-control-size) + 0.36rem + 2px);
-  }
-  .composer-meta {
-    display: none;
   }
 }
 </style>

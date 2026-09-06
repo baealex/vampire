@@ -24,14 +24,16 @@ import { COMPACT_MEDIA_QUERY, hasFinePointer } from '~/lib/shared/ui/layout.ts';
 import {
   isInputSurfaceToggleShortcut,
   terminalControlData,
+  terminalScrollCommand,
   type TerminalControlKey,
 } from '../model/terminal-control.ts';
+
+import { loadTerminalFontSize, TERMINAL_FONT_SIZE_KEY } from '../model/terminal-display-preference.ts';
 
 const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
-const TERMINAL_FONT_SIZE_KEY = 'vampire:terminal-font-size';
 const TERMINAL_BUFFER_SWITCH_PATTERN = /\u001b\[\?(?:47|1047|1049)[hl]/u;
 const TERMINAL_SYNCHRONIZED_OUTPUT_START = '\u001b[?2026h';
 const TERMINAL_SYNCHRONIZED_OUTPUT_END = '\u001b[?2026l';
@@ -291,6 +293,7 @@ export class TerminalRuntime {
     this.#suspended = false;
     this.#installInteractionListeners();
     this.#resizeObserver?.observe(options.element);
+    this.setFontSize(loadTerminalFontSize(this.#fontSize));
     options.onFontSizeChange(this.#fontSize);
     options.onStateChange({ ...this.#state });
     this.#handleThemeChange();
@@ -478,20 +481,7 @@ export class TerminalRuntime {
     this.#historyChunkLines = this.#touchLayout
       ? TERMINAL_HISTORY_CHUNK_LINES.reduced
       : TERMINAL_HISTORY_CHUNK_LINES.standard;
-    let savedFontSize = Number.NaN;
-    try {
-      savedFontSize = Number(window.localStorage.getItem(TERMINAL_FONT_SIZE_KEY));
-    } catch {
-      // Font preferences are optional when browser storage is unavailable.
-    }
-    this.#fontSize =
-      Number.isFinite(savedFontSize) &&
-      savedFontSize >= this.#options.minimumFontSize &&
-      savedFontSize <= this.#options.maximumFontSize
-        ? savedFontSize
-        : compactLayout
-          ? 12
-          : this.#fontSize;
+    this.#fontSize = loadTerminalFontSize(compactLayout ? 12 : this.#fontSize);
     this.#options.onFontSizeChange(this.#fontSize);
 
     const terminal = new Terminal({
@@ -559,6 +549,17 @@ export class TerminalRuntime {
     });
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.isComposing || event.keyCode === 229) return true;
+      const scrollCommand = terminalScrollCommand(event);
+      if (scrollCommand) {
+        event.preventDefault();
+        if (event.type === 'keydown') {
+          if (scrollCommand === 'top') this.scrollToTop();
+          else if (scrollCommand === 'bottom') this.scrollToBottom();
+          else if (scrollCommand === 'up') this.scrollPageUp();
+          else this.scrollPageDown();
+        }
+        return false;
+      }
       if (isInputSurfaceToggleShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();

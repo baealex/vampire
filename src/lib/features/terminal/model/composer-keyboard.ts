@@ -3,12 +3,7 @@ type ComposerKeyboardEvent = Pick<
   'altKey' | 'code' | 'ctrlKey' | 'isComposing' | 'keyCode' | 'metaKey' | 'repeat' | 'shiftKey'
 > & { getModifierState?: (key: string) => boolean };
 
-export type ComposerKeyboardCommand =
-  | 'history'
-  | 'preview-template'
-  | 'toggle-template'
-  | 'restore-submission'
-  | 'insert-slash';
+export type ComposerKeyboardCommand = 'history' | 'restore-submission' | 'insert-slash';
 
 export function composerKeyboardCommand(event: ComposerKeyboardEvent): ComposerKeyboardCommand | undefined {
   if (
@@ -22,8 +17,6 @@ export function composerKeyboardCommand(event: ComposerKeyboardEvent): ComposerK
 
   if (event.ctrlKey && event.altKey && !event.shiftKey) {
     if (event.code === 'KeyH') return 'history';
-    if (event.code === 'KeyP') return 'preview-template';
-    if (event.code === 'KeyB') return 'toggle-template';
     if (event.code === 'KeyR') return 'restore-submission';
   }
 

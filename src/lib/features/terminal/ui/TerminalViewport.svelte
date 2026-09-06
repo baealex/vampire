@@ -138,10 +138,6 @@ function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   terminalReconnecting = state.reconnecting;
 }
 
-function changeTerminalFontSize(delta: number) {
-  fontSize = Math.min(maximumFontSize, Math.max(minimumFontSize, fontSize + delta));
-}
-
 function chooseInputOwner(mode: TerminalInputSurface) {
   inputOwner = mode;
   if (savedInputOwner === mode) return;
@@ -391,11 +387,6 @@ onMount(() => {
     scrollToTop={() => runtime?.scrollToTop()}
     scrollToBottom={() => runtime?.scrollToBottom()}
     onImageSelected={(image) => void imagePaste.paste(image)}
-    {fontSize}
-    {minimumFontSize}
-    {maximumFontSize}
-    decreaseFontSize={() => changeTerminalFontSize(-1)}
-    increaseFontSize={() => changeTerminalFontSize(1)}
     handoffToTerminal={(data) => {
       if (!runtime?.send(data)) return false;
       focusTerminalInput();
