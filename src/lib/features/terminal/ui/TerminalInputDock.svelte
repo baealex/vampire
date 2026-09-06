@@ -116,9 +116,12 @@ function measureComposerLines() {
   deferFrame(() => {
     lineMeasurementQueued = false;
     if (!composerElement) return;
-    const lineHeight = Number.parseFloat(getComputedStyle(composerElement).lineHeight);
+    const style = getComputedStyle(composerElement);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+    const contentScrollHeight = Math.max(0, composerElement.scrollHeight - verticalPadding);
     additionalComposerLines =
-      composerMessage && lineHeight > 0 ? Math.max(0, Math.round(composerElement.scrollHeight / lineHeight) - 1) : 0;
+      composerMessage && lineHeight > 0 ? Math.max(0, Math.round(contentScrollHeight / lineHeight) - 1) : 0;
   });
 }
 
@@ -1124,10 +1127,10 @@ function handleImageSelection(event: Event) {
 .composer textarea {
   width: 100%;
   min-width: 0;
-  min-height: 1lh;
-  height: 1lh;
-  max-height: 1lh;
-  padding: 0 0.62rem;
+  min-height: var(--composer-control-size);
+  height: var(--composer-control-size);
+  max-height: var(--composer-control-size);
+  padding: calc((var(--composer-control-size) - 1lh) / 2) 0.62rem;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;

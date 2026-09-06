@@ -736,7 +736,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
-  await expect(page.getByText('Switch input surface', { exact: true })).toBeVisible();
+  await expect(page.getByText('Switch input', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expectTerminalReady(page);
