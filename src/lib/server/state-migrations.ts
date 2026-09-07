@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { Umzug, type UmzugStorage } from 'umzug';
 import { organizeStateDirectoryMigration } from './state-migrations/0001-organize-state-directory.ts';
+import { repairWorkspaceComposerHistoryMigration } from './state-migrations/0002-repair-workspace-composer-history.ts';
 import type { StateMigrationContext, StateMigrationSource } from './state-migrations/types.ts';
 
 export type { StateMigrationContext } from './state-migrations/types.ts';
@@ -113,7 +114,7 @@ async function validateAppliedStateLayout(context: StateMigrationContext, layout
   await definition.validate(context);
 }
 
-const STATE_MIGRATION_SOURCES = [organizeStateDirectoryMigration] as const;
+const STATE_MIGRATION_SOURCES = [organizeStateDirectoryMigration, repairWorkspaceComposerHistoryMigration] as const;
 const STATE_MIGRATIONS: readonly StateMigrationDefinition[] = STATE_MIGRATION_SOURCES.map((migration) => ({
   ...migration,
   checksum: sha256(migration.checksumInput),

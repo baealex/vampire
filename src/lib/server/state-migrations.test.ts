@@ -72,7 +72,7 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
 
   const first = await runStateMigrations({ stateDirectory, now: () => 1_000 });
 
-  assert.deepEqual(first.applied, ['0001-organize-state-directory']);
+  assert.deepEqual(first.applied, ['0001-organize-state-directory', '0002-repair-workspace-composer-history']);
   assert.equal(first.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   await assert.rejects(readFile(join(stateDirectory, 'sessions.json')), { code: 'ENOENT' });
   await assert.rejects(readFile(join(stateDirectory, 'workspace.note.md')), { code: 'ENOENT' });
@@ -122,7 +122,7 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
   assert.equal(layout.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   assert.deepEqual(
     layout.appliedMigrations.map((migration) => migration.name),
-    ['0001-organize-state-directory']
+    ['0001-organize-state-directory', '0002-repair-workspace-composer-history']
   );
   assert.ok(layout.appliedMigrations.every((migration) => /^[a-f0-9]{64}$/.test(migration.checksum)));
   assert.equal(layout.appliedMigrations[0]!.appliedAt, new Date(1_000).toISOString());
@@ -207,7 +207,7 @@ test('archives a lock owned by a dead local process and resumes safely', async (
 
   const result = await runStateMigrations({ stateDirectory, now: () => 2_000 });
 
-  assert.deepEqual(result.applied, ['0001-organize-state-directory']);
+  assert.deepEqual(result.applied, ['0001-organize-state-directory', '0002-repair-workspace-composer-history']);
   assert.ok((await readdir(stateDirectory)).some((name) => name.startsWith(`${STATE_MIGRATION_LOCK_FILE}.stale-`)));
   await assert.rejects(readFile(join(stateDirectory, STATE_MIGRATION_LOCK_FILE)), { code: 'ENOENT' });
 });
@@ -224,7 +224,7 @@ test('keeps legacy data and resumes from its backup after an interrupted target 
 
   await rm(join(stateDirectory, 'global', 'status-widgets.json'));
   const resumed = await runStateMigrations({ stateDirectory, now: () => 2_000 });
-  assert.deepEqual(resumed.applied, ['0001-organize-state-directory']);
+  assert.deepEqual(resumed.applied, ['0001-organize-state-directory', '0002-repair-workspace-composer-history']);
   assert.equal(resumed.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   await assert.rejects(readFile(join(stateDirectory, 'sessions.json')), { code: 'ENOENT' });
   assert.equal(
@@ -234,6 +234,34 @@ test('keeps legacy data and resumes from its backup after an interrupted target 
     ),
     sessions
   );
+});
+
+test('repairs a missing workspace Composer history from the version-1 organized layout', async (t) => {
+  const stateDirectory = await temporaryState(t);
+  await createLegacyFixture(stateDirectory);
+  await runStateMigrations({ stateDirectory, now: () => 1_000 });
+
+  const layoutPath = join(stateDirectory, STATE_LAYOUT_FILE);
+  const currentLayout = JSON.parse(await readFile(layoutPath, 'utf8')) as {
+    layoutVersion: number;
+    appliedMigrations: Array<{ name: string; checksum: string; appliedAt: string }>;
+  };
+  const historyPath = join(stateDirectory, 'workspaces', 'workspace', 'composer-history.json');
+  await rm(historyPath);
+  await writeFile(
+    layoutPath,
+    `${JSON.stringify(
+      { ...currentLayout, layoutVersion: 1, appliedMigrations: currentLayout.appliedMigrations.slice(0, 1) },
+      null,
+      2
+    )}\n`
+  );
+
+  const repaired = await runStateMigrations({ stateDirectory, now: () => 2_000 });
+
+  assert.deepEqual(repaired.applied, ['0002-repair-workspace-composer-history']);
+  assert.equal(repaired.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
+  assert.deepEqual(JSON.parse(await readFile(historyPath, 'utf8')), { version: 1, prompts: [] });
 });
 
 test('refuses a damaged migration backup without touching the remaining legacy source', async (t) => {

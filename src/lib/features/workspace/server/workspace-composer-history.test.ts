@@ -5,6 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   appendManagedWorkspaceComposerPrompt,
+  ensureManagedWorkspaceComposerHistoryFile,
   listManagedWorkspaceComposerPrompts,
   managedWorkspaceComposerHistoryPath,
   managedWorkspaceComposerHistorySettingsPath,
@@ -64,6 +65,20 @@ test('stores exact Composer prompts outside sessions.json and lists the newest f
     join(directory, 'workspaces', 'workspace-1', 'composer-history.json')
   );
   assert.match(await readFile(managedWorkspaceComposerHistoryPath('workspace-1'), 'utf8'), /Next prompt/);
+});
+
+test('initializes missing Composer history without replacing an existing document', async (t) => {
+  const directory = await createStoredWorkspace(t);
+  const path = managedWorkspaceComposerHistoryPath('workspace-1');
+
+  await ensureManagedWorkspaceComposerHistoryFile('workspace-1');
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { version: 1, prompts: [] });
+
+  const existing = '{"version":1,"prompts":[{"id":"saved","text":"Keep me","submittedAt":10}]}\n';
+  await writeFile(path, existing);
+  await ensureManagedWorkspaceComposerHistoryFile('workspace-1');
+  assert.equal(await readFile(path, 'utf8'), existing);
+  assert.equal(dirname(path), join(directory, 'workspaces', 'workspace-1'));
 });
 
 test('uses server settings to disable recording and bound each workspace history', async (t) => {

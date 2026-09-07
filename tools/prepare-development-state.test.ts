@@ -35,7 +35,7 @@ test('development state preparation creates a fresh copy through the CLI', async
   });
 
   assert.match(result.stdout, /Prepared development state/);
-  assert.match(result.stdout, /State layout version: 1/);
+  assert.match(result.stdout, /State layout version: 2/);
   await assert.rejects(readFile(join(target, 'sessions.json')), { code: 'ENOENT' });
   assert.match(await readFile(join(target, 'registry.json'), 'utf8'), /"workspaces": \[\]/);
 });

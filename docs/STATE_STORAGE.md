@@ -2,7 +2,7 @@
 
 Vampire groups persistent state by owner and lifecycle. The layout may change only through recorded forward migrations.
 
-## Current layout (version 1)
+## Current layout (version 2)
 
 ```text
 ~/.vampire/
@@ -60,15 +60,20 @@ Background agent requests contain only a bounded snapshot of one workspace's sav
 
 ## Version ledger
 
-`state-layout.json` is the authoritative migration ledger. Layout version 1 has this shape:
+`state-layout.json` is the authoritative migration ledger. Layout version 2 has this shape:
 
 ```json
 {
   "formatVersion": 1,
-  "layoutVersion": 1,
+  "layoutVersion": 2,
   "appliedMigrations": [
     {
       "name": "0001-organize-state-directory",
+      "checksum": "<sha256>",
+      "appliedAt": "<ISO-8601>"
+    },
+    {
+      "name": "0002-repair-workspace-composer-history",
       "checksum": "<sha256>",
       "appliedAt": "<ISO-8601>"
     }
@@ -94,7 +99,8 @@ src/lib/server/
 ├── state-migrations.ts
 └── state-migrations/
     ├── types.ts
-    └── 0001-organize-state-directory.ts
+    ├── 0001-organize-state-directory.ts
+    └── 0002-repair-workspace-composer-history.ts
 ```
 
 `state-migrations.ts` owns only ordering, locking, the atomic ledger, and execution. Each numbered file owns one forward transformation and its resulting-layout validator. Once a numbered migration ships, its name, checksum input, and behavior are frozen. A later correction or layout change is a new numbered migration such as `0002-...`; it is not patched into an already applied step. Tests may exercise a numbered migration through the common runner, while reusable filesystem primitives remain outside the numbered files.
@@ -114,10 +120,12 @@ Vampire guarantees forward upgrades. Automatic downgrade is unsupported because 
 7. removes legacy root copies only when they still match the verified backup;
 8. records layout version 1.
 
+`0002-repair-workspace-composer-history` scans the registered workspace directories, creates a canonical empty Composer history when that file is missing, preserves existing history files, and records layout version 2.
+
 The backup is immutable and retained at `backups/0001-organize-state-directory/legacy/`. A restart after interruption reuses and revalidates it, accepts already installed identical files, completes the remaining steps, and produces the same result. A changed source, conflicting target, damaged backup, or unreadable current layout stops migration without deleting the remaining legacy source.
 
 ## Isolated development snapshots
 
-An installed Vampire can remain running while a development snapshot is prepared. The snapshot tool reads and hashes an allowlist of durable legacy or version-1 files, writes them to a private sibling staging directory, verifies the copy, reads the source again, and retries if an atomic source update overlapped the snapshot. Pending migrations run only inside staging. The completed directory receives a development marker and is then renamed to a previously nonexistent target.
+An installed Vampire can remain running while a development snapshot is prepared. The snapshot tool reads and hashes an allowlist of durable legacy or version-2 files, writes them to a private sibling staging directory, verifies the copy, reads the source again, and retries if an atomic source update overlapped the snapshot. Pending migrations run only inside staging. The completed directory receives a development marker and is then renamed to a previously nonexistent target.
 
 The tool never writes to the source and never replaces an existing target. Git worktrees, process locks, agent requests, generated support files, backups, and temporary files are excluded. Development and tests use separate state paths and tmux socket namespaces. Development also disables automatic launch profiles, automations, and status-widget commands, though explicit actions can still affect the projects referenced by copied workspace paths.

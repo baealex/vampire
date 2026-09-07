@@ -23,6 +23,7 @@ import {
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
 import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
 import {
+  ensureManagedWorkspaceComposerHistoryFile,
   prepareManagedWorkspaceComposerHistoryRemoval,
   readManagedWorkspaceComposerPromptPreview,
 } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
@@ -131,8 +132,9 @@ async function validateExistingCwd(cwd: string): Promise<string> {
   }
 }
 
-async function initializeManagedWorkspaceNote(stored: StoredWorkspace): Promise<void> {
+async function initializeManagedWorkspaceFiles(stored: StoredWorkspace): Promise<void> {
   await ensureManagedWorkspaceNoteFile(stored.id, '');
+  await ensureManagedWorkspaceComposerHistoryFile(stored.id);
 }
 
 async function readManagedWorkspaceNotePreview(stored: StoredWorkspace): Promise<string> {
@@ -351,7 +353,7 @@ export async function createManagedWorkspace(input: { cwd: string }): Promise<Ma
       startupProfileId: current.defaultStartupProfileId ?? null,
       composerTemplate: DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
     };
-    await initializeManagedWorkspaceNote(stored);
+    await initializeManagedWorkspaceFiles(stored);
     await writeState({ ...current, workspaces: [...current.workspaces, stored] });
 
     let tmux;
@@ -428,7 +430,7 @@ export async function createManagedWorktreeWorkspace(input: {
       composerTemplate: source.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
     };
     try {
-      await initializeManagedWorkspaceNote(stored);
+      await initializeManagedWorkspaceFiles(stored);
       await writeState({ ...current, workspaces: [...current.workspaces, stored] });
     } catch (error) {
       await rollbackGitWorktree(worktree);

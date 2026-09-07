@@ -28,6 +28,7 @@ import {
 } from './workspace-store.server.ts';
 
 const COMPOSER_HISTORY_VERSION = 1;
+const EMPTY_COMPOSER_HISTORY_DOCUMENT: ComposerHistoryDocument = { version: COMPOSER_HISTORY_VERSION, prompts: [] };
 const MAX_COMPOSER_HISTORY_FILE_BYTES =
   MAX_WORKSPACE_COMPOSER_PROMPTS * WORKSPACE_COMPOSER_PROMPT_MAX_LENGTH * 4 + 64 * 1_024;
 const MAX_COMPOSER_HISTORY_SETTINGS_BYTES = 64 * 1_024;
@@ -107,6 +108,23 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
     }
     throw error;
   }
+}
+
+export async function ensureManagedWorkspaceComposerHistoryFile(workspaceId: string): Promise<string> {
+  const path = managedWorkspaceComposerHistoryPath(workspaceId);
+  await ensureParentDirectory(path);
+  if ((await assertRegularFile(path, MAX_COMPOSER_HISTORY_FILE_BYTES)) === 'regular') return path;
+  try {
+    await writeFile(path, `${JSON.stringify(EMPTY_COMPOSER_HISTORY_DOCUMENT, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+      flag: 'wx',
+    });
+  } catch (error) {
+    if (!errorHasCode(error, 'EEXIST')) throw error;
+    await assertRegularFile(path, MAX_COMPOSER_HISTORY_FILE_BYTES);
+  }
+  return path;
 }
 
 function normalizeComposerPrompt(value: unknown): string {

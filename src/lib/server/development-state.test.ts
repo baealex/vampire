@@ -47,7 +47,7 @@ async function createSourceState(root: string): Promise<string> {
   return source;
 }
 
-test('copies legacy state and migrates only the fresh development copy into layout v1', async (t) => {
+test('copies legacy state and migrates only the fresh development copy into layout v2', async (t) => {
   const root = await temporaryRoot(t);
   const source = await createSourceState(root);
   const target = join(root, 'development-state');
