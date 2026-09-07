@@ -40,6 +40,7 @@ let {
   open,
   onRefresh,
   onLoadDirectory,
+  onCollapseDirectory = () => undefined,
   onCreateFile,
   onCreateDirectory,
   onRequestDelete,
@@ -76,6 +77,7 @@ let {
   open: boolean;
   onRefresh: () => void;
   onLoadDirectory: (path: string) => Promise<void>;
+  onCollapseDirectory?: (path: string) => void;
   onCreateFile: (directory: string, name: string) => Promise<void>;
   onCreateDirectory: (directory: string, name: string) => Promise<void>;
   onRequestDelete: (entries: WorkspaceEntryDragData[]) => void;
@@ -322,6 +324,7 @@ function endDragWorkspace() {
         {projectPath}
         {selected}
         {onLoadDirectory}
+        {onCollapseDirectory}
         {onCreateFile}
         {onCreateDirectory}
         {onRequestDelete}

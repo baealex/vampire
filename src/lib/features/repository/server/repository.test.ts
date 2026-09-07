@@ -758,3 +758,32 @@ test('aggregates multiple batches of new files with Git binary attributes and mi
   assert.equal(snapshot.changes.length, 13);
   assert.deepEqual(snapshot.changeStats, { additions: 22, deletions: 0 });
 });
+
+test('batches untracked statistics without touching the real index, preserving unusual paths and staged changes', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, 'src/app.js'), 'staged\n');
+  await git(directory, 'add', 'src/app.js');
+  await writeFile(join(directory, 'src/app.js'), 'working\nsecond\n');
+  for (const name of ['-option.txt', 'line\nbreak.txt', '[literal].txt']) {
+    await writeFile(join(directory, name), 'one\ntwo');
+  }
+  const index = await readFile(join(directory, '.git/index'));
+  const before = await git(directory, 'status', '--porcelain=v1', '-z');
+  const pending = readRepositorySnapshot(directory);
+  assert.equal(readRepositorySnapshot(directory), pending);
+  const snapshot = await pending;
+  assert.deepEqual(snapshot.changeStats, { additions: 8, deletions: 1 });
+  assert.deepEqual(await readFile(join(directory, '.git/index')), index);
+  assert.equal(await git(directory, 'status', '--porcelain=v1', '-z'), before);
+  await writeFile(join(directory, '-option.txt'), 'changed\n');
+  assert.deepEqual((await readRepositorySnapshot(directory)).changeStats, { additions: 7, deletions: 1 });
+});
+
+test('shares concurrent directory reads but rereads after later file changes', async (t) => {
+  const directory = await createRepository(t);
+  const reading = readRepositoryDirectory(directory, 'src');
+  assert.equal(readRepositoryDirectory(directory, 'src'), reading);
+  assert.deepEqual((await reading).files, ['src/app.js']);
+  await writeFile(join(directory, 'src/new.js'), 'new\n');
+  assert.deepEqual((await readRepositoryDirectory(directory, 'src')).files, ['src/app.js', 'src/new.js']);
+});

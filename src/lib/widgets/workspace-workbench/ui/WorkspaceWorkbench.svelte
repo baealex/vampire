@@ -356,6 +356,7 @@ onMount(() => {
     open={repositoryOpen}
     onRefresh={() => void repository.refresh(true)}
     onLoadDirectory={(path) => repository.loadDirectory(path)}
+    onCollapseDirectory={(path) => repository.collapseDirectory(path)}
     onCreateFile={createFile}
     onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
     onRequestDelete={(entries) => repository.requestDeleteEntries(entries)}

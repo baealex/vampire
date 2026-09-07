@@ -34,13 +34,20 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
   #latestObservedSequence = 0;
   #maximumPendingBytes: number;
   #pendingBytes = 0;
+  #recoverOverflow: boolean;
+  #recoveryThroughSequence = 0;
   #pendingOutputs: Array<SequencedTerminalDelivery<TOutput>> = [];
   #pendingSynchronization: FencedTerminalDelivery<TSynchronization> | undefined;
   #snapshotSent = false;
   #synchronizationGeneration = 0;
 
-  constructor(maximumPendingBytes: number) {
+  constructor(maximumPendingBytes: number, recoverOverflow = false) {
+    this.#recoverOverflow = recoverOverflow;
     this.#maximumPendingBytes = Math.max(0, maximumPendingBytes);
+  }
+
+  get requiresRecovery(): boolean {
+    return this.#recoveryThroughSequence > this.#authoritativeThroughSequence;
   }
 
   get acknowledged(): boolean {
@@ -75,10 +82,11 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
       return { outputs: [], overflowed: false };
     }
     this.#latestObservedSequence = output.sequence;
-    if (this.#snapshotSent && this.#acknowledged && !this.#holdingSynchronization) {
+    if (this.#snapshotSent && this.#acknowledged && !this.#holdingSynchronization && !this.requiresRecovery) {
       return { outputs: [output], overflowed: false };
     }
     if (this.#pendingBytes + output.bytes > this.#maximumPendingBytes) {
+      if (this.#recoverOverflow) this.#recoveryThroughSequence = output.sequence;
       return { outputs: [], overflowed: true };
     }
     this.#pendingOutputs.push(output);
@@ -115,6 +123,7 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
     this.#acknowledged = false;
     this.#holdingSynchronization = false;
     this.#pendingBytes = 0;
+    this.#recoveryThroughSequence = 0;
     this.#pendingOutputs = [];
     this.#pendingSynchronization = undefined;
     this.#snapshotSent = false;
@@ -132,7 +141,8 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
   }
 
   #drain(): TerminalDeliveryBatch<TOutput, TSynchronization> {
-    if (!this.#snapshotSent || !this.#acknowledged || this.#holdingSynchronization) return { outputs: [] };
+    if (!this.#snapshotSent || !this.#acknowledged || this.#holdingSynchronization || this.requiresRecovery)
+      return { outputs: [] };
     const batch = {
       outputs: this.#pendingOutputs,
       ...(this.#pendingSynchronization ? { synchronization: this.#pendingSynchronization } : {}),

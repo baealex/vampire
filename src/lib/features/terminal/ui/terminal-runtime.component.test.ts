@@ -13,6 +13,8 @@ const doubles = vi.hoisted(() => ({ connections: [] as any[], terminals: [] as a
 vi.mock('../api/connection.ts', () => ({
   TerminalConnection: class {
     connectionId = 1;
+    resolveUrl: () => URL;
+    urls: URL[] = [];
     callbacks: TerminalConnectionCallbacks;
     send = vi.fn((_message: unknown) => true);
     stop = vi.fn();
@@ -21,11 +23,13 @@ vi.mock('../api/connection.ts', () => ({
     retryNow = vi.fn();
     restart = vi.fn();
     context = { id: 1, isCurrent: () => true, send: (message: unknown) => this.send(message) };
-    constructor(_url: unknown, callbacks: TerminalConnectionCallbacks) {
+    constructor(url: string | URL | (() => string | URL), callbacks: TerminalConnectionCallbacks) {
+      this.resolveUrl = () => new URL(typeof url === 'function' ? url() : url);
       this.callbacks = callbacks;
       doubles.connections.push(this);
     }
     start() {
+      this.urls.push(this.resolveUrl());
       this.callbacks.onOpen?.(this.context);
     }
     receive(message: any) {
@@ -138,6 +142,7 @@ afterEach(() => {
   clearRecentTerminalRuntimes();
   vi.clearAllTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
@@ -171,6 +176,78 @@ test('reconnect does not steal focus and disconnected input reports failure', as
   await vi.advanceTimersByTimeAsync(100);
   expect(terminal.focus).not.toHaveBeenCalled();
   runtime.dispose();
+});
+
+test('retries identify the same runtime without repeating its initial control claim', async () => {
+  const runtime = acquireTerminalRuntime(options());
+  runtime.start();
+  await vi.dynamicImportSettled();
+  const connection = doubles.connections[0];
+  const first = connection.urls[0];
+  const retry = connection.resolveUrl();
+  expect(first.searchParams.get('client-id')).toMatch(/^[a-f0-9]{32}$/);
+  expect(retry.searchParams.get('client-id')).toBe(first.searchParams.get('client-id'));
+  expect(first.searchParams.get('connection-attempt')).toBe('1');
+  expect(retry.searchParams.get('connection-attempt')).toBe('2');
+  expect(first.searchParams.get('active')).toBe('1');
+  expect(retry.searchParams.has('active')).toBe(false);
+  runtime.dispose();
+});
+
+test.each(['online', 'focus', 'visibilitychange'])(
+  '%s restarts exhausted transient retries without replaying input or claiming control',
+  async (eventName) => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { initial, runtime, connection } = await ready();
+    connection.callbacks.onDisconnect({ code: 1006, reason: '' }, true);
+    connection.callbacks.onReconnectExhausted();
+    connection.send.mockClear();
+    const target = eventName === 'visibilitychange' ? document : window;
+    target.dispatchEvent(new Event(eventName));
+    expect(connection.retryNow).toHaveBeenCalledExactlyOnceWith();
+    expect(initial.onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ error: '', reconnecting: true }));
+    target.dispatchEvent(new Event(eventName));
+    expect(connection.retryNow.mock.calls.filter((args: unknown[]) => args.length === 0)).toHaveLength(1);
+    for (const type of ['input', 'submit', 'activate']) {
+      expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type }));
+    }
+    runtime.dispose();
+    visibility.mockRestore();
+  }
+);
+
+test('connectivity events leave permanent disconnects alone', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  const { runtime, connection } = await ready();
+  connection.callbacks.onDisconnect({ code: 1008, reason: 'authentication revoked' }, false);
+  window.dispatchEvent(new Event('online'));
+  window.dispatchEvent(new Event('focus'));
+  expect(connection.retryNow).not.toHaveBeenCalled();
+  runtime.dispose();
+  visibility.mockRestore();
+});
+
+test('an online event in a hidden tab does not restart exhausted retries', async () => {
+  const { runtime, connection } = await ready();
+  connection.callbacks.onDisconnect({ code: 1006, reason: '' }, true);
+  connection.callbacks.onReconnectExhausted();
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  window.dispatchEvent(new Event('online'));
+  expect(connection.retryNow).not.toHaveBeenCalled();
+  runtime.dispose();
+  visibility.mockRestore();
+});
+
+test('connectivity events do not resume output paused by browser backpressure', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  const { initial, runtime, connection } = await ready();
+  connection.receive({ type: 'output', data: 'x'.repeat(513 * 1024), sequence: 1 });
+  expect(initial.onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ outputPaused: true }));
+  window.dispatchEvent(new Event('online'));
+  window.dispatchEvent(new Event('focus'));
+  expect(connection.retryNow).not.toHaveBeenCalled();
+  runtime.dispose();
+  visibility.mockRestore();
 });
 
 test('a new terminal does not take keyboard focus until input can be accepted', async () => {

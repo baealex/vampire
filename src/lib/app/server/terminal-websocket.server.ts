@@ -12,6 +12,7 @@ import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
   fallbackTerminalAttachment,
+  previousTerminalConnection,
   type ManagedTerminalAttachment,
   releaseTerminalAttachment,
   runTerminalOperation,
@@ -65,6 +66,8 @@ interface WorkspaceAttachmentState extends TerminalAttachmentState<TerminalAttac
 }
 
 interface TerminalConnectionContext {
+  clientId?: string;
+  connectionAttempt?: number;
   workspaceId: string;
   terminalId?: string;
   initialSize?: TerminalSize;
@@ -112,7 +115,7 @@ function broadcastTerminalGeometry(state: WorkspaceAttachmentState, geometry: Te
 async function activateAttachment(
   state: WorkspaceAttachmentState,
   attachment: TerminalAttachment,
-  options: { onlyIfUnclaimed?: boolean } = {}
+  options: { onlyIfUnclaimed?: boolean; replaces?: TerminalAttachment } = {}
 ): Promise<void> {
   const changed = await activateTerminalAttachment(state, attachment, options);
   if (changed && attachment.supportsGeometry && !attachment.released) {
@@ -194,6 +197,20 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
       return;
     }
     const initialSize = requestedTerminalSize(url);
+    const clientId = url.searchParams.get('client-id') ?? undefined;
+    const attemptParameter = url.searchParams.get('connection-attempt');
+    const connectionAttempt = attemptParameter === null ? undefined : Number(attemptParameter);
+    if (
+      (clientId !== undefined || connectionAttempt !== undefined) &&
+      (!clientId ||
+        !/^[a-f0-9]{32}$/.test(clientId) ||
+        connectionAttempt === undefined ||
+        !Number.isSafeInteger(connectionAttempt) ||
+        connectionAttempt < 1)
+    ) {
+      rejectWebSocketUpgrade(socket, 400, 'Bad Request');
+      return;
+    }
     const historyLines = requestedTerminalHistory(url);
     const lazyHistory = url.searchParams.get('history-mode') === 'lazy';
     const claimControl = url.searchParams.get('active') === '1';
@@ -205,6 +222,8 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
     const supportsSubmissionResults = protocolVersion >= TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION;
     terminalSockets.handleUpgrade(request, socket, head, (websocket) => {
       connectionContexts.set(websocket, {
+        clientId,
+        connectionAttempt,
         workspaceId,
         terminalId,
         initialSize,
@@ -239,6 +258,9 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
       resolveReady = resolve;
     });
     const attachment: TerminalAttachment = {
+      clientId: context.clientId,
+      connectionAttempt: context.connectionAttempt,
+      sessionId: context.sessionId,
       socket,
       supportsGeometry: context.supportsGeometry,
       released: false,
@@ -250,6 +272,11 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
         if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
       },
     };
+    const previousConnection = previousTerminalConnection(state, attachment);
+    if (previousConnection && (previousConnection.connectionAttempt ?? 0) >= (attachment.connectionAttempt ?? 0)) {
+      socket.close(1008, 'stale terminal connection');
+      return;
+    }
     state.attachments.add(attachment);
     const releaseAttachment = () => {
       attachment.resolveReady();
@@ -295,9 +322,21 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
             attachment.synchronizeScreen = synchronizeScreen;
             attachment.resolveReady();
             if (attachment.released || !authentication.isAuthorized()) return;
+            const newerConnection = previousTerminalConnection(state, attachment);
+            if (newerConnection && (newerConnection.connectionAttempt ?? 0) > (attachment.connectionAttempt ?? 0)) {
+              socket.close(1008, 'stale terminal connection');
+              return;
+            }
             // A newly entered workspace may explicitly claim control on its first
             // attachment. Reconnects stay passive, but can fill an unclaimed terminal.
-            await activateAttachment(state, attachment, context.claimControl ? {} : { onlyIfUnclaimed: true });
+            await activateAttachment(
+              state,
+              attachment,
+              context.claimControl ? {} : { onlyIfUnclaimed: true, replaces: previousConnection }
+            );
+            // Reclaim only this runtime's old connection. A different device
+            // that took control while we were offline remains authoritative.
+            previousConnection?.terminate?.();
           },
           onActivate: async () => {
             await attachment.readyPromise;

@@ -14,6 +14,35 @@ export const TERMINAL_READY_TIMEOUT_MS = 15_000;
 export const TERMINAL_STABLE_READY_MS = 5_000;
 const TERMINAL_READY_TIMEOUT_CLOSE_CODE = 4_000;
 const TERMINAL_READY_TIMEOUT_REASON = 'terminal ready timeout';
+const DIAGNOSTIC_CLOSE_REASONS = new Set([
+  'stale terminal connection',
+  'authentication expired',
+  'authentication revoked',
+  'message rate exceeded',
+  'terminal screen exceeds limit',
+  'terminal output fell behind',
+  'terminal input fell behind',
+  'terminal snapshot fell behind',
+  'terminal history synchronization failed',
+  'terminal screen synchronization failed',
+  'tmux session unavailable',
+  'terminal unavailable',
+  'terminal context unavailable',
+  TERMINAL_READY_TIMEOUT_REASON,
+  'terminal output sequence gap',
+]);
+let nextDiagnosticStreamId = 0;
+
+export interface TerminalConnectionDiagnostic {
+  streamId: number;
+  connectionId: number;
+  phase: 'connecting' | 'open' | 'ready' | 'closed' | 'retrying' | 'exhausted';
+  elapsedMs: number;
+  attempt: number;
+  delayMs?: number;
+  closeCode?: number;
+  reason?: string;
+}
 
 export interface TerminalConnectionContext {
   id: number;
@@ -22,6 +51,7 @@ export interface TerminalConnectionContext {
 }
 
 export interface TerminalConnectionCallbacks {
+  onDiagnostic?: (event: TerminalConnectionDiagnostic) => void;
   onOpen?: (context: TerminalConnectionContext) => void;
   onMessage?: (message: TerminalServerMessage, context: TerminalConnectionContext) => void;
   onDisconnect?: (event: { code: number; reason: string }, retrying: boolean) => void;
@@ -43,6 +73,7 @@ export interface TerminalSocket {
 type Timer = unknown;
 
 export interface TerminalConnectionDependencies {
+  now?: () => number;
   createSocket?: (url: string) => TerminalSocket;
   setTimeout?: (callback: () => void, delay: number) => Timer;
   clearTimeout?: (timer: Timer) => void;
@@ -57,10 +88,19 @@ export function terminalReconnectDelay(attempt: number): number {
 export function terminalCloseIsRetryable(event: { code: number; reason: string }): boolean {
   if (event.code === 1009 && event.reason === 'terminal screen exceeds limit') return false;
   if (event.code !== 1008) return true;
-  return !['authentication expired', 'authentication revoked', 'message rate exceeded'].includes(event.reason);
+  return ![
+    'authentication expired',
+    'authentication revoked',
+    'message rate exceeded',
+    'stale terminal connection',
+  ].includes(event.reason);
 }
 
 export class TerminalConnection {
+  #diagnosticStreamId = ++nextDiagnosticStreamId;
+  #attemptStartedAt = 0;
+  #readyReported = false;
+  #now: () => number;
   #callbacks: TerminalConnectionCallbacks;
   #clearTimeout: (timer: Timer) => void;
   #connectionId = 0;
@@ -69,6 +109,7 @@ export class TerminalConnection {
   #reconnectTimer: Timer | undefined;
   #readyTimer: Timer | undefined;
   #retryEnabled = true;
+  #retryBlocked = false;
   #setTimeout: (callback: () => void, delay: number) => Timer;
   #socket: TerminalSocket | undefined;
   #stableReadyTimer: Timer | undefined;
@@ -81,6 +122,7 @@ export class TerminalConnection {
     dependencies: TerminalConnectionDependencies = {}
   ) {
     this.#url = typeof url === 'function' ? () => String(url()) : () => String(url);
+    this.#now = dependencies.now ?? (() => performance.now());
     this.#callbacks = callbacks;
     this.#createSocket = dependencies.createSocket ?? ((socketUrl) => new WebSocket(socketUrl));
     this.#setTimeout = dependencies.setTimeout ?? ((callback, delay) => setTimeout(callback, delay));
@@ -111,6 +153,7 @@ export class TerminalConnection {
 
   retryNow(resetAttempts = true): void {
     if (this.#stopped) return;
+    this.#retryBlocked = false;
     this.#retryEnabled = true;
     this.#clearReconnectTimer();
     if (resetAttempts) this.#reconnectAttempt = 0;
@@ -125,6 +168,7 @@ export class TerminalConnection {
     this.#clearStableReadyTimer();
     const socket = this.#socket;
     this.#socket = undefined;
+    this.#report('closed', { closeCode: 4_001, reason: this.#safeReason(reason) });
     if (socket && socket.readyState !== SOCKET_CLOSED) {
       try {
         socket.close(4_001, reason);
@@ -142,13 +186,17 @@ export class TerminalConnection {
       this.#clearReconnectTimer();
       return;
     }
-    if (this.#stopped || this.#socket) return;
+    if (this.#stopped || this.#retryBlocked || this.#socket) return;
     if (this.#reconnectAttempt === 0) this.#connect();
     else this.#scheduleReconnect();
   }
 
   markReady(context: TerminalConnectionContext): void {
     if (!context.isCurrent()) return;
+    if (!this.#readyReported) {
+      this.#readyReported = true;
+      this.#report('ready');
+    }
     this.#clearReadyTimer();
     this.#clearStableReadyTimer();
     this.#stableReadyTimer = this.#setTimeout(() => {
@@ -164,6 +212,7 @@ export class TerminalConnection {
   #connect(): void {
     if (
       this.#stopped ||
+      this.#retryBlocked ||
       !this.#retryEnabled ||
       this.#socket?.readyState === SOCKET_OPEN ||
       this.#socket?.readyState === SOCKET_CONNECTING
@@ -172,6 +221,9 @@ export class TerminalConnection {
     const socket = this.#createSocket(this.#url());
     this.#socket = socket;
     const id = ++this.#connectionId;
+    this.#attemptStartedAt = this.#now();
+    this.#readyReported = false;
+    this.#report('connecting');
     const context: TerminalConnectionContext = {
       id,
       isCurrent: () => !this.#stopped && this.#socket === socket,
@@ -181,6 +233,7 @@ export class TerminalConnection {
 
     socket.onopen = () => {
       if (!context.isCurrent()) return;
+      this.#report('open');
       this.#callbacks.onOpen?.(context);
     };
     socket.onmessage = (event) => {
@@ -199,6 +252,8 @@ export class TerminalConnection {
       this.#clearStableReadyTimer();
       this.#socket = undefined;
       const retrying = terminalCloseIsRetryable(event);
+      this.#report('closed', { closeCode: event.code, reason: this.#safeReason(event.reason) });
+      this.#retryBlocked = !retrying;
       this.#callbacks.onDisconnect?.(event, retrying);
       if (retrying) this.#scheduleReconnect();
     };
@@ -210,6 +265,7 @@ export class TerminalConnection {
       this.#readyTimer = undefined;
       if (!context.isCurrent()) return;
       this.#socket = undefined;
+      this.#report('closed', { closeCode: TERMINAL_READY_TIMEOUT_CLOSE_CODE, reason: TERMINAL_READY_TIMEOUT_REASON });
       try {
         socket.close(TERMINAL_READY_TIMEOUT_CLOSE_CODE, TERMINAL_READY_TIMEOUT_REASON);
       } catch {
@@ -227,13 +283,15 @@ export class TerminalConnection {
   }
 
   #scheduleReconnect(): void {
-    if (this.#stopped || !this.#retryEnabled || this.#reconnectTimer !== undefined) return;
+    if (this.#stopped || this.#retryBlocked || !this.#retryEnabled || this.#reconnectTimer !== undefined) return;
     if (this.#reconnectAttempt >= MAXIMUM_RECONNECT_ATTEMPTS) {
+      this.#report('exhausted');
       this.#callbacks.onReconnectExhausted?.();
       return;
     }
     const delay = terminalReconnectDelay(this.#reconnectAttempt);
     this.#reconnectAttempt += 1;
+    this.#report('retrying', { delayMs: delay });
     this.#callbacks.onRetrying?.(delay);
     this.#reconnectTimer = this.#setTimeout(() => {
       this.#reconnectTimer = undefined;
@@ -245,6 +303,28 @@ export class TerminalConnection {
     if (this.#reconnectTimer === undefined) return;
     this.#clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = undefined;
+  }
+
+  #safeReason(reason: string): string {
+    return DIAGNOSTIC_CLOSE_REASONS.has(reason) ? reason : 'unclassified';
+  }
+
+  #report(
+    phase: TerminalConnectionDiagnostic['phase'],
+    detail: Pick<TerminalConnectionDiagnostic, 'delayMs' | 'closeCode' | 'reason'> = {}
+  ): void {
+    try {
+      this.#callbacks.onDiagnostic?.({
+        streamId: this.#diagnosticStreamId,
+        connectionId: this.#connectionId,
+        phase,
+        elapsedMs: Math.max(0, Math.round(this.#now() - this.#attemptStartedAt)),
+        attempt: this.#reconnectAttempt,
+        ...detail,
+      });
+    } catch {
+      // Optional diagnostics must never interrupt terminal delivery or recovery.
+    }
   }
 
   #clearReadyTimer(): void {

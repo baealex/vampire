@@ -18,6 +18,7 @@ import {
   TerminalSubmissionLedger,
   terminalSubmissionFailureMessage,
 } from './submission.server.ts';
+import { TerminalOutputFlow } from './terminal-output-flow.server.ts';
 import { retainTerminalControlHub } from './terminal-control-hub.server.ts';
 import { type TerminalDeliveryBatch, TerminalDeliveryBuffer } from './terminal-delivery.server.ts';
 
@@ -517,7 +518,8 @@ export async function attachTerminal(
   let snapshotId = 0;
   let pendingSnapshotId: number | undefined;
   const terminalDelivery = new TerminalDeliveryBuffer<QueuedOutput, QueuedScreenSynchronization>(
-    MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES
+    MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES,
+    Boolean(options.resetScreenSync && options.outputSequences)
   );
   const submissionLedger = new TerminalSubmissionLedger();
   const attached = controlHub.ready;
@@ -546,6 +548,31 @@ export async function attachTerminal(
   let suppressedOutputResyncInputVersion: number | undefined;
   let screenSynchronizationGeneration = 0;
   let explicitActivationPending = false;
+  const outputFlow = options.resetScreenSync && options.outputSequences ? new TerminalOutputFlow() : undefined;
+  let flowSynchronizationRunning = false;
+
+  const synchronizeOutputFlow = (): void => {
+    if (
+      closed ||
+      flowSynchronizationRunning ||
+      (!outputFlow?.needsSynchronization && !terminalDelivery.requiresRecovery)
+    )
+      return;
+    if (!terminalDelivery.snapshotSent) return;
+    flowSynchronizationRunning = true;
+    void scheduleTerminalOperation(() => resyncTerminalScreen(options.getGeometry?.() ?? currentGeometry))
+      .catch(() => {
+        if (!closed) socket.close(1013, 'terminal screen synchronization failed');
+      })
+      .finally(() => {
+        flowSynchronizationRunning = false;
+        if (!closed && (terminalDelivery.requiresRecovery || outputFlow?.needsSynchronization))
+          setTimeout(synchronizeOutputFlow, TERMINAL_REDRAW_QUIET_MS);
+      });
+  };
+  socket.on('pong', (data: Buffer) => {
+    if (outputFlow?.acknowledge(data.toString())) synchronizeOutputFlow();
+  });
 
   const runControlCommand = (command: string, onSuccess?: (output: string) => void): Promise<string> =>
     controlHub.runCommand(command, onSuccess);
@@ -838,8 +865,17 @@ export async function attachTerminal(
   };
 
   const sendDeliveryBatch = (batch: TerminalDeliveryBatch<QueuedOutput, QueuedScreenSynchronization>): void => {
+    const sendOutput = (payload: Extract<TerminalServerMessage, { type: 'output' }>) => {
+      if (outputFlow && !outputFlow.canSend(Boolean(payload.reset && payload.throughSequence !== undefined))) {
+        synchronizeOutputFlow();
+        return;
+      }
+      if (!sendTerminalMessage(socket, payload)) return;
+      const ping = outputFlow?.sent(Buffer.byteLength(encodeTerminalServerMessage(payload)));
+      if (ping && socket.readyState === WebSocket.OPEN) socket.ping(ping);
+    };
     if (batch.synchronization) {
-      sendTerminalMessage(socket, {
+      sendOutput({
         type: 'output',
         ...batch.synchronization.value,
         screenSync: true,
@@ -847,7 +883,7 @@ export async function attachTerminal(
       });
     }
     for (const output of batch.outputs) {
-      sendTerminalMessage(socket, {
+      sendOutput({
         type: 'output',
         ...output.value,
         ...(options.outputSequences ? { sequence: output.sequence } : {}),
@@ -898,6 +934,10 @@ export async function attachTerminal(
       },
     });
     if (queued.overflowed) {
+      if (outputFlow) {
+        synchronizeOutputFlow();
+        return;
+      }
       sendTerminalMessage(socket, { type: 'error', message: 'Terminal output arrived before the screen was ready.' });
       socket.close(1013, 'terminal snapshot fell behind');
       return;
@@ -923,6 +963,7 @@ export async function attachTerminal(
       if (closed) return;
       loadedHistoryLines = snapshot.history.loaded;
       terminalDelivery.publishSnapshot(snapshot.throughSequence);
+      synchronizeOutputFlow();
       pendingSnapshotId = options.snapshotIds ? ++snapshotId : undefined;
       sendTerminalMessage(socket, {
         type: 'snapshot',
@@ -1406,5 +1447,6 @@ export async function attachTerminal(
     ...(options.outputSequences ? { throughSequence: snapshot.throughSequence } : {}),
   });
   sendTerminalMessage(socket, { type: 'screen-ready' });
+  synchronizeOutputFlow();
   if (requestedSize) void resizeControlClient();
 }

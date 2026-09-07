@@ -72,8 +72,10 @@ export class RepositoryWorkspaceState {
   branch = $state<string>();
 
   readonly #api: RepositoryClient;
+  readonly #reads = new AbortController();
   readonly #options: RepositoryWorkspaceStateOptions;
   #loadedDirectories: string[] = [];
+  #directoryGeneration = 0;
   #operation: Promise<void> = Promise.resolve();
   #refreshPromise: Promise<void> | undefined;
   #refreshQueued = false;
@@ -119,20 +121,33 @@ export class RepositoryWorkspaceState {
 
   async loadDirectory(path: string) {
     return this.#enqueue(async () => {
-      if (this.#loadedDirectories.includes(path)) return;
+      // Every snapshot already contains the root listing.
+      if (path === '' && this.snapshot) return;
+      if (this.#reads.signal.aborted || this.#loadedDirectories.includes(path)) return;
+      const generation = this.#directoryGeneration;
       try {
-        const listing = await this.#api.readDirectory(path);
+        const listing = await this.#api.readDirectory(path, this.#reads.signal);
+        if (generation !== this.#directoryGeneration || this.#reads.signal.aborted) return;
         if (!this.snapshot) throw new Error('Repository information is unavailable.');
         this.snapshot = this.#mergeDirectoryListing(this.snapshot, path, listing);
         this.#loadedDirectories = [...this.#loadedDirectories, path];
       } catch (error) {
+        if (this.#reads.signal.aborted) return;
         this.errorMessage = error instanceof Error ? error.message : 'Unable to read this folder.';
         throw error;
       }
     });
   }
 
+  collapseDirectory(path: string) {
+    if (path === '') this.#directoryGeneration += 1;
+    this.#loadedDirectories = this.#loadedDirectories.filter(
+      (directory) => path !== '' && directory !== path && !directory.startsWith(`${path}/`)
+    );
+  }
+
   async refresh(showLoading = false) {
+    if (this.#reads.signal.aborted) return;
     if (this.#statusRefreshTimer !== undefined) {
       clearTimeout(this.#statusRefreshTimer);
       this.#statusRefreshTimer = undefined;
@@ -148,18 +163,20 @@ export class RepositoryWorkspaceState {
       do {
         this.#refreshQueued = false;
         await this.#enqueue(async () => {
+          if (this.#reads.signal.aborted) return;
           const shouldShowLoading = nextShowLoading || !this.snapshot;
           if (shouldShowLoading) this.loading = true;
           try {
-            let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit);
+            let nextSnapshot = await this.#api.readSnapshot(this.#commitLimit, this.#reads.signal);
             const activeDirectories: string[] = [];
+            const directoriesToRefresh = [...this.#loadedDirectories];
             const concurrency = 4;
-            for (let offset = 0; offset < this.#loadedDirectories.length; offset += concurrency) {
-              const paths = this.#loadedDirectories.slice(offset, offset + concurrency);
+            for (let offset = 0; offset < directoriesToRefresh.length; offset += concurrency) {
+              const paths = directoriesToRefresh.slice(offset, offset + concurrency);
               const listings = await Promise.all(
                 paths.map(async (path) => {
                   try {
-                    return await this.#api.readDirectory(path);
+                    return await this.#api.readDirectory(path, this.#reads.signal);
                   } catch (error) {
                     if (error instanceof RequestError && error.status === 404) return undefined;
                     throw error;
@@ -170,6 +187,7 @@ export class RepositoryWorkspaceState {
               for (const [index, listing] of listings.entries()) {
                 if (!listing) continue;
                 const path = paths[index];
+                if (!this.#loadedDirectories.includes(path)) continue;
                 nextSnapshot = this.#mergeDirectoryListing(nextSnapshot, path, listing);
                 activeDirectories.push(path);
               }
@@ -181,13 +199,14 @@ export class RepositoryWorkspaceState {
             this.errorMessage = '';
             this.refreshToken += 1;
           } catch (error) {
-            this.errorMessage = error instanceof Error ? error.message : 'Unable to refresh this repository.';
+            if (!this.#reads.signal.aborted)
+              this.errorMessage = error instanceof Error ? error.message : 'Unable to refresh this repository.';
           } finally {
             if (shouldShowLoading) this.loading = false;
           }
         });
         nextShowLoading = false;
-      } while (this.#refreshQueued && this.#options.isOpen() && !document.hidden);
+      } while (this.#refreshQueued && this.#options.isOpen() && !document.hidden && !this.#reads.signal.aborted);
     })();
     this.#refreshPromise = run;
     try {
@@ -653,7 +672,7 @@ export class RepositoryWorkspaceState {
       await this.#enqueue(async () => {
         const current = this.snapshot;
         if (!current?.git?.hasMoreCommits) return;
-        const page = await this.#api.readCommits(current.git.commits.length);
+        const page = await this.#api.readCommits(current.git.commits.length, this.#reads.signal);
         const knownHashes = new Set(current.git.commits.map((commit) => commit.hash));
         const commits = [...current.git.commits, ...page.commits.filter((commit) => !knownHashes.has(commit.hash))];
         this.#commitLimit = commits.length;
@@ -729,6 +748,9 @@ export class RepositoryWorkspaceState {
   }
 
   dispose() {
+    this.#reads.abort();
+    this.#refreshQueued = false;
+    this.#loadedDirectories = [];
     if (this.#statusRefreshTimer !== undefined) clearTimeout(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
     this.resolveDiscardChanges(false);
@@ -750,7 +772,7 @@ export class RepositoryWorkspaceState {
     this.changeCount = changeCount;
     this.worktreeCount = worktreeCount;
     this.branch = branch;
-    if (!this.#options.isOpen() || this.#statusRefreshTimer !== undefined) return;
+    if (this.#reads.signal.aborted || !this.#options.isOpen() || this.#statusRefreshTimer !== undefined) return;
     // The counts may stay the same while file contents change. Keep that refresh,
     // but combine status bursts and let an explicit refresh consume the timer.
     this.#statusRefreshTimer = setTimeout(() => {

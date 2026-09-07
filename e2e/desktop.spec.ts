@@ -4,8 +4,18 @@ import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, type BrowserContext, type Locator, type Page, test, type WebSocketRoute } from '@playwright/test';
+import {
+  expect,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  test,
+  type WebSocketRoute,
+  type TestInfo,
+} from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
+import type { TerminalConnectionDiagnostic } from '../src/lib/features/terminal/api/connection.ts';
+import { terminalNetworkProxy } from './terminal-network.ts';
 import { E2E_BASE_URL, E2E_PORT, E2E_STATE_DIRECTORY, E2E_TMUX_SOCKET_NAME } from './runtime.ts';
 import {
   authenticate,
@@ -21,6 +31,7 @@ import {
 
 declare global {
   interface Window {
+    __recordTerminalConnection: (event: TerminalConnectionDiagnostic) => Promise<void>;
     __vampireObservedWorkspaceStates: string[];
     __vampireWorkspaceStateTimer: number;
     __vampireOutputProbe?: {
@@ -3382,4 +3393,397 @@ test('does not restart a slow file open while repository status refreshes', asyn
   } finally {
     await Promise.all([rm(targetFile, { force: true }), rm(churnFile, { force: true })]);
   }
+});
+
+test('recovers delayed terminal delivery without replaying an unconfirmed command', async ({
+  context,
+  page,
+}, testInfo) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const diagnostics: TerminalConnectionDiagnostic[] = [];
+  await page.exposeFunction('__recordTerminalConnection', (event: TerminalConnectionDiagnostic) => {
+    if (diagnostics.length < 128) diagnostics.push(event);
+  });
+  await page.addInitScript(() => {
+    window.addEventListener('vampire:terminal-connection', (event) => {
+      void window.__recordTerminalConnection((event as CustomEvent).detail);
+    });
+  });
+  let submissions = 0;
+  let droppedConfirmation = false;
+  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    let firstSnapshot = true;
+    let forwarding = Promise.resolve();
+    socket.onMessage((message) => {
+      if (JSON.parse(String(message)).type === 'submit') submissions += 1;
+      server.send(message);
+    });
+    server.onMessage((message) => {
+      const type = JSON.parse(String(message)).type;
+      forwarding = forwarding.then(async () => {
+        if (type === 'snapshot' && firstSnapshot) {
+          firstSnapshot = false;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+        if (type === 'submission-result' && !droppedConfirmation) {
+          droppedConfirmation = true;
+          await socket.close({ code: 1013, reason: 'terminal output fell behind' });
+          return;
+        }
+        socket.send(message);
+      });
+    });
+  });
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await expect.poll(() => diagnostics.filter(({ phase }) => phase === 'ready').length).toBe(1);
+  expect(diagnostics.find(({ phase }) => phase === 'ready')!.elapsedMs).toBeGreaterThanOrEqual(1_000);
+  const command =
+    'VAMP_RECOVERY_COUNT=$(( ${VAMP_RECOVERY_COUNT:-0} + 1 )); printf "VAMP_RECOVERY_COUNT=%s\\n" "$VAMP_RECOVERY_COUNT"';
+  await page.getByLabel('Send text to the shell').fill(command);
+  await page.getByRole('button', { name: 'Send to shell' }).click();
+  await expect(page.getByText(/Check the terminal before sending again/)).toBeVisible();
+  await expect.poll(() => diagnostics.filter(({ phase }) => phase === 'ready').length).toBe(2);
+  await expectTerminalReady(page);
+  await expect(page.getByLabel('Draft excerpt')).toHaveText(command);
+  await expect
+    .poll(async () => (await tmuxPaneRows(workspace.tmuxSession)).some((row) => row.trim() === 'VAMP_RECOVERY_COUNT=1'))
+    .toBe(true);
+  expect(submissions).toBe(1);
+  expect(
+    diagnostics.some(
+      ({ phase, closeCode, reason }) =>
+        phase === 'closed' && closeCode === 1013 && reason === 'terminal output fell behind'
+    )
+  ).toBe(true);
+  await testInfo.attach('terminal-connection-diagnostics', {
+    body: JSON.stringify(diagnostics, null, 2),
+    contentType: 'application/json',
+  });
+});
+
+test('a single device reconnects without competing with its lingering previous connection', async ({
+  browser,
+  context,
+  page,
+}) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const clients: WebSocketRoute[] = [];
+  const servers: WebSocketRoute[] = [];
+  const phoneContext = await browser.newContext({ viewport: { width: 480, height: 700 } });
+  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    clients.push(socket);
+    servers.push(server);
+    // Simulate a lost client link whose server-side socket has not timed out.
+    socket.onClose(() => undefined);
+  });
+  try {
+    await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+    await expectTerminalReady(page);
+    await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
+    await clients[0].close({ code: 1012, reason: 'simulated client link loss' });
+    await expect.poll(() => clients.length).toBe(2);
+    await expectTerminalReady(page);
+    await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
+    await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+    await authenticate(phoneContext);
+    const phonePage = await phoneContext.newPage();
+    await phonePage.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+    await expectTerminalReady(phonePage);
+    await expect(page.getByRole('button', { name: 'Use this device' })).toBeVisible();
+    await clients[1].close({ code: 1012, reason: 'simulated passive client link loss' });
+    await expect.poll(() => clients.length).toBe(3);
+    await expectTerminalReady(page);
+    await expect(page.getByRole('button', { name: 'Use this device' })).toBeVisible();
+    await expect(phonePage.getByRole('button', { name: 'Use this device' })).toBeHidden();
+    await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+  } finally {
+    await phoneContext.close();
+    for (const server of servers) await server.close();
+  }
+});
+
+async function saveReliabilityReport(testInfo: TestInfo, name: string, data: unknown) {
+  const path = testInfo.outputPath(`${name}.json`);
+  await writeFile(path, JSON.stringify(data, null, 2));
+  await testInfo.attach(name, { path, contentType: 'application/json' });
+}
+
+for (const profile of [
+  { name: '1Mbps-300ms', rate: 125_000, latency: 150 },
+  { name: '256Kbps-1000ms', rate: 32_000, latency: 500 },
+  { name: '256Kbps-1000ms-long-outage', rate: 32_000, latency: 500, outageMs: 20_000 },
+]) {
+  test(`network reliability ${profile.name}: output, outage and recovery`, async ({ context, page }, testInfo) => {
+    test.setTimeout(120_000);
+    await authenticate(context);
+    const workspace = await createWorkspace(context);
+    workspaceId = workspace.id;
+    const proxy = await terminalNetworkProxy(E2E_PORT, profile.rate, profile.latency);
+    const diagnostics: TerminalConnectionDiagnostic[] = [];
+    await page.exposeFunction('__recordTerminalConnection', (event: TerminalConnectionDiagnostic) => {
+      if (diagnostics.length < 128) diagnostics.push(event);
+    });
+    await page.addInitScript(() => {
+      window.addEventListener('vampire:terminal-connection', (event) => {
+        void window.__recordTerminalConnection((event as CustomEvent).detail);
+      });
+    });
+    let terminalConnections = 0;
+    page.on('websocket', (socket) => {
+      if (socket.url().includes('/ws/terminal')) terminalConnections += 1;
+    });
+    const timings: Record<string, number> = {};
+    try {
+      const openedAt = Date.now();
+      await page.goto(`${proxy.origin}/workspaces/${encodeURIComponent(workspace.id)}`);
+      await expectTerminalReady(page);
+      timings.initialPageAndTerminalMs = Date.now() - openedAt;
+      const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('\\x1b[32m'+n+' '+'x'.repeat(80)+'\\x1b[0m\\n').repeat(10));if(++n===30){clearInterval(t);console.log('VAMP_NETWORK_DONE')}},100)`;
+      await runTmux([
+        'send-keys',
+        '-t',
+        workspace.tmuxSession,
+        '-l',
+        '--',
+        `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
+      ]);
+      await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+      await expect(page.locator('.xterm-rows')).toContainText('VAMP_NETWORK_DONE', { timeout: 30_000 });
+      await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+      const beforeOutage = terminalConnections;
+      const readyBeforeOutage = diagnostics.filter(({ phase }) => phase === 'ready').length;
+      proxy.setAvailable(false);
+      await new Promise((resolve) => setTimeout(resolve, profile.outageMs ?? 3_000));
+      expect(diagnostics.some(({ phase }) => phase === 'exhausted')).toBe(profile.outageMs === 20_000);
+      const restoredAt = Date.now();
+      proxy.setAvailable(true);
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await expect.poll(() => terminalConnections, { timeout: 30_000 }).toBeGreaterThan(beforeOutage);
+      await expect
+        .poll(() => diagnostics.filter(({ phase }) => phase === 'ready').length, { timeout: 30_000 })
+        .toBeGreaterThan(readyBeforeOutage);
+      await expectTerminalReady(page);
+      timings.recoveryMs = Date.now() - restoredAt;
+      await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
+      await page.getByLabel('Send text to the shell').fill("printf 'VAMP_NETWORK_INPUT_OK\\n'");
+      await page.getByRole('button', { name: 'Send to shell' }).click();
+      await expect(page.locator('.xterm-rows')).toContainText('VAMP_NETWORK_INPUT_OK', { timeout: 20_000 });
+      await expect(page.getByRole('region', { name: 'Compose delivery status' })).toBeHidden({ timeout: 20_000 });
+      await expect(page.getByLabel('Send text to the shell')).toHaveValue('');
+      await expect
+        .poll(async () =>
+          (await tmuxPaneRows(workspace.tmuxSession)).some((row) => row.trim() === 'VAMP_NETWORK_INPUT_OK')
+        )
+        .toBe(true);
+      await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+    } finally {
+      await saveReliabilityReport(testInfo, 'network-reliability', {
+        diagnostics,
+        profile,
+        timings,
+        terminalConnections,
+        proxy: proxy.stats,
+      });
+      await proxy.close();
+    }
+  });
+}
+
+test('network reliability: a frozen browser catches up and preserves its draft', async ({
+  context,
+  page,
+}, testInfo) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  const composer = page.getByLabel('Send text to the shell');
+  await composer.fill('unsent draft across browser suspension');
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+  try {
+    await fillTerminalWithNumberedRows(workspace.tmuxSession, 500);
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  } finally {
+    await cdp.send('Page.setWebLifecycleState', { state: 'active' });
+  }
+  const resumedAt = Date.now();
+  await expectTerminalReady(page);
+  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+  await expect(composer).toHaveValue('unsent draft across browser suspension');
+  await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
+  await saveReliabilityReport(testInfo, 'browser-suspension', { frozenMs: 5_000, recoveryMs: Date.now() - resumedAt });
+});
+
+test('network reliability: four devices isolate a slow subscriber during an output burst', async ({
+  browser,
+  context,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  const proxy = await terminalNetworkProxy(E2E_PORT, 32_000, 500);
+  const devices: BrowserContext[] = [];
+  const pages: Page[] = [];
+  const connections = [0, 0, 0, 0];
+  const diagnostics: TerminalConnectionDiagnostic[][] = [[], [], [], []];
+  const recoveryMs: number[] = [];
+  try {
+    for (let i = 0; i < 4; i += 1) {
+      const device = await browser.newContext({ viewport: { width: i === 3 ? 480 : 1_280, height: 800 } });
+      devices.push(device);
+      await authenticate(device);
+      const page = await device.newPage();
+      pages.push(page);
+      await page.exposeFunction('__recordTerminalConnection', (event: TerminalConnectionDiagnostic) => {
+        if (diagnostics[i].length < 128) diagnostics[i].push(event);
+      });
+      await page.addInitScript(() => {
+        window.addEventListener('vampire:terminal-connection', (event) => {
+          void window.__recordTerminalConnection((event as CustomEvent).detail);
+        });
+      });
+      page.on('websocket', (socket) => {
+        if (socket.url().includes('/ws/terminal')) connections[i] += 1;
+      });
+      await page.goto(`${i === 3 ? proxy.origin : E2E_BASE_URL}/workspaces/${encodeURIComponent(workspace.id)}`);
+      await expectTerminalReady(page);
+    }
+    const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('FRAME_'+String(n).padStart(3,'0')+' '+'x'.repeat(86)+'\\n').repeat(320));if(++n===100){clearInterval(t);console.log('VAMP_BURST_DONE')}},40)`;
+    const startedAt = Date.now();
+    await runTmux([
+      'send-keys',
+      '-t',
+      workspace.tmuxSession,
+      '-l',
+      '--',
+      `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
+    ]);
+    await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+    // A slow subscriber may resume from a newer screen where the completion
+    // marker has scrolled out. The contract is current tmux state, not retention
+    // of every intermediate marker in the visible viewport.
+    await expect(pages[0].locator('.xterm-rows')).toContainText('VAMP_BURST_DONE', { timeout: 20_000 });
+    await Promise.all(
+      pages.map(async (page, i) => {
+        await expect
+          .poll(
+            async () =>
+              terminalRowsMismatch(await tmuxPaneRows(workspace.tmuxSession), await renderedTerminalRows(page), i + 1),
+            { timeout: 15_000 }
+          )
+          .toBe('');
+        recoveryMs[i] = Date.now() - startedAt;
+        await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+      })
+    );
+    // A disconnected controller may yield to another connected device. Recovery
+    // must not steal it back; the returning user can explicitly reclaim it.
+    await expect
+      .poll(
+        async () =>
+          (
+            await Promise.all(pages.map((page) => page.getByRole('button', { name: 'Use this device' }).isVisible()))
+          ).filter(Boolean).length
+      )
+      .toBe(3);
+    const takeover = pages[3].getByRole('button', { name: 'Use this device' });
+    if (await takeover.isVisible()) await takeover.click();
+    await expect(takeover).toBeHidden();
+    await pages[3].getByLabel('Send text to the shell').fill("printf 'VAMP_BURST_INPUT_OK\\n'");
+    await pages[3].getByRole('button', { name: 'Send to shell' }).click();
+    await expect(pages[0].locator('.xterm-rows')).toContainText('VAMP_BURST_INPUT_OK', { timeout: 20_000 });
+    await expect(pages[3].getByLabel('Send text to the shell')).toHaveValue('', { timeout: 20_000 });
+    await expectTerminalRowsMatchTmux(workspace.tmuxSession, ...pages);
+    expect(connections).toEqual([1, 1, 1, 1]);
+    expect(recoveryMs[3]).toBeLessThan(15_000);
+  } finally {
+    const expected = await tmuxPaneRows(workspace.tmuxSession);
+    const screens = await Promise.all(
+      pages.map(async (page, i) => ({
+        device: i,
+        mismatch: terminalRowsMismatch(expected, await renderedTerminalRows(page), i + 1),
+        status: await page.locator('.terminal-status-message').allTextContents(),
+        screenReady: await page.locator('.terminal.screen-ready').count(),
+      }))
+    );
+    await saveReliabilityReport(testInfo, 'four-device-network', {
+      connections,
+      recoveryMs,
+      diagnostics,
+      screens,
+      proxy: proxy.stats,
+    });
+    for (const device of devices) await device.close();
+    await proxy.close();
+  }
+});
+
+test('network reliability: repeated workspace switches preserve drafts after cache expiry', async ({
+  context,
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await authenticate(context);
+  const first = await createWorkspace(context);
+  const second = await createWorkspace(context);
+  workspaceId = first.id;
+  const timings: number[] = [];
+  try {
+    await page.goto(`/workspaces/${encodeURIComponent(first.id)}`);
+    await expectTerminalReady(page);
+    await page.getByPlaceholder('Compose a message…').fill('Keep this draft across repeated switches');
+    for (let i = 0; i < 20; i += 1) {
+      const startedAt = Date.now();
+      await page
+        .locator('.workspace-row-shell:not(.selected)')
+        .getByRole('button', { name: /Open running workspace/ })
+        .click();
+      await expectTerminalReady(page);
+      await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
+      timings.push(Date.now() - startedAt);
+      if (i === 0) await new Promise((resolve) => setTimeout(resolve, 31_000));
+    }
+    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(first.id)}`);
+    await expect(page.getByPlaceholder('Compose a message…')).toHaveValue('Keep this draft across repeated switches');
+  } finally {
+    await saveReliabilityReport(testInfo, 'workspace-switch-timings', { switches: timings, expiryWaitMs: 31_000 });
+    await removeWorkspace(context, second.id);
+  }
+});
+
+test('network reliability: attaches during sustained output without cycling connections', async ({ context, page }) => {
+  test.setTimeout(90_000);
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  workspaceId = workspace.id;
+  let connections = 0;
+  page.on('websocket', (socket) => {
+    if (socket.url().includes('/ws/terminal')) connections += 1;
+  });
+  const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('ATTACH_'+n+' '+'x'.repeat(86)+'\\n').repeat(640));if(++n===200){clearInterval(t);console.log('VAMP_ATTACH_DONE')}},40)`;
+  await runTmux([
+    'send-keys',
+    '-t',
+    workspace.tmuxSession,
+    '-l',
+    '--',
+    `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
+  ]);
+  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
+  await expectTerminalReady(page);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ATTACH_DONE', { timeout: 30_000 });
+  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
+  expect(connections).toBe(1);
+  await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
 });

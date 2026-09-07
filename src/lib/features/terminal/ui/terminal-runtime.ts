@@ -196,6 +196,10 @@ class TerminalRenderShield {
 
 export class TerminalRuntime {
   #entryClaimPending = true;
+  #clientId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
+  #connectionAttempt = 0;
   #connection: TerminalConnection | undefined;
   #destroyed = false;
   #fit: FitAddon | undefined;
@@ -217,6 +221,7 @@ export class TerminalRuntime {
   #options: TerminalRuntimeOptions;
   #outputActive = false;
   #outputActivityTimer: ReturnType<typeof setTimeout> | undefined;
+  #reconnectExhausted = false;
   #removeTouchScroll: () => void = () => undefined;
   #requestedSize: TerminalSize | undefined;
   #renderShield: TerminalRenderShield | undefined;
@@ -446,6 +451,7 @@ export class TerminalRuntime {
 
   reconnect(): void {
     if (this.#destroyed) return;
+    this.#reconnectExhausted = false;
     const wasOutputPaused = this.#state.outputPaused;
     this.#updateState({ error: '', outputPaused: false, reconnecting: true });
     if (wasOutputPaused) this.#connection?.start();
@@ -587,17 +593,21 @@ export class TerminalRuntime {
     this.#connection = new TerminalConnection(
       () => {
         const url = new URL(websocketUrl);
+        url.searchParams.set('client-id', this.#clientId);
+        url.searchParams.set('connection-attempt', String(++this.#connectionAttempt));
         const requestedSize = this.#requestedSize;
         if (requestedSize) {
           url.searchParams.set('columns', String(requestedSize.columns));
           url.searchParams.set('rows', String(requestedSize.rows));
         }
-        if (this.#entryClaimPending) url.searchParams.set('active', '1');
+        if (this.#entryClaimPending && this.#connectionAttempt === 1) url.searchParams.set('active', '1');
         return url;
       },
       {
+        onDiagnostic: (detail) => window.dispatchEvent(new CustomEvent('vampire:terminal-connection', { detail })),
         onOpen: () => {
           if (this.#destroyed) return;
+          this.#reconnectExhausted = false;
           this.#outputSequence.reset();
           this.#sharedGeometry = undefined;
           this.#updateState({
@@ -672,6 +682,7 @@ export class TerminalRuntime {
           }
         },
         onDisconnect: (event, retrying) => {
+          this.#reconnectExhausted = false;
           this.#markSubmissionsUncertain();
           this.#outputSequence.reset();
           this.#setOutputActive(false);
@@ -696,11 +707,13 @@ export class TerminalRuntime {
           });
         },
         onRetrying: () => this.#updateState({ reconnecting: true }),
-        onReconnectExhausted: () =>
+        onReconnectExhausted: () => {
+          this.#reconnectExhausted = true;
           this.#updateState({
             reconnecting: false,
             error: 'Could not reconnect to terminal.',
-          }),
+          });
+        },
         onProtocolError: () => this.#updateState({ error: 'The terminal sent an unreadable response.' }),
       }
     );
@@ -1004,16 +1017,21 @@ export class TerminalRuntime {
     }
     this.#sendSize();
     this.#connection?.setRetryEnabled(true);
-    if (this.#state.reconnecting) this.#connection?.retryNow(false);
+    this.#recoverConnection();
     this.#scheduleResize();
     this.#refreshTerminalDisplay(true);
   };
 
   #handleOnline = (): void => {
-    if (document.visibilityState === 'visible' && this.#state.reconnecting) {
-      this.#connection?.retryNow(false);
-    }
+    if (document.visibilityState === 'visible') this.#recoverConnection();
   };
+
+  #recoverConnection(): void {
+    // A new foreground/network opportunity gets a fresh retry budget. Ordinary
+    // focus events during an ongoing attempt must not extend that budget.
+    if (this.#reconnectExhausted) this.reconnect();
+    else if (this.#state.reconnecting) this.#connection?.retryNow(false);
+  }
 
   #handleThemeChange = (): void => {
     if (!this.#terminal) return;

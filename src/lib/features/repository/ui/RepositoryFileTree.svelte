@@ -30,6 +30,7 @@ let {
   projectPath,
   selected,
   onLoadDirectory,
+  onCollapseDirectory = () => undefined,
   onCreateFile,
   onCreateDirectory,
   onRequestDelete,
@@ -54,6 +55,7 @@ let {
   projectPath: string;
   selected?: RepositorySelection;
   onLoadDirectory: (path: string) => Promise<void>;
+  onCollapseDirectory?: (path: string) => void;
   onCreateFile: (directory: string, name: string) => Promise<void>;
   onCreateDirectory: (directory: string, name: string) => Promise<void>;
   onRequestDelete: (entries: WorkspaceEntryDragData[]) => void;
@@ -75,6 +77,7 @@ let {
 } = $props();
 
 let rootExpanded = $state(true);
+let expansionGeneration = 0;
 let expandedDirectories = $state<string[]>([]);
 let inlineCreation = $state<{ kind: 'file' | 'directory'; parent: string }>();
 let creationName = $state('');
@@ -429,13 +432,18 @@ async function pasteIntoDirectory(path: string) {
 
 async function toggleDirectory(path: string) {
   if (expandedDirectories.includes(path)) {
-    expandedDirectories = expandedDirectories.filter((directory) => directory !== path);
+    expandedDirectories = expandedDirectories.filter(
+      (directory) => directory !== path && !directory.startsWith(`${path}/`)
+    );
+    onCollapseDirectory(path);
     return;
   }
   if (loadingDirectories.includes(path)) return;
   loadingDirectories = [...loadingDirectories, path];
+  const generation = expansionGeneration;
   try {
     await onLoadDirectory(path);
+    if (generation !== expansionGeneration) return;
     expandedDirectories = [...expandedDirectories, path];
   } catch {
     // The parent workbench exposes the request error in the repository panel.
@@ -445,8 +453,10 @@ async function toggleDirectory(path: string) {
 }
 
 function collapseAllDirectories() {
+  expansionGeneration += 1;
   cancelDragExpand();
   expandedDirectories = [];
+  onCollapseDirectory('');
 }
 
 async function beginCreation(kind: 'file' | 'directory', parent: string) {
@@ -560,7 +570,11 @@ $effect(() => {
   void revealFilePath(targetPath, requestId);
 });
 
-onDestroy(cancelDragExpand);
+onDestroy(() => {
+  expansionGeneration += 1;
+  cancelDragExpand();
+  onCollapseDirectory('');
+});
 </script>
 
 <div bind:this={treeElement} class="repository-file-tree" role="tabpanel" aria-label="Workspace files">
@@ -570,7 +584,10 @@ onDestroy(cancelDragExpand);
       class="tree-row"
       aria-expanded={rootExpanded}
       aria-label={`${rootExpanded ? 'Collapse' : 'Expand'} ${projectName} workspace root`}
-      onclick={() => (rootExpanded = !rootExpanded)}
+      onclick={() => {
+        rootExpanded = !rootExpanded;
+        if (!rootExpanded) collapseAllDirectories();
+      }}
     >
       <span class="tree-chevron" aria-hidden="true">
         {#if rootExpanded}

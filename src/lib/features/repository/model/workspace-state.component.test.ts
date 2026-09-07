@@ -397,3 +397,124 @@ test('refreshes expanded directories concurrently while preserving nested entrie
   expect(state.errorMessage).toBe('');
   state.dispose();
 });
+
+test('stops refreshing collapsed folders and fetches fresh contents when reopened', async () => {
+  const requested: string[] = [];
+  let version = 'old';
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (!url.pathname.endsWith('/directory')) return repositorySnapshotResponse();
+    const path = url.searchParams.get('path')!;
+    requested.push(path);
+    return new Response(
+      JSON.stringify({ files: [`${path}/${version}.ts`], directories: [], ignored: [], truncated: false })
+    );
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  await state.refresh();
+  await state.loadDirectory('src');
+  await state.loadDirectory('src/nested');
+  await state.loadDirectory('other');
+  state.collapseDirectory('src');
+  requested.length = 0;
+  version = 'new';
+  await state.refresh();
+  expect(requested).toEqual(['other']);
+  await state.loadDirectory('src');
+  expect(requested).toEqual(['other', 'src']);
+  expect(state.snapshot?.files).toContain('src/new.ts');
+  state.collapseDirectory('');
+  requested.length = 0;
+  await state.refresh();
+  expect(requested).toEqual([]);
+  state.dispose();
+});
+
+test('aborts old workspace reads and prevents queued refreshes after disposal', async () => {
+  let signal: AbortSignal | undefined;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+    signal = init?.signal as AbortSignal;
+    return new Promise((_resolve, reject) => {
+      signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    });
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  const active = state.refresh();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  const queued = state.refresh();
+  state.dispose();
+  await Promise.all([active, queued]);
+  await state.refresh();
+  state.handleStatus(2, 1);
+  expect(signal?.aborted).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(state.errorMessage).toBe('');
+});
+
+test('closing the tree while a folder loads does not put it back in the refresh set', async () => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let directoryReads = 0;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    if (!String(input).includes('/directory')) return repositorySnapshotResponse();
+    directoryReads += 1;
+    await waiting;
+    return new Response(JSON.stringify({ files: ['src/file.ts'], directories: [], ignored: [], truncated: false }));
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  await state.refresh();
+  const loading = state.loadDirectory('src');
+  await vi.waitFor(() => expect(directoryReads).toBe(1));
+  state.collapseDirectory('');
+  release();
+  await loading;
+  await state.refresh();
+  expect(directoryReads).toBe(1);
+  await state.loadDirectory('src');
+  expect(directoryReads).toBe(2);
+  state.dispose();
+});
+
+test('collapsing during a refresh does not skip later batches of still-open folders', async () => {
+  let refreshing = false;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (!url.pathname.endsWith('/directory')) return repositorySnapshotResponse();
+    const path = url.searchParams.get('path')!;
+    if (refreshing) {
+      requested.push(path);
+      await waiting;
+    }
+    return new Response(JSON.stringify({ files: [`${path}/file.ts`], directories: [], ignored: [], truncated: false }));
+  });
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  await state.refresh();
+  for (const path of ['a', 'b', 'c', 'd', 'e']) await state.loadDirectory(path);
+  refreshing = true;
+  const pending = state.refresh();
+  await vi.waitFor(() => expect(requested).toHaveLength(4));
+  state.collapseDirectory('a');
+  release();
+  await pending;
+  expect(requested).toEqual(['a', 'b', 'c', 'd', 'e']);
+  expect(state.snapshot?.files).toEqual(['b/file.ts', 'c/file.ts', 'd/file.ts', 'e/file.ts']);
+  state.dispose();
+});
+
+test('does not reread the root already included in the snapshot', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => repositorySnapshotResponse());
+  const state = new RepositoryWorkspaceState('workspace-1', { isOpen: () => true });
+  await state.refresh();
+  await state.loadDirectory('');
+  await state.refresh();
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.every(([input]) => !String(input).includes('/directory'))).toBe(true);
+  state.dispose();
+});

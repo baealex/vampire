@@ -85,13 +85,15 @@ test('expands a collapsed folder after a sustained external-file drag hover', as
 
 test('collapses every expanded descendant while keeping the workspace root open', async () => {
   const user = userEvent.setup();
-  render(RepositoryFileTree, props());
+  const onCollapseDirectory = vi.fn();
+  render(RepositoryFileTree, props({ onCollapseDirectory }));
   await user.click(screen.getByRole('button', { name: 'Expand docs' }));
   await user.click(screen.getByRole('button', { name: 'Expand src' }));
 
   await fireEvent.click(screen.getByRole('button', { name: 'More workspace tree actions' }));
   await user.click(await screen.findByRole('menuitem', { name: 'Collapse all folders' }));
 
+  expect(onCollapseDirectory).toHaveBeenCalledWith('');
   expect(screen.getByRole('button', { name: 'Collapse vampire workspace root' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Expand docs' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Expand src' })).toBeInTheDocument();
@@ -263,4 +265,19 @@ test('copies a modifier-selected group and pastes into the focused folder from t
   const docs = screen.getByRole('button', { name: 'Collapse docs' });
   await fireEvent.keyDown(docs, { key: 'v', ctrlKey: true });
   await waitFor(() => expect(onPasteEntries).toHaveBeenCalledWith('docs'));
+});
+
+test('releases collapsed and unmounted folders from background refresh', async () => {
+  const user = userEvent.setup();
+  const onCollapseDirectory = vi.fn();
+  const view = render(RepositoryFileTree, props({ onCollapseDirectory }));
+  await user.click(screen.getByRole('button', { name: 'Expand src' }));
+  await user.click(screen.getByRole('button', { name: 'Collapse src' }));
+  expect(onCollapseDirectory).toHaveBeenCalledWith('src');
+  await user.click(screen.getByRole('button', { name: 'Expand src' }));
+  await user.click(screen.getByRole('button', { name: 'Collapse vampire workspace root' }));
+  expect(onCollapseDirectory).toHaveBeenCalledWith('');
+  onCollapseDirectory.mockClear();
+  view.unmount();
+  expect(onCollapseDirectory).toHaveBeenCalledWith('');
 });

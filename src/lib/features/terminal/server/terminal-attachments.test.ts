@@ -7,8 +7,23 @@ import {
   runTerminalOperation,
   terminalAttachmentKey,
   updateTerminalGeometry,
+  previousTerminalConnection,
   type ManagedTerminalAttachment,
 } from '~/lib/features/terminal/server/terminal-attachments.server.ts';
+
+test('reconnect identity is scoped to one authentication session and chooses the newest attempt', () => {
+  const state = createTerminalAttachmentState<ManagedTerminalAttachment>();
+  const old = { released: false, clientId: 'client', connectionAttempt: 1, sessionId: 'session' };
+  const recent = { ...old, connectionAttempt: 2 };
+  const otherSession = { ...old, sessionId: 'other', connectionAttempt: 10 };
+  const otherClient = { ...old, clientId: 'other', connectionAttempt: 20 };
+  for (const item of [old, recent, otherSession, otherClient]) state.attachments.add(item);
+  assert.equal(previousTerminalConnection(state, { ...old, connectionAttempt: 3 }), recent);
+  assert.equal(previousTerminalConnection(state, { ...old, sessionId: 'unknown' }), undefined);
+  assert.equal(previousTerminalConnection(state, { released: false }), undefined);
+  recent.released = true;
+  assert.equal(previousTerminalConnection(state, { ...old, connectionAttempt: 3 }), old);
+});
 
 test('serializes terminal operations from multiple attachments', async () => {
   const state = createTerminalAttachmentState<ManagedTerminalAttachment>();
@@ -256,4 +271,25 @@ test('accepts geometry only from the controller once one exists', async () => {
 test('isolates attachment ownership by terminal', () => {
   assert.notEqual(terminalAttachmentKey('workspace', '@1'), terminalAttachmentKey('workspace', '@2'));
   assert.notEqual(terminalAttachmentKey('workspace'), terminalAttachmentKey('workspace', '@1'));
+});
+
+test('a reconnect inherits its previous connection control but cannot displace another device', async () => {
+  const events: string[] = [];
+  const state = createTerminalAttachmentState<ReturnType<typeof attachment>>();
+  const oldConnection = attachment('old', events);
+  const reconnected = attachment('new', events);
+  const phone = attachment('phone', events);
+  for (const candidate of [oldConnection, reconnected, phone]) state.attachments.add(candidate);
+  await activateTerminalAttachment(state, oldConnection);
+  assert.equal(
+    await activateTerminalAttachment(state, reconnected, { onlyIfUnclaimed: true, replaces: oldConnection }),
+    true
+  );
+  assert.equal(state.activeAttachment, reconnected);
+  await activateTerminalAttachment(state, phone);
+  assert.equal(
+    await activateTerminalAttachment(state, oldConnection, { onlyIfUnclaimed: true, replaces: reconnected }),
+    false
+  );
+  assert.equal(state.activeAttachment, phone);
 });

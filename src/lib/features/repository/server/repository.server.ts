@@ -5,6 +5,7 @@ import {
   cp,
   link,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   readdir,
@@ -21,6 +22,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { constants as fsConstants, type Stats } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
 import type {
   RepositoryChange,
   RepositoryChangeStats,
@@ -56,6 +58,7 @@ export type RepositoryReadErrorReason =
 interface GitRunOptions {
   acceptedExitCodes?: number[];
   maxBuffer?: number;
+  temporaryGitDirectory?: string;
 }
 
 type GitCommandError = Error & {
@@ -157,6 +160,12 @@ async function runGit(
         GIT_PAGER: 'cat',
         GIT_TERMINAL_PROMPT: '0',
         LC_ALL: 'C',
+        ...(options.temporaryGitDirectory
+          ? {
+              GIT_INDEX_FILE: join(options.temporaryGitDirectory, 'index'),
+              GIT_OBJECT_DIRECTORY: join(options.temporaryGitDirectory, 'objects'),
+            }
+          : {}),
       },
     });
   } catch (error) {
@@ -459,9 +468,16 @@ function parseGitChanges(output: string): RepositoryChange[] {
   return changes.sort((left, right) => left.path.localeCompare(right.path, 'en'));
 }
 
-async function readGitChanges(cwd: string): Promise<RepositoryChange[]> {
-  const { stdout } = await runGit(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.']);
-  return parseGitChanges(stdout);
+const pendingGitChanges = new Map<string, Promise<RepositoryChange[]>>();
+
+function readGitChanges(cwd: string): Promise<RepositoryChange[]> {
+  const pending = pendingGitChanges.get(cwd);
+  if (pending) return pending;
+  const reading = runGit(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.'])
+    .then(({ stdout }) => parseGitChanges(stdout))
+    .finally(() => pendingGitChanges.delete(cwd));
+  pendingGitChanges.set(cwd, reading);
+  return reading;
 }
 
 function parseGitNumstat(output: string): RepositoryChangeStats {
@@ -501,22 +517,37 @@ async function readRepositoryChangeStats(cwd: string, changes: RepositoryChange[
     }
   }
 
-  // Preserve Git's binary/attribute handling without serializing every new file.
-  // Bound the process count even when an agent creates hundreds of files.
+  // Build intent-to-add entries in an isolated index. Git can then count all
+  // new files in one diff, retaining attributes and binary detection. Neither
+  // the user's index nor their object database is written.
   const untracked = changes.filter((change) => change.status === '??');
-  const concurrency = 4;
-  for (let offset = 0; offset < untracked.length; offset += concurrency) {
-    const additions = await Promise.all(
-      untracked.slice(offset, offset + concurrency).map(async (change) => {
-        const { stdout } = await runGit(
-          cwd,
-          ['diff', '--no-index', '--numstat', '--no-renames', '--', '/dev/null', change.path],
-          { acceptedExitCodes: [0, 1] }
-        );
-        return parseGitNumstat(stdout);
-      })
-    );
-    for (const addition of additions) addRepositoryChangeStats(stats, addition);
+  if (untracked.length > 0) {
+    const temporaryGitDirectory = await mkdtemp(join(tmpdir(), 'vampire-git-stats-'));
+    try {
+      await mkdir(join(temporaryGitDirectory, 'objects'));
+      const pathspec = join(temporaryGitDirectory, 'paths');
+      await writeFile(pathspec, `${untracked.map((change) => change.path).join('\0')}\0`);
+      await runGit(
+        cwd,
+        [
+          '-c',
+          'core.splitIndex=false',
+          'add',
+          '--intent-to-add',
+          `--pathspec-from-file=${pathspec}`,
+          '--pathspec-file-nul',
+        ],
+        {
+          temporaryGitDirectory,
+        }
+      );
+      const { stdout } = await runGit(cwd, ['diff', '--numstat', '--no-renames', '--', '.'], {
+        temporaryGitDirectory,
+      });
+      addRepositoryChangeStats(stats, parseGitNumstat(stdout));
+    } finally {
+      await rm(temporaryGitDirectory, { recursive: true, force: true });
+    }
   }
   return stats;
 }
@@ -651,7 +682,18 @@ export async function readWorkspaceDirectory(cwd: string, path = ''): Promise<Re
   return { files, directories, ignored: [], truncated };
 }
 
-export async function readRepositoryDirectory(cwd: string, path = ''): Promise<RepositoryDirectoryListing> {
+const pendingRepositoryDirectories = new Map<string, Promise<RepositoryDirectoryListing>>();
+
+export function readRepositoryDirectory(cwd: string, path = ''): Promise<RepositoryDirectoryListing> {
+  const key = JSON.stringify([cwd, path]);
+  const pending = pendingRepositoryDirectories.get(key);
+  if (pending) return pending;
+  const reading = buildRepositoryDirectory(cwd, path).finally(() => pendingRepositoryDirectories.delete(key));
+  pendingRepositoryDirectories.set(key, reading);
+  return reading;
+}
+
+async function buildRepositoryDirectory(cwd: string, path: string): Promise<RepositoryDirectoryListing> {
   const root = await workspaceRoot(cwd);
   const directory = await readWorkspaceDirectory(root, path);
   if (!(await isGitRepository(root))) return directory;
@@ -661,7 +703,24 @@ export async function readRepositoryDirectory(cwd: string, path = ''): Promise<R
   };
 }
 
-export async function readRepositorySnapshot(
+const pendingRepositorySnapshots = new Map<string, Promise<RepositorySnapshot>>();
+
+export function readRepositorySnapshot(
+  cwd: string,
+  commitLimit = DEFAULT_COMMIT_PAGE_SIZE
+): Promise<RepositorySnapshot> {
+  const limit = normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE);
+  const key = JSON.stringify([cwd, limit]);
+  const pending = pendingRepositorySnapshots.get(key);
+  if (pending) return pending;
+  const reading = buildRepositorySnapshot(cwd, limit).finally(() => {
+    pendingRepositorySnapshots.delete(key);
+  });
+  pendingRepositorySnapshots.set(key, reading);
+  return reading;
+}
+
+async function buildRepositorySnapshot(
   cwd: string,
   commitLimit = DEFAULT_COMMIT_PAGE_SIZE
 ): Promise<RepositorySnapshot> {

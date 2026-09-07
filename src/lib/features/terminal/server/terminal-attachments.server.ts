@@ -4,6 +4,9 @@ export interface TerminalGeometry {
 }
 
 export interface ManagedTerminalAttachment {
+  clientId?: string;
+  connectionAttempt?: number;
+  sessionId?: string;
   released: boolean;
   setIgnoreSize?: (ignored: boolean) => Promise<void>;
   synchronizeScreen?: (geometry?: TerminalGeometry) => Promise<void>;
@@ -66,7 +69,7 @@ export async function synchronizeTerminalAttachments<T extends ManagedTerminalAt
 export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
   attachment: T,
-  options: { onlyIfUnclaimed?: boolean } = {}
+  options: { onlyIfUnclaimed?: boolean; replaces?: T } = {}
 ): Promise<boolean> {
   const activation = state.activationQueue
     .catch(() => undefined)
@@ -74,7 +77,7 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
       if (attachment.released || !attachment.setIgnoreSize) return false;
       const previous = state.activeAttachment;
       let unhealthyPrevious: T | undefined;
-      if (options.onlyIfUnclaimed && previous && previous !== attachment) return false;
+      if (options.onlyIfUnclaimed && previous && previous !== attachment && previous !== options.replaces) return false;
       if (previous === attachment) {
         await attachment.setIgnoreSize(false);
         return false;
@@ -158,4 +161,20 @@ export function updateTerminalGeometry<T extends ManagedTerminalAttachment>(
 
 export function terminalAttachmentKey(workspaceId: string, terminalId?: string): string {
   return `${workspaceId}\u0000${terminalId ?? 'main'}`;
+}
+
+export function previousTerminalConnection<T extends ManagedTerminalAttachment>(
+  state: TerminalAttachmentState<T>,
+  incoming: T
+): T | undefined {
+  if (!incoming.clientId) return undefined;
+  return [...state.attachments]
+    .filter(
+      (candidate) =>
+        candidate !== incoming &&
+        !candidate.released &&
+        candidate.clientId === incoming.clientId &&
+        candidate.sessionId === incoming.sessionId
+    )
+    .sort((left, right) => (right.connectionAttempt ?? 0) - (left.connectionAttempt ?? 0))[0];
 }

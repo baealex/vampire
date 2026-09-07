@@ -6,6 +6,7 @@ import {
   TERMINAL_STABLE_READY_MS,
   terminalCloseIsRetryable,
   type TerminalConnectionContext,
+  type TerminalConnectionDiagnostic,
   type TerminalSocket,
 } from '~/lib/features/terminal/api/connection.ts';
 import type { TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
@@ -81,11 +82,13 @@ function createHarness() {
   const messages: Array<{ message: TerminalServerMessage; context: TerminalConnectionContext }> = [];
   const disconnects: Array<{ event: { code: number; reason: string }; retrying: boolean }> = [];
   const retryDelays: number[] = [];
+  const diagnostics: TerminalConnectionDiagnostic[] = [];
   let reconnectExhausted = 0;
   let protocolErrors = 0;
   const connection = new TerminalConnection(
     'ws://example.test/terminal',
     {
+      onDiagnostic: (event) => diagnostics.push(event),
       onOpen: (context) => opened.push(context),
       onMessage: (message, context) => messages.push({ message, context }),
       onDisconnect: (event, retrying) => disconnects.push({ event, retrying }),
@@ -98,6 +101,7 @@ function createHarness() {
       },
     },
     {
+      now: () => scheduler.now,
       createSocket: (url) => {
         const socket = new FakeSocket(url);
         sockets.push(socket);
@@ -115,6 +119,7 @@ function createHarness() {
     messages,
     disconnects,
     retryDelays,
+    diagnostics,
     get reconnectExhausted() {
       return reconnectExhausted;
     },
@@ -216,6 +221,27 @@ test('does not reconnect after authentication or rate-limit policy closes', () =
   harness.scheduler.advance(60_000);
   assert.equal(harness.sockets.length, 1);
 });
+
+for (const event of [
+  { code: 1008, reason: 'authentication expired' },
+  { code: 1008, reason: 'authentication revoked' },
+  { code: 1008, reason: 'message rate exceeded' },
+  { code: 1009, reason: 'terminal screen exceeds limit' },
+]) {
+  test(`foreground recovery preserves the automatic retry stop for ${event.reason}`, () => {
+    const harness = createHarness();
+    harness.connection.start();
+    harness.sockets[0].open();
+    harness.sockets[0].disconnect(event.code, event.reason);
+    harness.connection.setRetryEnabled(false);
+    harness.connection.setRetryEnabled(true);
+    harness.scheduler.advance(60_000);
+    assert.equal(harness.sockets.length, 1);
+    harness.connection.retryNow();
+    assert.equal(harness.sockets.length, 2);
+    harness.connection.stop();
+  });
+}
 
 test('stops reconnecting after repeated failures and allows a manual retry', () => {
   const harness = createHarness();
@@ -340,5 +366,53 @@ test('resolves a fresh WebSocket URL for each connection attempt', () => {
   active = true;
   connection.retryNow();
   assert.match(sockets[1].url, /active=1/);
+  connection.stop();
+});
+
+test('reports attempt timing and bounded metadata without recording terminal content or arbitrary close text', () => {
+  const harness = createHarness();
+  harness.connection.start();
+  harness.scheduler.advance(80);
+  harness.sockets[0].open();
+  harness.scheduler.advance(720);
+  harness.connection.markReady(harness.opened[0]);
+  harness.connection.markReady(harness.opened[0]);
+  harness.sockets[0].message(JSON.stringify({ type: 'output', data: 'private output' }));
+  harness.sockets[0].disconnect(1011, 'private path or token');
+  assert.deepEqual(
+    harness.diagnostics.map(({ phase }) => phase),
+    ['connecting', 'open', 'ready', 'closed', 'retrying']
+  );
+  assert.equal(harness.diagnostics[1].elapsedMs, 80);
+  assert.equal(harness.diagnostics[2].elapsedMs, 800);
+  assert.equal(harness.diagnostics[3].closeCode, 1011);
+  assert.equal(harness.diagnostics[3].reason, 'unclassified');
+  assert.equal(harness.diagnostics[4].delayMs, 500);
+  assert.equal(JSON.stringify(harness.diagnostics).includes('private'), false);
+  assert.equal(JSON.stringify(harness.diagnostics).includes('example.test'), false);
+  harness.scheduler.advance(500);
+  assert.equal(harness.diagnostics.at(-1)?.connectionId, 2);
+  assert.equal(harness.diagnostics.at(-1)?.elapsedMs, 0);
+  harness.connection.stop();
+});
+
+test('a failing diagnostic listener cannot break a terminal connection', () => {
+  const socket = new FakeSocket('ws://example.test');
+  let opened = false;
+  const connection = new TerminalConnection(
+    socket.url,
+    {
+      onDiagnostic: () => {
+        throw new Error('observer failed');
+      },
+      onOpen: () => {
+        opened = true;
+      },
+    },
+    { createSocket: () => socket }
+  );
+  connection.start();
+  socket.open();
+  assert.equal(opened, true);
   connection.stop();
 });

@@ -90,3 +90,33 @@ test('bounds output held before a snapshot or synchronization ACK', () => {
   assert.equal(delivery.enqueueOutput(output(1, '12345')).overflowed, false);
   assert.equal(delivery.enqueueOutput(output(2, '6')).overflowed, true);
 });
+
+test('recovers an overflowing pre-ACK queue only after an authoritative frame covers every skipped delta', () => {
+  const delivery = new TerminalDeliveryBuffer<string, string>(8, true);
+  delivery.publishSnapshot(1);
+  delivery.enqueueOutput(output(2));
+  assert.equal(delivery.enqueueOutput(output(3)).overflowed, true);
+  assert.equal(delivery.requiresRecovery, true);
+  assert.deepEqual(delivery.acknowledge(), { outputs: [] });
+  const stale = delivery.beginSynchronization();
+  assert.deepEqual(delivery.completeSynchronization(stale, { throughSequence: 2, value: 'reset-2' }), { outputs: [] });
+  assert.equal(delivery.requiresRecovery, true);
+  delivery.enqueueOutput(output(4));
+  const current = delivery.beginSynchronization();
+  assert.deepEqual(delivery.completeSynchronization(current, { throughSequence: 4, value: 'reset-4' }), {
+    outputs: [],
+    synchronization: { throughSequence: 4, value: 'reset-4' },
+  });
+  assert.equal(delivery.requiresRecovery, false);
+  assert.deepEqual(delivery.enqueueOutput(output(5)), { outputs: [output(5)], overflowed: false });
+});
+
+test('the initial snapshot can cover output that exceeded its bounded waiting queue', () => {
+  const delivery = new TerminalDeliveryBuffer<string, string>(8, true);
+  delivery.enqueueOutput(output(1));
+  delivery.enqueueOutput(output(2));
+  assert.equal(delivery.requiresRecovery, true);
+  delivery.publishSnapshot(2);
+  assert.equal(delivery.requiresRecovery, false);
+  assert.deepEqual(delivery.acknowledge(), { outputs: [] });
+});
