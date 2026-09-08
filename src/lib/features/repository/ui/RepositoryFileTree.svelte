@@ -3,10 +3,8 @@ import { onDestroy, tick } from 'svelte';
 import type { Snippet } from 'svelte';
 import ChevronDown from '@lucide/svelte/icons/chevron-down';
 import ChevronRight from '@lucide/svelte/icons/chevron-right';
-import FileText from '@lucide/svelte/icons/file-text';
 import Folder from '@lucide/svelte/icons/folder';
 import FolderOpen from '@lucide/svelte/icons/folder-open';
-import ImageIcon from '@lucide/svelte/icons/image';
 import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
@@ -15,13 +13,12 @@ import {
   workspaceEntryParent,
   type WorkspaceEntryDragData,
 } from '~/lib/shared/lib/workspace-entry-drag.ts';
-import RepositoryEntryMenu from './RepositoryEntryMenu.svelte';
-import RepositoryDirectoryAddMenu from './RepositoryDirectoryAddMenu.svelte';
 import RepositoryInlineEntry from './RepositoryInlineEntry.svelte';
 import RepositoryInlineRename from './RepositoryInlineRename.svelte';
+import RepositoryTreeRow from './RepositoryTreeRow.svelte';
 import RepositoryTreeViewMenu from './RepositoryTreeViewMenu.svelte';
 import { dataTransferHasUploadFiles } from '../api/upload';
-import { buildChangeKindMap, buildVisibleFileTree, isPreviewableImage } from '../model/view';
+import { buildChangeKindMap, buildVisibleFileTree } from '../model/view';
 import type { RepositorySelection, RepositorySnapshot, WorkspaceMoveResult } from '~/lib/shared/contracts/repository';
 
 let {
@@ -650,107 +647,38 @@ onDestroy(() => {
               onCancel={cancelRename}
             />
           {:else}
-            <div
-              class="tree-row-shell"
-              role="group"
-              class:directory={row.kind === 'directory'}
-              class:dragging={draggingPath === row.path}
-              class:drop-candidate={row.kind === 'directory' && isDirectoryDropCandidate(row.path)}
-              class:drop-target={dropTargetPath === row.path}
-              class:ignored={gitIgnored}
-              class:cut={cutPaths.includes(row.path)}
-              class:selected={entryIsSelected(row.path) || (selected?.kind === 'file' && selected.path === row.path)}
-              oncontextmenu={(event) => openEntryMenu(event, rowEntry)}
-              data-tree-path={row.path}
-              data-tree-kind={row.kind}
-              ondragover={(event) => handleEntryDragOver(event, rowEntry)}
-              ondragleave={(event) => handleEntryDragLeave(event, row.path)}
-              ondrop={(event) => handleEntryDrop(event, rowEntry)}
-            >
-              <button
-                type="button"
-                class="tree-row"
-                class:modified={changeKind === 'modified'}
-                class:added={changeKind === 'added'}
-                draggable={true}
-                data-tree-path={row.path}
-                ondragstart={(event) => beginEntryDrag(event, row.path, row.kind)}
-                ondragend={endEntryDrag}
-                onclick={(event) => selectTreeRow(event, rowEntry)}
-                onkeydown={(event) => handleTreeKeydown(event, rowEntry)}
-                aria-busy={row.kind === 'directory' && loadingDirectories.includes(row.path)}
-                aria-expanded={row.kind === 'directory' ? expandedDirectories.includes(row.path) : undefined}
-                aria-label={`${row.kind === 'directory' ? `${expandedDirectories.includes(row.path) ? 'Collapse' : 'Expand'} ${row.path}` : `Open ${row.path}`}${gitIgnored ? ', ignored by Git' : ''}`}
-              >
-                <span class="tree-indent" aria-hidden="true">
-                  {#each Array(row.depth + 1) as _}
-                    <span></span>
-                  {/each}
-                </span>
-                {#if row.kind === 'directory'}
-                  <span class="tree-chevron" aria-hidden="true">
-                    {#if expandedDirectories.includes(row.path)}
-                      <ChevronDown size={14} strokeWidth={1.8} />
-                    {:else}
-                      <ChevronRight size={14} strokeWidth={1.8} />
-                    {/if}
-                  </span>
-                  <span
-                    class="tree-icon"
-                    class:modified={changeKind === 'modified'}
-                    class:added={changeKind === 'added'}
-                    aria-hidden="true"
-                  >
-                    {#if expandedDirectories.includes(row.path)}
-                      <FolderOpen size={15} strokeWidth={1.7} />
-                    {:else}
-                      <Folder size={15} strokeWidth={1.7} />
-                    {/if}
-                  </span>
-                {:else}
-                  <span class="tree-chevron" aria-hidden="true"></span>
-                  <span
-                    class="tree-icon file"
-                    class:image={isPreviewableImage(row.path)}
-                    class:modified={changeKind === 'modified'}
-                    class:added={changeKind === 'added'}
-                    aria-hidden="true"
-                  >
-                    {#if isPreviewableImage(row.path)}
-                      <ImageIcon size={15} strokeWidth={1.6} />
-                    {:else}
-                      <FileText size={15} strokeWidth={1.6} />
-                    {/if}
-                  </span>
-                {/if}
-                <span class="tree-name" title={row.path}>{row.name}</span>
-              </button>
-              <div class="tree-actions" class:open={entryMenuPath === row.path}>
-                {#if row.kind === 'directory'}
-                  <RepositoryDirectoryAddMenu
-                    path={row.path}
-                    onCreateFile={() => void beginCreation('file', row.path)}
-                    onCreateFolder={() => void beginCreation('directory', row.path)}
-                  />
-                {/if}
-                <RepositoryEntryMenu
-                  path={row.path}
-                  kind={row.kind}
-                  open={entryMenuPath === row.path}
-                  onOpenChange={(open) => entryMenuPath = open ? row.path : ''}
-                  onCreateFile={() => void beginCreation('file', row.path)}
-                  onCreateFolder={() => void beginCreation('directory', row.path)}
-                  onInsertPath={() => onInsertPath({ path: row.path, kind: row.kind })}
-                  selectedCount={selectedEntriesFor(rowEntry).length}
-                  {canPaste}
-                  onRename={() => beginRename(rowEntry)}
-                  onCopy={() => onCopyEntries(selectedEntriesFor(rowEntry))}
-                  onCut={() => onCutEntries(selectedEntriesFor(rowEntry))}
-                  onPaste={() => void pasteIntoDirectory(row.path)}
-                  onDelete={() => onRequestDelete(selectedEntriesFor(rowEntry))}
-                />
-              </div>
-            </div>
+            <RepositoryTreeRow
+              {row}
+              {changeKind}
+              {gitIgnored}
+              expanded={expandedDirectories.includes(row.path)}
+              loading={loadingDirectories.includes(row.path)}
+              selected={entryIsSelected(row.path) || (selected?.kind === 'file' && selected.path === row.path)}
+              dragging={draggingPath === row.path}
+              dropCandidate={row.kind === 'directory' && isDirectoryDropCandidate(row.path)}
+              dropTarget={dropTargetPath === row.path}
+              cut={cutPaths.includes(row.path)}
+              entryMenuOpen={entryMenuPath === row.path}
+              selectedCount={selectedEntriesFor(rowEntry).length}
+              {canPaste}
+              onContextMenu={(event) => openEntryMenu(event, rowEntry)}
+              onDragOver={(event) => handleEntryDragOver(event, rowEntry)}
+              onDragLeave={(event) => handleEntryDragLeave(event, row.path)}
+              onDrop={(event) => handleEntryDrop(event, rowEntry)}
+              onDragStart={(event) => beginEntryDrag(event, row.path, row.kind)}
+              onDragEnd={endEntryDrag}
+              onSelect={(event) => selectTreeRow(event, rowEntry)}
+              onKeydown={(event) => handleTreeKeydown(event, rowEntry)}
+              onEntryMenuOpenChange={(open) => (entryMenuPath = open ? row.path : '')}
+              onCreateFile={() => void beginCreation('file', row.path)}
+              onCreateFolder={() => void beginCreation('directory', row.path)}
+              onInsertPath={() => onInsertPath(rowEntry)}
+              onRename={() => beginRename(rowEntry)}
+              onCopy={() => onCopyEntries(selectedEntriesFor(rowEntry))}
+              onCut={() => onCutEntries(selectedEntriesFor(rowEntry))}
+              onPaste={() => void pasteIntoDirectory(row.path)}
+              onDelete={() => onRequestDelete(selectedEntriesFor(rowEntry))}
+            />
           {/if}
           {#if inlineCreation?.parent === row.path}
             <RepositoryInlineEntry
@@ -790,36 +718,14 @@ onDestroy(() => {
 .file-tree {
   padding: 0;
 }
-.tree-row-shell {
+.tree-row-shell.root {
   display: flex;
   align-items: center;
   min-width: 0;
   min-height: 2rem;
   border-bottom: 1px solid transparent;
 }
-.tree-row-shell.selected {
-  background: var(--color-surface-active);
-}
-.tree-row-shell.dragging {
-  opacity: 0.45;
-}
-.tree-row-shell.cut {
-  opacity: 0.55;
-}
-.tree-row-shell.drop-candidate {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 38%, transparent);
-}
-.tree-row-shell.drop-target {
-  background: var(--color-accent-soft);
-  box-shadow:
-    inset 0 0 0 1px var(--color-accent),
-    inset 3px 0 0 var(--color-accent);
-}
-.tree-row-shell.drop-target .tree-row,
-.tree-row-shell.drop-target .tree-icon {
-  color: var(--color-accent-soft-text);
-}
-.tree-row {
+.tree-row-shell.root .tree-row {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -833,60 +739,28 @@ onDestroy(() => {
   text-align: left;
   cursor: pointer;
 }
-.tree-row-shell.dragging .tree-row {
-  cursor: grabbing;
-}
-.tree-row-shell.selected .tree-row {
-  color: var(--color-text);
-}
-.tree-row-shell.ignored .tree-row {
-  opacity: 0.48;
-}
-.tree-row-shell.ignored:focus-within .tree-row {
-  opacity: 0.68;
-}
-.tree-actions {
+.tree-row-shell.root .tree-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   padding-right: 0.35rem;
-  opacity: 0;
-}
-.tree-row-shell.root .tree-actions {
   opacity: 1;
 }
-.tree-row-shell:focus-within .tree-actions,
-.tree-actions.open {
-  opacity: 1;
-}
-.tree-indent {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-.tree-indent > span {
-  width: 0.72rem;
-}
-.tree-chevron {
+.tree-row-shell.root .tree-chevron {
   display: grid;
   flex: 0 0 1rem;
   place-items: center;
   width: 1rem;
   color: var(--color-text-tertiary);
 }
-.tree-icon {
+.tree-row-shell.root .tree-icon {
   display: grid;
   flex: 0 0 1.35rem;
   place-items: center;
   width: 1.35rem;
   color: var(--color-folder);
 }
-.tree-icon.file {
-  color: var(--color-text-tertiary);
-}
-.tree-icon.file.image {
-  color: var(--color-image);
-}
-.tree-name {
+.tree-row-shell.root .tree-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -895,45 +769,26 @@ onDestroy(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tree-row.modified,
-.tree-row-shell.selected .tree-row.modified,
-.tree-row.modified .tree-icon {
-  color: var(--color-warning);
-}
-.tree-row.added,
-.tree-row-shell.selected .tree-row.added,
-.tree-row.added .tree-icon {
-  color: var(--color-info);
-}
 
 @media (hover: hover) {
   .tree-row-shell.root .tree-actions {
     opacity: 0;
   }
-  .tree-row-shell:hover {
+  .tree-row-shell.root:hover {
     background: var(--color-surface-raised);
   }
-  .tree-row:hover {
+  .tree-row-shell.root .tree-row:hover {
     color: var(--color-text);
   }
-  .tree-row-shell.ignored:hover .tree-row {
-    opacity: 0.68;
-  }
-  .tree-row-shell:hover .tree-actions {
+  .tree-row-shell.root:hover .tree-actions,
+  .tree-row-shell.root:focus-within .tree-actions,
+  .tree-row-shell.root .tree-actions.open {
     opacity: 1;
-  }
-  .tree-row.modified:hover,
-  .tree-row-shell.selected .tree-row.modified:hover {
-    color: var(--color-warning);
-  }
-  .tree-row.added:hover,
-  .tree-row-shell.selected .tree-row.added:hover {
-    color: var(--color-info);
   }
 }
 
 @media (hover: none) {
-  .tree-actions {
+  .tree-row-shell.root .tree-actions {
     opacity: 1;
   }
 }
