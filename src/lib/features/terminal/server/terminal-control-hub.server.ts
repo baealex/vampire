@@ -1,11 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
-import {
-  TerminalCanonicalModel,
-  type CanonicalTerminalGeometry,
-  type CanonicalTerminalOutput,
-  type CanonicalTerminalSnapshot,
-} from './terminal-canonical-model.server.ts';
 import { parseTmuxControlOutput } from './tmux-control.server.ts';
 import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 
@@ -13,8 +7,6 @@ const CONTROL_COMMAND_TIMEOUT_MS = 3_000;
 const CONTROL_ATTACH_TIMEOUT_MS = 3_000;
 const HUB_RECONNECT_LINGER_MS = 5_000;
 const MAX_TERMINAL_CONTROL_HUBS = 32;
-const MAX_PENDING_CANONICAL_OUTPUT_BYTES = 8 * 1024 * 1024;
-const MAX_PENDING_CANONICAL_OUTPUT_OPERATIONS = 16_384;
 const MAX_TMUX_CONTROL_LINE_BYTES = 8 * 1024 * 1024;
 
 interface PendingControlCommand {
@@ -29,16 +21,19 @@ interface ControlCommandBlock {
   output: string[];
 }
 
-export interface TerminalControlHubOutput extends CanonicalTerminalOutput {}
+export interface TerminalControlHubOutput {
+  sequence: number;
+  data: string;
+}
+
+export interface TerminalControlHubGeometry {
+  columns: number;
+  rows: number;
+}
 
 export interface TerminalControlHubSubscriber {
   onOutput: (output: TerminalControlHubOutput) => void;
   onUnavailable: (error: Error) => void;
-}
-
-export interface TerminalControlHubInitialization {
-  availableHistory: number;
-  loadedHistory: number;
 }
 
 interface TerminalControlHubEntry {
@@ -59,25 +54,24 @@ function terminalControlHubKey(tmuxSession: string, paneId: string): string {
 }
 
 /**
- * One tmux control client and one xterm parser per pane, shared by every browser.
+ * One tmux control client per pane, shared by every browser.
+ *
+ * This class intentionally does not emulate a terminal. `%output` bytes are
+ * sequenced and fanned out immediately; snapshots are captured from tmux only
+ * when a new attachment or an explicit recovery needs an authoritative frame.
  */
 export class TerminalControlHub {
   readonly paneId: string;
   readonly ready: Promise<void>;
   readonly windowId: string;
 
-  #availableHistory = 0;
-  #canonicalInitialization: Promise<void> | undefined;
-  #canonicalModel: TerminalCanonicalModel;
   #closed = false;
   #commandBlock: ControlCommandBlock | undefined;
   #control: ChildProcessWithoutNullStreams;
   #controlLineBuffer = Buffer.alloc(0);
   #decoder = new TextDecoder();
-  #loadedHistory = 0;
+  #nextOutputSequence = 0;
   #outputVersion = 0;
-  #pendingCanonicalOutputBytes = 0;
-  #pendingCanonicalOutputOperations = 0;
   #pendingCommands: PendingControlCommand[] = [];
   #operationQueue: Promise<void> = Promise.resolve();
   #readyReject!: (reason: unknown) => void;
@@ -85,12 +79,13 @@ export class TerminalControlHub {
   #sizeOwner: object | undefined;
   #subscribers = new Set<TerminalControlHubSubscriber>();
 
-  constructor(windowId: string, paneId: string, geometry: CanonicalTerminalGeometry) {
+  constructor(windowId: string, paneId: string, geometry: TerminalControlHubGeometry) {
     this.windowId = windowId;
     this.paneId = paneId;
-    // Deep history is loaded lazily from tmux. Keep only the live viewport
-    // until a subscriber explicitly asks to scroll upward.
-    this.#canonicalModel = new TerminalCanonicalModel(geometry, { scrollback: 0 });
+    // Geometry is still accepted here so the hub can share the same neutral
+    // construction contract as the tmux pane. The browser xterm, not this
+    // process, owns the terminal grid and scrollback.
+    void geometry;
     this.#control = spawn('tmux', tmuxCommandArguments(['-C', 'attach-session', '-f', 'ignore-size', '-t', windowId]), {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -111,20 +106,16 @@ export class TerminalControlHub {
     this.#installControlListeners();
   }
 
-  get availableHistory(): number {
-    return this.#availableHistory;
-  }
-
   get closed(): boolean {
     return this.#closed;
   }
 
-  get loadedHistory(): number {
-    return this.#loadedHistory;
-  }
-
   get outputVersion(): number {
     return this.#outputVersion;
+  }
+
+  get outputSequence(): number {
+    return this.#nextOutputSequence;
   }
 
   subscribe(subscriber: TerminalControlHubSubscriber): () => void {
@@ -168,32 +159,6 @@ export class TerminalControlHub {
     });
   }
 
-  ensureCanonical(initializer: () => Promise<TerminalControlHubInitialization>): Promise<void> {
-    this.#canonicalInitialization ??= (async () => {
-      await this.ready;
-      const initialized = await initializer();
-      this.#availableHistory = initialized.availableHistory;
-      this.#loadedHistory = initialized.loadedHistory;
-    })().catch((error) => {
-      this.#fail(error instanceof Error ? error : new Error('Canonical terminal initialization failed.'));
-      throw error;
-    });
-    return this.#canonicalInitialization;
-  }
-
-  extendCanonicalHistory(
-    requestedHistory: number,
-    refresher: () => Promise<TerminalControlHubInitialization>
-  ): Promise<void> {
-    return (async () => {
-      await this.#canonicalInitialization;
-      if (this.#loadedHistory >= requestedHistory) return;
-      const refreshed = await refresher();
-      this.#availableHistory = refreshed.availableHistory;
-      this.#loadedHistory = refreshed.loadedHistory;
-    })();
-  }
-
   runOperation<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#operationQueue
       .catch(() => undefined)
@@ -206,32 +171,6 @@ export class TerminalControlHub {
       () => undefined
     );
     return result;
-  }
-
-  restoreCanonical(
-    data: string,
-    geometry: CanonicalTerminalGeometry,
-    loadedHistory = this.#loadedHistory,
-    availableHistory = this.#availableHistory
-  ): Promise<CanonicalTerminalSnapshot> {
-    return this.#canonicalModel.restore(data, geometry, undefined, loadedHistory).then((snapshot) => {
-      this.#loadedHistory = loadedHistory;
-      this.#availableHistory = availableHistory;
-      return snapshot;
-    });
-  }
-
-  async snapshot(scrollback: number): Promise<CanonicalTerminalSnapshot> {
-    await this.#canonicalInitialization;
-    const snapshot = await this.#canonicalModel.snapshot(scrollback);
-    return {
-      ...snapshot,
-      availableHistory: Math.max(snapshot.availableHistory, this.#availableHistory),
-    };
-  }
-
-  resizeCanonical(geometry: CanonicalTerminalGeometry): Promise<CanonicalTerminalSnapshot> {
-    return this.#canonicalModel.resize(geometry);
   }
 
   claimSize(owner: object): boolean {
@@ -258,7 +197,6 @@ export class TerminalControlHub {
     this.#control.stdin.end();
     this.#control.kill();
     this.#subscribers.clear();
-    void this.#canonicalModel.dispose();
   }
 
   #installControlListeners(): void {
@@ -288,38 +226,24 @@ export class TerminalControlHub {
     const output = parseTmuxControlOutput(lineBuffer, this.paneId, this.#decoder);
     if (output !== undefined) {
       this.#outputVersion += 1;
-      const bytes = Buffer.byteLength(output);
-      this.#pendingCanonicalOutputBytes += bytes;
-      this.#pendingCanonicalOutputOperations += 1;
-      if (
-        this.#pendingCanonicalOutputBytes > MAX_PENDING_CANONICAL_OUTPUT_BYTES ||
-        this.#pendingCanonicalOutputOperations > MAX_PENDING_CANONICAL_OUTPUT_OPERATIONS
-      ) {
-        this.#fail(new Error('Canonical terminal parser fell behind.'));
-        return;
-      }
-      void this.#canonicalModel
-        .write(output)
-        .then((entry) => {
-          this.#pendingCanonicalOutputBytes -= bytes;
-          this.#pendingCanonicalOutputOperations -= 1;
-          if (!entry || this.#closed) return;
-          for (const subscriber of this.#subscribers) {
-            try {
-              subscriber.onOutput(entry);
-            } catch (error) {
-              this.#subscribers.delete(subscriber);
-              try {
-                subscriber.onUnavailable(
-                  error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.')
-                );
-              } catch {
-                // Isolate a broken socket callback from every other subscriber.
-              }
-            }
+      if (!output) return;
+      // Keep the browser on tmux's ordered output path. There is deliberately
+      // no second terminal parser behind this callback.
+      const liveOutput = { sequence: ++this.#nextOutputSequence, data: output };
+      for (const subscriber of this.#subscribers) {
+        try {
+          subscriber.onOutput(liveOutput);
+        } catch (error) {
+          this.#subscribers.delete(subscriber);
+          try {
+            subscriber.onUnavailable(
+              error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.')
+            );
+          } catch {
+            // Isolate a broken socket callback from every other subscriber.
           }
-        })
-        .catch((error) => this.#fail(error instanceof Error ? error : new Error('Terminal parser failed.')));
+        }
+      }
       return;
     }
     const line = lineBuffer.toString('utf8');
@@ -380,7 +304,6 @@ export class TerminalControlHub {
       }
     }
     this.#subscribers.clear();
-    void this.#canonicalModel.dispose();
   }
 }
 
@@ -392,7 +315,7 @@ export function retainTerminalControlHub(
   tmuxSession: string,
   windowId: string,
   paneId: string,
-  geometry: CanonicalTerminalGeometry
+  geometry: TerminalControlHubGeometry
 ): TerminalControlHubLease {
   const key = terminalControlHubKey(tmuxSession, paneId);
   let entry = terminalControlHubs.get(key);

@@ -20,12 +20,12 @@ export interface TerminalDeliveryEnqueueResult<TOutput, TSynchronization>
 }
 
 /**
- * Per-subscriber delivery fence between canonical terminal state and the wire.
+ * Per-subscriber delivery fence between an authoritative tmux capture and the wire.
  *
- * A snapshot/reset represents every canonical output through its sequence. Any
+ * A snapshot/reset represents every tmux output through its sequence. Any
  * earlier delta is discarded, later deltas stay ordered behind that frame, and
  * nothing drains until the browser has acknowledged its snapshot. This keeps a
- * resize reset from overtaking output already waiting for snapshot ACK.
+ * recovery frame from overtaking output already waiting for snapshot ACK.
  */
 export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
   #acknowledged = false;

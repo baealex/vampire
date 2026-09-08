@@ -1815,7 +1815,7 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
   expect(connectionCount).toBe(2);
 });
 
-test('orders a resize reset ahead of output queued before snapshot acknowledgement', async ({ context, page }) => {
+test('streams resize redraws without replacing the terminal screen', async ({ context, page }) => {
   test.setTimeout(60_000);
   await authenticate(context);
   const workspace = await createWorkspace(context);
@@ -1872,7 +1872,8 @@ test('orders a resize reset ahead of output queued before snapshot acknowledgeme
 
   acknowledgementReleased = true;
   heldAcknowledgement!.server.send(heldAcknowledgement!.message);
-  await expect.poll(() => serverMessages.filter((message) => message.screenSync).length).toBeGreaterThan(0);
+  await page.waitForTimeout(500);
+  expect(serverMessages.filter((message) => message.screenSync)).toHaveLength(0);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ACK_FENCE');
 
   await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_AFTER_ACK_FENCE\\n'"]);
@@ -1933,7 +1934,7 @@ test('keeps Compose drafts until tmux delivery is acknowledged and after a lost 
   expect(submissions).toBe(2);
 });
 
-test('loads retained terminal history only after an upward scroll', async ({ context, page }) => {
+test('loads retained terminal history with the initial terminal screen', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -1943,13 +1944,9 @@ test('loads retained terminal history only after an upward scroll', async ({ con
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  await expect
-    .poll(() => messages.find((message) => message.direction === 'server' && message.type === 'snapshot'))
-    .toMatchObject({ historyLoaded: 0 });
   const initialSnapshot = messages.find((message) => message.direction === 'server' && message.type === 'snapshot');
-  expect(initialSnapshot?.historyAvailable).toBeGreaterThan(0);
-  expect(initialSnapshot?.snapshotData?.split('\n').length).toBeLessThan(100);
-  expect(initialSnapshot?.snapshotData).not.toContain('VAMP_ROW_001');
+  expect(initialSnapshot?.historyLoaded).toBeUndefined();
+  expect(initialSnapshot?.snapshotData).toContain('VAMP_ROW_001');
   expect(messages.some((message) => message.direction === 'client' && message.type === 'load-history')).toBe(false);
 
   const visibleNumberedRows = () =>
@@ -1969,12 +1966,6 @@ test('loads retained terminal history only after an upward scroll', async ({ con
   await page.locator('.xterm-screen').hover();
   await page.mouse.wheel(0, -240);
   await expect
-    .poll(() => messages.find((message) => message.direction === 'client' && message.type === 'load-history'))
-    .toMatchObject({ lines: 500 });
-  await expect
-    .poll(() => messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').at(-1))
-    .toMatchObject({ historyLoaded: 500, historyAvailable: initialSnapshot?.historyAvailable });
-  await expect
     .poll(async () => {
       const rows = await visibleNumberedRows();
       return rows.length > 0 ? Math.min(...rows) : initialMinimum;
@@ -1982,23 +1973,11 @@ test('loads retained terminal history only after an upward scroll', async ({ con
     .toBeLessThan(initialMinimum);
 
   for (let index = 0; index < 200; index += 1) await page.mouse.wheel(0, -240);
-  await expect
-    .poll(() => messages.filter((message) => message.direction === 'client' && message.type === 'load-history').length)
-    .toBe(2);
-  expect(
-    messages
-      .filter((message) => message.direction === 'client' && message.type === 'load-history')
-      .map((message) => message.lines)
-  ).toEqual([500, 1_000]);
-  await expect
-    .poll(() => messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').at(-1))
-    .toMatchObject({
-      historyLoaded: initialSnapshot?.historyAvailable,
-      historyAvailable: initialSnapshot?.historyAvailable,
-    });
+  expect(messages.filter((message) => message.direction === 'client' && message.type === 'load-history')).toHaveLength(0);
+  expect(messages.filter((message) => message.direction === 'server' && message.type === 'snapshot')).toHaveLength(1);
 });
 
-test('loads history created after attachment and preserves it through a resize', async ({ context, page }) => {
+test('keeps history created after attachment through a resize', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -2007,25 +1986,13 @@ test('loads history created after attachment and preserves it through a resize',
   await observeTerminalMessages(page, messages);
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  await page.locator('.xterm-helper-textarea').press('Shift+Home');
-  await expect
-    .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
-    .toBeGreaterThan(0);
-  const previousHistory = messages.filter((message) => message.type === 'snapshot').at(-1)!;
-  expect(previousHistory.historyLoaded).toBe(previousHistory.historyAvailable);
-  await page.locator('.xterm-helper-textarea').press('Shift+End');
 
   await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
-  await page.locator('.xterm-helper-textarea').press('Shift+Home');
-  await expect
-    .poll(() => messages.filter((message) => message.type === 'snapshot').at(-1)?.historyLoaded)
-    .toBeGreaterThan(800);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
   await page.setViewportSize({ width: 900, height: 700 });
   await expectTerminalReady(page);
-  await page.locator('.xterm-helper-textarea').press('Shift+Home');
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_001');
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
+  expect(messages.filter((message) => message.type === 'snapshot')).toHaveLength(1);
 });
 
 test('preserves alternate-screen row backgrounds after returning to a workspace', async ({ context, page }) => {

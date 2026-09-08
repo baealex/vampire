@@ -587,7 +587,11 @@ export class TerminalRuntime {
     const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
     websocketUrl.searchParams.set('workspace', this.#options.workspaceId);
     websocketUrl.searchParams.set('history', String(scrollback));
-    websocketUrl.searchParams.set('history-mode', 'lazy');
+    // Keep the original terminal behavior: attach with the retained scrollback
+    // once and let xterm own scrolling afterwards. Loading history by replacing
+    // the whole screen while the user is already scrolled up makes a normal
+    // terminal feel like a remote screen replay.
+    websocketUrl.searchParams.set('history-mode', 'full');
     websocketUrl.searchParams.set('protocol', String(TERMINAL_PROTOCOL_VERSION));
     if (this.#options.terminalId) websocketUrl.searchParams.set('terminal', this.#options.terminalId);
     this.#connection = new TerminalConnection(

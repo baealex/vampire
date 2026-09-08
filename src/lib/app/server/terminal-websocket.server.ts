@@ -16,7 +16,6 @@ import {
   type ManagedTerminalAttachment,
   releaseTerminalAttachment,
   runTerminalOperation,
-  synchronizeTerminalAttachments,
   type TerminalAttachmentState,
   terminalAttachmentKey,
   updateTerminalGeometry,
@@ -60,8 +59,6 @@ interface TerminalAttachment extends ManagedTerminalAttachment {
 
 interface WorkspaceAttachmentState extends TerminalAttachmentState<TerminalAttachment> {
   geometryRevision: number;
-  inputVersion: number;
-  syntheticOutputDepth: number;
   syntheticOutputUntil: number;
 }
 
@@ -91,8 +88,6 @@ function getAttachmentState(key: string): WorkspaceAttachmentState {
     state = {
       ...createTerminalAttachmentState<TerminalAttachment>(),
       geometryRevision: 0,
-      inputVersion: 0,
-      syntheticOutputDepth: 0,
       syntheticOutputUntil: 0,
     };
     workspaceAttachmentStates.set(key, state);
@@ -348,23 +343,12 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
               broadcastTerminalGeometry(state, geometry);
             }
           },
-          onResizeComplete: async (geometry) => {
-            await synchronizeTerminalAttachments(state, geometry);
-          },
           onInput: () => {
-            state.inputVersion += 1;
-            // Once a screen synchronization has finished, genuine input owns
-            // the next output even if the previous resize settle window remains.
-            if (state.syntheticOutputDepth === 0) state.syntheticOutputUntil = 0;
+            state.syntheticOutputUntil = 0;
           },
           onSyntheticOutput: (timestamp) => {
             state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
           },
-          onSyntheticOutputGateChange: (active) => {
-            state.syntheticOutputDepth = Math.max(0, state.syntheticOutputDepth + (active ? 1 : -1));
-          },
-          isOutputSuppressed: () => state.syntheticOutputDepth > 0,
-          getInputVersion: () => state.inputVersion,
           onSyntheticActivity: (timestamp) => suppressWorkspaceActivity(context.workspaceId, timestamp),
           isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
           onOutputActivity: (timestamp) => recordWorkspaceOutput(context.workspaceId, context.terminalId, timestamp),
