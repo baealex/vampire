@@ -27,25 +27,19 @@ export type TerminalServerMessage =
       throughSequence?: number;
     }
   | { type: 'geometry'; columns: number; rows: number; active?: boolean }
-  | { type: 'request-terminal-theme' }
   | { type: 'screen-ready' }
   | {
       type: 'output';
       data: string;
       activity: boolean;
       activityAt: number | null;
-      screenSync?: boolean;
-      reset?: boolean;
-      history?: TerminalHistoryState;
       sequence?: number;
-      throughSequence?: number;
     }
   | { type: 'repository-status'; changeCount: number; worktreeCount: number; branch?: string }
   | TerminalSubmissionResult
   | { type: 'error'; message: string };
 
 export const TERMINAL_GEOMETRY_PROTOCOL_VERSION = 2;
-export const TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION = 3;
 export const TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION = 4;
 export const TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION = 5;
 export const TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION = 6;
@@ -173,41 +167,23 @@ export function parseTerminalServerMessage(value: unknown): TerminalServerMessag
     const geometry = { type: 'geometry' as const, columns: Number(value.columns), rows: Number(value.rows) };
     return value.active === undefined ? geometry : { ...geometry, active: value.active };
   }
-  if (value.type === 'request-terminal-theme' || value.type === 'screen-ready') return { type: value.type };
+  if (value.type === 'screen-ready') return { type: value.type };
   if (
     value.type === 'output' &&
     typeof value.data === 'string' &&
     typeof value.activity === 'boolean' &&
-    (value.screenSync === undefined || typeof value.screenSync === 'boolean') &&
-    (value.reset === undefined || typeof value.reset === 'boolean') &&
     ((value.activity && typeof value.activityAt === 'number' && Number.isFinite(value.activityAt)) ||
       (!value.activity && value.activityAt === null))
   ) {
+    if (value.reset !== undefined || value.history !== undefined || value.throughSequence !== undefined)
+      return undefined;
     if (value.sequence !== undefined && !isIntegerBetween(value.sequence, 1, Number.MAX_SAFE_INTEGER)) return undefined;
-    if (value.throughSequence !== undefined && !isIntegerBetween(value.throughSequence, 0, Number.MAX_SAFE_INTEGER))
-      return undefined;
-    if (value.sequence !== undefined && value.throughSequence !== undefined) return undefined;
-    if (value.throughSequence !== undefined && value.screenSync !== true) return undefined;
-    const history = value.history;
-    if ((value.reset === true || history !== undefined) && value.screenSync !== true) return undefined;
-    if (
-      history !== undefined &&
-      (!isRecord(history) ||
-        !isIntegerBetween(history.loaded, 0, TERMINAL_SCROLLBACK_LINES.standard) ||
-        !isIntegerBetween(history.available, 0, TERMINAL_SCROLLBACK_LINES.standard) ||
-        Number(history.loaded) > Number(history.available))
-    )
-      return undefined;
     return {
       type: 'output',
       data: value.data,
       activity: value.activity,
       activityAt: value.activityAt,
-      ...(value.screenSync === true ? { screenSync: true } : {}),
-      ...(value.reset === true ? { reset: true } : {}),
-      ...(history ? { history: { loaded: Number(history.loaded), available: Number(history.available) } } : {}),
       ...(value.sequence === undefined ? {} : { sequence: Number(value.sequence) }),
-      ...(value.throughSequence === undefined ? {} : { throughSequence: Number(value.throughSequence) }),
     };
   }
   if (

@@ -85,6 +85,14 @@ test('shares one ordered tmux reader across pane subscribers', async (t) => {
     await waitFor(() => secondOutput.includes('VAMP_HUB_TWO'));
     assert.equal(firstOutput, firstBoundary);
 
+    const outputBeforePause = firstLease.hub.outputVersion;
+    const releaseOutput = firstLease.hub.pauseOutput();
+    await secondLease.hub.runCommand(`send-keys -H -t ${paneId} ${hexadecimalInput("printf 'VAMP_HUB_PAUSED\\n'\r")}`);
+    await waitFor(() => firstLease.hub.outputVersion > outputBeforePause);
+    assert.equal(secondOutput.includes('VAMP_HUB_PAUSED'), false);
+    releaseOutput();
+    await waitFor(() => secondOutput.includes('VAMP_HUB_PAUSED'));
+
     const desktop = {};
     const phone = {};
     assert.equal(firstLease.hub.claimSize(desktop), true);

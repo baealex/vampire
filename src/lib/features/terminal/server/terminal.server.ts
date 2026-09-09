@@ -34,22 +34,11 @@ export const MAX_TERMINAL_SOCKET_BACKLOG_BYTES = 2 * 1024 * 1024;
 export const MAX_TERMINAL_SCREEN_FRAME_BYTES = 8 * 1024 * 1024;
 export const MAX_TERMINAL_ENCODED_SCREEN_DATA_BYTES = MAX_TERMINAL_SCREEN_FRAME_BYTES - 64 * 1024;
 const TERMINAL_BACKPRESSURE_TERMINATE_MS = 1_000;
-const SYNTHETIC_OUTPUT_SETTLE_MS = 150;
-// This does not delay rendering. It prevents resize-generated redraw bytes from
-// being classified as user-visible agent activity after tmux commands settle.
-const TERMINAL_RESIZE_ACTIVITY_SUPPRESSION_MS = 1_000;
-const TERMINAL_REDRAW_QUIET_MS = 40;
-// A completed control-command barrier is followed by any deferred tmux redraw
-// notification. Keep one conservative observation window, then require a full
-// quiet interval after the latest output instead of imposing a fixed 250ms stall.
-const TERMINAL_REDRAW_GRACE_MS = 64;
-const TERMINAL_REDRAW_SETTLE_LIMIT_MS = 1_000;
-const TERMINAL_REDRAW_POLL_MS = 10;
 const TERMINAL_INITIAL_OUTPUT_WAIT_MS = 1_000;
-const SYNTHETIC_OUTPUT_BARRIER = 'display-message -p vampire-redraw-barrier';
-const TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES = ['\u001b[?47l', '\u001b[?1047l', '\u001b[?1049l'] as const;
-const TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH =
-  Math.max(...TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES.map((sequence) => sequence.length)) - 1;
+const TERMINAL_INITIAL_OUTPUT_POLL_MS = 10;
+// A control-mode command after a capture establishes the sequence boundary
+// between the snapshot and the live %output stream.
+const TERMINAL_OUTPUT_FENCE = 'display-message -p vampire-output-fence';
 const TERMINAL_PANE_STATE_FORMAT = [
   '#{alternate_on}',
   '#{alternate_saved_x}',
@@ -99,17 +88,7 @@ export interface TerminalPaneState {
   wraparoundMode: boolean;
 }
 
-export interface TerminalAlternateScreenExitState {
-  exited: boolean;
-  tail: string;
-}
-
-export function terminalGeometryIsColumnJitter(previous: TerminalSize, next: TerminalSize): boolean {
-  return previous.rows === next.rows && Math.abs(previous.columns - next.columns) === 1;
-}
-
 export type TerminalSizeController = (ignored: boolean) => Promise<void>;
-export type TerminalScreenSynchronizer = (geometry?: TerminalSize) => Promise<void>;
 export type TerminalOperationScheduler = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export interface AttachTerminalOptions {
@@ -122,24 +101,15 @@ export interface AttachTerminalOptions {
   canResize?: () => boolean;
   canReportTerminalColor?: () => boolean;
   getGeometry?: () => TerminalSize | undefined;
-  getGeometryRevision?: () => number;
   hasControl?: () => boolean;
   sendGeometry?: boolean;
-  resetScreenSync?: boolean;
   snapshotIds?: boolean;
   outputSequences?: boolean;
   submissionResults?: boolean;
   scheduleOperation?: TerminalOperationScheduler;
-  onAttached?: (
-    setIgnoreSize: TerminalSizeController,
-    synchronizeScreen: TerminalScreenSynchronizer
-  ) => Promise<void> | void;
+  onAttached?: (setIgnoreSize: TerminalSizeController) => Promise<void> | void;
   onActivate?: () => Promise<void> | void;
   onGeometryChange?: (geometry: TerminalSize) => void;
-  onInput?: () => void;
-  onSyntheticActivity?: (timestamp: number) => void;
-  onSyntheticOutput?: (timestamp: number) => void;
-  isOutputActivity?: (timestamp: number) => boolean;
   onOutputActivity?: (timestamp: number) => void;
 }
 
@@ -152,23 +122,6 @@ export function terminalAvailableHistoryLines(output: string, maximum: number): 
   const value = Number(output.trim());
   if (!Number.isInteger(value) || value <= 0) return 0;
   return Math.min(maximum, value);
-}
-
-export function terminalAlternateScreenExitState(
-  previousTail: string,
-  output: string
-): TerminalAlternateScreenExitState {
-  const tail = previousTail.slice(-TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH);
-  const combined = `${tail}${output}`;
-  return {
-    // Search only positions whose sequence would end in the new output. This
-    // catches records split at any byte without detecting a short sequence from
-    // the retained tail for a second time.
-    exited: TERMINAL_ALTERNATE_SCREEN_EXIT_SEQUENCES.some(
-      (sequence) => combined.indexOf(sequence, Math.max(0, tail.length - sequence.length + 1)) >= 0
-    ),
-    tail: combined.slice(-TERMINAL_CONTROL_SEQUENCE_TAIL_LENGTH),
-  };
 }
 
 export function terminalPaneState(output: string, geometry: TerminalSize): TerminalPaneState | undefined {
@@ -296,9 +249,11 @@ function terminalPhysicalRowData(output: string, row: number): string | undefine
 
 const TERMINAL_CAPTURE_WRITE_MODE = '\u001b[0m\u001b[4l\u001b[?7h';
 
-function terminalCaptureFlag(state: TerminalPaneState | undefined): '-J' | '-N' {
-  // -J implies -T and drops trailing cells that may carry a background.
-  return state?.alternateScreen ? '-N' : '-J';
+export function terminalCaptureFlag(state: TerminalPaneState | undefined, loadedHistory: number): '-J' | '-N' {
+  // The visible screen must retain physical cells whose only content is a
+  // background color. Joined captures are still useful for explicit history
+  // loads, where preserving soft-wrapped scrollback is more important.
+  return state?.alternateScreen || loadedHistory <= 0 ? '-N' : '-J';
 }
 
 function terminalPhysicalCaptureData(output: string): string {
@@ -330,30 +285,6 @@ export function terminalSnapshotData(
   ].join('');
 }
 
-export function terminalScreenData(
-  output: string,
-  state?: TerminalPaneState,
-  savedMainOutput = '',
-  physicalOutput = ''
-): string {
-  // Replace only the visible grid so browser scrollback survives a redraw.
-  // Captures assume default rendition, insert off, and wrapping on; normalize
-  // those modes while writing cells and restore the tmux pane modes afterward.
-  const resetMainScreen = `\u001b[?1049l\u001b[?6l\u001b[r${TERMINAL_CAPTURE_WRITE_MODE}\u001b[2J\u001b[H`;
-  if (!state?.alternateScreen) {
-    return `${resetMainScreen}${terminalSnapshotData(output, state, '', physicalOutput)}`;
-  }
-  const cursorRowOutput = terminalPhysicalRowData(physicalOutput, state.cursor.row);
-  return [
-    resetMainScreen,
-    terminalRecordData(savedMainOutput),
-    terminalCursorData(state.alternateSavedCursor),
-    `\u001b[?1049h${TERMINAL_CAPTURE_WRITE_MODE}\u001b[2J\u001b[H`,
-    terminalRecordData(output),
-    terminalPaneModeData(state, cursorRowOutput),
-  ].join('');
-}
-
 export function* terminalInputControlCommands(paneId: string, data: string): Generator<string> {
   if (!/^%\d+$/.test(paneId)) throw new Error('Terminal pane identifier is invalid.');
   const input = Buffer.from(data);
@@ -374,29 +305,10 @@ export function tmuxSupportsTerminalColorReports(commandList: string): boolean {
   return commandList.split(/\r?\n/).some((line) => /^refresh-client(?:\s|\()/.test(line) && /\[-r(?:\s|\])/.test(line));
 }
 
-export function terminalActivityTimestamp(output: string): number | undefined {
-  const value = output.trim();
-  if (!/^\d+$/.test(value)) return undefined;
-  const milliseconds = Number(value) * 1_000;
-  return Number.isSafeInteger(milliseconds) && milliseconds > 0 ? milliseconds : undefined;
-}
-
-interface OutputActivityState {
-  snapshotAcknowledged: boolean;
-  syntheticOutputDepth: number;
-  syntheticOutputUntil: number;
-  sharedOutputAllowed?: boolean;
-}
-
 interface QueuedOutput {
   data: string;
   activity: boolean;
   activityAt: number | null;
-}
-
-interface QueuedScreenSynchronization extends QueuedOutput {
-  history?: TerminalHistoryState;
-  reset?: boolean;
 }
 
 async function terminalTarget(
@@ -436,13 +348,6 @@ async function terminalTarget(
   )
     throw new Error('Terminal geometry is invalid.');
   return { windowId, paneId, geometry: { columns, rows } };
-}
-
-export function isTerminalOutputActivity(
-  { snapshotAcknowledged, syntheticOutputDepth, syntheticOutputUntil, sharedOutputAllowed = true }: OutputActivityState,
-  timestamp: number
-): boolean {
-  return snapshotAcknowledged && syntheticOutputDepth === 0 && timestamp >= syntheticOutputUntil && sharedOutputAllowed;
 }
 
 export function terminalScreenMessageExceedsBackpressure(bufferedBytes: number, messageBytes: number): boolean {
@@ -500,7 +405,6 @@ export async function attachTerminal(
 
   const { windowId, paneId, geometry: targetGeometry } = await terminalTarget(tmuxSession, options.terminalId);
   if (options.isAuthorized?.() === false) throw new Error('Terminal authorization is no longer active.');
-  options.onGeometryChange?.(targetGeometry);
   const controlLease = retainTerminalControlHub(tmuxSession, windowId, paneId, targetGeometry);
   const controlHub = controlLease.hub;
   const sizeOwner = {};
@@ -508,9 +412,7 @@ export async function attachTerminal(
   const inputAllowed = () => !closed && options.isAuthorized?.() !== false;
   let snapshotId = 0;
   let pendingSnapshotId: number | undefined;
-  const terminalDelivery = new TerminalDeliveryBuffer<QueuedOutput, QueuedScreenSynchronization>(
-    MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES
-  );
+  const terminalDelivery = new TerminalDeliveryBuffer<QueuedOutput>(MAX_SNAPSHOT_OUTPUT_QUEUE_BYTES);
   const submissionLedger = new TerminalSubmissionLedger();
   const attached = controlHub.ready;
   let inputQueue: Promise<void> = Promise.resolve();
@@ -523,12 +425,10 @@ export async function attachTerminal(
   let resizing = false;
   let messageWindowStartedAt = Date.now();
   let messageCount = 0;
-  let syntheticOutputUntil = 0;
   let lastOutputActivityNotice = 0;
   let sizeIgnored = Boolean(options.ignoreSize);
   let historyCapturePending = false;
   let loadedHistoryLines = options.lazyHistory ? 0 : snapshotHistoryLines;
-  let screenSynchronizationGeneration = 0;
   let explicitActivationPending = false;
 
   const runControlCommand = (command: string, onSuccess?: (output: string) => void): Promise<string> =>
@@ -541,6 +441,15 @@ export async function attachTerminal(
       .then(tmuxSupportsTerminalColorReports)
       .catch(() => false);
     return terminalColorReportSupport;
+  };
+  const waitForTerminalGeometry = async (geometry: TerminalSize): Promise<void> => {
+    const expected = `${geometry.columns}x${geometry.rows}`;
+    for (let attempt = 0; attempt < 100 && !closed; attempt += 1) {
+      const actual = await runControlCommand(`display-message -p -t ${paneId} '#{pane_width}x#{pane_height}'`);
+      if (actual.trim() === expected) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('Terminal geometry did not settle before establishing a screen snapshot.');
   };
   const captureTerminalSnapshot = async (
     requestedHistoryLines: number,
@@ -568,7 +477,7 @@ export async function attachTerminal(
       const loadedHistory = state?.alternateScreen
         ? 0
         : Math.min(availableHistory, Math.max(0, Math.min(TERMINAL_SCROLLBACK_LINES.standard, requestedHistoryLines)));
-      const captureFlag = terminalCaptureFlag(state);
+      const captureFlag = terminalCaptureFlag(state, loadedHistory);
       const historyFlag = captureFlag === '-J' && loadedHistory > 0 ? ` -S -${loadedHistory}` : '';
       const [snapshot, savedMainSnapshot, physicalSnapshot] = await Promise.all([
         runControlCommand(`capture-pane -p -e ${captureFlag}${historyFlag} -t ${paneId}`),
@@ -584,7 +493,7 @@ export async function attachTerminal(
       // The barrier is deliberately after capture: output emitted while the
       // capture was in flight must make us retry, while output after the
       // barrier receives a sequence greater than the snapshot fence.
-      await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
+      await runControlCommand(TERMINAL_OUTPUT_FENCE);
       if (controlHub.outputVersion !== outputVersion) continue;
       return { ...captured, throughSequence: controlHub.outputSequence };
     }
@@ -603,6 +512,27 @@ export async function attachTerminal(
       message: 'This terminal screen is too large to display safely. Reduce the pane size and reconnect.',
     });
     socket.close(1009, 'terminal screen exceeds limit');
+  };
+
+  const runResizeControlCommand = async (
+    geometry: TerminalSize,
+    onCommitted: () => void,
+    onFailed?: () => void
+  ): Promise<void> => {
+    // tmux may emit the SIGWINCH redraw before the control command's %end
+    // record. Hold only that short raw-output window so every browser receives
+    // the geometry notification before it parses the redraw at the new size.
+    // The output is not replaced, parsed, or refreshed; it is released in order.
+    const releaseOutput = controlHub.pauseOutput();
+    try {
+      await runControlCommand(`refresh-client -C ${geometry.columns}x${geometry.rows}`);
+      onCommitted();
+    } catch (error) {
+      onFailed?.();
+      throw error;
+    } finally {
+      releaseOutput();
+    }
   };
 
   const boundedTerminalSnapshot = async (
@@ -668,7 +598,6 @@ export async function attachTerminal(
       return;
     }
     pendingInputBytes += bytes;
-    syntheticOutputUntil = 0;
     inputQueue = inputQueue
       .then(async () => {
         if (!inputAllowed()) return;
@@ -681,87 +610,20 @@ export async function attachTerminal(
       });
   };
 
-  const waitForTerminalRedraw = async (
-    graceMs = TERMINAL_REDRAW_GRACE_MS,
-    settleLimitMs = TERMINAL_REDRAW_SETTLE_LIMIT_MS
-  ): Promise<void> => {
-    const startedAt = Date.now();
-    const deadline = Date.now() + settleLimitMs;
-    let observedVersion = controlHub.outputVersion;
-    let quietSince = Date.now();
-    while (!closed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, TERMINAL_REDRAW_POLL_MS));
-      if (controlHub.outputVersion !== observedVersion) {
-        observedVersion = controlHub.outputVersion;
-        quietSince = Date.now();
-        continue;
-      }
-      if (Date.now() - startedAt >= graceMs && Date.now() - quietSince >= TERMINAL_REDRAW_QUIET_MS) return;
-    }
-  };
-
   const waitForInitialTerminalContent = async (): Promise<void> => {
     const outputVersion = controlHub.outputVersion;
     const visiblePane = await runControlCommand(`capture-pane -p -t ${paneId}`);
-    if (visiblePane.trim() || controlHub.outputVersion !== outputVersion) {
-      await waitForTerminalRedraw();
-      return;
-    }
+    if (visiblePane.trim() || controlHub.outputVersion !== outputVersion) return;
 
     const deadline = Date.now() + TERMINAL_INITIAL_OUTPUT_WAIT_MS;
     while (!closed && controlHub.outputVersion === outputVersion && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, TERMINAL_REDRAW_POLL_MS));
-    }
-    if (!closed && controlHub.outputVersion !== outputVersion) await waitForTerminalRedraw();
-  };
-
-  const waitForTerminalGeometry = async (geometry: TerminalSize): Promise<void> => {
-    const expected = `${geometry.columns}x${geometry.rows}`;
-    for (let attempt = 0; attempt < 100 && !closed; attempt += 1) {
-      const actual = await runControlCommand(`display-message -p -t ${paneId} '#{pane_width}x#{pane_height}'`);
-      if (actual.trim() === expected) return;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error('Terminal geometry did not settle before screen synchronization.');
-  };
-
-  const withResizeActivity = async <T>(
-    operation: () => Promise<T>,
-    settleMs = TERMINAL_RESIZE_ACTIVITY_SUPPRESSION_MS
-  ): Promise<T> => {
-    // Keep resize output on the normal tmux -> xterm stream. Resize only marks
-    // the activity as synthetic; it never gates or rebuilds the terminal screen.
-    options.onSyntheticOutput?.(Date.now() + settleMs);
-    try {
-      return await operation();
-    } finally {
-      try {
-        const activity = terminalActivityTimestamp(
-          await runControlCommand(`display-message -p -t ${windowId} '#{window_activity}'`)
-        );
-        if (activity !== undefined) options.onSyntheticActivity?.(activity);
-      } catch {
-        // Activity classification must not turn a successful terminal resize into an error.
-      }
-      syntheticOutputUntil = Math.max(syntheticOutputUntil, Date.now() + settleMs);
-      options.onSyntheticOutput?.(syntheticOutputUntil);
+      await new Promise((resolve) => setTimeout(resolve, TERMINAL_INITIAL_OUTPUT_POLL_MS));
     }
   };
 
-  const sendDeliveryBatch = (batch: TerminalDeliveryBatch<QueuedOutput, QueuedScreenSynchronization>): void => {
-    const sendOutput = (payload: Extract<TerminalServerMessage, { type: 'output' }>) => {
-      if (!sendTerminalMessage(socket, payload)) return;
-    };
-    if (batch.synchronization) {
-      sendOutput({
-        type: 'output',
-        ...batch.synchronization.value,
-        screenSync: true,
-        ...(options.outputSequences ? { throughSequence: batch.synchronization.throughSequence } : {}),
-      });
-    }
+  const sendDeliveryBatch = (batch: TerminalDeliveryBatch<QueuedOutput>): void => {
     for (const output of batch.outputs) {
-      sendOutput({
+      sendTerminalMessage(socket, {
         type: 'output',
         ...output.value,
         ...(options.outputSequences ? { sequence: output.sequence } : {}),
@@ -780,16 +642,7 @@ export async function attachTerminal(
 
   const sendTerminalOutput = (output: string, sequence: number): void => {
     const now = Date.now();
-    const locallyEligible = terminalDelivery.acknowledged && now >= syntheticOutputUntil;
-    const activity = isTerminalOutputActivity(
-      {
-        snapshotAcknowledged: terminalDelivery.acknowledged,
-        syntheticOutputDepth: 0,
-        syntheticOutputUntil,
-        sharedOutputAllowed: !locallyEligible || options.isOutputActivity?.(now) !== false,
-      },
-      now
-    );
+    const activity = terminalDelivery.acknowledged;
     const activityAt = activity ? now : null;
     if (activity && now - lastOutputActivityNotice >= 250) {
       lastOutputActivityNotice = now;
@@ -845,102 +698,6 @@ export async function attachTerminal(
     }
   };
 
-  async function resyncTerminalScreen(geometry?: TerminalSize): Promise<void> {
-    if (!terminalDelivery.snapshotSent || closed) return;
-    const sharedGeometry = options.getGeometry?.();
-    if (
-      geometry &&
-      sharedGeometry &&
-      (geometry.columns !== sharedGeometry.columns || geometry.rows !== sharedGeometry.rows)
-    )
-      return;
-    const synchronizationGeneration = ++screenSynchronizationGeneration;
-    const geometryRevision = options.getGeometryRevision?.();
-    const synchronizationIsCurrent = () =>
-      !closed &&
-      synchronizationGeneration === screenSynchronizationGeneration &&
-      (geometryRevision === undefined || options.getGeometryRevision?.() === geometryRevision);
-    if (geometry) {
-      await waitForTerminalGeometry(geometry);
-      if (!synchronizationIsCurrent()) return;
-    } else {
-      await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
-    }
-    if (!synchronizationIsCurrent()) return;
-    const synchronizedGeometry = geometry ?? sharedGeometry ?? currentGeometry;
-    const deliverySynchronizationGeneration = options.resetScreenSync
-      ? terminalDelivery.beginSynchronization()
-      : undefined;
-    const captureSynchronizedScreen = async (): Promise<{
-      data: string;
-      history?: TerminalHistoryState;
-      throughSequence?: number;
-    }> => {
-      if (options.resetScreenSync) {
-        if (!geometry) {
-          // tmux restores its saved main screen with semantics that are not
-          // equivalent to feeding ?1049l into a separately resized xterm.
-          // Let the shell redraw finish, then reconcile the shared actor before
-          // fencing the alternate-screen exit for this subscriber.
-          await waitForTerminalRedraw();
-        }
-        const snapshot = await boundedTerminalSnapshot(loadedHistoryLines, synchronizedGeometry);
-        return {
-          data: snapshot.data,
-          history: snapshot.history,
-          throughSequence: snapshot.throughSequence,
-        };
-      }
-      // Protocol v2 clients understand visible-grid replacement but not an
-      // authoritative buffer reset. Keep the legacy payload until they reload.
-      const [snapshot, rawState, savedMainSnapshot, physicalSnapshot] = await Promise.all([
-        runControlCommand(`capture-pane -p -e -J -t ${paneId}`),
-        runControlCommand(`display-message -p -t ${paneId} '${TERMINAL_PANE_STATE_FORMAT}'`),
-        runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
-        runControlCommand(`capture-pane -p -e -N -t ${paneId}`),
-      ]);
-      const state = terminalPaneState(rawState, synchronizedGeometry);
-      const snapshotData = state?.alternateScreen ? terminalPhysicalCaptureData(physicalSnapshot) : snapshot;
-      return { data: terminalScreenData(snapshotData, state, savedMainSnapshot, physicalSnapshot) };
-    };
-    let synchronizedScreen: Awaited<ReturnType<typeof captureSynchronizedScreen>> | undefined;
-    if (options.resetScreenSync) {
-      synchronizedScreen = await captureSynchronizedScreen();
-    } else {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const outputVersion = controlHub.outputVersion;
-        const candidate = await captureSynchronizedScreen();
-        if (!synchronizationIsCurrent()) return;
-        if (controlHub.outputVersion === outputVersion) {
-          synchronizedScreen = candidate;
-          break;
-        }
-      }
-    }
-    if (!synchronizedScreen) throw new Error('Terminal output did not settle during screen synchronization.');
-    if (!synchronizationIsCurrent()) {
-      if (deliverySynchronizationGeneration !== undefined)
-        sendDeliveryBatch(terminalDelivery.abandonSynchronization(deliverySynchronizationGeneration));
-      return;
-    }
-    const synchronization: QueuedScreenSynchronization = {
-      data: synchronizedScreen.data,
-      activity: false,
-      activityAt: null,
-      ...(options.resetScreenSync ? { reset: true, history: synchronizedScreen.history } : {}),
-    };
-    if (deliverySynchronizationGeneration !== undefined && synchronizedScreen.throughSequence !== undefined) {
-      sendDeliveryBatch(
-        terminalDelivery.completeSynchronization(deliverySynchronizationGeneration, {
-          throughSequence: synchronizedScreen.throughSequence,
-          value: synchronization,
-        })
-      );
-    } else {
-      sendTerminalMessage(socket, { type: 'output', ...synchronization, screenSync: true });
-    }
-  }
-
   const unsubscribeControlHub = controlHub.subscribe({
     onOutput: (output) => sendTerminalOutput(output.data, output.sequence),
     onUnavailable: () => {
@@ -953,7 +710,6 @@ export async function attachTerminal(
     if (closed) return;
     const releasedSize = controlHub.releaseSize(sizeOwner);
     closed = true;
-    options.onSyntheticOutput?.(Date.now() + SYNTHETIC_OUTPUT_SETTLE_MS);
     terminalDelivery.clear();
     unsubscribeControlHub();
     if (releasedSize && !controlHub.closed)
@@ -977,28 +733,24 @@ export async function attachTerminal(
       while (requestedSize && !closed && options.canResize?.() !== false) {
         const next = requestedSize;
         requestedSize = undefined;
-        if (lastControlledSize && terminalGeometryIsColumnJitter(lastControlledSize, next)) {
-          preferredSize = lastControlledSize;
-          sendTerminalGeometry(lastControlledSize);
-          continue;
-        }
         const key = `${next.columns}x${next.rows}`;
         if (key === appliedSize) continue;
         const previousGeometry = currentGeometry;
         try {
-          await withResizeActivity(async () => {
-            currentGeometry = next;
-            options.onGeometryChange?.(next);
-            await runControlCommand(`refresh-client -C ${key}`);
-            await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
-          });
-          appliedSize = key;
-          lastControlledSize = next;
+          currentGeometry = next;
+          await runResizeControlCommand(
+            next,
+            () => {
+              appliedSize = key;
+              lastControlledSize = next;
+              options.onGeometryChange?.(next);
+            },
+            () => {
+              currentGeometry = previousGeometry;
+              options.onGeometryChange?.(previousGeometry);
+            }
+          );
         } catch (error) {
-          await withResizeActivity(async () => {
-            currentGeometry = previousGeometry;
-            options.onGeometryChange?.(previousGeometry);
-          }).catch(() => undefined);
           throw error;
         }
       }
@@ -1023,38 +775,38 @@ export async function attachTerminal(
       requestedSize = explicitActivationPending
         ? (preferredSize ?? requestedSize)
         : (lastControlledSize ?? requestedSize);
-      await withResizeActivity(async () => {
-        while (requestedSize && !closed) {
-          const requested = requestedSize;
-          requestedSize = undefined;
-          const next =
-            lastControlledSize && terminalGeometryIsColumnJitter(lastControlledSize, requested)
-              ? lastControlledSize
-              : requested;
-          const key = `${next.columns}x${next.rows}`;
-          const previousGeometry = currentGeometry;
-          try {
-            currentGeometry = next;
-            options.onGeometryChange?.(next);
-            await runControlCommand(`refresh-client -C ${key}`);
-            appliedSize = key;
-            lastControlledSize = next;
-          } catch (error) {
-            currentGeometry = previousGeometry;
-            options.onGeometryChange?.(previousGeometry);
-            throw error;
-          }
+      while (requestedSize && !closed) {
+        const requested = requestedSize;
+        requestedSize = undefined;
+        const next = requested;
+        const key = `${next.columns}x${next.rows}`;
+        const previousGeometry = currentGeometry;
+        try {
+          currentGeometry = next;
+          await runResizeControlCommand(
+            next,
+            () => {
+              appliedSize = key;
+              lastControlledSize = next;
+              options.onGeometryChange?.(next);
+            },
+            () => {
+              currentGeometry = previousGeometry;
+              options.onGeometryChange?.(previousGeometry);
+            }
+          );
+        } catch (error) {
+          throw error;
         }
+      }
+      if (firstSizeOwner) await runControlCommand('refresh-client -f !ignore-size');
+      await runResizeControlCommand(currentGeometry, () => {
         options.onGeometryChange?.(currentGeometry);
-        if (firstSizeOwner) await runControlCommand('refresh-client -f !ignore-size');
-        await runControlCommand(`refresh-client -C ${currentGeometry.columns}x${currentGeometry.rows}`);
-        await runControlCommand(SYNTHETIC_OUTPUT_BARRIER);
+        lastControlledSize = currentGeometry;
       });
-      lastControlledSize = currentGeometry;
       sizeIgnored = false;
     } else if (ignored && !sizeIgnored) {
-      if (controlHub.releaseSize(sizeOwner))
-        await withResizeActivity(() => runControlCommand('refresh-client -f ignore-size'));
+      if (controlHub.releaseSize(sizeOwner)) await runControlCommand('refresh-client -f ignore-size');
       sizeIgnored = true;
     }
     if (!ignored) await resizeControlClient();
@@ -1111,7 +863,6 @@ export async function attachTerminal(
         }
       } else if (input.type === 'input') {
         queueTerminalInput(input.data, async () => {
-          options.onInput?.();
           await sendControlInput(input.data);
         });
       } else if (input.type === 'terminal-color') {
@@ -1125,7 +876,6 @@ export async function attachTerminal(
       } else if (input.type === 'submit') {
         const requestId = input.requestId;
         const runSubmission = async (): Promise<boolean> => {
-          options.onInput?.();
           return sendTerminalSubmission(input.data, input.bracketedPaste);
         };
         if (!options.submissionResults || !requestId) {
@@ -1181,13 +931,13 @@ export async function attachTerminal(
 
   await attached;
   if (!inputAllowed()) return;
-  await options.onAttached?.(setIgnoreSize, resyncTerminalScreen);
+  await options.onAttached?.(setIgnoreSize);
   if (!inputAllowed()) return;
   if (requestedSize) await scheduleTerminalOperation(resizeControlClient);
-  await waitForInitialTerminalContent();
-  if (!inputAllowed()) return;
   const initialSnapshot = await scheduleTerminalOperation(async () => {
     const geometry = options.getGeometry?.() ?? currentGeometry;
+    await waitForTerminalGeometry(geometry);
+    await waitForInitialTerminalContent();
     const snapshot = await boundedTerminalSnapshot(options.lazyHistory ? 0 : snapshotHistoryLines, geometry);
     return { geometry, snapshot };
   });

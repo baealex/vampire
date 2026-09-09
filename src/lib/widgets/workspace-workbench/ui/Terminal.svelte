@@ -102,13 +102,11 @@ onMount(() => {
   updateViewport();
   window.addEventListener('resize', updateViewport);
   window.visualViewport?.addEventListener('resize', updateViewport);
-  window.visualViewport?.addEventListener('scroll', updateViewport);
 
   return () => {
     if (viewportFrame !== undefined) cancelAnimationFrame(viewportFrame);
     window.removeEventListener('resize', updateViewport);
     window.visualViewport?.removeEventListener('resize', updateViewport);
-    window.visualViewport?.removeEventListener('scroll', updateViewport);
   };
 });
 </script>

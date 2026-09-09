@@ -81,7 +81,6 @@ let inputReady = $state(false);
 let controlSizeMismatch = $state(false);
 let controlsTerminal = $state<boolean>();
 let terminalReconnecting = $state(false);
-let terminalOutputPaused = $state(false);
 let screenReady = $state(false);
 let openingVisible = $state(false);
 let openingStage = $state<TerminalOpeningStage>('opening');
@@ -134,7 +133,6 @@ function applyRuntimeState(state: Readonly<TerminalRuntimeState>) {
   openingVisible = state.openingVisible;
   screenReady = state.screenReady;
   terminalError = state.error;
-  terminalOutputPaused = state.outputPaused;
   terminalReconnecting = state.reconnecting;
 }
 
@@ -321,13 +319,8 @@ onMount(() => {
           <CircleAlert size={17} strokeWidth={1.9} />
         </span>
         <span class="terminal-status-message">{terminalError}</span>
-        <Button
-          class="terminal-status-action"
-          size="sm"
-          variant="danger-outline"
-          onclick={terminalOutputPaused ? () => runtime?.reconnect() : () => location.reload()}
-        >
-          {terminalOutputPaused ? 'Resume output' : 'Reconnect'}
+        <Button class="terminal-status-action" size="sm" variant="danger-outline" onclick={() => location.reload()}>
+          Reconnect
         </Button>
       </div>
     {:else if terminalReconnecting}
@@ -342,59 +335,62 @@ onMount(() => {
       </div>
     {/if}
   </div>
-  {#if imagePaste.message}
-    <div
-      class="image-paste-notice"
-      class:uploading={imagePaste.kind === 'uploading'}
-      class:error={imagePaste.kind === 'error'}
-      role={imagePaste.kind === 'error' ? 'alert' : 'status'}
-    >
-      {imagePaste.message}
+  <div class="terminal-input-region">
+    <div class="terminal-transient-notices" aria-live="polite">
+      {#if imagePaste.message}
+        <div
+          class="image-paste-notice"
+          class:uploading={imagePaste.kind === 'uploading'}
+          class:error={imagePaste.kind === 'error'}
+          role={imagePaste.kind === 'error' ? 'alert' : 'status'}
+        >
+          {imagePaste.message}
+        </div>
+      {/if}
+      {#if addingDroppedFiles || droppedFileError}
+        <div
+          class="terminal-file-drop-notice"
+          class:error={Boolean(droppedFileError)}
+          role={droppedFileError ? 'alert' : 'status'}
+        >
+          {droppedFileError || 'Adding dropped files…'}
+        </div>
+      {/if}
+      {#if submissionRecovery?.error || submissionRecovery?.persistenceFailed}
+        <p class="terminal-file-drop-notice" role="status">
+          {submissionRecovery.error || 'Message recovery is available for this visit, but could not be saved in this browser.'}
+        </p>
+      {/if}
     </div>
-  {/if}
-  {#if addingDroppedFiles || droppedFileError}
-    <div
-      class="terminal-file-drop-notice"
-      class:error={Boolean(droppedFileError)}
-      role={droppedFileError ? 'alert' : 'status'}
-    >
-      {droppedFileError || 'Adding dropped files…'}
-    </div>
-  {/if}
-
-  {#if submissionRecovery?.error || submissionRecovery?.persistenceFailed}
-    <p class="terminal-file-drop-notice" role="status">
-      {submissionRecovery.error || 'Message recovery is available for this visit, but could not be saved in this browser.'}
-    </p>
-  {/if}
-  <TerminalInputDock
-    bind:composerElement
-    inputSurface={inputOwner}
-    {workspaceId}
-    {terminalId}
-    connected={connected && inputReady}
-    {composerTemplate}
-    {composerTemplateContext}
-    sendControl={(control) => runtime?.sendControl(control)}
-    submit={(data, draft) => submissionRecovery?.submit(data, draft, (text, requestId) => runtime?.submit(text, requestId) ?? false) ?? false}
-    recoverableSubmissions={submissionRecovery?.entries ?? []}
-    onDismissSubmission={(requestId) => submissionRecovery?.dismiss(requestId)}
-    {composerHistoryEnabled}
-    scrollPageUp={() => runtime?.scrollPageUp()}
-    scrollPageDown={() => runtime?.scrollPageDown()}
-    onSubmitted={(prompt) => onRecordComposerPrompt(workspaceId, prompt)}
-    loadPrompts={(refresh) => onLoadComposerPrompts(workspaceId, refresh)}
-    scrollToTop={() => runtime?.scrollToTop()}
-    scrollToBottom={() => runtime?.scrollToBottom()}
-    onImageSelected={(image) => void imagePaste.paste(image)}
-    handoffToTerminal={(data) => {
-      if (!runtime?.send(data)) return false;
-      focusTerminalInput();
-      return true;
-    }}
-    onToggleInputSurface={toggleInputSurface}
-    onComposerFocus={() => chooseInputOwner('compose')}
-  />
+    <TerminalInputDock
+      bind:composerElement
+      inputSurface={inputOwner}
+      {workspaceId}
+      {terminalId}
+      connected={connected && inputReady}
+      {composerTemplate}
+      {composerTemplateContext}
+      sendControl={(control) => runtime?.sendControl(control)}
+      submit={(data, draft) => submissionRecovery?.submit(data, draft, (text, requestId) => runtime?.submit(text, requestId) ?? false) ?? false}
+      recoverableSubmissions={submissionRecovery?.entries ?? []}
+      onDismissSubmission={(requestId) => submissionRecovery?.dismiss(requestId)}
+      {composerHistoryEnabled}
+      scrollPageUp={() => runtime?.scrollPageUp()}
+      scrollPageDown={() => runtime?.scrollPageDown()}
+      onSubmitted={(prompt) => onRecordComposerPrompt(workspaceId, prompt)}
+      loadPrompts={(refresh) => onLoadComposerPrompts(workspaceId, refresh)}
+      scrollToTop={() => runtime?.scrollToTop()}
+      scrollToBottom={() => runtime?.scrollToBottom()}
+      onImageSelected={(image) => void imagePaste.paste(image)}
+      handoffToTerminal={(data) => {
+        if (!runtime?.send(data)) return false;
+        focusTerminalInput();
+        return true;
+      }}
+      onToggleInputSurface={toggleInputSurface}
+      onComposerFocus={() => chooseInputOwner('compose')}
+    />
+  </div>
   {#if children}
     {@render children()}
   {/if}
@@ -404,7 +400,7 @@ onMount(() => {
 .terminal-body {
   position: relative;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -414,6 +410,11 @@ onMount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+.terminal-input-region {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
 }
 .terminal {
   width: 100%;
@@ -430,8 +431,11 @@ onMount(() => {
 .terminal :global(.xterm) {
   height: 100%;
   padding: 0.25rem;
-  opacity: 1;
+  opacity: 0;
   touch-action: none;
+}
+.terminal.screen-ready :global(.xterm) {
+  opacity: 1;
 }
 .terminal :global(.xterm-viewport) {
   overflow-y: scroll;
@@ -447,6 +451,28 @@ onMount(() => {
 .terminal :global(.xterm-scrollable-element) {
   height: 100%;
   touch-action: none;
+}
+.terminal-transient-notices {
+  position: absolute;
+  z-index: 6;
+  bottom: calc(100% + 0.5rem);
+  right: max(0.65rem, env(safe-area-inset-right));
+  left: max(0.65rem, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+.terminal-transient-notices > * {
+  box-sizing: border-box;
+  width: min(30rem, 100%);
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  box-shadow: var(--shadow-popover);
+  overflow-wrap: anywhere;
 }
 .terminal-drop-prompt {
   position: absolute;
@@ -546,14 +572,12 @@ onMount(() => {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  margin: 0;
   padding: 0.45rem 0.75rem;
   font-size: var(--text-label);
   line-height: var(--leading-ui);
   text-align: center;
 }
 .image-paste-notice {
-  border-top: 1px solid var(--color-border);
   background: var(--color-success-surface);
   color: var(--color-success-text);
 }
@@ -567,7 +591,6 @@ onMount(() => {
 }
 .terminal-file-drop-notice {
   padding: 0.45rem 0.75rem;
-  border-top: 1px solid var(--color-border);
   background: var(--color-warning-surface);
   color: var(--color-command);
   font-size: var(--text-label);

@@ -2,7 +2,6 @@ import type { ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { TerminalConnection, type TerminalConnectionContext } from '../api/connection.ts';
 import {
-  isTerminalRgbColor,
   parseTerminalColorReports,
   terminalThemeColor,
   type TerminalColorSlot,
@@ -16,7 +15,6 @@ import {
   type TerminalServerMessage,
   type TerminalSubmissionResult,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
-import { TerminalScreenSync } from './screen-sync.ts';
 import { installTerminalTouchScroll } from './touch-scroll.ts';
 import { TerminalOutputSequence } from './output-sequence.ts';
 import { RecentTerminalCache, terminalSessionKey } from '../model/recent-terminal-cache.ts';
@@ -34,12 +32,10 @@ const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
 const INPUT_ACTIVITY_NOTICE_MS = 750;
 const OUTPUT_ACTIVITY_NOTICE_MS = 500;
-const TERMINAL_BUFFER_SWITCH_PATTERN = /\u001b\[\?(?:47|1047|1049)[hl]/u;
-const TERMINAL_SYNCHRONIZED_OUTPUT_START = '\u001b[?2026h';
-const TERMINAL_SYNCHRONIZED_OUTPUT_END = '\u001b[?2026l';
-const TERMINAL_RENDER_SHIELD_DEADLINE_MS = 250;
-const TERMINAL_BUFFER_SWITCH_TAIL_LENGTH = 16;
 const MAX_CACHED_OUTPUT_CHARACTERS = 128 * 1024;
+const TERMINAL_RESIZE_DEBOUNCE_MS = 64;
+const TERMINAL_INITIAL_LAYOUT_FRAMES = 2;
+const TERMINAL_RESUME_LAYOUT_FRAMES = 2;
 
 export type TerminalOpeningStage = 'opening' | 'attaching' | 'restoring';
 
@@ -51,7 +47,6 @@ export interface TerminalRuntimeState {
   inputReady: boolean;
   openingStage: TerminalOpeningStage;
   openingVisible: boolean;
-  outputPaused: boolean;
   reconnecting: boolean;
   screenReady: boolean;
 }
@@ -86,113 +81,18 @@ interface TerminalHistoryAnchor {
   toTop: boolean;
 }
 
-interface TerminalScreenAnchor {
-  distanceFromBottom: number;
+interface PendingTerminalSnapshot {
+  context: TerminalConnectionContext;
+  data: string;
+  generation: number;
+  history?: TerminalHistoryState;
+  rendered: boolean;
+  serverReady: boolean;
+  snapshotId?: number;
+  written: boolean;
 }
 
-class TerminalRenderShield {
-  #alternateScreen = false;
-  #element: () => HTMLElement;
-  #frozenText = '';
-  #generation = 0;
-  #overlay: HTMLElement | undefined;
-  #releaseFrame: number | undefined;
-  #sequenceTail = '';
-
-  constructor(element: () => HTMLElement) {
-    this.#element = element;
-  }
-
-  begin(data: string): number | undefined {
-    if (!this.#switchesBuffer(data)) return undefined;
-    const element = this.#element();
-    if (!element.classList.contains('screen-ready')) return undefined;
-    const generation = ++this.#generation;
-    this.#cancelRelease();
-    if (this.#overlay) return generation;
-    const rows = element.querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
-    const screen = rows?.parentElement;
-    if (!rows || !screen) return undefined;
-    const overlay = rows.cloneNode(true) as HTMLElement;
-    const rowsStyle = getComputedStyle(rows);
-    overlay.classList.remove('xterm-rows', 'xterm-focus');
-    overlay.classList.add('terminal-render-shield');
-    overlay.dataset.terminalRenderShield = '';
-    overlay.style.position = 'absolute';
-    overlay.style.inset = '0';
-    overlay.style.zIndex = '4';
-    overlay.style.overflow = 'hidden';
-    overlay.style.pointerEvents = 'none';
-    overlay.style.color = rowsStyle.color;
-    overlay.style.fontFamily = rowsStyle.fontFamily;
-    overlay.style.fontSize = rowsStyle.fontSize;
-    overlay.style.whiteSpace = 'pre';
-    overlay.style.backgroundColor = getComputedStyle(
-      element.querySelector('.xterm-viewport') ?? screen
-    ).backgroundColor;
-    this.#frozenText = rows.textContent ?? '';
-    screen.appendChild(overlay);
-    this.#overlay = overlay;
-    return generation;
-  }
-
-  settle(generation: number | undefined): void {
-    if (generation === undefined || generation !== this.#generation || !this.#overlay) return;
-    const deadline = performance.now() + TERMINAL_RENDER_SHIELD_DEADLINE_MS;
-    const releaseWhenRepainted = () => {
-      this.#releaseFrame = undefined;
-      if (generation !== this.#generation || !this.#overlay) return;
-      const rows = this.#element().querySelector<HTMLElement>('.xterm-screen > .xterm-rows');
-      const hasContent = Boolean(
-        rows &&
-          Array.from(rows.children).some((row) => Boolean(row.textContent)) &&
-          rows.textContent !== this.#frozenText
-      );
-      if (!hasContent && performance.now() < deadline) {
-        this.#releaseFrame = requestAnimationFrame(releaseWhenRepainted);
-        return;
-      }
-      this.#releaseFrame = requestAnimationFrame(() => {
-        this.#releaseFrame = undefined;
-        if (generation !== this.#generation) return;
-        this.#overlay?.remove();
-        this.#overlay = undefined;
-        this.#frozenText = '';
-      });
-    };
-    this.#releaseFrame = requestAnimationFrame(releaseWhenRepainted);
-  }
-
-  reset(): void {
-    this.#generation += 1;
-    this.#cancelRelease();
-    this.#overlay?.remove();
-    this.#overlay = undefined;
-    this.#frozenText = '';
-    this.#alternateScreen = false;
-    this.#sequenceTail = '';
-  }
-
-  #cancelRelease(): void {
-    if (this.#releaseFrame !== undefined) cancelAnimationFrame(this.#releaseFrame);
-    this.#releaseFrame = undefined;
-  }
-
-  #switchesBuffer(data: string): boolean {
-    const previousLength = this.#sequenceTail.length;
-    const combined = this.#sequenceTail + data;
-    let switches = false;
-    for (const match of combined.matchAll(/\u001b\[\?(?:47|1047|1049)[hl]/gu)) {
-      if ((match.index ?? 0) + match[0].length <= previousLength) continue;
-      const alternateScreen = match[0].endsWith('h');
-      if (alternateScreen === this.#alternateScreen) continue;
-      this.#alternateScreen = alternateScreen;
-      switches = true;
-    }
-    this.#sequenceTail = combined.slice(-TERMINAL_BUFFER_SWITCH_TAIL_LENGTH);
-    return switches;
-  }
-}
+type ActiveTerminalWrite = { kind: 'output' } | { generation: number; kind: 'snapshot' };
 
 export class TerminalRuntime {
   #entryClaimPending = true;
@@ -215,6 +115,7 @@ export class TerminalRuntime {
   #historyMaximum: number = TERMINAL_SCROLLBACK_LINES.standard;
   #inputDisposable: { dispose(): void } | undefined;
   #inputNoticeAt = 0;
+  #initialSnapshotReceived = false;
   #lastOutputActivityNotice = 0;
   #lastSentSize = '';
   #openingDelay: ReturnType<typeof setTimeout> | undefined;
@@ -224,11 +125,17 @@ export class TerminalRuntime {
   #reconnectExhausted = false;
   #removeTouchScroll: () => void = () => undefined;
   #requestedSize: TerminalSize | undefined;
-  #renderShield: TerminalRenderShield | undefined;
+  #resumeFrame: number | undefined;
+  #resumePending = false;
   #resizeFrame: number | undefined;
-  #screenSync: TerminalScreenSync | undefined;
+  #resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  #outputFrame: number | undefined;
   #outputSequence = new TerminalOutputSequence();
-  #screenReplacementAnchor: TerminalScreenAnchor | undefined;
+  #activeTerminalWrite: ActiveTerminalWrite | undefined;
+  #pendingOutput = '';
+  #pendingSnapshot: PendingTerminalSnapshot | undefined;
+  #renderDisposable: { dispose(): void } | undefined;
+  #snapshotGeneration = 0;
   #scrollDisposable: { dispose(): void } | undefined;
   #sentSizeConnection = 0;
   #sharedGeometry: TerminalSize | undefined;
@@ -245,7 +152,6 @@ export class TerminalRuntime {
     inputReady: false,
     openingStage: 'opening',
     openingVisible: false,
-    outputPaused: false,
     reconnecting: false,
     screenReady: false,
   };
@@ -287,7 +193,9 @@ export class TerminalRuntime {
     this.#suspendedOutputCharacters = 0;
     this.#removeInteractionListeners();
     this.#resizeObserver?.disconnect();
+    this.#cancelScheduledResume();
     this.#cancelScheduledResize();
+    this.#cancelScheduledOutput();
   }
 
   resume(options: TerminalRuntimeOptions): void {
@@ -299,12 +207,16 @@ export class TerminalRuntime {
     this.#installInteractionListeners();
     this.#resizeObserver?.observe(options.element);
     this.setFontSize(loadTerminalFontSize(this.#fontSize));
+    this.#cancelScheduledResize();
     options.onFontSizeChange(this.#fontSize);
     options.onStateChange({ ...this.#state });
-    this.#handleThemeChange();
-    this.claimControl();
-    this.#scheduleResize();
-    this.#refreshTerminalDisplay();
+    this.#resumePending = true;
+    // Keep xterm focusable while its moved renderer catches up with the new
+    // layout. Opacity hides the stale first paint without making the helper
+    // textarea unfocusable during the handoff.
+    this.#terminal?.element?.style.setProperty('opacity', '0');
+    this.#applyTheme();
+    this.#scheduleResumeSync();
     this.#scheduleInitialFocus();
   }
 
@@ -358,8 +270,7 @@ export class TerminalRuntime {
 
   claimControl(): void {
     this.#sendSize();
-    if (!this.#connection?.send({ type: 'activate' })) return;
-    this.#reportTerminalTheme();
+    this.#connection?.send({ type: 'activate' });
   }
 
   focus(): void {
@@ -452,10 +363,8 @@ export class TerminalRuntime {
   reconnect(): void {
     if (this.#destroyed) return;
     this.#reconnectExhausted = false;
-    const wasOutputPaused = this.#state.outputPaused;
-    this.#updateState({ error: '', outputPaused: false, reconnecting: true });
-    if (wasOutputPaused) this.#connection?.start();
-    else this.#connection?.retryNow();
+    this.#updateState({ error: '', reconnecting: true });
+    this.#connection?.retryNow();
   }
 
   dispose(): void {
@@ -464,21 +373,29 @@ export class TerminalRuntime {
     this.#markSubmissionsUncertain();
     this.#removeInteractionListeners();
     if (this.#outputActivityTimer) clearTimeout(this.#outputActivityTimer);
+    this.#cancelScheduledResume();
     this.#cancelScheduledResize();
+    this.#cancelScheduledOutput();
     if (this.#openingDelay) clearTimeout(this.#openingDelay);
     this.#setOutputActive(false);
     this.#resizeObserver?.disconnect();
     this.#inputDisposable?.dispose();
     this.#scrollDisposable?.dispose();
+    this.#renderDisposable?.dispose();
     this.#connection?.stop();
-    this.#screenSync?.dispose();
-    this.#renderShield?.reset();
     this.#terminal?.dispose();
   }
 
   async #openTerminal(): Promise<void> {
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
     if (this.#destroyed) return;
+    // The compact shell commits its visual-viewport height in a parent RAF,
+    // while this runtime mounts in the child. Measure only after that layout
+    // commit so the first tmux snapshot and the xterm grid use one geometry.
+    for (let frame = 0; frame < TERMINAL_INITIAL_LAYOUT_FRAMES; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (this.#destroyed) return;
+    }
     const compactLayout = window.matchMedia(COMPACT_MEDIA_QUERY).matches;
     const finePointer = hasFinePointer();
     this.#touchLayout = !finePointer;
@@ -507,51 +424,11 @@ export class TerminalRuntime {
     this.#fit = fitAddon;
     terminal.loadAddon(fitAddon);
     terminal.open(this.#options.element);
-    this.#renderShield = new TerminalRenderShield(() => this.#options.element);
-
-    const writeSynchronizedTerminalData = (data: string, complete: () => void): void => {
-      // Keep synchronized-output mode active while xterm parses a buffer
-      // replacement. Separate parser writes are required: the mode must be set
-      // before a buffer reset can synchronously clear the DOM renderer.
-      terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_START, () => {
-        terminal.write(data, () => terminal.write(TERMINAL_SYNCHRONIZED_OUTPUT_END, complete));
-      });
-    };
-    const writeTerminalData = (data: string, complete: () => void, synchronized = false): void => {
-      const renderShield = this.#renderShield;
-      const shieldGeneration = renderShield?.begin(data);
-      const finish = () => {
-        renderShield?.settle(shieldGeneration);
-        complete();
-      };
-      if (synchronized || TERMINAL_BUFFER_SWITCH_PATTERN.test(data)) writeSynchronizedTerminalData(data, finish);
-      else terminal.write(data, finish);
-    };
-
-    this.#screenSync = new TerminalScreenSync({
-      reset: () => {
-        this.#renderShield?.reset();
-        terminal.reset();
-      },
-      write: writeTerminalData,
-      // RIS resets xterm's private modes, so it must begin inside synchronized
-      // output even when the replacement itself does not switch buffers.
-      resetAndWrite: (data, complete) => {
-        this.#renderShield?.reset();
-        writeTerminalData(`\u001bc${data}`, complete, true);
-      },
-      refresh: () => this.#refreshTerminalDisplay(),
-      onReadyChange: (ready) => {
-        this.#updateState({ screenReady: ready, ...(ready ? { reconnecting: false } : {}) });
-        if (!ready) return;
-        this.#entryClaimPending = false;
-        this.#reportTerminalTheme();
-        if (this.#openingDelay) clearTimeout(this.#openingDelay);
-        this.#openingDelay = undefined;
-      },
-      onWriteComplete: () => undefined,
-      onScreenReplaced: () => this.#restoreScreenReplacementAnchor(),
-      onOverflow: () => this.#pauseOutput(),
+    this.#renderDisposable = terminal.onRender(() => {
+      const snapshot = this.#pendingSnapshot;
+      if (!snapshot || !snapshot.written || snapshot.rendered) return;
+      snapshot.rendered = true;
+      this.#finishSnapshotIfReady(snapshot);
     });
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.isComposing || event.keyCode === 229) return true;
@@ -587,11 +464,10 @@ export class TerminalRuntime {
     const websocketUrl = new URL(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/terminal`);
     websocketUrl.searchParams.set('workspace', this.#options.workspaceId);
     websocketUrl.searchParams.set('history', String(scrollback));
-    // Keep the original terminal behavior: attach with the retained scrollback
-    // once and let xterm own scrolling afterwards. Loading history by replacing
-    // the whole screen while the user is already scrolled up makes a normal
-    // terminal feel like a remote screen replay.
-    websocketUrl.searchParams.set('history-mode', 'full');
+    // Attach with the current visible pane only. Retained scrollback is loaded
+    // only after the user explicitly scrolls up; replaying it during workspace
+    // entry makes a normal terminal feel like a remote screen playback.
+    websocketUrl.searchParams.set('history-mode', 'lazy');
     websocketUrl.searchParams.set('protocol', String(TERMINAL_PROTOCOL_VERSION));
     if (this.#options.terminalId) websocketUrl.searchParams.set('terminal', this.#options.terminalId);
     this.#connection = new TerminalConnection(
@@ -621,9 +497,7 @@ export class TerminalRuntime {
             error: '',
             inputReady: false,
             openingStage: 'attaching',
-            outputPaused: false,
           });
-          this.#reportTerminalTheme();
           this.#scheduleResize();
         },
         onMessage: (message, context) => {
@@ -641,11 +515,12 @@ export class TerminalRuntime {
             this.#geometryConnectionId = context.id;
             if (message.active !== undefined) this.#updateState({ controlsTerminal: message.active });
             this.#applyGeometry({ columns: message.columns, rows: message.rows });
-          } else if (message.type === 'request-terminal-theme') {
-            this.#reportTerminalTheme();
           } else if (message.type === 'snapshot') {
             this.#outputSequence.establish(context.id, message.throughSequence);
-            this.#updateState({ openingVisible: true, openingStage: 'restoring' });
+            if (!this.#initialSnapshotReceived) {
+              this.#initialSnapshotReceived = true;
+              this.#updateState({ openingVisible: true, openingStage: 'restoring' });
+            }
             this.#beginSnapshot(message.data, context, message.history, message.snapshotId);
           } else if (message.type === 'screen-ready') {
             this.#connection?.markReady(context);
@@ -659,18 +534,16 @@ export class TerminalRuntime {
               this.#initialFocusPending = false;
               this.#scheduleInitialFocus();
             }
-            this.#screenSync?.markScreenReady();
+            const snapshot = this.#pendingSnapshot;
+            if (snapshot?.context.id === context.id) {
+              snapshot.serverReady = true;
+              this.#finishSnapshotIfReady(snapshot);
+            }
           } else if (message.type === 'output') {
             if (!this.#acceptOutputSequence(message, context)) return;
             if (message.activity && message.activityAt !== null) this.#markOutputActivity(message.activityAt);
-            if (message.screenSync) {
-              this.#updateHistoryState(message.history);
-              if (message.reset) this.#rememberScreenReplacementAnchor();
-              this.#screenSync?.replaceScreen(message.data, message.reset);
-            } else {
-              if (message.data) this.#historyMayHaveGrown = true;
-              this.#screenSync?.pushOutput(message.data);
-            }
+            if (message.data) this.#historyMayHaveGrown = true;
+            this.#writeTerminalOutput(message.data);
           } else if (message.type === 'submission-result') {
             const timer = this.#submissionTimers.get(message.requestId);
             if (timer) clearTimeout(timer);
@@ -690,10 +563,8 @@ export class TerminalRuntime {
           this.#markSubmissionsUncertain();
           this.#outputSequence.reset();
           this.#setOutputActive(false);
-          this.#screenReplacementAnchor = undefined;
           this.#resetHistoryLoading();
-          this.#screenSync?.disconnect();
-          this.#renderShield?.reset();
+          this.#invalidatePendingTerminalStream();
           if (this.#destroyed) return;
           if (retrying) {
             this.#updateState({ connected: false, controlsTerminal: undefined, error: '', inputReady: false });
@@ -789,14 +660,6 @@ export class TerminalRuntime {
     this.#historyLoadPending = false;
   }
 
-  #updateHistoryState(history: TerminalHistoryState | undefined): void {
-    if (!history) return;
-    this.#historyMayHaveGrown = false;
-    this.#historyEnabled = true;
-    this.#historyLoaded = history.loaded;
-    this.#historyAvailable = history.available;
-  }
-
   #resetHistoryLoading(): void {
     this.#historyMayHaveGrown = false;
     this.#historyAnchor = undefined;
@@ -819,8 +682,7 @@ export class TerminalRuntime {
     if (!context.isCurrent()) return;
     this.#outputSequence.reset();
     this.#resetHistoryLoading();
-    this.#screenSync?.disconnect();
-    this.#renderShield?.reset();
+    this.#invalidatePendingTerminalStream();
     this.#updateState({ connected: false, controlsTerminal: undefined, error: '', reconnecting: true });
     this.#markSubmissionsUncertain();
     this.#connection?.restart('terminal output sequence gap');
@@ -833,14 +695,177 @@ export class TerminalRuntime {
     snapshotId?: number
   ): void {
     if (!context.isCurrent()) return;
-    this.#screenReplacementAnchor = undefined;
     // Same-sized history snapshots may contain newer output; apply their contents and fence together.
     this.#historyMayHaveGrown = false;
-    this.#screenSync?.beginSnapshot(data, {
-      isCurrent: context.isCurrent,
-      acknowledge: () => context.send({ type: 'snapshot-ready', ...(snapshotId === undefined ? {} : { snapshotId }) }),
-      onRestored: () => this.#restoreHistorySnapshot(history),
+    this.#cancelScheduledOutput();
+    this.#pendingOutput = '';
+    const snapshot: PendingTerminalSnapshot = {
+      context,
+      data,
+      generation: ++this.#snapshotGeneration,
+      history,
+      rendered: false,
+      serverReady: false,
+      ...(snapshotId === undefined ? {} : { snapshotId }),
+      written: false,
+    };
+    this.#pendingSnapshot = snapshot;
+    this.#updateState({ screenReady: false });
+    this.#startPendingSnapshot();
+  }
+
+  #invalidatePendingTerminalStream(): void {
+    this.#snapshotGeneration += 1;
+    this.#pendingSnapshot = undefined;
+    this.#cancelScheduledOutput();
+    this.#pendingOutput = '';
+  }
+
+  #startPendingSnapshot(): void {
+    const terminal = this.#terminal;
+    const snapshot = this.#pendingSnapshot;
+    if (this.#suspended || !terminal || !snapshot || this.#activeTerminalWrite || !snapshot.context.isCurrent()) return;
+    this.#activeTerminalWrite = { kind: 'snapshot', generation: snapshot.generation };
+    terminal.reset();
+    terminal.write(snapshot.data, () => this.#completeSnapshotWrite(snapshot.generation));
+  }
+
+  #completeSnapshotWrite(generation: number): void {
+    const activeWrite = this.#activeTerminalWrite;
+    if (!activeWrite || activeWrite.kind !== 'snapshot' || activeWrite.generation !== generation) return;
+    this.#activeTerminalWrite = undefined;
+    const snapshot = this.#pendingSnapshot;
+    if (!snapshot || snapshot.generation !== generation || !snapshot.context.isCurrent()) {
+      this.#startPendingSnapshot();
+      return;
+    }
+    snapshot.written = true;
+    this.#restoreHistorySnapshot(snapshot.history);
+    this.#refreshTerminalDisplay();
+    this.#finishSnapshotIfReady(snapshot);
+  }
+
+  #finishSnapshotIfReady(snapshot: PendingTerminalSnapshot): void {
+    if (
+      this.#pendingSnapshot !== snapshot ||
+      !snapshot.written ||
+      !snapshot.rendered ||
+      !snapshot.serverReady ||
+      !snapshot.context.isCurrent()
+    )
+      return;
+    this.#pendingSnapshot = undefined;
+    this.#updateState({ screenReady: true, openingVisible: false, reconnecting: false });
+    this.#entryClaimPending = false;
+    if (this.#openingDelay) clearTimeout(this.#openingDelay);
+    this.#openingDelay = undefined;
+    this.#revealResumedTerminal();
+
+    const pendingOutput = this.#pendingOutput;
+    this.#pendingOutput = '';
+    if (pendingOutput) this.#startTerminalOutputWrite(pendingOutput);
+    snapshot.context.send({
+      type: 'snapshot-ready',
+      ...(snapshot.snapshotId === undefined ? {} : { snapshotId: snapshot.snapshotId }),
     });
+  }
+
+  #writeTerminalOutput(data: string): void {
+    if (!data || this.#destroyed || !this.#terminal) return;
+    // A single tmux redraw can arrive as several control-mode records. Keep
+    // those parser writes together so xterm does not render each transport
+    // fragment as a separate intermediate frame.
+    this.#pendingOutput += data;
+    if (this.#suspended) return;
+    this.#scheduleOutputFlush();
+  }
+
+  #startTerminalOutputWrite(data: string): void {
+    const terminal = this.#terminal;
+    if (!terminal || !data || this.#destroyed) return;
+    this.#activeTerminalWrite = { kind: 'output' };
+    terminal.write(data, () => {
+      const activeWrite = this.#activeTerminalWrite;
+      if (!activeWrite || activeWrite.kind !== 'output') return;
+      this.#activeTerminalWrite = undefined;
+      if (this.#destroyed) return;
+      if (this.#pendingSnapshot) {
+        this.#startPendingSnapshot();
+        return;
+      }
+      if (this.#pendingOutput) this.#scheduleOutputFlush();
+    });
+  }
+
+  #scheduleOutputFlush(): void {
+    if (
+      this.#destroyed ||
+      this.#suspended ||
+      this.#pendingSnapshot ||
+      this.#activeTerminalWrite ||
+      this.#outputFrame !== undefined
+    ) {
+      return;
+    }
+
+    this.#outputFrame = requestAnimationFrame(() => {
+      this.#outputFrame = undefined;
+      if (this.#destroyed || this.#pendingSnapshot || this.#activeTerminalWrite) return;
+
+      const pending = this.#pendingOutput;
+      this.#pendingOutput = '';
+      if (pending) this.#startTerminalOutputWrite(pending);
+    });
+  }
+
+  #cancelScheduledOutput(): void {
+    if (this.#outputFrame !== undefined) {
+      cancelAnimationFrame(this.#outputFrame);
+      this.#outputFrame = undefined;
+    }
+  }
+
+  #scheduleResumeSync(): void {
+    this.#cancelScheduledResume();
+    this.#resumePending = true;
+    let remainingFrames = TERMINAL_RESUME_LAYOUT_FRAMES;
+    const settle = () => {
+      this.#resumeFrame = undefined;
+      if (this.#destroyed || this.#suspended) return;
+      if (remainingFrames > 0) {
+        remainingFrames -= 1;
+        this.#resumeFrame = requestAnimationFrame(settle);
+        return;
+      }
+
+      // Terminal.svelte commits its visual-viewport CSS size in its own RAF.
+      // Let that commit and the following layout pass finish before measuring
+      // the reparented xterm renderer.
+      this.#cancelScheduledResize();
+      this.claimControl();
+      this.#startPendingSnapshot();
+      if (!this.#pendingSnapshot) {
+        this.#refreshTerminalDisplay(true);
+        this.#revealResumedTerminal();
+      }
+      this.#scheduleOutputFlush();
+      this.#scheduleResize();
+    };
+    this.#resumeFrame = requestAnimationFrame(settle);
+  }
+
+  #cancelScheduledResume(): void {
+    if (this.#resumeFrame !== undefined) {
+      cancelAnimationFrame(this.#resumeFrame);
+      this.#resumeFrame = undefined;
+    }
+    this.#resumePending = false;
+  }
+
+  #revealResumedTerminal(): void {
+    if (!this.#resumePending || this.#destroyed || this.#suspended || this.#pendingSnapshot) return;
+    this.#resumePending = false;
+    this.#terminal?.element?.style.removeProperty('opacity');
   }
 
   #markInputActivity(): void {
@@ -848,22 +873,6 @@ export class TerminalRuntime {
     if (now - this.#inputNoticeAt < INPUT_ACTIVITY_NOTICE_MS) return;
     this.#inputNoticeAt = now;
     this.#options.onInputActivity(this.#options.workspaceId, now);
-  }
-
-  #rememberScreenReplacementAnchor(): void {
-    if (this.#screenReplacementAnchor) return;
-    const buffer = this.#terminal?.buffer.active;
-    if (!buffer || buffer.type !== 'normal') return;
-    this.#screenReplacementAnchor = { distanceFromBottom: buffer.baseY - buffer.viewportY };
-  }
-
-  #restoreScreenReplacementAnchor(): void {
-    const anchor = this.#screenReplacementAnchor;
-    this.#screenReplacementAnchor = undefined;
-    const terminal = this.#terminal;
-    const buffer = terminal?.buffer.active;
-    if (!anchor || !terminal || !buffer || buffer.type !== 'normal') return;
-    terminal.scrollToLine(Math.max(0, buffer.baseY - anchor.distanceFromBottom));
   }
 
   #setOutputActive(active: boolean, timestamp?: number): void {
@@ -890,26 +899,11 @@ export class TerminalRuntime {
     this.#outputActivityTimer = setTimeout(() => this.#setOutputActive(false), OUTPUT_ACTIVE_MS);
   }
 
-  #pauseOutput(): void {
-    if (this.#destroyed || this.#state.outputPaused) return;
-    this.#updateState({
-      connected: false,
-      error: 'Live output was paused to keep this browser responsive. Resume when the command has settled.',
-      outputPaused: true,
-      reconnecting: false,
-    });
-    this.#setOutputActive(false);
-    this.#markSubmissionsUncertain();
-    this.#connection?.stop();
-  }
-
   #applyGeometry(geometry: TerminalSize): void {
     this.#sharedGeometry = geometry;
     const connection = this.#connection;
     if (connection) {
-      // Treat every server geometry as the authoritative acknowledgement. If
-      // the server rejected an optimistic fit (viewer or one-column jitter),
-      // a later observation must be allowed to send that device size again.
+      // Treat every server geometry as the authoritative acknowledgement.
       this.#lastSentSize = `${geometry.columns}x${geometry.rows}`;
       this.#sentSizeConnection = connection.connectionId;
     }
@@ -926,10 +920,7 @@ export class TerminalRuntime {
     const connection = this.#connection;
     // Fit the browser immediately. Waiting for the server geometry echo leaves
     // the old xterm rows clipped behind a mobile software keyboard.
-    const dimensions = fitTerminalToVisibleArea(fitAddon, (columns, rows) => {
-      const terminal = this.#terminal;
-      if (terminal) terminal.resize(columns, rows);
-    });
+    const dimensions = fitTerminalToVisibleArea(fitAddon, (columns, rows) => this.#terminal?.resize(columns, rows));
     if (!dimensions) return;
     this.#requestedSize = dimensions;
     this.#updateControlSizeMismatch();
@@ -945,13 +936,22 @@ export class TerminalRuntime {
     if (this.#suspended || this.#resizeFrame !== undefined) return;
     this.#resizeFrame = requestAnimationFrame(() => {
       this.#resizeFrame = undefined;
-      if (!this.#destroyed) this.#sendSize();
+      if (this.#destroyed || this.#suspended) return;
+      // xterm recommends debouncing resize calls because each one can cause a
+      // PTY SIGWINCH and another geometry echo while the CSS grid is settling.
+      if (this.#resizeTimer !== undefined) clearTimeout(this.#resizeTimer);
+      this.#resizeTimer = setTimeout(() => {
+        this.#resizeTimer = undefined;
+        if (!this.#destroyed && !this.#suspended) this.#sendSize();
+      }, TERMINAL_RESIZE_DEBOUNCE_MS);
     });
   }
 
   #cancelScheduledResize(): void {
     if (this.#resizeFrame !== undefined) cancelAnimationFrame(this.#resizeFrame);
     this.#resizeFrame = undefined;
+    if (this.#resizeTimer !== undefined) clearTimeout(this.#resizeTimer);
+    this.#resizeTimer = undefined;
   }
 
   #refreshTerminalDisplay(clearTextureAtlas = false): void {
@@ -1023,7 +1023,7 @@ export class TerminalRuntime {
     this.#connection?.setRetryEnabled(true);
     this.#recoverConnection();
     this.#scheduleResize();
-    this.#refreshTerminalDisplay(true);
+    if (!this.#resumePending) this.#refreshTerminalDisplay(true);
   };
 
   #handleOnline = (): void => {
@@ -1039,12 +1039,15 @@ export class TerminalRuntime {
 
   #handleThemeChange = (): void => {
     if (!this.#terminal) return;
-    this.#terminal.options.theme = this.#options.getTheme();
-    // The server accepts color reports only from the current controller. Theme
-    // changes on another device must never take terminal ownership by themselves.
-    this.#reportTerminalTheme();
+    this.#applyTheme();
+    if (this.#resumePending) return;
     this.#refreshTerminalDisplay(true);
   };
+
+  #applyTheme(): void {
+    if (!this.#terminal) return;
+    this.#terminal.options.theme = this.#options.getTheme();
+  }
 
   #updateControlSizeMismatch(): void {
     const preferred = this.#requestedSize;
@@ -1071,12 +1074,6 @@ export class TerminalRuntime {
       // changes. The app theme is authoritative for OSC color replies.
       this.#sendTerminalColor(report.slot, terminalThemeColor(report.slot, theme, report.color));
     }
-  }
-
-  #reportTerminalTheme(): void {
-    const theme = this.#options.getTheme();
-    if (isTerminalRgbColor(theme.foreground)) this.#sendTerminalColor(10, theme.foreground);
-    if (isTerminalRgbColor(theme.background)) this.#sendTerminalColor(11, theme.background);
   }
 
   #sendTerminalColor(slot: TerminalColorSlot, color: string): void {

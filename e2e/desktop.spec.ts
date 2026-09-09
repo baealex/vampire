@@ -330,6 +330,15 @@ async function fillTerminalWithNumberedRows(tmuxSession: string, count = 300): P
   await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === finalRow)).toBe(true);
 }
 
+async function fillTerminalWithWrappedRows(tmuxSession: string, count = 300): Promise<void> {
+  const filler = 'x'.repeat(240);
+  const command = `clear; i=1; while [ $i -le ${count} ]; do printf 'VAMP_WRAP_%03d ${filler}\\n' "$i"; i=$((i + 1)); done`;
+  await runTmux(['send-keys', '-t', tmuxSession, '-l', '--', command]);
+  await runTmux(['send-keys', '-t', tmuxSession, 'Enter']);
+  const finalRow = `VAMP_WRAP_${String(count).padStart(3, '0')}`;
+  await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row.startsWith(finalRow))).toBe(true);
+}
+
 interface ObservedTerminalMessage {
   data?: string;
   direction: 'client' | 'server';
@@ -734,17 +743,6 @@ async function dragWorkspaceEntryOver(
     dataTransfer.setData('application/x-vampire-workspace-entry', JSON.stringify(value));
     element.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
   }, entry);
-}
-
-function reportedThemeAfterLatestRequest(messages: ObservedTerminalMessage[]): boolean {
-  const requestIndex = messages.findLastIndex(
-    (message) => message.direction === 'server' && message.type === 'request-terminal-theme'
-  );
-  if (requestIndex < 0) return false;
-  const reports = messages
-    .slice(requestIndex + 1)
-    .filter((message) => message.direction === 'client' && message.type === 'terminal-color');
-  return reports.some((message) => message.slot === 10) && reports.some((message) => message.slot === 11);
 }
 
 test.beforeEach(async ({ request }) => {
@@ -1934,7 +1932,7 @@ test('keeps Compose drafts until tmux delivery is acknowledged and after a lost 
   expect(submissions).toBe(2);
 });
 
-test('loads retained terminal history with the initial terminal screen', async ({ context, page }) => {
+test('loads retained terminal history only after an explicit scroll request', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -1945,8 +1943,9 @@ test('loads retained terminal history with the initial terminal screen', async (
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const initialSnapshot = messages.find((message) => message.direction === 'server' && message.type === 'snapshot');
-  expect(initialSnapshot?.historyLoaded).toBeUndefined();
-  expect(initialSnapshot?.snapshotData).toContain('VAMP_ROW_001');
+  expect(initialSnapshot?.historyLoaded).toBe(0);
+  expect(initialSnapshot?.historyAvailable).toBeGreaterThan(0);
+  expect(initialSnapshot?.snapshotData).not.toContain('VAMP_ROW_001');
   expect(messages.some((message) => message.direction === 'client' && message.type === 'load-history')).toBe(false);
 
   const visibleNumberedRows = () =>
@@ -1962,6 +1961,7 @@ test('loads retained terminal history with the initial terminal screen', async (
   const initialRows = await visibleNumberedRows();
   expect(initialRows.length).toBeGreaterThan(0);
   const initialMinimum = Math.min(...initialRows);
+  expect(initialMinimum).toBeGreaterThan(1);
 
   await page.locator('.xterm-screen').hover();
   await page.mouse.wheel(0, -240);
@@ -1971,10 +1971,14 @@ test('loads retained terminal history with the initial terminal screen', async (
       return rows.length > 0 ? Math.min(...rows) : initialMinimum;
     })
     .toBeLessThan(initialMinimum);
+  expect(
+    messages.filter((message) => message.direction === 'client' && message.type === 'load-history').length
+  ).toBeGreaterThan(0);
 
   for (let index = 0; index < 200; index += 1) await page.mouse.wheel(0, -240);
-  expect(messages.filter((message) => message.direction === 'client' && message.type === 'load-history')).toHaveLength(0);
-  expect(messages.filter((message) => message.direction === 'server' && message.type === 'snapshot')).toHaveLength(1);
+  expect(
+    messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').length
+  ).toBeGreaterThan(1);
 });
 
 test('keeps history created after attachment through a resize', async ({ context, page }) => {
@@ -2485,6 +2489,7 @@ test('measures sustained tmux output delivery and keeps the final screen and inp
   expect(wireSamples.size).toBe(100);
   expect(errors).toEqual([]);
   expect(connections).toBe(initialConnections);
+  expect(deliveries.filter((delivery) => delivery.at >= workloadStarted && delivery.screenSync)).toEqual([]);
   expect(deliveries.filter((delivery) => delivery.at >= workloadStarted && delivery.type === 'client-resize')).toEqual(
     []
   );
@@ -2721,50 +2726,6 @@ test('hands terminal layout between entered devices and restores it on disconnec
   }
 });
 
-test('re-reports each device theme whenever terminal control changes', async ({ browser }) => {
-  test.setTimeout(60_000);
-  const firstContext = await browser.newContext();
-  const secondContext = await browser.newContext();
-  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
-  try {
-    await authenticate(firstContext);
-    await authenticate(secondContext);
-    createdWorkspace = await createWorkspace(firstContext);
-    const firstPage = await firstContext.newPage();
-    const secondPage = await secondContext.newPage();
-    await firstPage.addInitScript(() => window.localStorage.setItem('vampire:theme', 'light'));
-    await secondPage.addInitScript(() => window.localStorage.setItem('vampire:theme', 'dark'));
-    const firstMessages: ObservedTerminalMessage[] = [];
-    const secondMessages: ObservedTerminalMessage[] = [];
-    await observeTerminalMessages(firstPage, firstMessages);
-    await observeTerminalMessages(secondPage, secondMessages);
-
-    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(firstPage);
-    await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
-    const firstRequestCount = firstMessages.filter(
-      (message) => message.direction === 'server' && message.type === 'request-terminal-theme'
-    ).length;
-
-    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(secondPage);
-    await expect.poll(() => reportedThemeAfterLatestRequest(secondMessages)).toBe(true);
-
-    await secondPage.close();
-    await expect
-      .poll(
-        () =>
-          firstMessages.filter((message) => message.direction === 'server' && message.type === 'request-terminal-theme')
-            .length
-      )
-      .toBe(firstRequestCount + 1);
-    await expect.poll(() => reportedThemeAfterLatestRequest(firstMessages)).toBe(true);
-  } finally {
-    await removeWorkspace(firstContext, createdWorkspace?.id);
-    await Promise.all([firstContext.close(), secondContext.close()]);
-  }
-});
-
 test('runs and stops a background command without replacing the main workspace', async ({ context, page }) => {
   test.setTimeout(60_000);
   await authenticate(context);
@@ -2939,27 +2900,87 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   await expect(endedGroup.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
 });
 
-test('overlays the repository panel without resizing the terminal area', async ({ context, page }) => {
+test('places the repository panel beside the terminal and resizes the terminal area', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
+  await fillTerminalWithWrappedRows(workspace.tmuxSession, 300);
+  const messages: ObservedTerminalMessage[] = [];
+  await observeTerminalMessages(page, messages);
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  await fillTerminalWithWrappedRows(workspace.tmuxSession, 300);
+  await expect(page.locator('.xterm-rows')).toContainText('VAMP_WRAP_300');
   const terminalGeometryBeforePanel = await tmuxPaneGeometry(workspace.tmuxSession);
   const terminalWidthBeforePanel = await page
     .locator('.workspace-primary')
     .evaluate((element) => element.getBoundingClientRect().width);
+
+  await page.evaluate(() => {
+    const samples: Array<{ at: number; minimum: number | undefined }> = [];
+    const started = performance.now();
+    const sample = () => {
+      const rows = Array.from(document.querySelectorAll('.xterm-rows > div'))
+        .map((row) => /VAMP_WRAP_(\d+)/u.exec(row.textContent?.trim() ?? ''))
+        .filter((match): match is RegExpExecArray => Boolean(match))
+        .map((match) => Number(match[1]));
+      samples.push({
+        at: Math.round(performance.now() - started),
+        minimum: rows.length ? Math.min(...rows) : undefined,
+      });
+      if (performance.now() - started < 500) requestAnimationFrame(sample);
+    };
+    (window as typeof window & { __vampireResizeHistorySamples?: typeof samples }).__vampireResizeHistorySamples =
+      samples;
+    sample();
+  });
   await page.getByRole('button', { name: 'Open repository' }).click();
   const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
   await expect(repositoryPanel).toBeVisible();
   await expect
     .poll(() => page.locator('.workspace-primary').evaluate((element) => element.getBoundingClientRect().width))
-    .toBe(terminalWidthBeforePanel);
-  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(terminalGeometryBeforePanel);
+    .toBeLessThan(terminalWidthBeforePanel - 100);
+  await expect
+    .poll(async () => (await tmuxPaneGeometry(workspace.tmuxSession)).columns)
+    .toBeLessThan(terminalGeometryBeforePanel.columns);
   await expect
     .poll(() => repositoryPanel.evaluate((element) => element.getBoundingClientRect().width))
     .toBeGreaterThan(300);
+  const [primaryBounds, panelBounds] = await Promise.all([
+    page.locator('.workspace-primary').boundingBox(),
+    repositoryPanel.boundingBox(),
+  ]);
+  expect(primaryBounds).not.toBeNull();
+  expect(panelBounds).not.toBeNull();
+  expect(panelBounds!.x).toBeGreaterThanOrEqual(primaryBounds!.x + primaryBounds!.width - 1);
+
+  await page.getByRole('button', { name: 'Close repository' }).click();
+  await expect(repositoryPanel).toBeHidden();
+  await expect.poll(async () => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(terminalGeometryBeforePanel);
+  await page.waitForTimeout(100);
+  const resizeHistorySamples = await page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __vampireResizeHistorySamples?: Array<{ at: number; minimum: number | undefined }>;
+        }
+      ).__vampireResizeHistorySamples ?? []
+  );
+  expect(resizeHistorySamples.some((sample) => sample.minimum !== undefined)).toBe(true);
+  expect(
+    Math.min(...resizeHistorySamples.filter((sample) => sample.minimum !== undefined).map((sample) => sample.minimum!))
+  ).toBeGreaterThan(1);
+
+  const snapshotCountAfterAttach = messages.filter(
+    (message) => message.direction === 'server' && message.type === 'snapshot'
+  ).length;
+  await expect
+    .poll(() => messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').length)
+    .toBe(snapshotCountAfterAttach);
+  expect(messages.filter((message) => message.direction === 'client' && message.type === 'load-history')).toHaveLength(
+    0
+  );
 });
 
 test('keeps an externally changed file when an editor save conflicts', async ({ context, page }) => {

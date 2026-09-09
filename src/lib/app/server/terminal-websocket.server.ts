@@ -4,7 +4,6 @@ import WebSocket, { WebSocketServer } from 'ws';
 import {
   attachTerminal,
   sendTerminalMessage,
-  type TerminalScreenSynchronizer,
   type TerminalSize,
   type TerminalSizeController,
 } from '~/lib/features/terminal/server/terminal.server.ts';
@@ -32,14 +31,13 @@ import {
 import {
   TERMINAL_GEOMETRY_PROTOCOL_VERSION,
   TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION,
-  TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION,
   TERMINAL_SIZE_LIMITS,
   TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION,
   TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
   TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
-import { recordWorkspaceOutput, suppressWorkspaceActivity } from './workspace-websocket.server.ts';
+import { recordWorkspaceOutput } from './workspace-websocket.server.ts';
 
 const MAX_CONNECTIONS = 32;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -54,13 +52,9 @@ interface TerminalAttachment extends ManagedTerminalAttachment {
   readyPromise: Promise<void>;
   resolveReady: () => void;
   setIgnoreSize?: TerminalSizeController;
-  synchronizeScreen?: TerminalScreenSynchronizer;
 }
 
-interface WorkspaceAttachmentState extends TerminalAttachmentState<TerminalAttachment> {
-  geometryRevision: number;
-  syntheticOutputUntil: number;
-}
+type WorkspaceAttachmentState = TerminalAttachmentState<TerminalAttachment>;
 
 interface TerminalConnectionContext {
   clientId?: string;
@@ -72,7 +66,6 @@ interface TerminalConnectionContext {
   lazyHistory: boolean;
   claimControl: boolean;
   supportsGeometry: boolean;
-  supportsResetScreenSync: boolean;
   supportsSnapshotIds: boolean;
   supportsOutputSequences: boolean;
   supportsSubmissionResults: boolean;
@@ -85,11 +78,7 @@ const workspaceAttachmentStates = new Map<string, WorkspaceAttachmentState>();
 function getAttachmentState(key: string): WorkspaceAttachmentState {
   let state = workspaceAttachmentStates.get(key);
   if (!state) {
-    state = {
-      ...createTerminalAttachmentState<TerminalAttachment>(),
-      geometryRevision: 0,
-      syntheticOutputUntil: 0,
-    };
+    state = createTerminalAttachmentState<TerminalAttachment>();
     workspaceAttachmentStates.set(key, state);
   }
   return state;
@@ -113,9 +102,6 @@ async function activateAttachment(
   options: { onlyIfUnclaimed?: boolean; replaces?: TerminalAttachment } = {}
 ): Promise<void> {
   const changed = await activateTerminalAttachment(state, attachment, options);
-  if (changed && attachment.supportsGeometry && !attachment.released) {
-    sendTerminalMessage(attachment.socket, { type: 'request-terminal-theme' });
-  }
   if (changed && state.geometry) broadcastTerminalGeometry(state, state.geometry);
 }
 
@@ -211,7 +197,6 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
     const claimControl = url.searchParams.get('active') === '1';
     const protocolVersion = Number(url.searchParams.get('protocol'));
     const supportsGeometry = protocolVersion >= TERMINAL_GEOMETRY_PROTOCOL_VERSION;
-    const supportsResetScreenSync = protocolVersion >= TERMINAL_RESET_SCREEN_SYNC_PROTOCOL_VERSION;
     const supportsSnapshotIds = protocolVersion >= TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION;
     const supportsOutputSequences = protocolVersion >= TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION;
     const supportsSubmissionResults = protocolVersion >= TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION;
@@ -226,7 +211,6 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
         lazyHistory,
         claimControl,
         supportsGeometry,
-        supportsResetScreenSync,
         supportsSnapshotIds,
         supportsOutputSequences,
         supportsSubmissionResults,
@@ -262,7 +246,6 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
       readyPromise,
       resolveReady,
       setIgnoreSize: undefined,
-      synchronizeScreen: undefined,
       terminate: () => {
         if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
       },
@@ -303,18 +286,15 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           canReportTerminalColor: () =>
             authentication.isAuthorized() && state.activeAttachment === attachment && !attachment.released,
           getGeometry: () => state.geometry,
-          getGeometryRevision: () => state.geometryRevision,
           hasControl: () =>
             authentication.isAuthorized() && state.activeAttachment === attachment && !attachment.released,
           sendGeometry: context.supportsGeometry,
-          resetScreenSync: context.supportsResetScreenSync,
           snapshotIds: context.supportsSnapshotIds,
           outputSequences: context.supportsOutputSequences,
           submissionResults: context.supportsSubmissionResults,
           scheduleOperation: (operation) => runTerminalOperation(state, operation),
-          onAttached: async (setIgnoreSize, synchronizeScreen) => {
+          onAttached: async (setIgnoreSize) => {
             attachment.setIgnoreSize = setIgnoreSize;
-            attachment.synchronizeScreen = synchronizeScreen;
             attachment.resolveReady();
             if (attachment.released || !authentication.isAuthorized()) return;
             const newerConnection = previousTerminalConnection(state, attachment);
@@ -339,18 +319,9 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
           },
           onGeometryChange: (geometry) => {
             if (updateTerminalGeometry(state, attachment, geometry)) {
-              state.geometryRevision += 1;
               broadcastTerminalGeometry(state, geometry);
             }
           },
-          onInput: () => {
-            state.syntheticOutputUntil = 0;
-          },
-          onSyntheticOutput: (timestamp) => {
-            state.syntheticOutputUntil = Math.max(state.syntheticOutputUntil, timestamp);
-          },
-          onSyntheticActivity: (timestamp) => suppressWorkspaceActivity(context.workspaceId, timestamp),
-          isOutputActivity: (timestamp) => timestamp > state.syntheticOutputUntil,
           onOutputActivity: (timestamp) => recordWorkspaceOutput(context.workspaceId, context.terminalId, timestamp),
         });
       })

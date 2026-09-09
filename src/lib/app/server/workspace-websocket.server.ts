@@ -60,11 +60,6 @@ const WORKSPACE_FIELDS = [
   'workspaceAvailable',
 ] as const satisfies ReadonlyArray<keyof Omit<ManagedWorkspace, 'id'>>;
 
-interface ActivitySuppression {
-  lastOutputAt: number;
-  mainLastOutputAt: number;
-}
-
 interface PendingAgentState {
   state: AgentState;
   count: number;
@@ -179,7 +174,6 @@ function workspaceChanges(previous: ManagedWorkspace, next: ManagedWorkspace): W
 export function reconcileWorkspaceActivity(
   workspaces: Map<string, ManagedWorkspace>,
   tmuxActivity: TmuxSessionActivity[],
-  suppressedActivity = new Map<string, ActivitySuppression>(),
   agentStates = new Map<string, AgentState>()
 ): { workspaces: Map<string, ManagedWorkspace>; updates: WorkspaceUpdate[] } {
   const activityByName = new Map(tmuxActivity.map((activity) => [activity.name, activity]));
@@ -187,7 +181,6 @@ export function reconcileWorkspaceActivity(
   const updates: WorkspaceUpdate[] = [];
   for (const [id, workspace] of workspaces) {
     const activity = activityByName.get(workspace.tmuxSession);
-    const suppression = suppressedActivity.get(id);
     const changes: WorkspaceChanges = {};
     if (!activity) {
       if (workspace.state === 'running') {
@@ -206,17 +199,12 @@ export function reconcileWorkspaceActivity(
       }
       const mainTerminal = workspace.terminals?.[0];
       const mainOutputAt = mainTerminal ? activity.mainLastOutputAt : activity.lastOutputAt;
-      if (
-        mainOutputAt !== null &&
-        mainOutputAt > (suppression?.lastOutputAt ?? 0) &&
-        mainOutputAt > (workspace.lastOutputAt ?? 0)
-      ) {
+      if (mainOutputAt !== null && mainOutputAt > (workspace.lastOutputAt ?? 0)) {
         changes.lastOutputAt = mainOutputAt;
       }
       if (
         mainTerminal &&
         activity.mainLastOutputAt !== null &&
-        activity.mainLastOutputAt > (suppression?.mainLastOutputAt ?? 0) &&
         activity.mainLastOutputAt > (mainTerminal.lastOutputAt ?? 0)
       ) {
         changes.terminals = workspace.terminals.map((terminal, index) =>
@@ -234,8 +222,7 @@ export function reconcileWorkspaceActivity(
 
 export function preserveLatestOutput(
   nextWorkspaces: Map<string, ManagedWorkspace>,
-  currentWorkspaces: Map<string, ManagedWorkspace> | undefined,
-  suppressedActivity = new Map<string, ActivitySuppression>()
+  currentWorkspaces: Map<string, ManagedWorkspace> | undefined
 ): Map<string, ManagedWorkspace> {
   if (!currentWorkspaces) return nextWorkspaces;
   const preservedWorkspaces = new Map<string, ManagedWorkspace>();
@@ -250,26 +237,17 @@ export function preserveLatestOutput(
       preservedWorkspaces.set(id, next);
       continue;
     }
-    const suppression = suppressedActivity.get(id);
     const currentTerminals = new Map(current.terminals.map((terminal) => [terminal.id, terminal]));
-    const nextLastOutputAt =
-      next.lastOutputAt !== null && next.lastOutputAt <= (suppression?.lastOutputAt ?? 0)
-        ? current.lastOutputAt
-        : next.lastOutputAt;
     preservedWorkspaces.set(id, {
       ...next,
       agentState: current.agentState ?? next.agentState ?? null,
-      lastOutputAt: Math.max(nextLastOutputAt ?? 0, current.lastOutputAt ?? 0) || null,
+      lastOutputAt: Math.max(next.lastOutputAt ?? 0, current.lastOutputAt ?? 0) || null,
       terminals: next.terminals.map((terminal, index) => {
         if (index > 0) return terminal;
         const previous = currentTerminals.get(terminal.id);
-        const nextTerminalOutputAt =
-          terminal.lastOutputAt !== null && terminal.lastOutputAt <= (suppression?.lastOutputAt ?? 0)
-            ? (previous?.lastOutputAt ?? null)
-            : terminal.lastOutputAt;
-        return (previous?.lastOutputAt ?? 0) > (nextTerminalOutputAt ?? 0)
+        return (previous?.lastOutputAt ?? 0) > (terminal.lastOutputAt ?? 0)
           ? { ...terminal, lastOutputAt: previous!.lastOutputAt }
-          : { ...terminal, lastOutputAt: nextTerminalOutputAt };
+          : terminal;
       }),
     });
   }
@@ -316,26 +294,12 @@ class WorkspaceStatusHub {
   #activityRefreshPromise: Promise<void> | undefined;
   #refreshTimer: NodeJS.Timeout | undefined;
   #activityRefreshTimer: NodeJS.Timeout | undefined;
-  #suppressedActivity = new Map<string, ActivitySuppression>();
   #pendingAgentStates = new Map<string, PendingAgentState>();
   #statusPlugins = new StatusPluginRuntime((plugins) => {
     this.#broadcast({ type: 'status-plugins-snapshot', plugins });
   });
 
-  suppressWorkspaceActivity(workspaceId: string, timestamp: number): void {
-    const current = this.#suppressedActivity.get(workspaceId) ?? {
-      lastOutputAt: 0,
-      mainLastOutputAt: 0,
-    };
-    this.#suppressedActivity.set(workspaceId, {
-      lastOutputAt: Math.max(current.lastOutputAt, timestamp),
-      mainLastOutputAt: Math.max(current.mainLastOutputAt, timestamp),
-    });
-  }
-
   recordWorkspaceOutput(workspaceId: string, terminalId: string | undefined, timestamp: number): boolean {
-    const suppression = this.#suppressedActivity.get(workspaceId);
-    if (timestamp <= (suppression?.mainLastOutputAt ?? 0)) return false;
     const workspaces = this.#workspaces;
     if (!workspaces) return false;
     const workspace = workspaces.get(workspaceId);
@@ -404,7 +368,6 @@ class WorkspaceStatusHub {
     this.#preferences = undefined;
     this.#launchProfiles = undefined;
     this.#defaultStartupProfileId = undefined;
-    this.#suppressedActivity.clear();
     this.#pendingAgentStates.clear();
     this.#statusPlugins.stop();
   }
@@ -418,7 +381,6 @@ class WorkspaceStatusHub {
     this.#preferences = undefined;
     this.#launchProfiles = undefined;
     this.#defaultStartupProfileId = undefined;
-    this.#suppressedActivity.clear();
     this.#pendingAgentStates.clear();
     this.#statusPlugins.stop();
     for (const socket of this.#clients) socket.close(1001, 'server shutting down');
@@ -450,8 +412,7 @@ class WorkspaceStatusHub {
       const nextDefaultStartupProfileId = nextProfileSettings.defaultStartupProfileId;
       const nextWorkspaces = preserveLatestOutput(
         new Map(managedWorkspaces.map((workspace) => [workspace.id, workspace])),
-        this.#workspaces,
-        this.#suppressedActivity
+        this.#workspaces
       );
       const previousWorkspaces = this.#workspaces;
       const previousPreferences = this.#preferences;
@@ -465,7 +426,6 @@ class WorkspaceStatusHub {
 
       for (const [id] of previousWorkspaces) {
         if (!nextWorkspaces.has(id)) {
-          this.#suppressedActivity.delete(id);
           this.#pendingAgentStates.delete(id);
           this.#broadcast({ type: 'workspace-removed', id });
         }
@@ -516,7 +476,7 @@ class WorkspaceStatusHub {
       ]);
       if (!this.#workspaces) return;
       const agentStates = stabilizeAgentStates(this.#workspaces, detectedAgentStates, this.#pendingAgentStates);
-      const result = reconcileWorkspaceActivity(this.#workspaces, tmuxActivity, this.#suppressedActivity, agentStates);
+      const result = reconcileWorkspaceActivity(this.#workspaces, tmuxActivity, agentStates);
       this.#workspaces = result.workspaces;
       for (const update of result.updates) {
         this.#broadcast({ type: 'workspace-updated', id: update.id, changes: update.changes });
@@ -540,10 +500,6 @@ const workspaceStatusHub = new WorkspaceStatusHub();
 
 export function recordWorkspaceOutput(workspaceId: string, terminalId: string | undefined, timestamp: number): boolean {
   return workspaceStatusHub.recordWorkspaceOutput(workspaceId, terminalId, timestamp);
-}
-
-export function suppressWorkspaceActivity(workspaceId: string, timestamp: number): void {
-  workspaceStatusHub.suppressWorkspaceActivity(workspaceId, timestamp);
 }
 
 export function installWorkspaceWebSocket(server: HttpServer): () => void {

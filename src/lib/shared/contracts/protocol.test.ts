@@ -139,9 +139,6 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
       throughSequence: 41,
     }
   );
-  assert.deepEqual(decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'request-terminal-theme' })), {
-    type: 'request-terminal-theme',
-  });
   assert.deepEqual(
     decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'geometry', columns: 120, rows: 40 })),
     { type: 'geometry', columns: 120, rows: 40 }
@@ -163,30 +160,6 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
       })
     ),
     { type: 'output', data: 'ready', activity: true, activityAt: 4_000, sequence: 42 }
-  );
-  assert.deepEqual(
-    decodeTerminalServerMessage(
-      encodeTerminalServerMessage({
-        type: 'output',
-        data: 'screen',
-        activity: false,
-        activityAt: null,
-        screenSync: true,
-        reset: true,
-        history: { loaded: 250, available: 900 },
-        throughSequence: 46,
-      })
-    ),
-    {
-      type: 'output',
-      data: 'screen',
-      activity: false,
-      activityAt: null,
-      screenSync: true,
-      reset: true,
-      history: { loaded: 250, available: 900 },
-      throughSequence: 46,
-    }
   );
   assert.deepEqual(
     decodeTerminalServerMessage(

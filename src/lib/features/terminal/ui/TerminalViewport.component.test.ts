@@ -67,7 +67,6 @@ function latestRuntimeOptions() {
       inputReady: boolean;
       openingStage: 'opening' | 'attaching' | 'restoring';
       openingVisible: boolean;
-      outputPaused: boolean;
       reconnecting: boolean;
       screenReady: boolean;
     }) => void;
@@ -124,7 +123,6 @@ test('a later connection state does not take focus back from an explicit control
     inputReady: true,
     openingStage: 'restoring',
     openingVisible: false,
-    outputPaused: false,
     reconnecting: false,
     screenReady: true,
   });
@@ -199,4 +197,16 @@ test('restores a terminal preference only for its workspace and terminal', async
   expect(latestRuntimeOptions().shouldAutoFocus()).toBe(false);
   await flushAnimationFrames();
   expect(screen.getByLabelText('Send text to the shell')).toHaveFocus();
+});
+
+test('keeps transient notices above the input dock without adding a layout row', () => {
+  const view = renderViewport();
+  const inputRegion = view.container.querySelector('.terminal-input-region');
+  const notices = view.container.querySelector('.terminal-transient-notices');
+
+  expect(inputRegion).not.toBeNull();
+  expect(notices).not.toBeNull();
+  if (!(inputRegion instanceof HTMLElement) || !(notices instanceof HTMLElement)) return;
+
+  expect(inputRegion.contains(notices)).toBe(true);
 });

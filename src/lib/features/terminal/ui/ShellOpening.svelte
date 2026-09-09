@@ -20,7 +20,7 @@ const tunnelRibs = Array.from({ length: 8 }, (_, index) => index);
 <div
   class="shell-opening"
   class:is-visible={visible && !ready}
-  class:is-ready={ready}
+  class:is-ready={ready || !visible}
   role="status"
   aria-hidden={ready || !visible}
 >

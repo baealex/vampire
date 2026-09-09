@@ -9,7 +9,6 @@ export interface ManagedTerminalAttachment {
   sessionId?: string;
   released: boolean;
   setIgnoreSize?: (ignored: boolean) => Promise<void>;
-  synchronizeScreen?: (geometry?: TerminalGeometry) => Promise<void>;
   terminate?: () => void;
 }
 
@@ -45,27 +44,6 @@ export function runTerminalOperation<T extends ManagedTerminalAttachment, R>(
   return result;
 }
 
-export async function synchronizeTerminalAttachments<T extends ManagedTerminalAttachment>(
-  state: TerminalAttachmentState<T>,
-  geometry: TerminalGeometry | undefined,
-  excluded?: T
-): Promise<void> {
-  await Promise.all(
-    [...state.attachments]
-      .filter((candidate) => candidate !== excluded && !candidate.released && Boolean(candidate.synchronizeScreen))
-      .map(async (candidate) => {
-        try {
-          await candidate.synchronizeScreen?.(geometry);
-        } catch {
-          // A subscriber that cannot accept the authoritative frame must start
-          // a fresh connection. Do not leave its delivery fence permanently
-          // paused, and do not let it roll back the shared pane geometry.
-          candidate.terminate?.();
-        }
-      })
-  );
-}
-
 export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
   attachment: T,
@@ -76,7 +54,6 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
     .then(async () => {
       if (attachment.released || !attachment.setIgnoreSize) return false;
       const previous = state.activeAttachment;
-      let unhealthyPrevious: T | undefined;
       if (options.onlyIfUnclaimed && previous && previous !== attachment && previous !== options.replaces) return false;
       if (previous === attachment) {
         await attachment.setIgnoreSize(false);
@@ -102,15 +79,14 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
           // Once the new controller owns a size, an unhealthy former controller
           // must not roll the terminal back to an ownerless state. Disconnect it
           // so tmux cannot keep considering its stale geometry.
-          unhealthyPrevious = previous;
           previous.terminate?.();
         }
       }
       if (attachment.released || state.activeAttachment !== attachment) return false;
-      // A browser that misses a redraw can recover independently. Layout
-      // ownership must survive a transient synchronization failure.
-      await synchronizeTerminalAttachments(state, state.geometry, unhealthyPrevious);
-      if (attachment.released || state.activeAttachment !== attachment) return false;
+      // The raw tmux stream already carries the redraw caused by a size
+      // handoff. Do not inject an authoritative full-screen replacement into
+      // every attachment here; that turns a normal control handoff into a
+      // visible reset and can make reconnects oscillate.
       state.controlHistory = state.controlHistory.filter((candidate) => candidate !== attachment);
       state.controlHistory.push(attachment);
       return true;

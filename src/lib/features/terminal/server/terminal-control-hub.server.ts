@@ -72,6 +72,8 @@ export class TerminalControlHub {
   #decoder = new TextDecoder();
   #nextOutputSequence = 0;
   #outputVersion = 0;
+  #outputPauseDepth = 0;
+  #pausedOutputs: TerminalControlHubOutput[] = [];
   #pendingCommands: PendingControlCommand[] = [];
   #operationQueue: Promise<void> = Promise.resolve();
   #readyReject!: (reason: unknown) => void;
@@ -131,6 +133,26 @@ export class TerminalControlHub {
     }
     this.#subscribers.add(subscriber);
     return () => this.#subscribers.delete(subscriber);
+  }
+
+  /**
+   * Hold raw pane output while a control operation establishes a browser-visible
+   * boundary, such as a resize. The bytes are still sequenced immediately and
+   * are released in their original order; this is not a terminal replay or a
+   * second parser.
+   */
+  pauseOutput(): () => void {
+    if (this.#closed) return () => undefined;
+    this.#outputPauseDepth += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#outputPauseDepth = Math.max(0, this.#outputPauseDepth - 1);
+      if (this.#outputPauseDepth !== 0 || this.#pausedOutputs.length === 0) return;
+      const pending = this.#pausedOutputs.splice(0);
+      for (const output of pending) this.#deliverOutput(output);
+    };
   }
 
   runCommand(command: string, onSuccess?: (output: string) => void): Promise<string> {
@@ -193,6 +215,8 @@ export class TerminalControlHub {
     if (this.#closed) return;
     this.#closed = true;
     this.#rejectControlCommands(new Error('tmux control client is unavailable.'));
+    this.#pausedOutputs = [];
+    this.#outputPauseDepth = 0;
     this.#controlLineBuffer = Buffer.alloc(0);
     this.#control.stdin.end();
     this.#control.kill();
@@ -227,23 +251,9 @@ export class TerminalControlHub {
     if (output !== undefined) {
       this.#outputVersion += 1;
       if (!output) return;
-      // Keep the browser on tmux's ordered output path. There is deliberately
-      // no second terminal parser behind this callback.
       const liveOutput = { sequence: ++this.#nextOutputSequence, data: output };
-      for (const subscriber of this.#subscribers) {
-        try {
-          subscriber.onOutput(liveOutput);
-        } catch (error) {
-          this.#subscribers.delete(subscriber);
-          try {
-            subscriber.onUnavailable(
-              error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.')
-            );
-          } catch {
-            // Isolate a broken socket callback from every other subscriber.
-          }
-        }
-      }
+      if (this.#outputPauseDepth > 0) this.#pausedOutputs.push(liveOutput);
+      else this.#deliverOutput(liveOutput);
       return;
     }
     const line = lineBuffer.toString('utf8');
@@ -293,6 +303,8 @@ export class TerminalControlHub {
     if (this.#closed) return;
     this.#closed = true;
     this.#rejectControlCommands(error);
+    this.#pausedOutputs = [];
+    this.#outputPauseDepth = 0;
     this.#controlLineBuffer = Buffer.alloc(0);
     this.#control.stdin.end();
     this.#control.kill();
@@ -304,6 +316,25 @@ export class TerminalControlHub {
       }
     }
     this.#subscribers.clear();
+  }
+
+  #deliverOutput(output: TerminalControlHubOutput): void {
+    // Keep the browser on tmux's ordered output path. There is deliberately
+    // no second terminal parser behind this callback.
+    for (const subscriber of this.#subscribers) {
+      try {
+        subscriber.onOutput(output);
+      } catch (error) {
+        this.#subscribers.delete(subscriber);
+        try {
+          subscriber.onUnavailable(
+            error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.')
+          );
+        } catch {
+          // Isolate a broken socket callback from every other subscriber.
+        }
+      }
+    }
   }
 }
 

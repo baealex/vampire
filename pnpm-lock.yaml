@@ -7,11 +7,6 @@ settings:
 overrides:
   '@sveltejs/kit>cookie': 0.7.2
 
-patchedDependencies:
-  '@xterm/xterm@6.0.0':
-    hash: b63ead86743b2d26d0e238875877179eee096490742f021cebce1e557502f241
-    path: patches/@xterm__xterm@6.0.0.patch
-
 importers:
 
   .:
@@ -79,7 +74,7 @@ importers:
         version: 0.11.0
       '@xterm/xterm':
         specifier: ^6.0.0
-        version: 6.0.0(patch_hash=b63ead86743b2d26d0e238875877179eee096490742f021cebce1e557502f241)
+        version: 6.0.0
       bits-ui:
         specifier: ^2.18.1
         version: 2.18.1(@internationalized/date@3.12.2)(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.7)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(svelte@5.56.7)(typescript@5.9.3)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(svelte@5.56.7)
@@ -2553,7 +2548,7 @@ snapshots:
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@6.0.0(patch_hash=b63ead86743b2d26d0e238875877179eee096490742f021cebce1e557502f241)': {}
+  '@xterm/xterm@6.0.0': {}
 
   acorn@8.17.0: {}
 

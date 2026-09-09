@@ -48,12 +48,24 @@ vi.mock('@xterm/xterm', () => ({
     element = document.createElement('div');
     focus = vi.fn();
     dispose = vi.fn();
-    refresh = vi.fn();
+    renderHandler: (() => void) | undefined;
+    renderOnRefresh = true;
+    onRender = vi.fn((handler: () => void) => {
+      this.renderHandler = handler;
+      return { dispose: vi.fn() };
+    });
+    refresh = vi.fn(() => {
+      if (this.renderOnRefresh) this.renderHandler?.();
+    });
     reset = vi.fn();
     clearTextureAtlas = vi.fn();
     attachCustomKeyEventHandler = vi.fn();
     onData = vi.fn(() => ({ dispose: vi.fn() }));
-    onScroll = vi.fn(() => ({ dispose: vi.fn() }));
+    scrollHandler: ((viewportY: number) => void) | undefined;
+    onScroll = vi.fn((handler: (viewportY: number) => void) => {
+      this.scrollHandler = handler;
+      return { dispose: vi.fn() };
+    });
     loadAddon = vi.fn();
     constructor(options: unknown) {
       this.options = options;
@@ -62,13 +74,13 @@ vi.mock('@xterm/xterm', () => ({
     open(element: HTMLElement) {
       element.append(this.element);
     }
-    write(_data: string, done?: () => void) {
+    write = vi.fn((_data: string, done?: () => void) => {
       done?.();
-    }
-    resize(cols: number, rows: number) {
+    });
+    resize = vi.fn((cols: number, rows: number) => {
       this.cols = cols;
       this.rows = rows;
-    }
+    });
     scrollToLine(line: number) {
       this.buffer.active.viewportY = line;
     }
@@ -110,12 +122,13 @@ function options(): TerminalRuntimeOptions {
   };
 }
 
-async function ready(initial = options()) {
+async function ready(initial = options(), history?: { loaded: number; available: number }) {
   const runtime = acquireTerminalRuntime(initial);
   runtime.start();
   await vi.dynamicImportSettled();
+  await vi.advanceTimersByTimeAsync(3);
   const connection = doubles.connections[0];
-  connection.receive({ type: 'snapshot', data: 'hello', throughSequence: 0 });
+  connection.receive({ type: 'snapshot', data: 'hello', throughSequence: 0, ...(history ? { history } : {}) });
   connection.receive({ type: 'screen-ready' });
   await vi.advanceTimersByTimeAsync(100);
   return { initial, runtime, connection, terminal: doubles.terminals[0] };
@@ -163,6 +176,26 @@ test('returning to a workspace reuses its connection, terminal and reading posit
   expect(resumedOptions.element.lang).toBe(navigator.language || 'und');
   expect(terminal.buffer.active.viewportY).toBe(75);
   expect(resumedOptions.onStateChange).toHaveBeenCalledWith(expect.objectContaining({ screenReady: true }));
+  expect(terminal.element.style.opacity).toBe('0');
+  await vi.advanceTimersByTimeAsync(3);
+  expect(terminal.element.style.opacity).toBe('');
+  expect(terminal.clearTextureAtlas).toHaveBeenCalledOnce();
+  expect(terminal.refresh).toHaveBeenCalled();
+  resumed.dispose();
+});
+
+test('buffers output while a cached terminal is detached and writes it after layout settles', async () => {
+  const { runtime, connection, terminal } = await ready();
+  releaseTerminalRuntime(runtime);
+  terminal.write.mockClear();
+
+  connection.receive({ type: 'output', data: 'detached output', sequence: 1 });
+  await vi.advanceTimersByTimeAsync(10);
+  expect(terminal.write).not.toHaveBeenCalled();
+
+  const resumed = acquireTerminalRuntime(options());
+  await vi.advanceTimersByTimeAsync(4);
+  expect(terminal.write).toHaveBeenCalledWith('detached output', expect.any(Function));
   resumed.dispose();
 });
 
@@ -178,10 +211,130 @@ test('reconnect does not steal focus and disconnected input reports failure', as
   runtime.dispose();
 });
 
+test('does not proactively report app colors during attach or control handoff', async () => {
+  const initial = options();
+  initial.getTheme = () => ({ foreground: '#2c2527', background: '#fbfafa', cursor: '#c83f4e' });
+  const { runtime, connection } = await ready(initial);
+
+  expect(connection.send.mock.calls.filter(([message]: any[]) => message.type === 'terminal-color')).toHaveLength(0);
+
+  connection.send.mockClear();
+  runtime.claimControl();
+  window.dispatchEvent(new Event('theme-change'));
+
+  expect(connection.send.mock.calls.filter(([message]: any[]) => message.type === 'terminal-color')).toHaveLength(0);
+  runtime.dispose();
+});
+
+test('normal output goes straight to xterm without a screen replacement', async () => {
+  const { initial, runtime, connection, terminal } = await ready();
+  vi.mocked(initial.onStateChange).mockClear();
+  terminal.write.mockClear();
+  terminal.reset.mockClear();
+
+  connection.receive({ type: 'output', data: 'redraw', sequence: 1 });
+  await vi.advanceTimersByTimeAsync(5);
+
+  expect(terminal.reset).not.toHaveBeenCalled();
+  expect(terminal.write).toHaveBeenCalledOnce();
+  expect(terminal.write).toHaveBeenCalledWith('redraw', expect.any(Function));
+  expect(initial.onStateChange).not.toHaveBeenCalled();
+  runtime.dispose();
+});
+
+test('coalesces output fragments that arrive in the same render frame', async () => {
+  const { runtime, connection, terminal } = await ready();
+  terminal.write.mockClear();
+
+  connection.receive({ type: 'output', data: 'first', sequence: 1 });
+  connection.receive({ type: 'output', data: 'second', sequence: 2 });
+
+  expect(terminal.write).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+
+  expect(terminal.write).toHaveBeenCalledOnce();
+  expect(terminal.write).toHaveBeenCalledWith('firstsecond', expect.any(Function));
+  runtime.dispose();
+});
+
+test('delegates geometry changes to xterm without requesting retained history', async () => {
+  const { runtime, connection, terminal } = await ready(options(), { loaded: 0, available: 120 });
+  connection.send.mockClear();
+
+  connection.receive({ type: 'geometry', columns: 79, rows: 24 });
+
+  expect(terminal.resize).toHaveBeenCalledWith(79, 24);
+  expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'load-history' }));
+  expect(terminal.buffer.active.viewportY).toBe(75);
+  runtime.dispose();
+});
+
+test('requests retained history when xterm reports a user viewport at the top', async () => {
+  const { runtime, connection, terminal } = await ready(options(), { loaded: 0, available: 120 });
+  connection.send.mockClear();
+
+  terminal.scrollHandler?.(0);
+  expect(connection.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'load-history' }));
+  runtime.dispose();
+});
+
+test('a snapshot resets once and releases queued output only after screen-ready', async () => {
+  const initial = options();
+  const runtime = acquireTerminalRuntime(initial);
+  runtime.start();
+  await vi.dynamicImportSettled();
+  await vi.advanceTimersByTimeAsync(3);
+  const connection = doubles.connections[0];
+  const terminal = doubles.terminals[0];
+  terminal.reset.mockClear();
+  terminal.write.mockClear();
+  connection.send.mockClear();
+
+  connection.receive({ type: 'snapshot', data: 'snapshot', throughSequence: 0 });
+  connection.receive({ type: 'output', data: 'queued', sequence: 1 });
+
+  expect(terminal.reset).toHaveBeenCalledOnce();
+  expect(terminal.write).toHaveBeenCalledOnce();
+  expect(terminal.write).toHaveBeenCalledWith('snapshot', expect.any(Function));
+  expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot-ready' }));
+
+  connection.receive({ type: 'screen-ready' });
+
+  expect(terminal.write).toHaveBeenNthCalledWith(2, 'queued', expect.any(Function));
+  expect(connection.send).toHaveBeenCalledWith({ type: 'snapshot-ready' });
+  expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal-color' }));
+  runtime.dispose();
+});
+
+test('does not expose a snapshot until xterm has rendered it', async () => {
+  const initial = options();
+  const runtime = acquireTerminalRuntime(initial);
+  runtime.start();
+  await vi.dynamicImportSettled();
+  await vi.advanceTimersByTimeAsync(3);
+  const connection = doubles.connections[0];
+  const terminal = doubles.terminals[0];
+  terminal.renderOnRefresh = false;
+
+  connection.receive({ type: 'snapshot', data: 'snapshot', throughSequence: 0 });
+  connection.receive({ type: 'screen-ready' });
+  await vi.advanceTimersByTimeAsync(100);
+
+  expect(initial.onStateChange).not.toHaveBeenCalledWith(expect.objectContaining({ screenReady: true }));
+  expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot-ready' }));
+
+  terminal.renderHandler?.();
+
+  expect(initial.onStateChange).toHaveBeenCalledWith(expect.objectContaining({ screenReady: true }));
+  expect(connection.send).toHaveBeenCalledWith({ type: 'snapshot-ready' });
+  runtime.dispose();
+});
+
 test('retries identify the same runtime without repeating its initial control claim', async () => {
   const runtime = acquireTerminalRuntime(options());
   runtime.start();
   await vi.dynamicImportSettled();
+  await vi.advanceTimersByTimeAsync(3);
   const connection = doubles.connections[0];
   const first = connection.urls[0];
   const retry = connection.resolveUrl();
@@ -233,18 +386,6 @@ test('an online event in a hidden tab does not restart exhausted retries', async
   connection.callbacks.onReconnectExhausted();
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   window.dispatchEvent(new Event('online'));
-  expect(connection.retryNow).not.toHaveBeenCalled();
-  runtime.dispose();
-  visibility.mockRestore();
-});
-
-test('connectivity events do not resume output paused by browser backpressure', async () => {
-  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
-  const { initial, runtime, connection } = await ready();
-  connection.receive({ type: 'output', data: 'x'.repeat(513 * 1024), sequence: 1 });
-  expect(initial.onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ outputPaused: true }));
-  window.dispatchEvent(new Event('online'));
-  window.dispatchEvent(new Event('focus'));
   expect(connection.retryNow).not.toHaveBeenCalled();
   runtime.dispose();
   visibility.mockRestore();

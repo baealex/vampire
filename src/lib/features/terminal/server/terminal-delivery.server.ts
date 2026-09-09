@@ -4,50 +4,31 @@ export interface SequencedTerminalDelivery<T> {
   value: T;
 }
 
-export interface FencedTerminalDelivery<T> {
-  throughSequence: number;
-  value: T;
-}
-
-export interface TerminalDeliveryBatch<TOutput, TSynchronization> {
+export interface TerminalDeliveryBatch<TOutput> {
   outputs: Array<SequencedTerminalDelivery<TOutput>>;
-  synchronization?: FencedTerminalDelivery<TSynchronization>;
 }
 
-export interface TerminalDeliveryEnqueueResult<TOutput, TSynchronization>
-  extends TerminalDeliveryBatch<TOutput, TSynchronization> {
+export interface TerminalDeliveryEnqueueResult<TOutput> extends TerminalDeliveryBatch<TOutput> {
   overflowed: boolean;
 }
 
 /**
- * Per-subscriber delivery fence between an authoritative tmux capture and the wire.
- *
- * A snapshot/reset represents every tmux output through its sequence. Any
- * earlier delta is discarded, later deltas stay ordered behind that frame, and
- * nothing drains until the browser has acknowledged its snapshot. This keeps a
- * recovery frame from overtaking output already waiting for snapshot ACK.
+ * Per-subscriber delivery fence between the initial authoritative tmux capture
+ * and the wire. Output observed before the browser acknowledges that capture is
+ * held and then released in sequence order. Once acknowledged, output is sent
+ * directly without inventing a second screen state.
  */
-export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
+export class TerminalDeliveryBuffer<TOutput> {
   #acknowledged = false;
   #authoritativeThroughSequence = 0;
-  #holdingSynchronization = false;
   #latestObservedSequence = 0;
   #maximumPendingBytes: number;
   #pendingBytes = 0;
-  #recoverOverflow: boolean;
-  #recoveryThroughSequence = 0;
   #pendingOutputs: Array<SequencedTerminalDelivery<TOutput>> = [];
-  #pendingSynchronization: FencedTerminalDelivery<TSynchronization> | undefined;
   #snapshotSent = false;
-  #synchronizationGeneration = 0;
 
-  constructor(maximumPendingBytes: number, recoverOverflow = false) {
-    this.#recoverOverflow = recoverOverflow;
+  constructor(maximumPendingBytes: number) {
     this.#maximumPendingBytes = Math.max(0, maximumPendingBytes);
-  }
-
-  get requiresRecovery(): boolean {
-    return this.#recoveryThroughSequence > this.#authoritativeThroughSequence;
   }
 
   get acknowledged(): boolean {
@@ -61,9 +42,6 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
   beginSnapshot(): void {
     this.#acknowledged = false;
     this.#snapshotSent = false;
-    this.#pendingSynchronization = undefined;
-    this.#holdingSynchronization = false;
-    this.#synchronizationGeneration += 1;
   }
 
   publishSnapshot(throughSequence: number): void {
@@ -71,63 +49,29 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
     this.#advanceAuthoritativeFence(throughSequence);
   }
 
-  acknowledge(): TerminalDeliveryBatch<TOutput, TSynchronization> {
+  acknowledge(): TerminalDeliveryBatch<TOutput> {
     if (!this.#snapshotSent || this.#acknowledged) return { outputs: [] };
     this.#acknowledged = true;
     return this.#drain();
   }
 
-  enqueueOutput(output: SequencedTerminalDelivery<TOutput>): TerminalDeliveryEnqueueResult<TOutput, TSynchronization> {
+  enqueueOutput(output: SequencedTerminalDelivery<TOutput>): TerminalDeliveryEnqueueResult<TOutput> {
     if (output.sequence <= this.#authoritativeThroughSequence || output.sequence <= this.#latestObservedSequence) {
       return { outputs: [], overflowed: false };
     }
     this.#latestObservedSequence = output.sequence;
-    if (this.#snapshotSent && this.#acknowledged && !this.#holdingSynchronization && !this.requiresRecovery) {
-      return { outputs: [output], overflowed: false };
-    }
-    if (this.#pendingBytes + output.bytes > this.#maximumPendingBytes) {
-      if (this.#recoverOverflow) this.#recoveryThroughSequence = output.sequence;
-      return { outputs: [], overflowed: true };
-    }
+    if (this.#snapshotSent && this.#acknowledged) return { outputs: [output], overflowed: false };
+    if (this.#pendingBytes + output.bytes > this.#maximumPendingBytes) return { outputs: [], overflowed: true };
     this.#pendingOutputs.push(output);
     this.#pendingBytes += output.bytes;
     return { outputs: [], overflowed: false };
   }
 
-  beginSynchronization(): number {
-    this.#holdingSynchronization = true;
-    return ++this.#synchronizationGeneration;
-  }
-
-  completeSynchronization(
-    generation: number,
-    synchronization: FencedTerminalDelivery<TSynchronization>
-  ): TerminalDeliveryBatch<TOutput, TSynchronization> {
-    if (generation !== this.#synchronizationGeneration) return { outputs: [] };
-    this.#advanceAuthoritativeFence(synchronization.throughSequence);
-    this.#pendingSynchronization = synchronization;
-    this.#holdingSynchronization = false;
-    return this.#drain();
-  }
-
-  abandonSynchronization(generation: number): TerminalDeliveryBatch<TOutput, TSynchronization> {
-    if (generation !== this.#synchronizationGeneration) return { outputs: [] };
-    // A stale capture cannot prove that its queued deltas are safe for the
-    // browser's current geometry. Keep them fenced until the replacement
-    // synchronization advances the authoritative sequence.
-    this.#pendingSynchronization = undefined;
-    return { outputs: [] };
-  }
-
   clear(): void {
     this.#acknowledged = false;
-    this.#holdingSynchronization = false;
     this.#pendingBytes = 0;
-    this.#recoveryThroughSequence = 0;
     this.#pendingOutputs = [];
-    this.#pendingSynchronization = undefined;
     this.#snapshotSent = false;
-    this.#synchronizationGeneration += 1;
   }
 
   #advanceAuthoritativeFence(throughSequence: number): void {
@@ -140,16 +84,11 @@ export class TerminalDeliveryBuffer<TOutput, TSynchronization> {
     this.#pendingBytes = this.#pendingOutputs.reduce((total, output) => total + output.bytes, 0);
   }
 
-  #drain(): TerminalDeliveryBatch<TOutput, TSynchronization> {
-    if (!this.#snapshotSent || !this.#acknowledged || this.#holdingSynchronization || this.requiresRecovery)
-      return { outputs: [] };
-    const batch = {
-      outputs: this.#pendingOutputs,
-      ...(this.#pendingSynchronization ? { synchronization: this.#pendingSynchronization } : {}),
-    };
+  #drain(): TerminalDeliveryBatch<TOutput> {
+    if (!this.#snapshotSent || !this.#acknowledged) return { outputs: [] };
+    const batch = { outputs: this.#pendingOutputs };
     this.#pendingOutputs = [];
     this.#pendingBytes = 0;
-    this.#pendingSynchronization = undefined;
     return batch;
   }
 }

@@ -340,83 +340,85 @@ onMount(() => {
     ></button>
   {/if}
 
-  <RepositoryPanel
-    projectName={repositoryName}
-    projectPath={workspace.cwd}
-    snapshot={repository.snapshot}
-    loading={repository.loading}
-    errorMessage={repository.errorMessage}
-    uploading={repository.uploading}
-    moving={repository.moving}
-    uploadNoticeKind={repository.uploadNoticeKind}
-    uploadNotice={repository.uploadNotice}
-    uploadRevealRequest={repository.uploadRevealRequest}
-    selected={repository.selection}
-    activeTab={repositoryTab}
-    open={repositoryOpen}
-    onRefresh={() => void repository.refresh(true)}
-    onLoadDirectory={(path) => repository.loadDirectory(path)}
-    onCollapseDirectory={(path) => repository.collapseDirectory(path)}
-    onCreateFile={createFile}
-    onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
-    onRequestDelete={(entries) => repository.requestDeleteEntries(entries)}
-    onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
-    onRequestDeleteBranch={(branch) => repository.requestDeleteBranch(branch)}
-    onLoadMoreCommits={() => repository.loadMoreCommits()}
-    loadingMoreCommits={repository.loadingMoreCommits}
-    onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
-    onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
-    onRenameEntry={(entry, name) => repository.renameEntry(entry.path, entry.kind, name)}
-    onCopyEntries={(entries) => repository.setClipboard('copy', entries)}
-    onCutEntries={(entries) => repository.setClipboard('cut', entries)}
-    onPasteEntries={(directory) => repository.pasteEntries(directory)}
-    canPaste={Boolean(repository.clipboard?.entries.length)}
-    cutPaths={repository.clipboard?.operation === 'cut' ? repository.clipboard.entries.map((entry) => entry.path) : []}
-    onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
-    onUploadError={(message) => repository.reportUploadError(message)}
-    onClose={() => void closeRepository()}
-    onSelect={selectRepositoryItem}
-    onTabChange={onRepositoryTabChange}
-  />
+  <div class="workspace-side-panel" class:open={sidePanelOpen}>
+    <RepositoryPanel
+      projectName={repositoryName}
+      projectPath={workspace.cwd}
+      snapshot={repository.snapshot}
+      loading={repository.loading}
+      errorMessage={repository.errorMessage}
+      uploading={repository.uploading}
+      moving={repository.moving}
+      uploadNoticeKind={repository.uploadNoticeKind}
+      uploadNotice={repository.uploadNotice}
+      uploadRevealRequest={repository.uploadRevealRequest}
+      selected={repository.selection}
+      activeTab={repositoryTab}
+      open={repositoryOpen}
+      onRefresh={() => void repository.refresh(true)}
+      onLoadDirectory={(path) => repository.loadDirectory(path)}
+      onCollapseDirectory={(path) => repository.collapseDirectory(path)}
+      onCreateFile={createFile}
+      onCreateDirectory={(directory, name) => repository.createDirectory(directory, name)}
+      onRequestDelete={(entries) => repository.requestDeleteEntries(entries)}
+      onRequestDiscardChange={(change) => repository.requestDiscardChange(change)}
+      onRequestDeleteBranch={(branch) => repository.requestDeleteBranch(branch)}
+      onLoadMoreCommits={() => repository.loadMoreCommits()}
+      loadingMoreCommits={repository.loadingMoreCommits}
+      onMoveEntry={(entry, directory) => repository.moveEntry(entry.path, entry.kind, directory)}
+      onInsertPath={(entry) => void insertPathIntoTerminal(entry)}
+      onRenameEntry={(entry, name) => repository.renameEntry(entry.path, entry.kind, name)}
+      onCopyEntries={(entries) => repository.setClipboard('copy', entries)}
+      onCutEntries={(entries) => repository.setClipboard('cut', entries)}
+      onPasteEntries={(directory) => repository.pasteEntries(directory)}
+      canPaste={Boolean(repository.clipboard?.entries.length)}
+      cutPaths={repository.clipboard?.operation === 'cut' ? repository.clipboard.entries.map((entry) => entry.path) : []}
+      onUploadSelection={(selection, directory) => repository.uploadFiles(selection, directory)}
+      onUploadError={(message) => repository.reportUploadError(message)}
+      onClose={() => void closeRepository()}
+      onSelect={selectRepositoryItem}
+      onTabChange={onRepositoryTabChange}
+    />
 
-  <aside
-    class="workspace-note-panel"
-    class:open={noteOpen}
-    aria-label={`Workspace note for ${name}`}
-    aria-hidden={!noteOpen}
-    inert={!noteOpen}
-  >
-    <WorkspaceNoteEditor
-      panel
+    <aside
+      class="workspace-note-panel"
+      class:open={noteOpen}
+      aria-label={`Workspace note for ${name}`}
+      aria-hidden={!noteOpen}
+      inert={!noteOpen}
+    >
+      <WorkspaceNoteEditor
+        panel
+        workspaceId={workspace.id}
+        {askAgentAvailable}
+        getNote={(refresh) => onLoadNote(workspace.id, refresh)}
+        save={(note) => onUpdateNote(workspace.id, note)}
+        close={closeNotePanel}
+        onFlushAvailable={(flush) => flushNoteDraft = flush}
+        onPanelLockChange={(locked) => notePanelLocked = locked}
+      />
+    </aside>
+
+    <BackgroundProcesses
+      open={backgroundOpen}
       workspaceId={workspace.id}
       {askAgentAvailable}
-      getNote={(refresh) => onLoadNote(workspace.id, refresh)}
-      save={(note) => onUpdateNote(workspace.id, note)}
-      close={closeNotePanel}
-      onFlushAvailable={(flush) => flushNoteDraft = flush}
-      onPanelLockChange={(locked) => notePanelLocked = locked}
+      onOpenChange={(open) => open ? void toggleBackground() : closeBackgroundPanel()}
+      panelId={backgroundPanelId}
+      triggerId={backgroundTriggerId}
+      processes={backgroundProcesses}
+      favoriteCommands={workspace.favoriteCommands}
+      starting={startingBackground}
+      stoppingProcessId={stoppingBackgroundProcessId}
+      {updatingFavoriteCommand}
+      actionError={backgroundActionError}
+      onStart={onStartBackground}
+      onStop={onStopBackground}
+      onLoadOutput={onLoadBackgroundOutput}
+      onFavorite={onFavoriteBackground}
+      onRemoveFavorite={onRemoveBackgroundFavorite}
     />
-  </aside>
-
-  <BackgroundProcesses
-    open={backgroundOpen}
-    workspaceId={workspace.id}
-    {askAgentAvailable}
-    onOpenChange={(open) => open ? void toggleBackground() : closeBackgroundPanel()}
-    panelId={backgroundPanelId}
-    triggerId={backgroundTriggerId}
-    processes={backgroundProcesses}
-    favoriteCommands={workspace.favoriteCommands}
-    starting={startingBackground}
-    stoppingProcessId={stoppingBackgroundProcessId}
-    {updatingFavoriteCommand}
-    actionError={backgroundActionError}
-    onStart={onStartBackground}
-    onStop={onStopBackground}
-    onLoadOutput={onLoadBackgroundOutput}
-    onFavorite={onFavoriteBackground}
-    onRemoveFavorite={onRemoveBackgroundFavorite}
-  />
+  </div>
 
   {#if repository.discardChangesPrompt}
     <ConfirmDialog
@@ -503,6 +505,13 @@ onMount(() => {
   overflow: hidden;
   --workspace-panel-width: min(22rem, calc(100% - 3rem));
 }
+.workspace-side-panel {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 .workspace-primary {
   position: relative;
   height: 100%;
@@ -558,8 +567,47 @@ onMount(() => {
 }
 
 @media (min-width: 80rem) {
-  .workspace-workbench.repository-viewing .workspace-primary :global(.repository-viewer) {
-    right: var(--workspace-panel-width);
+  .workspace-workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .workspace-workbench.side-panel-open {
+    grid-template-columns: minmax(0, 1fr) var(--workspace-panel-width);
+  }
+  .workspace-primary {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .workspace-side-panel {
+    position: relative;
+    z-index: 2;
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .workspace-side-panel :global(.repository-panel),
+  .workspace-side-panel :global(.workspace-note-panel),
+  .workspace-side-panel :global(.background-panel) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    box-shadow: none;
+  }
+
+  .workspace-side-panel :global(.repository-panel.open),
+  .workspace-side-panel :global(.workspace-note-panel.open),
+  .workspace-side-panel :global(.background-panel.open) {
+    transform: none;
+    visibility: visible;
+    pointer-events: auto;
   }
 }
 

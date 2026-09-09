@@ -12,13 +12,11 @@ test('accepts contiguous output after an authoritative snapshot fence', () => {
   assert.equal(sequence.accept(7, { sequence: 44 }), false);
 });
 
-test('allows a synchronized snapshot to account for intentionally suppressed output', () => {
+test('rejects gaps in the raw output stream after a snapshot fence', () => {
   const sequence = new TerminalOutputSequence();
   sequence.establish(7, 40);
   assert.equal(sequence.accept(7, { sequence: 41 }), true);
-  assert.equal(sequence.accept(7, { screenSync: true, throughSequence: 48 }), true);
-  assert.equal(sequence.accept(7, { sequence: 49 }), true);
-  assert.equal(sequence.accept(7, { screenSync: true, throughSequence: 47 }), false);
+  assert.equal(sequence.accept(7, { sequence: 43 }), false);
 });
 
 test('keeps compatibility streams unsequenced and rejects mixed streams', () => {
