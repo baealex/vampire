@@ -200,10 +200,12 @@ test('buffers output while a cached terminal is detached and writes it after lay
 });
 
 test('reconnect does not steal focus and disconnected input reports failure', async () => {
-  const { runtime, connection, terminal } = await ready();
+  const { initial, runtime, connection, terminal } = await ready();
   terminal.focus.mockClear();
   connection.callbacks.onDisconnect({ code: 1006, reason: '' }, true);
   expect(runtime.send('/')).toBe(false);
+  expect(terminal.element.style.opacity).toBe('0');
+  expect(initial.onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ screenReady: false }));
   connection.callbacks.onOpen(connection.context);
   expect(runtime.canSuspend).toBe(false);
   await vi.advanceTimersByTimeAsync(100);
@@ -263,6 +265,7 @@ test('delegates geometry changes to xterm without requesting retained history', 
 
   connection.receive({ type: 'geometry', columns: 79, rows: 24 });
 
+  expect(terminal.options).toMatchObject({ reflowCursorLine: true });
   expect(terminal.resize).toHaveBeenCalledWith(79, 24);
   expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'load-history' }));
   expect(terminal.buffer.active.viewportY).toBe(75);
@@ -296,11 +299,13 @@ test('a snapshot resets once and releases queued output only after screen-ready'
   expect(terminal.reset).toHaveBeenCalledOnce();
   expect(terminal.write).toHaveBeenCalledOnce();
   expect(terminal.write).toHaveBeenCalledWith('snapshot', expect.any(Function));
+  expect(terminal.element.style.opacity).toBe('0');
   expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot-ready' }));
 
   connection.receive({ type: 'screen-ready' });
 
   expect(terminal.write).toHaveBeenNthCalledWith(2, 'queued', expect.any(Function));
+  expect(terminal.element.style.opacity).toBe('');
   expect(connection.send).toHaveBeenCalledWith({ type: 'snapshot-ready' });
   expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal-color' }));
   runtime.dispose();

@@ -31,8 +31,15 @@ function websocketInputData(message: string | Buffer): string | undefined {
     const value = JSON.parse(message.toString()) as { type?: unknown; data?: unknown };
     if (value.type !== 'input' || typeof value.data !== 'string') return undefined;
     // Firefox's Playwright transport can surface websocket text bytes as a
-    // Latin-1 string. Only re-decode that unmistakable C1-control form.
-    return /[\u0080-\u009f]/u.test(value.data) ? Buffer.from(value.data, 'latin1').toString('utf8') : value.data;
+    // Latin-1 string. Re-decode only when the bytes form valid UTF-8 so real
+    // Latin-1 input is not silently changed.
+    if (!/[\u0080-\u00ff]/u.test(value.data)) return value.data;
+    try {
+      const decoded = Buffer.from(value.data, 'latin1').toString('utf8');
+      return decoded.includes('\uFFFD') ? value.data : decoded;
+    } catch {
+      return value.data;
+    }
   } catch {
     return undefined;
   }

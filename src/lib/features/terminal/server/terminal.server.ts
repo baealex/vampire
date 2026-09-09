@@ -481,13 +481,15 @@ export async function attachTerminal(
       const historyFlag = captureFlag === '-J' && loadedHistory > 0 ? ` -S -${loadedHistory}` : '';
       const [snapshot, savedMainSnapshot, physicalSnapshot] = await Promise.all([
         runControlCommand(`capture-pane -p -e ${captureFlag}${historyFlag} -t ${paneId}`),
-        runControlCommand(`capture-pane -p -e -J -a -q -t ${paneId}`),
+        runControlCommand(`capture-pane -p -e -N -a -q -t ${paneId}`),
         runControlCommand(`capture-pane -p -e -N -t ${paneId}`),
       ]);
       if (controlHub.outputVersion !== outputVersion) continue;
       const snapshotData = captureFlag === '-N' ? terminalPhysicalCaptureData(snapshot) : snapshot;
+      const savedMainData = terminalRecordData(savedMainSnapshot);
+      const visibleSavedMainData = savedMainData.split('\n').slice(-geometry.rows).join('\n');
       const captured = {
-        data: terminalSnapshotData(snapshotData, state, savedMainSnapshot, physicalSnapshot),
+        data: terminalSnapshotData(snapshotData, state, visibleSavedMainData, physicalSnapshot),
         history: { loaded: loadedHistory, available: availableHistory },
       };
       // The barrier is deliberately after capture: output emitted while the
@@ -800,10 +802,6 @@ export async function attachTerminal(
         }
       }
       if (firstSizeOwner) await runControlCommand('refresh-client -f !ignore-size');
-      await runResizeControlCommand(currentGeometry, () => {
-        options.onGeometryChange?.(currentGeometry);
-        lastControlledSize = currentGeometry;
-      });
       sizeIgnored = false;
     } else if (ignored && !sizeIgnored) {
       if (controlHub.releaseSize(sizeOwner)) await runControlCommand('refresh-client -f ignore-size');

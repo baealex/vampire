@@ -414,6 +414,10 @@ export class TerminalRuntime {
       fontSize: this.#fontSize,
       lineHeight: 1.2,
       fontFamily: this.#options.getFontFamily(),
+      // Preserve xterm's pending-wrap cursor line when the shared pane is
+      // resized. Without the library's own reflow, one cursor row can remain
+      // in the old position after a device handoff.
+      reflowCursorLine: true,
       theme: this.#options.getTheme(),
       scrollback,
       scrollOnUserInput: true,
@@ -490,6 +494,7 @@ export class TerminalRuntime {
           this.#reconnectExhausted = false;
           this.#outputSequence.reset();
           this.#sharedGeometry = undefined;
+          this.#hideTerminalDisplay();
           this.#updateState({
             connected: true,
             controlSizeMismatch: false,
@@ -497,6 +502,7 @@ export class TerminalRuntime {
             error: '',
             inputReady: false,
             openingStage: 'attaching',
+            screenReady: false,
           });
           this.#scheduleResize();
         },
@@ -565,9 +571,16 @@ export class TerminalRuntime {
           this.#setOutputActive(false);
           this.#resetHistoryLoading();
           this.#invalidatePendingTerminalStream();
+          this.#hideTerminalDisplay();
           if (this.#destroyed) return;
           if (retrying) {
-            this.#updateState({ connected: false, controlsTerminal: undefined, error: '', inputReady: false });
+            this.#updateState({
+              connected: false,
+              controlsTerminal: undefined,
+              error: '',
+              inputReady: false,
+              screenReady: false,
+            });
             return;
           }
           this.#updateState({
@@ -575,6 +588,7 @@ export class TerminalRuntime {
             controlsTerminal: undefined,
             inputReady: false,
             reconnecting: false,
+            screenReady: false,
             error:
               event.code === 1008 && ['authentication expired', 'authentication revoked'].includes(event.reason)
                 ? 'This terminal workspace is no longer authorized.'
@@ -683,7 +697,14 @@ export class TerminalRuntime {
     this.#outputSequence.reset();
     this.#resetHistoryLoading();
     this.#invalidatePendingTerminalStream();
-    this.#updateState({ connected: false, controlsTerminal: undefined, error: '', reconnecting: true });
+    this.#hideTerminalDisplay();
+    this.#updateState({
+      connected: false,
+      controlsTerminal: undefined,
+      error: '',
+      reconnecting: true,
+      screenReady: false,
+    });
     this.#markSubmissionsUncertain();
     this.#connection?.restart('terminal output sequence gap');
   }
@@ -710,6 +731,9 @@ export class TerminalRuntime {
       written: false,
     };
     this.#pendingSnapshot = snapshot;
+    // xterm parses a large snapshot asynchronously. Hide intermediate parser
+    // frames until the complete snapshot has been parsed and painted.
+    this.#hideTerminalDisplay();
     this.#updateState({ screenReady: false });
     this.#startPendingSnapshot();
   }
@@ -759,6 +783,7 @@ export class TerminalRuntime {
     this.#entryClaimPending = false;
     if (this.#openingDelay) clearTimeout(this.#openingDelay);
     this.#openingDelay = undefined;
+    this.#terminal?.element?.style.removeProperty('opacity');
     this.#revealResumedTerminal();
 
     const pendingOutput = this.#pendingOutput;
@@ -866,6 +891,10 @@ export class TerminalRuntime {
     if (!this.#resumePending || this.#destroyed || this.#suspended || this.#pendingSnapshot) return;
     this.#resumePending = false;
     this.#terminal?.element?.style.removeProperty('opacity');
+  }
+
+  #hideTerminalDisplay(): void {
+    this.#terminal?.element?.style.setProperty('opacity', '0');
   }
 
   #markInputActivity(): void {
