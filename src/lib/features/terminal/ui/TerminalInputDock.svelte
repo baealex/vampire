@@ -585,6 +585,12 @@ function closeMessageActionsFocus(event: Event) {
   messageActionHandoff = false;
 }
 
+function closeMessageActionsFromComposer() {
+  if (!messageActionsOpen) return;
+  messageActionHandoff = true;
+  messageActionsOpen = false;
+}
+
 function toggleInputSurface() {
   persistComposerEditorState(true);
   flushComposerDraft();
@@ -779,6 +785,7 @@ function handleImageSelection(event: Event) {
             oninput={handleComposerInput}
             onbeforeinput={handleComposerBeforeInput}
             onkeydown={handleComposerKeydown}
+            onpointerdown={closeMessageActionsFromComposer}
             onfocus={handleComposerFocus}
             onblur={handleComposerBlur}
             onselect={handleComposerSelectionChange}

@@ -169,7 +169,7 @@ test('does not drop back-to-back Korean terminal compositions before Space', asy
   await expect(hiddenTerminalInput).toBeFocused();
   sentTerminalMessages.length = 0;
 
-  await hiddenTerminalInput.evaluate((element) => {
+  await hiddenTerminalInput.evaluate(async (element) => {
     const textarea = element as HTMLTextAreaElement;
     const prefix = textarea.value;
     let composed = '';
@@ -180,6 +180,7 @@ test('does not drop back-to-back Korean terminal compositions before Space', asy
       textarea.value = `${prefix}${composed}`;
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: syllable }));
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     const space = new KeyboardEvent('keydown', {
       bubbles: true,
@@ -551,7 +552,7 @@ test('keeps a wide single-line composer and opens secondary actions on a narrow 
   await composer.fill('Review this change');
   await actions.click();
   await expect(page.locator('.composer-action-list button')).toHaveCount(2);
-  await composer.click();
+  await composer.tap();
   await expect(page.locator('.composer-action-list')).toBeHidden();
   await expect(composer).toBeFocused();
   await expect(composer).toHaveValue('Review this change');
