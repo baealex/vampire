@@ -63,7 +63,8 @@ class FakeSocket implements TerminalSocket {
 
   disconnect(code: number, reason: string): void {
     this.readyState = 3;
-    this.onclose?.(new CloseEvent('close', { code, reason }));
+    // Node 22 has Event but not the browser's CloseEvent constructor.
+    this.onclose?.(Object.assign(new Event('close'), { code, reason, wasClean: false }));
   }
 
   send(data: string): void {
