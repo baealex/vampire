@@ -6,8 +6,8 @@ import test from 'node:test';
 import {
   readStatusPluginStore,
   STATUS_PLUGIN_STATE_VERSION,
-  writeStatusPluginStore,
   type StatusPluginStore,
+  writeStatusPluginStore,
 } from '~/lib/features/status/server/status-plugin-store.server.ts';
 import { STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND } from '~/lib/shared/contracts/status-plugin.ts';
 
@@ -18,7 +18,7 @@ test('starts with CPU and RAM presets and persists an explicitly empty bar', asy
 
   assert.deepEqual(
     (await readStatusPluginStore(file)).plugins.map((plugin) => plugin.name),
-    ['CPU', 'RAM']
+    ['CPU', 'RAM'],
   );
   await writeStatusPluginStore({ version: STATUS_PLUGIN_STATE_VERSION, plugins: [] }, file);
   assert.deepEqual((await readStatusPluginStore(file)).plugins, []);
@@ -60,13 +60,13 @@ test('converts compatibility native CPU and RAM entries into visible commands', 
         { id: 'cpu', name: 'CPU', enabled: true, intervalMs: 2_000, source: { type: 'system', metric: 'cpu' } },
         { id: 'ram', name: 'RAM', enabled: true, intervalMs: 2_000, source: { type: 'system', metric: 'memory' } },
       ],
-    })
+    }),
   );
 
   const stored = await readStatusPluginStore(file);
   assert.deepEqual(
     stored.plugins.map((plugin) => plugin.source.command),
-    [STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND]
+    [STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND],
   );
 });
 
@@ -81,7 +81,7 @@ test('refuses malformed status plugin state instead of overwriting it', async (t
       plugins: [
         { id: 'unsafe', name: 'Unsafe', enabled: true, intervalMs: 1, source: { type: 'command', command: 'date' } },
       ],
-    })
+    }),
   );
 
   await assert.rejects(readStatusPluginStore(file), /status plugin configuration is unreadable/i);

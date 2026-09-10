@@ -15,7 +15,7 @@ type TerminalShortcutEvent = Pick<
 >;
 
 export function terminalScrollCommand(
-  event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>
+  event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing'>,
 ): 'top' | 'bottom' | 'up' | 'down' | undefined {
   if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return undefined;
   switch (event.key) {
@@ -57,11 +57,8 @@ export function terminalControlData(control: TerminalControlKey, applicationCurs
 }
 
 export function isInputSurfaceToggleShortcut(event: TerminalShortcutEvent): boolean {
-  if (event.repeat || event.isComposing || event.altKey || event.shiftKey) return false;
-  return (
-    (event.code === 'Slash' && event.metaKey && !event.ctrlKey) ||
-    (event.code === 'Backquote' && event.ctrlKey && !event.metaKey)
-  );
+  if (event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.shiftKey) return false;
+  return event.code === 'Slash' && event.metaKey;
 }
 
 /** @deprecated Use isInputSurfaceToggleShortcut for the bidirectional input switch. */

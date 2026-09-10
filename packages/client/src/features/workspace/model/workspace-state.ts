@@ -6,6 +6,14 @@ function stateValue<T>(value: T): T {
   return value;
 }
 
+import { BackgroundTerminalReconciler } from '@vampire/lib/features/workspace/model/background-terminal-reconciler.ts';
+import { WorkspaceActivityController } from '@vampire/lib/features/workspace/model/workspace-activity-controller.ts';
+import {
+  maxTimestamp,
+  reconcileWorkspaceOrder,
+  sortWorkspaces,
+  type WorkspaceActivityRecord,
+} from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import { isUnauthorized, requestJson } from '@vampire/lib/shared/api/request.ts';
 import type {
   LaunchProfile,
@@ -22,14 +30,6 @@ import {
   DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS,
   type WorkspaceComposerHistorySettings,
 } from '@vampire/lib/shared/contracts/workspace-composer-history.ts';
-import { BackgroundTerminalReconciler } from '@vampire/lib/features/workspace/model/background-terminal-reconciler.ts';
-import { WorkspaceActivityController } from '@vampire/lib/features/workspace/model/workspace-activity-controller.ts';
-import {
-  maxTimestamp,
-  reconcileWorkspaceOrder,
-  sortWorkspaces,
-  type WorkspaceActivityRecord,
-} from '@vampire/lib/features/workspace/model/workspace-view.ts';
 
 type RefreshOptions = { quiet?: boolean };
 type WorkspaceChanges = Partial<Omit<ManagedWorkspace, 'id'>>;
@@ -131,11 +131,11 @@ export class WorkspaceState {
                 lastOutputAt,
                 terminals: mainTerminal
                   ? item.terminals.map((terminal, index) =>
-                      index === 0 ? { ...terminal, lastOutputAt: mainLastOutputAt } : terminal
+                      index === 0 ? { ...terminal, lastOutputAt: mainLastOutputAt } : terminal,
                     )
                   : item.terminals,
               }
-            : item
+            : item,
         );
       },
     });
@@ -175,7 +175,7 @@ export class WorkspaceState {
     this.workspaces = this.workspaces.map((workspace) =>
       workspace.startupProfileId && !profileIds.has(workspace.startupProfileId)
         ? { ...workspace, startupProfileId: null }
-        : workspace
+        : workspace,
     );
   }
 
@@ -227,7 +227,7 @@ export class WorkspaceState {
             ? previous.terminals.map((terminal, index) =>
                 index === 0
                   ? { ...terminal, lastOutputAt: maxTimestamp(terminal.lastOutputAt, changes.lastOutputAt ?? null) }
-                  : terminal
+                  : terminal,
               )
             : previous.terminals));
     const next = {
@@ -295,7 +295,13 @@ export class WorkspaceState {
     const previousWorkspaces = new Map(this.workspaces.map((workspace) => [workspace.id, workspace]));
     const incomingWorkspaceIds = new Set(incomingWorkspaces.map((workspace) => workspace.id));
     for (const workspaceId of previousWorkspaces.keys()) {
-      if (!incomingWorkspaceIds.has(workspaceId)) this.#backgroundTerminals.clearWorkspace(workspaceId);
+      if (!incomingWorkspaceIds.has(workspaceId)) {
+        this.#backgroundTerminals.clearWorkspace(workspaceId);
+        this.#workspaceNotes.delete(workspaceId);
+        this.#workspaceNoteRequests.delete(workspaceId);
+        this.#workspaceComposerPrompts.delete(workspaceId);
+        this.#workspaceComposerPromptRequests.delete(workspaceId);
+      }
     }
     const nextWorkspaces = incomingWorkspaces.map((workspace) => {
       const previous = previousWorkspaces.get(workspace.id);
@@ -357,7 +363,7 @@ export class WorkspaceState {
   async createIsolatedWorkspace(
     sourceWorkspaceId: string,
     name: string,
-    tmuxAvailable?: boolean
+    tmuxAvailable?: boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     if (tmuxAvailable === false) {
       return { ok: false, error: 'Install tmux on the server computer before starting a workspace.' };
@@ -371,13 +377,13 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name }),
         },
-        'Unable to create the isolated workspace'
+        'Unable to create the isolated workspace',
       );
       this.invalidateWorkspaces();
       this.workspaces = [...this.workspaces.filter((workspace) => workspace.id !== data.workspace.id), data.workspace];
       this.#activity.rebuild(this.workspaces);
       const manualOrder = reconcileWorkspaceOrder(this.workspaces, this.manualWorkspaceOrder).filter(
-        (id) => id !== data.workspace.id
+        (id) => id !== data.workspace.id,
       );
       const sourceIndex = manualOrder.indexOf(sourceWorkspaceId);
       manualOrder.splice(sourceIndex < 0 ? manualOrder.length : sourceIndex + 1, 0, data.workspace.id);
@@ -408,7 +414,7 @@ export class WorkspaceState {
     });
     this.#workspaceNotes.set(workspaceId, normalizedNote);
     this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId ? { ...workspace, notePreview: data.notePreview } : workspace
+      workspace.id === workspaceId ? { ...workspace, notePreview: data.notePreview } : workspace,
     );
   }
 
@@ -421,10 +427,10 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ alias }),
         },
-        'Unable to save the workspace alias'
+        'Unable to save the workspace alias',
       );
       this.workspaces = this.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, workspaceLabel: data.alias ?? '' } : workspace
+        workspace.id === workspaceId ? { ...workspace, workspaceLabel: data.alias ?? '' } : workspace,
       );
       return { ok: true };
     } catch (error) {
@@ -446,7 +452,7 @@ export class WorkspaceState {
       cache: 'no-store',
     })
       .then(({ note }) => {
-        this.#workspaceNotes.set(workspaceId, note);
+        if (this.#workspaceNoteRequests.get(workspaceId) === request) this.#workspaceNotes.set(workspaceId, note);
         return note;
       })
       .finally(() => {
@@ -467,13 +473,21 @@ export class WorkspaceState {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ prompt: promptText }),
       },
-      'The prompt was sent, but Vampire could not save it to Composer history'
+      'The prompt was sent, but Vampire could not save it to Composer history',
     );
     if (!data.saved) return;
     const cached = this.#workspaceComposerPrompts.get(workspaceId);
-    if (cached) this.#workspaceComposerPrompts.set(workspaceId, [data.prompt, ...cached]);
+    if (cached && this.composerHistorySettings.enabled) {
+      this.#workspaceComposerPrompts.set(
+        workspaceId,
+        [data.prompt, ...cached.filter((prompt) => prompt.id !== data.prompt.id)].slice(
+          0,
+          this.composerHistorySettings.limit,
+        ),
+      );
+    }
     this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId ? { ...workspace, composerPromptPreview: data.preview } : workspace
+      workspace.id === workspaceId ? { ...workspace, composerPromptPreview: data.preview } : workspace,
     );
   }
 
@@ -486,11 +500,14 @@ export class WorkspaceState {
     const request = requestJson<{ prompts: WorkspaceComposerPrompt[] }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/composer-prompts`,
       { cache: 'no-store' },
-      'Unable to load Composer history'
+      'Unable to load Composer history',
     )
       .then(({ prompts }) => {
-        this.#workspaceComposerPrompts.set(workspaceId, prompts);
-        return prompts.map((prompt) => ({ ...prompt }));
+        const bounded = prompts.slice(0, this.composerHistorySettings.limit);
+        if (this.#workspaceComposerPromptRequests.get(workspaceId) === request) {
+          this.#workspaceComposerPrompts.set(workspaceId, bounded);
+        }
+        return bounded.map((prompt) => ({ ...prompt }));
       })
       .finally(() => {
         if (this.#workspaceComposerPromptRequests.get(workspaceId) === request) {
@@ -502,7 +519,7 @@ export class WorkspaceState {
   }
 
   async updateComposerHistorySettings(
-    settings: WorkspaceComposerHistorySettings
+    settings: WorkspaceComposerHistorySettings,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const saved = await requestJson<WorkspaceComposerHistorySettings>(
@@ -512,7 +529,7 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(settings),
         },
-        'Unable to save Composer history settings'
+        'Unable to save Composer history settings',
       );
       this.applyComposerHistorySettings(saved);
       await this.refresh({ quiet: true });
@@ -529,7 +546,7 @@ export class WorkspaceState {
   async updateWorkspaceStartup(
     workspaceId: string,
     launchProfiles: LaunchProfile[],
-    startupProfileId: string | null
+    startupProfileId: string | null,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const data = await requestJson<{
@@ -544,7 +561,7 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ launchProfiles, startupProfileId }),
         },
-        'Unable to save the startup profile'
+        'Unable to save the startup profile',
       );
       this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
       const clearedWorkspaceIds = new Set(data.clearedWorkspaceIds);
@@ -553,7 +570,7 @@ export class WorkspaceState {
           ? { ...workspace, startupProfileId: data.startupProfileId }
           : clearedWorkspaceIds.has(workspace.id)
             ? { ...workspace, startupProfileId: null }
-            : workspace
+            : workspace,
       );
       return { ok: true };
     } catch (error) {
@@ -566,7 +583,7 @@ export class WorkspaceState {
     workspaceId: string,
     workspaceLabel: string,
     startupProfileId: string | null,
-    composerTemplate: string
+    composerTemplate: string,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const saved = await requestJson<{
@@ -580,10 +597,10 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ workspaceLabel, startupProfileId, composerTemplate }),
         },
-        'Unable to save workspace settings'
+        'Unable to save workspace settings',
       );
       this.workspaces = this.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, ...saved } : workspace
+        workspace.id === workspaceId ? { ...workspace, ...saved } : workspace,
       );
       return { ok: true };
     } catch (error) {
@@ -595,7 +612,7 @@ export class WorkspaceState {
   async updateLaunchProfileSettings(
     launchProfiles: LaunchProfile[],
     defaultStartupProfileId: string | null,
-    applyDefaultToAll: boolean
+    applyDefaultToAll: boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const data = await requestJson<{
@@ -609,12 +626,12 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ launchProfiles, defaultStartupProfileId, applyDefaultToAll }),
         },
-        'Unable to save launch profiles'
+        'Unable to save launch profiles',
       );
       this.applyLaunchProfiles(data.launchProfiles, data.defaultStartupProfileId);
       const updates = new Map(data.workspaceStartupUpdates.map((update) => [update.id, update.startupProfileId]));
       this.workspaces = this.workspaces.map((workspace) =>
-        updates.has(workspace.id) ? { ...workspace, startupProfileId: updates.get(workspace.id) ?? null } : workspace
+        updates.has(workspace.id) ? { ...workspace, startupProfileId: updates.get(workspace.id) ?? null } : workspace,
       );
       return { ok: true };
     } catch (error) {
@@ -636,7 +653,7 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ command }),
         },
-        'Unable to start the background command'
+        'Unable to start the background command',
       );
       this.workspaces = this.workspaces.map((workspace) =>
         workspace.id === workspaceId
@@ -645,10 +662,10 @@ export class WorkspaceState {
               terminals: this.#backgroundTerminals.applyStarted(
                 workspaceId,
                 workspace.terminals,
-                data.backgroundProcess
+                data.backgroundProcess,
               ),
             }
-          : workspace
+          : workspace,
       );
       return data.backgroundProcess;
     } catch (error) {
@@ -670,7 +687,7 @@ export class WorkspaceState {
       await requestJson<{ ok: boolean }>(
         `/api/workspaces/${encodeURIComponent(workspaceId)}/background/${encodeURIComponent(processId)}`,
         { method: 'DELETE' },
-        'Unable to stop the background process'
+        'Unable to stop the background process',
       );
       this.workspaces = this.workspaces.map((workspace) =>
         workspace.id === workspaceId
@@ -678,7 +695,7 @@ export class WorkspaceState {
               ...workspace,
               terminals: this.#backgroundTerminals.applyStopped(workspaceId, workspace.terminals, processId),
             }
-          : workspace
+          : workspace,
       );
       return true;
     } catch (error) {
@@ -695,7 +712,7 @@ export class WorkspaceState {
     const data = await requestJson<{ output: string }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/background/${encodeURIComponent(processId)}/output`,
       { cache: 'no-store' },
-      'Unable to read the background output'
+      'Unable to read the background output',
     );
     return data.output;
   }
@@ -713,10 +730,10 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ command }),
         },
-        'Unable to save the favorite command'
+        'Unable to save the favorite command',
       );
       this.workspaces = this.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, favoriteCommands: data.favoriteCommands } : workspace
+        workspace.id === workspaceId ? { ...workspace, favoriteCommands: data.favoriteCommands } : workspace,
       );
       return true;
     } catch (error) {
@@ -742,10 +759,10 @@ export class WorkspaceState {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ command }),
         },
-        'Unable to remove the favorite command'
+        'Unable to remove the favorite command',
       );
       this.workspaces = this.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, favoriteCommands: data.favoriteCommands } : workspace
+        workspace.id === workspaceId ? { ...workspace, favoriteCommands: data.favoriteCommands } : workspace,
       );
       return true;
     } catch (error) {
@@ -766,7 +783,7 @@ export class WorkspaceState {
     if (savedMode === 'activity' || savedMode === 'manual') this.workspaceOrderMode = savedMode;
     try {
       const savedOrder: unknown = JSON.parse(
-        storage.getItem(WORKSPACE_ORDER_KEY) ?? storage.getItem(COMPATIBILITY_SESSION_ORDER_KEY) ?? '[]'
+        storage.getItem(WORKSPACE_ORDER_KEY) ?? storage.getItem(COMPATIBILITY_SESSION_ORDER_KEY) ?? '[]',
       );
       if (Array.isArray(savedOrder) && savedOrder.every((id) => typeof id === 'string')) {
         this.manualWorkspaceOrder = savedOrder;
@@ -804,7 +821,7 @@ export class WorkspaceState {
 
   recordWorkspaceInput(workspaceId: string, timestamp: number) {
     this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId ? { ...workspace, lastActiveAt: timestamp } : workspace
+      workspace.id === workspaceId ? { ...workspace, lastActiveAt: timestamp } : workspace,
     );
     const existingTimer = this.#activityRequestTimers.get(workspaceId);
     if (existingTimer !== undefined) window.clearTimeout(existingTimer);
@@ -819,11 +836,11 @@ export class WorkspaceState {
             this.workspaces = this.workspaces.map((workspace) =>
               workspace.id === workspaceId
                 ? { ...workspace, lastActiveAt: Math.max(workspace.lastActiveAt, lastActiveAt) }
-                : workspace
+                : workspace,
             );
           })
           .catch(() => undefined);
-      }, 600)
+      }, 600),
     );
   }
 
@@ -891,7 +908,7 @@ export class WorkspaceState {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ launchProfileId }),
               }),
-        }
+        },
       );
       this.#backgroundTerminals.clearWorkspace(workspace.id);
       this.invalidateWorkspaces();
@@ -926,7 +943,7 @@ export class WorkspaceState {
               foregroundProcess: null,
               terminals: [],
             }
-          : item
+          : item,
       );
       this.#activity.clearOutputActivity(workspace.id);
       this.markWorkspaceObserved(workspace.id);
@@ -1002,6 +1019,8 @@ export class WorkspaceState {
     this.#backgroundTerminals.clear();
     this.#workspaceNotes.clear();
     this.#workspaceNoteRequests.clear();
+    this.#workspaceComposerPrompts.clear();
+    this.#workspaceComposerPromptRequests.clear();
   }
 
   private invalidateWorkspaces() {
@@ -1044,7 +1063,7 @@ export class WorkspaceState {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(preferences),
           },
-          'Unable to sync workspace order'
+          'Unable to sync workspace order',
         );
         savedPreferences = data.preferences;
       } catch (error) {

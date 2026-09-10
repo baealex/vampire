@@ -3,8 +3,8 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import test from 'node:test';
+import { promisify } from 'node:util';
 import { ensureStatusWidgetAgentSupport } from './status-widget-agent-support.server.ts';
 
 const run = promisify(execFile);
@@ -27,7 +27,7 @@ test('materializes the current widget store, guide, and executable validator', a
   assert.match(await readFile(support.guidePath, 'utf8'), /detected automatically/);
   assert.deepEqual(
     ((await readFile(support.configurationPath, 'utf8')).match(/"name": "(?:CPU|RAM)"/g) ?? []).length,
-    2
+    2,
   );
 
   const valid = await run(process.execPath, [support.validatorPath, support.configurationPath]);
@@ -62,7 +62,7 @@ test('the generated validator rejects malformed widget configuration', async (t)
           source: { type: 'command', command: 'printf ready' },
         },
       ],
-    })
+    }),
   );
   await assert.rejects(run(process.execPath, [support.validatorPath, support.configurationPath]), /supported range/);
 });

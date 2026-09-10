@@ -1,8 +1,6 @@
+import { Readable } from 'node:stream';
 import fastifyMultipart from '@fastify/multipart';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { Readable } from 'node:stream';
-import { findManagedWorkspace, findWorkspaceDirectory } from './workspace-registry.server.ts';
-import { authorizeFastifySession } from './fastify-auth.server.ts';
 import { RepositoryReadError, uploadWorkspaceFile } from '~/lib/features/repository/server/repository.server.ts';
 import {
   ImagePasteError,
@@ -11,6 +9,8 @@ import {
   SUPPORTED_IMAGE_TYPES,
 } from '~/lib/features/terminal/server/image-paste.server.ts';
 import type { WorkspaceUploadConflict } from '~/lib/shared/contracts/repository.ts';
+import { authorizeFastifySession } from './fastify-auth.server.ts';
+import { findManagedWorkspace, findWorkspaceDirectory } from './workspace-registry.server.ts';
 
 const MAX_RAW_UPLOAD_BYTES = 11 * 1024 * 1024;
 const MAX_MULTIPART_BODY_BYTES = MAX_IMAGE_PASTE_BYTES + 64 * 1024;
@@ -47,7 +47,7 @@ function boundedUploadStream(stream: Readable): ReadableStream<Uint8Array> {
         }
         controller.enqueue(chunk);
       },
-    })
+    }),
   );
 }
 
@@ -81,7 +81,7 @@ async function registerRawUploadRoute(app: FastifyInstance): Promise<void> {
         }
         return reply.status(500).send({ message: 'Vampire could not add this file.' });
       }
-    }
+    },
   );
 }
 
@@ -133,7 +133,7 @@ async function registerImageUploadRoute(app: FastifyInstance): Promise<void> {
         }
         return reply.status(400).send({ message: 'Image upload is invalid.' });
       }
-    }
+    },
   );
 }
 

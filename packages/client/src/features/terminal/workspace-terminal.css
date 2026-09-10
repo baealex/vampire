@@ -1,14 +1,14 @@
 .workspace-terminal-layout {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 0;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
-.workspace-terminal-layout.repository-open {
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%);
+.workspace-terminal-layout.side-panel-open {
+  grid-template-columns: minmax(0, 1fr) min(22rem, 45%);
 }
 .terminal-sheet {
   position: relative;
@@ -40,14 +40,17 @@
   background: var(--color-panel);
 }
 .terminal-header .back-button {
+  display: grid;
+  place-items: center;
   width: var(--control-size-icon);
   min-width: var(--control-size-icon);
   height: var(--control-size-icon);
   min-height: var(--control-size-icon);
-  border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
-  background: var(--color-control-background);
-  color: var(--color-text);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-tertiary);
 }
 .terminal-identity {
   display: grid;
@@ -121,12 +124,18 @@
 .terminal-tools .background-button,
 .terminal-tools .repository-button {
   position: relative;
+  display: grid;
+  place-items: center;
   width: 2.35rem;
   min-width: 2.35rem;
   height: 2.35rem;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
+  background: transparent;
   color: var(--color-text-tertiary);
+  font: inherit;
+  cursor: pointer;
 }
 .terminal-tools .note-button:focus-visible,
 .terminal-tools .background-button:focus-visible,
@@ -135,6 +144,7 @@
   border-color: var(--color-border-strong);
   background: transparent;
   color: var(--color-text);
+  outline: none;
 }
 .terminal-tools .background-button > span,
 .terminal-tools .repository-button > span {
@@ -179,6 +189,7 @@
     border-color: var(--color-border-strong);
     background: transparent;
     color: var(--color-text);
+    outline: none;
   }
 }
 .main-workspace-terminal {
@@ -202,7 +213,7 @@
 @media (min-width: 64rem) {
   .terminal-header {
     grid-template-columns: minmax(0, 1fr) auto;
-    padding-block: 0.8rem;
+    padding-block: 0.65rem;
   }
   .terminal-header .back-button {
     display: none;
@@ -212,6 +223,9 @@
   }
 }
 @media (max-width: 63.999rem) {
+  .workspace-terminal-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .terminal-header {
     gap: 0.5rem;
   }
@@ -221,6 +235,7 @@
   .terminal-identity > span {
     display: none;
   }
+  .workspace-terminal-layout.side-panel-open,
   .workspace-terminal-layout.repository-open {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -253,7 +268,6 @@
   }
 }
 @media (max-width: 22rem) {
-  .terminal-identity-title strong,
   .working-copy-missing {
     display: none;
   }

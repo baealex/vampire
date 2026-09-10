@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
 import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
+import { afterEach, describe, expect, it } from 'vitest';
 import { StatusPluginBar } from './StatusPluginBar.tsx';
 
 const plugins: StatusPluginSnapshot[] = [
@@ -24,6 +24,34 @@ const plugins: StatusPluginSnapshot[] = [
 ];
 
 describe('StatusPluginBar', () => {
+  afterEach(cleanup);
+  it('labels widget details, separates progress values and supports closing', async () => {
+    const user = userEvent.setup();
+    render(
+      <StatusPluginBar
+        onManage={() => undefined}
+        plugins={[
+          {
+            ...plugins[0]!,
+            progress: 10,
+            menu: [
+              { type: 'item', text: 'Session', value: '42%', progress: 42, badge: 'Active', detail: 'Resets soon' },
+            ],
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'CPU: 10%' }));
+    const dialog = screen.getByRole('dialog', { name: 'CPU details' });
+    expect(within(dialog).getByRole('progressbar', { name: 'CPU' })).toHaveAttribute('aria-valuenow', '10');
+    expect(within(dialog).getByRole('progressbar', { name: 'Session' })).toHaveAttribute('aria-valuenow', '42');
+    expect(within(dialog).getByText('Active')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Close CPU details' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'CPU: 10%' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it('switches directly between widget popovers', async () => {
     const user = userEvent.setup();
     render(<StatusPluginBar plugins={plugins} onManage={() => undefined} />);

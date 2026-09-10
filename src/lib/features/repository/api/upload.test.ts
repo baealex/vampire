@@ -10,7 +10,7 @@ import {
 test('recognizes external files even when a browser omits the Files transfer type', () => {
   assert.equal(
     dataTransferHasUploadFiles({ types: [], items: [{ kind: 'file' }], files: [] } as unknown as DataTransfer),
-    true
+    true,
   );
 });
 
@@ -27,7 +27,7 @@ test('preserves selected folder paths and skips git metadata', () => {
   ]);
   assert.deepEqual(
     selection.candidates.map(({ relativePath }) => relativePath),
-    ['sample/src/index.ts']
+    ['sample/src/index.ts'],
   );
   assert.equal(selection.skippedGitFiles, 1);
   assert.equal(workspaceUploadPath('packages', selection.candidates[0]!.relativePath), 'packages/sample/src/index.ts');
@@ -36,10 +36,10 @@ test('preserves selected folder paths and skips git metadata', () => {
 test('rejects traversal and selections containing only git metadata', () => {
   assert.throws(
     () => workspaceUploadPath('', '../secret.txt'),
-    (error) => error instanceof WorkspaceUploadSelectionError
+    (error) => error instanceof WorkspaceUploadSelectionError,
   );
   assert.throws(
     () => uploadSelectionFromFiles([fileWithRelativePath('config', '.git/config')]),
-    (error) => error instanceof WorkspaceUploadSelectionError && error.message === 'Git metadata cannot be added.'
+    (error) => error instanceof WorkspaceUploadSelectionError && error.message === 'Git metadata cannot be added.',
   );
 });

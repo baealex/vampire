@@ -81,7 +81,7 @@ export class QueryCache {
           this.#notify(entry);
         }
         throw error;
-      }
+      },
     );
     entry.pending = { promise: trackedRequest, version: requestVersion };
     return trackedRequest;

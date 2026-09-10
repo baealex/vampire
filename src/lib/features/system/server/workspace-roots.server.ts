@@ -1,8 +1,8 @@
 import { readdir, realpath, stat } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { parseWorkspaceRootPaths } from '~/lib/server/runtime-config.ts';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { pathStaysInside } from '~/lib/server/path-policy.ts';
+import { parseWorkspaceRootPaths } from '~/lib/server/runtime-config.ts';
 
 export type WorkspaceRootErrorReason = 'invalid-path' | 'outside-root' | 'not-found' | 'not-directory' | 'unreadable';
 
@@ -82,7 +82,7 @@ export async function listWorkspaceRoots(): Promise<WorkspaceRoot[]> {
  */
 export async function resolveWorkspaceDirectory(
   cwd: string,
-  roots: WorkspaceRoot[]
+  roots: WorkspaceRoot[],
 ): Promise<{ root: WorkspaceRoot; path: string }> {
   validateAbsolutePath(cwd);
   const lexicalTarget = resolve(cwd);

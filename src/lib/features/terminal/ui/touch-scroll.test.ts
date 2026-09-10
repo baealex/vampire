@@ -11,6 +11,7 @@ test.after(() => {
   else Object.defineProperty(globalThis, 'Element', { configurable: true, value: originalElement });
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: The fixture deliberately accepts partial synthetic pointer events.
 type Listener = (event: any) => void;
 
 function fixture(useNativeInteraction = false, handleScrollAttempt = false) {
@@ -28,7 +29,9 @@ function fixture(useNativeInteraction = false, handleScrollAttempt = false) {
       registered.push(listener);
       listeners.set(name, registered);
     },
-    removeEventListener() {},
+    removeEventListener() {
+      // The fixture does not need listener removal.
+    },
     setPointerCapture(pointerId: number) {
       capturedPointer = pointerId;
     },
@@ -64,8 +67,9 @@ function fixture(useNativeInteraction = false, handleScrollAttempt = false) {
         tapped += 1;
       },
       useNativeInteraction: () => useNativeInteraction,
-    }
+    },
   );
+  // biome-ignore lint/suspicious/noExplicitAny: Tests pass minimal event-shaped objects for each gesture.
   const fire = (name: string, event: any): void => {
     for (const listener of listeners.get(name) ?? []) listener(event);
   };

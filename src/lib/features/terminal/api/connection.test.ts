@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  TerminalConnection,
   TERMINAL_READY_TIMEOUT_MS,
   TERMINAL_STABLE_READY_MS,
-  terminalCloseIsRetryable,
+  TerminalConnection,
   type TerminalConnectionContext,
   type TerminalConnectionDiagnostic,
   type TerminalSocket,
+  terminalCloseIsRetryable,
 } from '~/lib/features/terminal/api/connection.ts';
 import type { TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
 
@@ -54,16 +54,16 @@ class FakeSocket implements TerminalSocket {
 
   open(): void {
     this.readyState = 1;
-    this.onopen?.({});
+    this.onopen?.(new Event('open'));
   }
 
   message(data: unknown): void {
-    this.onmessage?.({ data });
+    this.onmessage?.(new MessageEvent('message', { data }));
   }
 
   disconnect(code: number, reason: string): void {
     this.readyState = 3;
-    this.onclose?.({ code, reason });
+    this.onclose?.(new CloseEvent('close', { code, reason }));
   }
 
   send(data: string): void {
@@ -109,7 +109,7 @@ function createHarness() {
       },
       setTimeout: scheduler.setTimeout,
       clearTimeout: scheduler.clearTimeout,
-    }
+    },
   );
   return {
     connection,
@@ -357,7 +357,7 @@ test('resolves a fresh WebSocket URL for each connection attempt', () => {
         sockets.push(socket);
         return socket;
       },
-    }
+    },
   );
   connection.start();
   assert.match(sockets[0].url, /active=0/);
@@ -381,7 +381,7 @@ test('reports attempt timing and bounded metadata without recording terminal con
   harness.sockets[0].disconnect(1011, 'private path or token');
   assert.deepEqual(
     harness.diagnostics.map(({ phase }) => phase),
-    ['connecting', 'open', 'ready', 'closed', 'retrying']
+    ['connecting', 'open', 'ready', 'closed', 'retrying'],
   );
   assert.equal(harness.diagnostics[1].elapsedMs, 80);
   assert.equal(harness.diagnostics[2].elapsedMs, 800);
@@ -409,7 +409,7 @@ test('a failing diagnostic listener cannot break a terminal connection', () => {
         opened = true;
       },
     },
-    { createSocket: () => socket }
+    { createSocket: () => socket },
   );
   connection.start();
   socket.open();

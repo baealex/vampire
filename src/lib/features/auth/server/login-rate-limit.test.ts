@@ -43,7 +43,7 @@ test('uses the higher shared-account threshold for global credential failures', 
       assert.equal(recordLoginFailure(key, now + index, loginRateLimit.GLOBAL_MAX_FAILURES), 0);
     }
     assert.ok(
-      recordLoginFailure(key, now + loginRateLimit.GLOBAL_MAX_FAILURES, loginRateLimit.GLOBAL_MAX_FAILURES) > 0
+      recordLoginFailure(key, now + loginRateLimit.GLOBAL_MAX_FAILURES, loginRateLimit.GLOBAL_MAX_FAILURES) > 0,
     );
   } finally {
     resetLoginFailures(key);

@@ -457,7 +457,7 @@ export function createStatusPluginPreset(presetId: string, id: string): StatusPl
 
 export function defaultStatusPlugins(): StatusPlugin[] {
   return [createStatusPluginPreset('cpu', 'status-cpu'), createStatusPluginPreset('memory', 'status-memory')].filter(
-    (plugin): plugin is StatusPlugin => Boolean(plugin)
+    (plugin): plugin is StatusPlugin => Boolean(plugin),
   );
 }
 

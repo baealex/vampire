@@ -1,8 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import {
+  defaultStatusPlugins,
+  isStatusPluginList,
+  STATUS_PLUGIN_CPU_COMMAND,
+  STATUS_PLUGIN_MEMORY_COMMAND,
+} from '../../shared/contracts/status-plugin.ts';
+import { DEFAULT_TERMINAL_INPUT_SETTINGS, isTerminalInputSettings } from '../../shared/contracts/terminal-input.ts';
 import {
   DEFAULT_WORKSPACE_COMPOSER_HISTORY_SETTINGS,
   isWorkspaceComposerHistorySettings,
@@ -11,13 +18,6 @@ import {
   normalizeWorkspaceComposerPromptHistory,
   type WorkspaceComposerPrompt,
 } from '../../shared/contracts/workspace-composer-history.ts';
-import {
-  defaultStatusPlugins,
-  isStatusPluginList,
-  STATUS_PLUGIN_CPU_COMMAND,
-  STATUS_PLUGIN_MEMORY_COMMAND,
-} from '../../shared/contracts/status-plugin.ts';
-import { DEFAULT_TERMINAL_INPUT_SETTINGS, isTerminalInputSettings } from '../../shared/contracts/terminal-input.ts';
 import { parseWorkspaceStore, type WorkspaceStore } from '../../shared/contracts/workspace-store.ts';
 import { atomicWriteFile, ensurePrivateDirectory, errorHasFileCode, syncDirectory } from '../atomic-file.ts';
 import {
@@ -32,9 +32,9 @@ import {
   VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE,
   VAMPIRE_LEGACY_STATE_FILE,
   VAMPIRE_REGISTRY_FILE,
-  VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE,
   VAMPIRE_WORKSPACE_AUTOMATIONS_FILE,
   VAMPIRE_WORKSPACE_BACKGROUND_FILE,
+  VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE,
   VAMPIRE_WORKSPACE_NOTE_FILE,
   VAMPIRE_WORKSPACE_SETTINGS_FILE,
   VAMPIRE_WORKSPACES_DIRECTORY,
@@ -170,7 +170,7 @@ async function collectDirectoryFiles(root: string, relativeDirectory: string): P
   }
   const files: SnapshotFile[] = [];
   const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name)
+    left.name.localeCompare(right.name),
   );
   for (const entry of entries) {
     const relativePath = posix.join(relativeDirectory, entry.name);
@@ -193,7 +193,7 @@ function isRemovableLegacyRootFile(entry: Dirent): boolean {
 async function collectLegacySnapshot(stateDirectory: string): Promise<SnapshotFile[]> {
   const files: SnapshotFile[] = [];
   const entries = (await readdir(stateDirectory, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name)
+    left.name.localeCompare(right.name),
   );
   for (const entry of entries) {
     if (LEGACY_DIRECTORY_NAMES.has(entry.name)) {
@@ -287,7 +287,7 @@ async function readBackup(backupDirectory: string): Promise<Map<string, Snapshot
   for (const entry of manifest.files) {
     await assertExistingSafeDirectoryChain(
       backupDirectory,
-      posix.dirname(`legacy/${entry.path}`) === '.' ? '' : posix.dirname(`legacy/${entry.path}`)
+      posix.dirname(`legacy/${entry.path}`) === '.' ? '' : posix.dirname(`legacy/${entry.path}`),
     );
     const path = join(backupDirectory, 'legacy', ...entry.path.split('/'));
     const fileDetails = await lstat(path);
@@ -336,7 +336,7 @@ async function createOrReadBackup(stateDirectory: string): Promise<Map<string, S
       await writeFile(
         join(stagingDirectory, ORGANIZED_STATE_BACKUP_MANIFEST),
         json(manifestFor(snapshot, new Date().toISOString())),
-        { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+        { encoding: 'utf8', flag: 'wx', mode: 0o600 },
       );
       await readBackup(stagingDirectory);
       const verifiedSource = await collectLegacySnapshot(stateDirectory);
@@ -371,9 +371,9 @@ function rawWorkspaceById(rawState: unknown): Map<string, Record<string, unknown
   return new Map(
     rawWorkspaces
       .filter(
-        (workspace): workspace is Record<string, unknown> => isRecord(workspace) && typeof workspace.id === 'string'
+        (workspace): workspace is Record<string, unknown> => isRecord(workspace) && typeof workspace.id === 'string',
       )
-      .map((workspace) => [workspace.id as string, workspace])
+      .map((workspace) => [workspace.id as string, workspace]),
   );
 }
 
@@ -440,7 +440,7 @@ function statusWidgetsDocument(files: Map<string, SnapshotFile>): string {
 function legacyWorkspaceFile(
   files: Map<string, SnapshotFile>,
   workspaceId: string,
-  suffix: string
+  suffix: string,
 ): SnapshotFile | undefined {
   return files.get(`${vampireWorkspaceStateKey(workspaceId)}${suffix}`);
 }
@@ -448,7 +448,7 @@ function legacyWorkspaceFile(
 function workspaceNoteContents(
   files: Map<string, SnapshotFile>,
   workspaceId: string,
-  rawWorkspace: Record<string, unknown> | undefined
+  rawWorkspace: Record<string, unknown> | undefined,
 ): Buffer {
   const existing = legacyWorkspaceFile(files, workspaceId, '.note.md');
   if (existing && existing.bytes > MAX_NOTE_BYTES + 1) throw new Error(`Workspace note is too large: ${workspaceId}`);
@@ -468,7 +468,7 @@ function parseHistory(value: unknown, label: string): WorkspaceComposerPrompt[] 
 function mergedHistory(
   files: Map<string, SnapshotFile>,
   workspaceId: string,
-  rawWorkspace: Record<string, unknown> | undefined
+  rawWorkspace: Record<string, unknown> | undefined,
 ): string {
   const historyPath = `composer-history/workspaces/${vampireWorkspaceStateKey(workspaceId)}.json`;
   const fileHistory = files.has(historyPath)
@@ -476,7 +476,7 @@ function mergedHistory(
     : [];
   const inline = normalizeWorkspaceComposerPromptHistory(
     rawWorkspace?.composerPromptHistory,
-    MAX_WORKSPACE_COMPOSER_PROMPTS
+    MAX_WORKSPACE_COMPOSER_PROMPTS,
   );
   const byId = new Map<string, WorkspaceComposerPrompt>();
   for (const prompt of [...inline, ...fileHistory]) byId.set(prompt.id, prompt);
@@ -490,7 +490,7 @@ function orphanedWorkspaceArtifactKey(
   path: string,
   prefix: string,
   suffix: string,
-  activeWorkspaceKeys: Set<string>
+  activeWorkspaceKeys: Set<string>,
 ): string | undefined {
   if (!path.startsWith(prefix) || !path.endsWith(suffix)) return undefined;
   const legacyKey = path.slice(prefix.length, -suffix.length);
@@ -502,7 +502,7 @@ function orphanedWorkspaceArtifactKey(
 async function materializeOrphanedWorkspaceArtifacts(
   stageDirectory: string,
   files: Map<string, SnapshotFile>,
-  state: WorkspaceStore
+  state: WorkspaceStore,
 ): Promise<void> {
   const activeWorkspaceKeys = new Set(state.workspaces.map((workspace) => vampireWorkspaceStateKey(workspace.id)));
   for (const file of files.values()) {
@@ -513,7 +513,7 @@ async function materializeOrphanedWorkspaceArtifacts(
         stageDirectory,
         `${VAMPIRE_WORKSPACES_DIRECTORY}/${noteKey}/${VAMPIRE_WORKSPACE_NOTE_FILE}`,
         file.contents,
-        file.mode
+        file.mode,
       );
       continue;
     }
@@ -522,7 +522,7 @@ async function materializeOrphanedWorkspaceArtifacts(
       file.path,
       'composer-history/workspaces/',
       '.json',
-      activeWorkspaceKeys
+      activeWorkspaceKeys,
     );
     if (!historyKey) continue;
     const prompts = parseHistory(parseJsonFile(file, file.path), file.path);
@@ -530,7 +530,7 @@ async function materializeOrphanedWorkspaceArtifacts(
       stageDirectory,
       `${VAMPIRE_WORKSPACES_DIRECTORY}/${historyKey}/${VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE}`,
       json({ version: 1, prompts }),
-      file.mode
+      file.mode,
     );
   }
 }
@@ -556,7 +556,7 @@ async function writeTargetFile(
   root: string,
   relativePath: string,
   contents: string | Buffer,
-  mode = 0o600
+  mode = 0o600,
 ): Promise<void> {
   await ensureSafeDirectoryChain(root, posix.dirname(relativePath) === '.' ? '' : posix.dirname(relativePath));
   const path = absoluteFromRelative(root, relativePath);
@@ -589,17 +589,17 @@ async function copySupportFiles(files: Map<string, SnapshotFile>, stageDirectory
         stageDirectory,
         `${mapping.target}${file.path.slice(mapping.source.length)}`,
         file.contents,
-        file.mode
+        file.mode,
       );
     }
   }
   await ensureSafeDirectoryChain(
     stageDirectory,
-    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_GUIDES_DIRECTORY}`
+    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_GUIDES_DIRECTORY}`,
   );
   await ensureSafeDirectoryChain(
     stageDirectory,
-    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_REQUESTS_DIRECTORY}/automations`
+    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_REQUESTS_DIRECTORY}/automations`,
   );
 }
 
@@ -608,35 +608,35 @@ async function materializeStagingState(
   files: Map<string, SnapshotFile>,
   state: WorkspaceStore,
   rawById: Map<string, Record<string, unknown>>,
-  revision: string
+  revision: string,
 ): Promise<void> {
   await writeStructuredWorkspaceState(state, { stateDirectory: stageDirectory, revision });
   await writeTargetFile(
     stageDirectory,
     `${VAMPIRE_GLOBAL_DIRECTORY}/${VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE}`,
-    statusWidgetsDocument(files)
+    statusWidgetsDocument(files),
   );
   await writeTargetFile(
     stageDirectory,
     `${VAMPIRE_GLOBAL_DIRECTORY}/${VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE}`,
-    terminalInputDocument(files)
+    terminalInputDocument(files),
   );
   await writeTargetFile(
     stageDirectory,
     `${VAMPIRE_GLOBAL_DIRECTORY}/${VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE}`,
-    composerSettingsDocument(files)
+    composerSettingsDocument(files),
   );
   for (const workspace of state.workspaces) {
     const prefix = `${VAMPIRE_WORKSPACES_DIRECTORY}/${vampireWorkspaceStateKey(workspace.id)}`;
     await writeTargetFile(
       stageDirectory,
       `${prefix}/${VAMPIRE_WORKSPACE_NOTE_FILE}`,
-      workspaceNoteContents(files, workspace.id, rawById.get(workspace.id))
+      workspaceNoteContents(files, workspace.id, rawById.get(workspace.id)),
     );
     await writeTargetFile(
       stageDirectory,
       `${prefix}/${VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE}`,
-      mergedHistory(files, workspace.id, rawById.get(workspace.id))
+      mergedHistory(files, workspace.id, rawById.get(workspace.id)),
     );
   }
   await materializeOrphanedWorkspaceArtifacts(stageDirectory, files, state);
@@ -671,21 +671,21 @@ async function validateOrganizedState(stateDirectory: string, allowLegacy: boole
   const state = await readStructuredWorkspaceState(stateDirectory);
   const status = await readRequiredJson(
     join(stateDirectory, VAMPIRE_GLOBAL_DIRECTORY, VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE),
-    `global/${VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE}`
+    `global/${VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE}`,
   );
   if (!isRecord(status) || status.version !== 1 || !isStatusPluginList(status.plugins)) {
     throw new Error('The organized status widget document is invalid.');
   }
   const terminal = await readRequiredJson(
     join(stateDirectory, VAMPIRE_GLOBAL_DIRECTORY, VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE),
-    `global/${VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE}`
+    `global/${VAMPIRE_GLOBAL_TERMINAL_INPUT_FILE}`,
   );
   if (!isRecord(terminal) || terminal.version !== 2 || !isTerminalInputSettings(terminal)) {
     throw new Error('The organized terminal input document is invalid.');
   }
   const composer = await readRequiredJson(
     join(stateDirectory, VAMPIRE_GLOBAL_DIRECTORY, VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE),
-    `global/${VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE}`
+    `global/${VAMPIRE_GLOBAL_COMPOSER_HISTORY_FILE}`,
   );
   if (!isRecord(composer) || composer.version !== 1 || !isWorkspaceComposerHistorySettings(composer)) {
     throw new Error('The organized Composer history settings are invalid.');
@@ -700,7 +700,7 @@ async function validateOrganizedState(stateDirectory: string, allowLegacy: boole
     }
     const history = await readRequiredJson(
       join(directory, VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE),
-      `${workspace.id}/${VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE}`
+      `${workspace.id}/${VAMPIRE_WORKSPACE_COMPOSER_HISTORY_FILE}`,
     );
     if (
       !isRecord(history) ||
@@ -714,11 +714,11 @@ async function validateOrganizedState(stateDirectory: string, allowLegacy: boole
   }
   await assertSafeDirectory(
     join(stateDirectory, VAMPIRE_AGENT_SUPPORT_DIRECTORY, VAMPIRE_AGENT_GUIDES_DIRECTORY),
-    'agent-support/guides'
+    'agent-support/guides',
   );
   await assertSafeDirectory(
     join(stateDirectory, VAMPIRE_AGENT_SUPPORT_DIRECTORY, VAMPIRE_AGENT_REQUESTS_DIRECTORY, 'automations'),
-    'agent-support/requests/automations'
+    'agent-support/requests/automations',
   );
   if (!allowLegacy && (await legacyEntryExists(stateDirectory))) {
     throw new Error('Legacy state remains outside the organized state directories.');
@@ -730,7 +730,7 @@ async function collectFilesRecursively(root: string, relativeDirectory = ''): Pr
   const directory = relativeDirectory ? absoluteFromRelative(root, relativeDirectory) : root;
   const files: string[] = [];
   for (const entry of (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name)
+    left.name.localeCompare(right.name),
   )) {
     const relativePath = relativeDirectory ? posix.join(relativeDirectory, entry.name) : entry.name;
     if (entry.isSymbolicLink()) throw new Error(`Migration staging contains a symbolic link: ${relativePath}`);
@@ -762,11 +762,11 @@ async function installStagedAncillaryFiles(stageDirectory: string, stateDirector
   }
   await ensureSafeDirectoryChain(
     stateDirectory,
-    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_GUIDES_DIRECTORY}`
+    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_GUIDES_DIRECTORY}`,
   );
   await ensureSafeDirectoryChain(
     stateDirectory,
-    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_REQUESTS_DIRECTORY}/automations`
+    `${VAMPIRE_AGENT_SUPPORT_DIRECTORY}/${VAMPIRE_AGENT_REQUESTS_DIRECTORY}/automations`,
   );
 }
 
@@ -802,7 +802,7 @@ async function assertStructuredCommitCanProceed(stateDirectory: string, state: W
 
 async function removeLegacyState(stateDirectory: string, backup: Map<string, SnapshotFile>): Promise<void> {
   const removableRootFiles = new Set(
-    [...backup.keys()].filter((path) => !path.includes('/') && path !== STATE_LAYOUT_FILE).map((path) => path)
+    [...backup.keys()].filter((path) => !path.includes('/') && path !== STATE_LAYOUT_FILE).map((path) => path),
   );
   for (const file of removableRootFiles) {
     const path = join(stateDirectory, file);
@@ -827,7 +827,7 @@ async function removeLegacyState(stateDirectory: string, backup: Map<string, Sna
         throw new Error(`Legacy cleanup target is unsafe: ${directoryName}`);
       }
       const current = (await collectDirectoryFiles(stateDirectory, directoryName)).sort((left, right) =>
-        left.path.localeCompare(right.path)
+        left.path.localeCompare(right.path),
       );
       const expected = [...backup.values()]
         .filter((file) => file.path.startsWith(`${directoryName}/`))

@@ -1,13 +1,13 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   removeManagedWorkspace,
   restartManagedWorkspace,
-  WorkspaceLaunchError,
-  WorkspaceMutationError,
   stopAndRemoveManagedWorkspace,
   touchManagedWorkspace,
+  WorkspaceLaunchError,
+  WorkspaceMutationError,
 } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 export const PATCH: RequestHandler = async (event) => {
   requireAuthentication(event);
@@ -52,7 +52,7 @@ export const POST: RequestHandler = async (event) => {
     if (cause instanceof WorkspaceMutationError) {
       throw error(
         cause.reason === 'not-found' ? 404 : cause.reason === 'invalid-startup-profile' ? 400 : 409,
-        cause.message
+        cause.message,
       );
     }
     if (cause instanceof WorkspaceLaunchError) {

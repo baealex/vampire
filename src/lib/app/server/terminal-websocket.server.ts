@@ -11,8 +11,8 @@ import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
   fallbackTerminalAttachment,
-  previousTerminalConnection,
   type ManagedTerminalAttachment,
+  previousTerminalConnection,
   releaseTerminalAttachment,
   runTerminalOperation,
   type TerminalAttachmentState,
@@ -29,11 +29,11 @@ import {
   webSocketRequestUrl,
 } from '~/lib/server/websocket-support.ts';
 import {
+  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
   TERMINAL_GEOMETRY_PROTOCOL_VERSION,
   TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION,
   TERMINAL_SIZE_LIMITS,
   TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION,
-  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
   TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
@@ -99,7 +99,7 @@ function broadcastTerminalGeometry(state: WorkspaceAttachmentState, geometry: Te
 async function activateAttachment(
   state: WorkspaceAttachmentState,
   attachment: TerminalAttachment,
-  options: { onlyIfUnclaimed?: boolean; replaces?: TerminalAttachment } = {}
+  options: { onlyIfUnclaimed?: boolean; replaces?: TerminalAttachment } = {},
 ): Promise<void> {
   const changed = await activateTerminalAttachment(state, attachment, options);
   if (changed && state.geometry) broadcastTerminalGeometry(state, state.geometry);
@@ -307,7 +307,7 @@ export function installTerminalWebSocket(server: HttpServer): () => void {
             await activateAttachment(
               state,
               attachment,
-              context.claimControl ? {} : { onlyIfUnclaimed: true, replaces: previousConnection }
+              context.claimControl ? {} : { onlyIfUnclaimed: true, replaces: previousConnection },
             );
             // Reclaim only this runtime's old connection. A different device
             // that took control while we were offline remains authoritative.

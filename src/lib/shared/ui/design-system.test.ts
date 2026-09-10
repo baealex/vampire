@@ -11,7 +11,7 @@ test('keeps shared control chrome inside shared UI components', async () => {
   assert.deepEqual(
     await findDesignSystemViolations(),
     [],
-    'use shared UI components and semantic props instead of legacy style contracts'
+    'use shared UI components and semantic props instead of legacy style contracts',
   );
 });
 

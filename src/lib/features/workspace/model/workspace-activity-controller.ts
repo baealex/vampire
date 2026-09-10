@@ -1,11 +1,11 @@
+import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 import {
   buildActivityOrder,
-  workspaceOutputSettleMs,
-  workspaceTrackedOutputAt,
   type WorkspaceActivityRecord,
   type WorkspaceActivityRecords,
+  workspaceOutputSettleMs,
+  workspaceTrackedOutputAt,
 } from './workspace-view.ts';
-import type { ManagedWorkspace } from '~/lib/shared/contracts/workspace.ts';
 
 const OUTPUT_ACTIVITY_UPDATE_INTERVAL_MS = 500;
 const WORKSPACE_OUTPUT_SEEN_KEY = 'vampire:workspace-output-seen';
@@ -64,7 +64,7 @@ export class WorkspaceActivityController {
     let saved: unknown;
     try {
       saved = JSON.parse(
-        storage.getItem(WORKSPACE_OUTPUT_SEEN_KEY) ?? storage.getItem(COMPATIBILITY_SESSION_OUTPUT_SEEN_KEY) ?? 'null'
+        storage.getItem(WORKSPACE_OUTPUT_SEEN_KEY) ?? storage.getItem(COMPATIBILITY_SESSION_OUTPUT_SEEN_KEY) ?? 'null',
       );
     } catch {
       return;
@@ -88,7 +88,7 @@ export class WorkspaceActivityController {
   applyWorkspaces(
     previousWorkspaces: ManagedWorkspace[],
     nextWorkspaces: ManagedWorkspace[],
-    workspacesLoaded: boolean
+    workspacesLoaded: boolean,
   ) {
     const previousById = new Map(previousWorkspaces.map((workspace) => [workspace.id, workspace]));
     for (const workspace of nextWorkspaces) {
@@ -117,7 +117,7 @@ export class WorkspaceActivityController {
     previous: ManagedWorkspace,
     next: ManagedWorkspace,
     nextWorkspaces: ManagedWorkspace[],
-    workspacesLoaded: boolean
+    workspacesLoaded: boolean,
   ) {
     const outputAt = workspaceTrackedOutputAt(next);
     const outputChanged = workspacesLoaded && outputTimestampChanged(workspaceTrackedOutputAt(previous), outputAt);
@@ -156,7 +156,7 @@ export class WorkspaceActivityController {
     const nextSeenThroughAt = Math.max(
       current.seenThroughAt,
       workspaceTrackedOutputAt(workspace) ?? 0,
-      this.#scheduler.now()
+      this.#scheduler.now(),
     );
     if (nextSeenThroughAt === current.seenThroughAt) return;
     this.#setRecord(workspaceId, { ...current, seenThroughAt: nextSeenThroughAt });
@@ -194,8 +194,8 @@ export class WorkspaceActivityController {
         [...this.#options.getActivityRecords()].map(([workspaceId, record]) => [
           workspaceId,
           { ...record, activeUntil: 0 },
-        ])
-      )
+        ]),
+      ),
     );
   }
 
@@ -258,7 +258,7 @@ export class WorkspaceActivityController {
         const pendingTimestamp = this.#pendingOutputActivity.get(workspaceId);
         if (pendingTimestamp !== undefined)
           this.#commitOutputActivity(workspaceId, pendingTimestamp, this.#scheduler.now());
-      }, OUTPUT_ACTIVITY_UPDATE_INTERVAL_MS - elapsed)
+      }, OUTPUT_ACTIVITY_UPDATE_INTERVAL_MS - elapsed),
     );
   }
 
@@ -290,8 +290,8 @@ export class WorkspaceActivityController {
           this.#setRecord(workspaceId, { ...current, activeUntil: 0 });
           this.#rebuildActivityOrder();
         },
-        Math.max(0, activeUntil - this.#scheduler.now())
-      )
+        Math.max(0, activeUntil - this.#scheduler.now()),
+      ),
     );
   }
 
@@ -311,7 +311,7 @@ export class WorkspaceActivityController {
 
   #rebuildActivityOrder(workspaces = this.#options.getWorkspaces()) {
     this.#options.setActivityOrder(
-      buildActivityOrder(workspaces, this.#options.getActivityOrder(), this.#options.getActivityRecords())
+      buildActivityOrder(workspaces, this.#options.getActivityOrder(), this.#options.getActivityRecords()),
     );
   }
 
@@ -351,7 +351,7 @@ export class WorkspaceActivityController {
     const workspaces = Object.fromEntries(
       [...this.#options.getActivityRecords()]
         .filter(([, record]) => record.seenThroughAt > 0)
-        .map(([workspaceId, record]) => [workspaceId, record.seenThroughAt])
+        .map(([workspaceId, record]) => [workspaceId, record.seenThroughAt]),
     );
     try {
       this.#storage.setItem(
@@ -359,7 +359,7 @@ export class WorkspaceActivityController {
         JSON.stringify({
           version: WORKSPACE_OUTPUT_SEEN_VERSION,
           workspaces,
-        } satisfies WorkspaceOutputSeenState)
+        } satisfies WorkspaceOutputSeenState),
       );
     } catch {
       // Storage can be unavailable or full; activity remains correct for this page lifetime.

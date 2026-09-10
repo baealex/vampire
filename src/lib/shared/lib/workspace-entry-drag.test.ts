@@ -31,12 +31,12 @@ test('accepts only safe workspace drag payloads', () => {
 test('parses multi-entry drags while keeping legacy single-entry payloads compatible', () => {
   assert.deepEqual(
     parseWorkspaceEntryDragEntries(
-      '{"entries":[{"path":"src/app.ts","kind":"file"},{"path":"docs","kind":"directory"}]}'
+      '{"entries":[{"path":"src/app.ts","kind":"file"},{"path":"docs","kind":"directory"}]}',
     ),
     [
       { path: 'src/app.ts', kind: 'file' },
       { path: 'docs', kind: 'directory' },
-    ]
+    ],
   );
   assert.deepEqual(parseWorkspaceEntryDragEntries('{"path":"src/app.ts","kind":"file"}'), [
     { path: 'src/app.ts', kind: 'file' },

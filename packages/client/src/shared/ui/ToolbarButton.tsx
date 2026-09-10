@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import './primitives.css';
 
 export type ToolbarButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -10,7 +10,7 @@ export type ToolbarButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function ToolbarButton(
   { active = false, children, className, compact = false, label, text, title = label, type = 'button', ...props },
-  ref
+  ref,
 ) {
   const classes = [
     'vampire-toolbar-button',

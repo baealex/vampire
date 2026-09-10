@@ -5,7 +5,7 @@ export type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> 
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
   { className, size = 'md', ...props },
-  ref
+  ref,
 ) {
   return (
     <select

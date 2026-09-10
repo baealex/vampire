@@ -8,9 +8,13 @@ function stateValue<T>(value?: T): T | undefined {
   return value;
 }
 
-import { RequestError } from '@vampire/lib/shared/api/request.ts';
-import type { WorkspaceEntryDragData } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
 import { RepositoryClient } from '@vampire/lib/features/repository/api/client.ts';
+import type {
+  WorkspaceUploadCandidate,
+  WorkspaceUploadSelection,
+} from '@vampire/lib/features/repository/api/upload.ts';
+import { workspaceUploadPath } from '@vampire/lib/features/repository/api/upload.ts';
+import { RequestError } from '@vampire/lib/shared/api/request.ts';
 import type {
   RepositoryBranch,
   RepositoryChange,
@@ -22,11 +26,7 @@ import type {
   WorkspaceMoveResult,
   WorkspaceUploadConflict,
 } from '@vampire/lib/shared/contracts/repository.ts';
-import type {
-  WorkspaceUploadCandidate,
-  WorkspaceUploadSelection,
-} from '@vampire/lib/features/repository/api/upload.ts';
-import { workspaceUploadPath } from '@vampire/lib/features/repository/api/upload.ts';
+import type { WorkspaceEntryDragData } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
 
 export type RepositoryDeleteTarget = {
   path: string;
@@ -109,11 +109,11 @@ export class RepositoryWorkspaceState {
   #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#operation.then(
       () => operation(),
-      () => operation()
+      () => operation(),
     );
     this.#operation = next.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     );
     return next;
   }
@@ -121,7 +121,7 @@ export class RepositoryWorkspaceState {
   #mergeDirectoryListing(
     current: RepositorySnapshot,
     path: string,
-    listing: RepositoryDirectoryListing
+    listing: RepositoryDirectoryListing,
   ): RepositorySnapshot {
     const prefix = path ? `${path}/` : '';
     return {
@@ -156,7 +156,7 @@ export class RepositoryWorkspaceState {
   collapseDirectory(path: string) {
     if (path === '') this.#directoryGeneration += 1;
     this.#loadedDirectories = this.#loadedDirectories.filter(
-      (directory) => path !== '' && directory !== path && !directory.startsWith(`${path}/`)
+      (directory) => path !== '' && directory !== path && !directory.startsWith(`${path}/`),
     );
   }
 
@@ -195,7 +195,7 @@ export class RepositoryWorkspaceState {
                     if (error instanceof RequestError && error.status === 404) return undefined;
                     throw error;
                   }
-                })
+                }),
               );
               // Merge in tree order, so a parent's listing cannot erase its children.
               for (const [index, listing] of listings.entries()) {
@@ -308,7 +308,7 @@ export class RepositoryWorkspaceState {
     if (this.#skippedGitFileCount > 0) parts.push('Git metadata was skipped.');
     if (this.#uploadFailures.length > 0) {
       parts.push(
-        `${this.#uploadFailures.length} ${this.#uploadFailures.length === 1 ? 'file failed' : 'files failed'}: ${this.#uploadFailures[0]}`
+        `${this.#uploadFailures.length} ${this.#uploadFailures.length === 1 ? 'file failed' : 'files failed'}: ${this.#uploadFailures[0]}`,
       );
     }
     return parts.join(' ');
@@ -418,7 +418,7 @@ export class RepositoryWorkspaceState {
           this.#uploadedFileCount += 1;
         } catch (error) {
           this.#uploadFailures.push(
-            error instanceof Error ? error.message : `“${candidate.relativePath}” could not be added.`
+            error instanceof Error ? error.message : `“${candidate.relativePath}” could not be added.`,
           );
         }
       }
@@ -460,7 +460,7 @@ export class RepositoryWorkspaceState {
     path: string,
     kind: WorkspaceEntryKind,
     targetDirectory: string,
-    conflict: 'reject' | 'rename'
+    conflict: 'reject' | 'rename',
   ): Promise<WorkspaceMoveResult> {
     const result = await this.#enqueue(() => this.#api.moveEntry(path, kind, targetDirectory, conflict));
     this.#loadedDirectories = [
@@ -481,7 +481,7 @@ export class RepositoryWorkspaceState {
   async moveEntry(
     path: string,
     kind: WorkspaceEntryKind,
-    targetDirectory: string
+    targetDirectory: string,
   ): Promise<WorkspaceMoveResult | undefined> {
     if (this.moving) return;
     const selectedPath = this.selection?.path;
@@ -542,8 +542,8 @@ export class RepositoryWorkspaceState {
           (candidate) =>
             candidate.kind === 'directory' &&
             candidate.path !== entry.path &&
-            entry.path.startsWith(`${candidate.path}/`)
-        )
+            entry.path.startsWith(`${candidate.path}/`),
+        ),
     );
   }
 
@@ -561,7 +561,7 @@ export class RepositoryWorkspaceState {
       for (const entry of clipboard.entries) {
         if (clipboard.operation === 'copy') {
           results.push(
-            await this.#enqueue(() => this.#api.copyEntry(entry.path, entry.kind, targetDirectory, 'rename'))
+            await this.#enqueue(() => this.#api.copyEntry(entry.path, entry.kind, targetDirectory, 'rename')),
           );
         } else {
           results.push(await this.#performMove(entry.path, entry.kind, targetDirectory, 'rename'));
@@ -717,7 +717,7 @@ export class RepositoryWorkspaceState {
       const discardsChanges = Boolean(
         this.fileDirty &&
           selectedPath &&
-          targets.some((target) => this.#pathContainsEntry(selectedPath, target.path, target.kind))
+          targets.some((target) => this.#pathContainsEntry(selectedPath, target.path, target.kind)),
       );
       const description = `${targets.length} selected items will be permanently deleted.`;
       return discardsChanges ? `${description} The open file has unsaved changes that will be discarded.` : description;
@@ -726,7 +726,7 @@ export class RepositoryWorkspaceState {
     if (!target) return 'The selected item will be permanently deleted.';
     const selectedPath = this.selection?.path;
     const discardsChanges = Boolean(
-      this.fileDirty && selectedPath && this.#pathContainsEntry(selectedPath, target.path, target.kind)
+      this.fileDirty && selectedPath && this.#pathContainsEntry(selectedPath, target.path, target.kind),
     );
     const targetDescription =
       target.kind === 'directory'
@@ -750,12 +750,12 @@ export class RepositoryWorkspaceState {
       await this.#enqueue(() => this.#api.deleteEntry(target.path, target.kind));
       if (target.kind === 'directory') {
         this.#loadedDirectories = this.#loadedDirectories.filter(
-          (directory) => directory !== target.path && !directory.startsWith(`${target.path}/`)
+          (directory) => directory !== target.path && !directory.startsWith(`${target.path}/`),
         );
       }
       if (deletingSelected) this.clearSelection();
       this.deleteTargets = this.deleteTargets.filter(
-        (candidate) => candidate.path !== target.path || candidate.kind !== target.kind
+        (candidate) => candidate.path !== target.path || candidate.kind !== target.kind,
       );
     }
     await this.refresh();

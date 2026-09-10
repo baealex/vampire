@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, readFile, realpath, rename, unlink, type FileHandle } from 'node:fs/promises';
+import { type FileHandle, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { Umzug, type UmzugStorage } from 'umzug';

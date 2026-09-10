@@ -1,88 +1,22 @@
-.workspace-note-panel {
-  position: absolute;
-  z-index: 15;
-  top: 3.2rem;
-  right: 0;
-  bottom: 0;
-  width: min(28rem, 45%);
-  padding: 0.75rem;
-  box-sizing: border-box;
-  pointer-events: none;
-  transform: translateX(100%);
-  visibility: hidden;
-  transition:
-    transform 0.18s ease,
-    visibility 0s linear 0.18s;
-}
-.workspace-note-panel.open {
-  transform: translateX(0);
-  visibility: visible;
-  transition-delay: 0s;
-}
 .note-editor.panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 0.75rem;
+  gap: 0;
   width: 100%;
   height: 100%;
-  padding: 0.8rem;
+  padding: 0;
   box-sizing: border-box;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-overlay);
-  box-shadow: var(--shadow-popover);
+  background: var(--color-panel);
   pointer-events: auto;
 }
-.note-editor > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.note-editor > header h2 {
-  margin: 0;
-  font-size: var(--text-title);
-}
-.note-editor > header > div {
-  display: flex;
-  align-items: center;
-}
 .note-editor .note-textarea {
+  width: auto;
+  height: auto;
   min-height: 0;
+  margin: 0.75rem;
 }
 .note-editor > footer {
+  padding: 0 0.75rem 0.65rem;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
-}
-@media (max-width: 48rem) {
-  .workspace-note-panel {
-    position: fixed;
-    z-index: 40;
-    inset: 0;
-    width: 100%;
-    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
-    background: var(--color-panel);
-  }
-  .note-editor.panel {
-    gap: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: var(--color-panel);
-    box-shadow: none;
-  }
-  .note-editor > header {
-    min-height: 3.2rem;
-    padding: 0.35rem 0.5rem 0.35rem 0.8rem;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .note-editor .note-textarea {
-    width: auto;
-    height: auto;
-    min-height: 0;
-    margin: 0.75rem;
-  }
-  .note-editor > footer {
-    padding: 0 0.75rem 0.65rem;
-  }
 }

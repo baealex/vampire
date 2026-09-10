@@ -37,7 +37,7 @@ async function publishedIntegrity(version: string): Promise<string | undefined> 
     const { stdout } = await execFileAsync(
       npmCommand(),
       ['view', `vampire@${version}`, 'dist.integrity', '--json', '--registry=https://registry.npmjs.org'],
-      { timeout: 30_000 }
+      { timeout: 30_000 },
     );
     return JSON.parse(stdout);
   } catch (error) {

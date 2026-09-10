@@ -38,7 +38,7 @@ async function createStoredWorkspace(t: test.TestContext) {
           lastActiveAt: 1,
         },
       ],
-    })
+    }),
   );
 }
 
@@ -52,13 +52,13 @@ test('a one-time automation stays queued until the agent is ready, then submits 
       prompt: 'Review the current work and list the next steps.',
       schedule: { type: 'once', runAt: now },
     },
-    now
+    now,
   );
 
   assert.equal((await listDueManagedWorkspaceAutomations(now)).length, 1);
   assert.equal(
     await dispatchManagedWorkspaceAutomation('workspace-1', automation.id, now, async () => undefined),
-    'not-ready'
+    'not-ready',
   );
   assert.equal((await listManagedWorkspaceAutomations('workspace-1'))[0]?.enabled, true);
 
@@ -70,9 +70,9 @@ test('a one-time automation stays queued until the agent is ready, then submits 
       now,
       async (_workspace, current) => async () => {
         submissions.push(current.prompt);
-      }
+      },
     ),
-    'submitted'
+    'submitted',
   );
   assert.deepEqual(submissions, ['Review the current work and list the next steps.']);
 
@@ -93,7 +93,7 @@ test('agent actions reuse one hidden queue slot without appearing as saved autom
       name: 'Workspace note request',
       prompt: 'First request',
     },
-    10_000
+    10_000,
   );
   await assert.rejects(
     queueManagedWorkspaceAgentPrompt(
@@ -103,13 +103,13 @@ test('agent actions reuse one hidden queue slot without appearing as saved autom
         name: 'Workspace note request',
         prompt: 'Competing request',
       },
-      10_500
+      10_500,
     ),
-    /already being delivered/
+    /already being delivered/,
   );
   assert.equal(
     await dispatchManagedWorkspaceAutomation('workspace-1', first.id, 10_000, async () => async () => undefined),
-    'submitted'
+    'submitted',
   );
   const second = await queueManagedWorkspaceAgentPrompt(
     'workspace-1',
@@ -118,7 +118,7 @@ test('agent actions reuse one hidden queue slot without appearing as saved autom
       name: 'Workspace note request',
       prompt: 'Latest request',
     },
-    16_000
+    16_000,
   );
 
   assert.equal(second.id, first.id);
@@ -143,7 +143,7 @@ test('lists custom automations across workspaces without exposing internal deliv
       prompt: 'Review the visible work.',
       schedule: { type: 'once', runAt: 20_000 },
     },
-    10_000
+    10_000,
   );
   await queueManagedWorkspaceAgentPrompt(
     'workspace-1',
@@ -152,7 +152,7 @@ test('lists custom automations across workspaces without exposing internal deliv
       name: 'Internal note delivery',
       prompt: 'Update the workspace note.',
     },
-    11_000
+    11_000,
   );
 
   assert.deepEqual(await listManagedWorkspaceAutomationGroups(), [
@@ -171,7 +171,7 @@ test('a recurring automation coalesces missed intervals and never catches up rep
       prompt: 'Check the test run and handle the next useful step.',
       schedule: { type: 'interval', intervalMs, startAt },
     },
-    startAt - intervalMs
+    startAt - intervalMs,
   );
   const attemptedAt = startAt + intervalMs * 3 + 15_000;
 
@@ -180,9 +180,9 @@ test('a recurring automation coalesces missed intervals and never catches up rep
       'workspace-1',
       automation.id,
       attemptedAt,
-      async () => async () => undefined
+      async () => async () => undefined,
     ),
-    'submitted'
+    'submitted',
   );
 
   const [saved] = await listManagedWorkspaceAutomations('workspace-1');
@@ -208,7 +208,7 @@ test('a weekly automation runs only on selected local weekdays and keeps its wal
         startAt: createdAt,
       },
     },
-    createdAt
+    createdAt,
   );
 
   assert.equal(automation.nextRunAt, Date.UTC(2026, 7, 31, 0, 30));
@@ -217,9 +217,9 @@ test('a weekly automation runs only on selected local weekdays and keeps its wal
       'workspace-1',
       automation.id,
       Date.UTC(2026, 7, 31, 0, 30),
-      async () => async () => undefined
+      async () => async () => undefined,
     ),
-    'submitted'
+    'submitted',
   );
   const [saved] = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(saved?.nextRunAt, Date.UTC(2026, 8, 2, 0, 30));
@@ -235,12 +235,12 @@ test('pause, resume, delete, and failed delivery remain durable', async (t) => {
       prompt: 'Prepare an update.',
       schedule: { type: 'once', runAt: now },
     },
-    now
+    now,
   );
 
   assert.equal(
     (await setManagedWorkspaceAutomationEnabled('workspace-1', automation.id, false, now + 1)).enabled,
-    false
+    false,
   );
   assert.deepEqual(await listDueManagedWorkspaceAutomations(now + 1), []);
   assert.equal((await setManagedWorkspaceAutomationEnabled('workspace-1', automation.id, true, now + 2)).enabled, true);
@@ -249,7 +249,7 @@ test('pause, resume, delete, and failed delivery remain durable', async (t) => {
     await dispatchManagedWorkspaceAutomation('workspace-1', automation.id, now + 2, async () => async () => {
       throw new Error('tmux unavailable');
     }),
-    'failed'
+    'failed',
   );
   const [failed] = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(failed?.enabled, false);
@@ -271,7 +271,7 @@ test('editing an automation replaces its settings and recomputes the next run', 
       prompt: 'Old prompt.',
       schedule: { type: 'once', runAt: now + 60_000 },
     },
-    now
+    now,
   );
 
   const updated = await updateManagedWorkspaceAutomation(
@@ -289,7 +289,7 @@ test('editing an automation replaces its settings and recomputes the next run', 
         startAt: now,
       },
     },
-    now
+    now,
   );
 
   assert.equal(updated.id, automation.id);
@@ -311,7 +311,7 @@ test('editing a paused automation preserves its new future run when resumed', as
   const created = await createManagedWorkspaceAutomation(
     'workspace-1',
     { name: 'Paused task', prompt: 'Wait for the chosen time.', schedule: { type: 'once', runAt: 100 } },
-    1
+    1,
   );
   await setManagedWorkspaceAutomationEnabled('workspace-1', created.id, false, 2);
 
@@ -319,7 +319,7 @@ test('editing a paused automation preserves its new future run when resumed', as
     'workspace-1',
     created.id,
     { name: 'Rescheduled task', prompt: 'Run at the new time.', schedule: { type: 'once', runAt: 10_000 } },
-    3
+    3,
   );
   assert.equal(updated.enabled, false);
   assert.equal(updated.nextRunAt, 10_000);

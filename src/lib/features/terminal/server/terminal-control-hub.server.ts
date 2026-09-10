@@ -1,7 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-
-import { parseTmuxControlOutput } from './tmux-control.server.ts';
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
+import { parseTmuxControlOutput } from './tmux-control.server.ts';
 
 const CONTROL_COMMAND_TIMEOUT_MS = 3_000;
 const CONTROL_ATTACH_TIMEOUT_MS = 3_000;
@@ -103,7 +102,7 @@ export class TerminalControlHub {
     }, CONTROL_ATTACH_TIMEOUT_MS);
     void this.ready.then(
       () => clearTimeout(attachmentTimer),
-      () => clearTimeout(attachmentTimer)
+      () => clearTimeout(attachmentTimer),
     );
     this.#installControlListeners();
   }
@@ -190,7 +189,7 @@ export class TerminalControlHub {
       });
     this.#operationQueue = result.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     );
     return result;
   }
@@ -328,7 +327,7 @@ export class TerminalControlHub {
         this.#subscribers.delete(subscriber);
         try {
           subscriber.onUnavailable(
-            error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.')
+            error instanceof Error ? error : new Error('Terminal subscriber failed while receiving output.'),
           );
         } catch {
           // Isolate a broken socket callback from every other subscriber.
@@ -346,7 +345,7 @@ export function retainTerminalControlHub(
   tmuxSession: string,
   windowId: string,
   paneId: string,
-  geometry: TerminalControlHubGeometry
+  geometry: TerminalControlHubGeometry,
 ): TerminalControlHubLease {
   const key = terminalControlHubKey(tmuxSession, paneId);
   let entry = terminalControlHubs.get(key);

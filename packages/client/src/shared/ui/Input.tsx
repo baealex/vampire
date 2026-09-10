@@ -9,7 +9,7 @@ export type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> & {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { autoFocus, className, mono = false, size = 'md', variant = 'default', ...props },
-  ref
+  ref,
 ) {
   const classes = [
     'vampire-input',

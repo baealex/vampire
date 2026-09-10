@@ -1,9 +1,9 @@
-import { Eye, Save, Settings2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
 import { DEFAULT_WORKSPACE_COMPOSER_TEMPLATE } from '@vampire/lib/shared/contracts/workspace-composer-template.ts';
 import { renderComposerTemplate, validateComposerTemplate } from '@vampire/lib/shared/lib/composer-template.ts';
-import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import { Eye, Save, Settings2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { CodeEditor } from '~/shared/ui/CodeEditor.tsx';
 import { Button, Input, ManagementSurface } from '~/shared/ui/index.ts';
 import type { WorkspaceState } from './model/workspace-state.ts';
@@ -38,7 +38,7 @@ export function WorkspaceSettingsDialog({
       renderComposerTemplate(template, '[Your message]', {
         workspace: { cwd: workspace.cwd, name: label.trim() || workspaceName(workspace) },
       }),
-    [label, template, workspace]
+    [label, template, workspace],
   );
   const save = async () => {
     if (validation) return;
@@ -46,11 +46,13 @@ export function WorkspaceSettingsDialog({
     setError('');
     setSaved('');
     const normalized = label.trim();
-    const result = await state.updateWorkspaceSettings(workspace.id, normalized, profile || null, template);
+    const normalizedTemplate = template.replace(/\r\n?/g, '\n');
+    const result = await state.updateWorkspaceSettings(workspace.id, normalized, profile || null, normalizedTemplate);
     setSaving(false);
     if (result.ok) {
       setLabel(normalized);
-      setSynced({ label: normalized, profile, template });
+      setTemplate(normalizedTemplate);
+      setSynced({ label: normalized, profile, template: normalizedTemplate });
       setSaved('Workspace settings saved.');
     } else setError(result.error ?? 'Unable to save workspace settings.');
   };
@@ -62,6 +64,7 @@ export function WorkspaceSettingsDialog({
       close={onClose}
       closeLabel="Close workspace settings"
       busy={saving}
+      dirty={dirty}
       footer={
         <div className="settings-actions">
           <Button variant="primary" disabled={saving || !dirty || Boolean(validation)} onClick={() => void save()}>
@@ -112,6 +115,7 @@ export function WorkspaceSettingsDialog({
             </div>
             <CodeEditor
               label="Template source"
+              language="plaintext"
               value={template}
               onChange={(value) => {
                 setTemplate(value);

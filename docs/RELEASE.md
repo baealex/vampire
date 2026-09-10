@@ -38,6 +38,14 @@ smoke-tests the exact npm artifact, requests approval from the npm
 environment, publishes it, verifies the npm registry, and creates the GitHub
 Release last.
 
+The package smoke test also installs the previous published version in an
+isolated state directory and tmux server, creates workspace data, and verifies
+that the candidate preserves it. Run the same check locally with:
+
+    node tools/package-smoke.ts package-artifact 0.26.0 vampire@0.25.1
+
+Use the candidate and previous versions appropriate to the release.
+
 Do not run npm publish or create a GitHub Release manually.
 
 ## Retry the same version

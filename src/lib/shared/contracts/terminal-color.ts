@@ -13,6 +13,7 @@ interface TerminalThemeColors {
 
 const TERMINAL_RGB_COLOR = /^#[0-9a-f]{6}$/i;
 const XTERM_COLOR_REPORT =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC color reports are delimited by ESC or BEL controls.
   /\u001b\](10|11|12);rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\u001b\\|\u0007)/gi;
 
 export function isTerminalColorSlot(value: unknown): value is TerminalColorSlot {

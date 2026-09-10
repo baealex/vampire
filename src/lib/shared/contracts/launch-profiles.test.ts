@@ -10,7 +10,7 @@ test('accepts bounded single-line launch profiles', () => {
       { id: 'same', name: 'One', command: 'one' },
       { id: 'same', name: 'Two', command: 'two' },
     ]),
-    false
+    false,
   );
 });
 
@@ -21,6 +21,6 @@ test('normalizes stored profiles without inventing invalid entries', () => {
       { id: 'codex', name: 'Duplicate', command: 'duplicate' },
       { id: 'broken', name: 'Broken\nProfile', command: 'ignored' },
     ]),
-    [{ id: 'codex', name: 'Codex', command: 'codex' }]
+    [{ id: 'codex', name: 'Codex', command: 'codex' }],
   );
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, rename, unlink, type FileHandle } from 'node:fs/promises';
+import { type FileHandle, lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 export function errorHasFileCode(error: unknown, code: string): boolean {

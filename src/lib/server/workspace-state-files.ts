@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { isAbsolute, join, posix, resolve } from 'node:path';
+import {
+  createWorkspacePersistenceDocuments,
+  parseWorkspacePersistenceDocuments,
+} from '../shared/contracts/workspace-persistence.ts';
+import { parseWorkspaceStore, type WorkspaceStore } from '../shared/contracts/workspace-store.ts';
 import {
   atomicWriteFile,
   durableUnlink,
@@ -8,11 +13,6 @@ import {
   errorHasFileCode,
   syncDirectory,
 } from './atomic-file.ts';
-import {
-  createWorkspacePersistenceDocuments,
-  parseWorkspacePersistenceDocuments,
-} from '../shared/contracts/workspace-persistence.ts';
-import { parseWorkspaceStore, type WorkspaceStore } from '../shared/contracts/workspace-store.ts';
 import {
   VAMPIRE_GLOBAL_DIRECTORY,
   VAMPIRE_GLOBAL_LAUNCH_PROFILES_FILE,
@@ -241,7 +241,7 @@ async function readTransaction(directory: string): Promise<WorkspaceStateTransac
   const path = transactionPath(directory);
   try {
     return parseTransaction(
-      JSON.parse(await readRegularFile(path, MAX_WORKSPACE_TRANSACTION_FILE_BYTES, path)) as unknown
+      JSON.parse(await readRegularFile(path, MAX_WORKSPACE_TRANSACTION_FILE_BYTES, path)) as unknown,
     );
   } catch (error) {
     if (errorHasFileCode(error, 'ENOENT')) return undefined;
@@ -272,29 +272,29 @@ async function readStructuredStateWithoutRecovery(directory: string): Promise<Wo
         workspaceId,
         settings: await readJsonFile(
           join(directory_, VAMPIRE_WORKSPACE_SETTINGS_FILE),
-          `${workspaceId}/${VAMPIRE_WORKSPACE_SETTINGS_FILE}`
+          `${workspaceId}/${VAMPIRE_WORKSPACE_SETTINGS_FILE}`,
         ),
         automations: await readJsonFile(
           join(directory_, VAMPIRE_WORKSPACE_AUTOMATIONS_FILE),
-          `${workspaceId}/${VAMPIRE_WORKSPACE_AUTOMATIONS_FILE}`
+          `${workspaceId}/${VAMPIRE_WORKSPACE_AUTOMATIONS_FILE}`,
         ),
         background: await readJsonFile(
           join(directory_, VAMPIRE_WORKSPACE_BACKGROUND_FILE),
-          `${workspaceId}/${VAMPIRE_WORKSPACE_BACKGROUND_FILE}`
+          `${workspaceId}/${VAMPIRE_WORKSPACE_BACKGROUND_FILE}`,
         ),
       };
-    })
+    }),
   );
   await assertSafeDirectory(join(directory, VAMPIRE_GLOBAL_DIRECTORY), VAMPIRE_GLOBAL_DIRECTORY);
   return parseWorkspacePersistenceDocuments({
     registry,
     globalSettings: await readJsonFile(
       join(directory, VAMPIRE_GLOBAL_DIRECTORY, VAMPIRE_GLOBAL_SETTINGS_FILE),
-      `global/${VAMPIRE_GLOBAL_SETTINGS_FILE}`
+      `global/${VAMPIRE_GLOBAL_SETTINGS_FILE}`,
     ),
     launchProfiles: await readJsonFile(
       join(directory, VAMPIRE_GLOBAL_DIRECTORY, VAMPIRE_GLOBAL_LAUNCH_PROFILES_FILE),
-      `global/${VAMPIRE_GLOBAL_LAUNCH_PROFILES_FILE}`
+      `global/${VAMPIRE_GLOBAL_LAUNCH_PROFILES_FILE}`,
     ),
     workspaces,
   });
@@ -373,7 +373,7 @@ export async function readStructuredWorkspaceState(requestedStateDirectory?: str
 
 export async function writeStructuredWorkspaceState(
   value: WorkspaceStore,
-  options: { stateDirectory?: string; revision?: string; now?: number } = {}
+  options: { stateDirectory?: string; revision?: string; now?: number } = {},
 ): Promise<void> {
   const directory = stateDirectory(options.stateDirectory);
   const state = parseWorkspaceStore(value);
@@ -415,7 +415,7 @@ async function assertRemovableWorkspaceDirectory(path: string): Promise<'missing
 
 export async function prepareStructuredWorkspaceStateRemoval(
   workspaceId: string,
-  requestedStateDirectory?: string
+  requestedStateDirectory?: string,
 ): Promise<() => Promise<void>> {
   const directory = stateDirectory(requestedStateDirectory);
   if (!(await structuredWorkspaceStateExists(directory))) return async () => undefined;

@@ -1,4 +1,5 @@
 import { ArrowUp, ChevronRight, Folder } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import { requestJson } from '~/shared/api/request.ts';
 import { Button, Dialog, Input, Spinner } from '~/shared/ui/index.ts';
@@ -12,7 +13,11 @@ type Listing = {
   directories: Array<{ name: string; path: string }>;
   truncated: boolean;
 };
-export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
+export const WorkspaceDirectoryPicker = observer(function WorkspaceDirectoryPicker({
+  state,
+}: {
+  state: WorkspaceState;
+}) {
   const [path, setPath] = useState(state.cwd);
   const [listing, setListing] = useState<Listing>();
   const [loading, setLoading] = useState(true);
@@ -27,7 +32,7 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
       const value = await requestJson<Listing>(
         `/api/workspace-directories${target ? `?path=${encodeURIComponent(target)}` : ''}`,
         { cache: 'no-store' },
-        'Unable to read workspace directories.'
+        'Unable to read workspace directories.',
       );
       if (!target && !value.current && value.roots.length === 1) {
         await load(value.roots[0]!.path);
@@ -48,9 +53,9 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
       listing?.directories.filter(
         (directory) =>
           (showHidden || !directory.name.startsWith('.')) &&
-          directory.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase())
+          directory.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()),
       ) ?? [],
-    [filter, listing, showHidden]
+    [filter, listing, showHidden],
   );
   const open = async (target: string) => {
     state.cwd = target.trim();
@@ -61,6 +66,7 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
     <Dialog
       open
       title="Open a project"
+      busy={state.starting}
       onClose={() => {
         if (!state.starting) state.newWorkspaceOpen = false;
       }}
@@ -72,11 +78,12 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
             void open(path);
           }}
         >
-          <label>
+          <label htmlFor="new-workspace-path">
             Project path<span>Paste an absolute path from an allowed workspace root.</span>
           </label>
           <div>
             <Input
+              id="new-workspace-path"
               autoFocus
               mono
               value={path}
@@ -122,7 +129,7 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
                   <strong>{listing.current.label}</strong>
                   <small>{listing.current.path}</small>
                 </span>
-                <Button size="sm" onClick={() => void open(listing.current!.path)}>
+                <Button size="sm" disabled={state.starting} onClick={() => void open(listing.current!.path)}>
                   Open this folder
                 </Button>
               </div>
@@ -136,18 +143,24 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
                   aria-label="Filter folders"
                 />
               ) : null}
-              <div className="directory-list">
-                {directories.map((directory) => (
-                  <button type="button" key={directory.path} onClick={() => void load(directory.path)}>
-                    <Folder size={17} />
-                    <span>
-                      <strong>{directory.name}</strong>
-                      <small>{directory.path}</small>
-                    </span>
-                    <ChevronRight size={16} />
-                  </button>
-                ))}
-              </div>
+              {directories.length === 0 ? (
+                <p className="directory-empty">
+                  {filter.trim() ? 'No folders match this filter.' : 'No visible subfolders. You can open this folder.'}
+                </p>
+              ) : (
+                <div className="directory-list">
+                  {directories.map((directory) => (
+                    <button type="button" key={directory.path} onClick={() => void load(directory.path)}>
+                      <Folder size={17} />
+                      <span>
+                        <strong>{directory.name}</strong>
+                        <small>{directory.path}</small>
+                      </span>
+                      <ChevronRight size={16} />
+                    </button>
+                  ))}
+                </div>
+              )}
               {listing.directories.some((directory) => directory.name.startsWith('.')) ? (
                 <button className="hidden-toggle" type="button" onClick={() => setShowHidden((value) => !value)}>
                   {showHidden ? 'Hide' : 'Show'}{' '}
@@ -175,4 +188,4 @@ export function WorkspaceDirectoryPicker({ state }: { state: WorkspaceState }) {
       </div>
     </Dialog>
   );
-}
+});

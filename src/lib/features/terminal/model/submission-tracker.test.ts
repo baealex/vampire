@@ -18,7 +18,7 @@ test('tracks the original draft until a completed server result arrives', () => 
   ]);
   assert.equal(
     tracker.applyResult({ type: 'submission-result', requestId: 'request-1', status: 'completed' }, 1_100),
-    true
+    true,
   );
   assert.deepEqual(tracker.entries, []);
 });
@@ -35,9 +35,9 @@ test('retains failed submissions without claiming that no input reached the term
         status: 'failed',
         message: 'tmux command failed',
       },
-      1_200
+      1_200,
     ),
-    true
+    true,
   );
   assert.deepEqual(tracker.entries, [
     {
@@ -52,11 +52,11 @@ test('retains failed submissions without claiming that no input reached the term
   ]);
   assert.equal(
     tracker.applyResult({ type: 'submission-result', requestId: 'unknown', status: 'completed' }, 1_300),
-    false
+    false,
   );
   assert.equal(
     tracker.applyResult({ type: 'submission-result', requestId: 'request-1', status: 'failed' }, 1_300),
-    false
+    false,
   );
 });
 
@@ -71,7 +71,7 @@ test('marks one timed-out request or every disconnected request uncertain withou
     [
       { requestId: 'request-2', status: 'pending' },
       { requestId: 'request-1', status: 'uncertain' },
-    ]
+    ],
   );
   assert.equal(tracker.markDisconnected(1_600), 1);
   assert.deepEqual(
@@ -79,16 +79,16 @@ test('marks one timed-out request or every disconnected request uncertain withou
     [
       { requestId: 'request-1', status: 'uncertain' },
       { requestId: 'request-2', status: 'uncertain' },
-    ]
+    ],
   );
 
   assert.equal(
     tracker.applyResult({ type: 'submission-result', requestId: 'request-1', status: 'completed' }, 1_700),
-    true
+    true,
   );
   assert.deepEqual(
     tracker.entries.map((entry) => entry.requestId),
-    ['request-2']
+    ['request-2'],
   );
 });
 
@@ -104,7 +104,7 @@ test('expires only submissions whose acknowledgement deadline elapsed', () => {
     [
       { requestId: 'request-2', status: 'pending' },
       { requestId: 'request-1', status: 'uncertain' },
-    ]
+    ],
   );
 });
 
@@ -137,7 +137,7 @@ test('restores persisted pending submissions as uncertain and ignores malformed 
     [
       { requestId: 'pending-1', status: 'uncertain' },
       { requestId: 'failed-1', status: 'failed' },
-    ]
+    ],
   );
   assert.match(tracker.entries[0].status === 'uncertain' ? tracker.entries[0].message : '', /restarted/);
 });
@@ -172,6 +172,6 @@ test('bounds pending and recoverable submission records', () => {
     [
       { requestId: 'request-3', status: 'pending' },
       { requestId: 'request-2', status: 'failed' },
-    ]
+    ],
   );
 });

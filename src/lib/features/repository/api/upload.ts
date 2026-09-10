@@ -41,7 +41,7 @@ function validateUploadSelection(candidates: WorkspaceUploadCandidate[]): Worksp
 
   if (validCandidates.length === 0) {
     throw new WorkspaceUploadSelectionError(
-      skippedGitFiles > 0 ? 'Git metadata cannot be added.' : 'Upload at least one file.'
+      skippedGitFiles > 0 ? 'Git metadata cannot be added.' : 'Upload at least one file.',
     );
   }
   return { candidates: validCandidates, skippedGitFiles };
@@ -52,7 +52,7 @@ export function uploadSelectionFromFiles(files: Iterable<File>): WorkspaceUpload
     Array.from(files, (file) => ({
       file,
       relativePath: file.webkitRelativePath || file.name,
-    }))
+    })),
   );
 }
 
@@ -73,7 +73,7 @@ async function directoryEntries(entry: FileSystemDirectoryEntry): Promise<FileSy
 async function collectEntry(
   entry: FileSystemEntry,
   parentPath: string,
-  candidates: WorkspaceUploadCandidate[]
+  candidates: WorkspaceUploadCandidate[],
 ): Promise<void> {
   const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
   if (entry.isFile) {

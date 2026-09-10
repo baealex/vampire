@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir, rename, unlink } from 'node:fs/promises';
+import { lstat, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
 import { vampireStateDirectory } from '~/lib/server/state-path.ts';
@@ -21,7 +21,7 @@ function requestEntry(workspaceId: string, entry: string): { requestId: string; 
 
 async function pendingWorkspaceAutomationRequests(
   workspaceId: string,
-  now: number
+  now: number,
 ): Promise<Map<string, Set<'draft' | 'ready'>>> {
   const directory = join(vampireStateDirectory(), WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME);
   let entries: string[];
@@ -88,13 +88,13 @@ export async function pendingWorkspaceAutomationRequestCount(workspaceId: string
 async function requestReservesCreateSlot(
   workspaceId: string,
   requestId: string,
-  states: Set<'draft' | 'ready'>
+  states: Set<'draft' | 'ready'>,
 ): Promise<boolean> {
   const state = states.has('ready') ? 'ready' : 'draft';
   const path = join(
     vampireStateDirectory(),
     WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME,
-    `${workspaceAutomationRequestKey(workspaceId)}.${requestId}.${state}.json`
+    `${workspaceAutomationRequestKey(workspaceId)}.${requestId}.${state}.json`,
   );
   try {
     const request = JSON.parse(await readFile(path, 'utf8')) as unknown;
@@ -107,7 +107,7 @@ async function requestReservesCreateSlot(
       operation &&
         typeof operation === 'object' &&
         !Array.isArray(operation) &&
-        (operation as Record<string, unknown>).type === 'create'
+        (operation as Record<string, unknown>).type === 'create',
     );
   } catch (error) {
     if (errorHasCode(error, 'ENOENT')) return false;
@@ -120,7 +120,7 @@ async function requestReservesCreateSlot(
 export async function pendingWorkspaceAutomationCreateRequestCount(
   workspaceId: string,
   throughRequestId?: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<number> {
   const requests = await pendingWorkspaceAutomationRequests(workspaceId, now);
   let count = 0;
@@ -153,8 +153,8 @@ export async function prepareWorkspaceAutomationRequestRemoval(workspaceId: stri
       paths.map((path) =>
         unlink(path).catch((error) => {
           if (!errorHasCode(error, 'ENOENT')) throw error;
-        })
-      )
+        }),
+      ),
     );
   };
 }

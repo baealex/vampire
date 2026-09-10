@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type { WorkspaceAgentActionId } from '~/lib/shared/contracts/workspace-agent-actions.ts';
 import {
+  type CreateWorkspaceAutomationInput,
   isWorkspaceAutomationSchedule,
   MAX_WORKSPACE_AUTOMATIONS,
   nextAutomationIntervalRunAt,
@@ -8,11 +10,10 @@ import {
   WORKSPACE_AUTOMATION_NAME_MAX_LENGTH,
   WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH,
   WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH,
-  type CreateWorkspaceAutomationInput,
   type WorkspaceAutomation,
   type WorkspaceAutomationGroup,
 } from '~/lib/shared/contracts/workspace-automations.ts';
-import type { WorkspaceAgentActionId } from '~/lib/shared/contracts/workspace-agent-actions.ts';
+import { pendingWorkspaceAutomationCreateRequestCount } from './workspace-automation-request-files.server.ts';
 import {
   ensureManagedWorkspaceNoteFile,
   ensureManagedWorkspaceNoteMigrationBackup,
@@ -27,7 +28,6 @@ import {
   withWorkspaceStoreMutation,
   writeWorkspaceStore,
 } from './workspace-store.server.ts';
-import { pendingWorkspaceAutomationCreateRequestCount } from './workspace-automation-request-files.server.ts';
 
 const WORKSPACE_AUTOMATION_DISPATCH_COOLDOWN_MS = 5_000;
 
@@ -56,7 +56,7 @@ export type DueManagedWorkspaceAutomation = {
 type PreparedAutomationSubmission = () => Promise<void>;
 type PrepareAutomationSubmission = (
   workspace: StoredWorkspace,
-  automation: WorkspaceAutomation
+  automation: WorkspaceAutomation,
 ) => Promise<PreparedAutomationSubmission | undefined>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,13 +83,13 @@ function normalizeCreateInput(value: unknown): CreateWorkspaceAutomationInput {
   if (!name || name.length > WORKSPACE_AUTOMATION_NAME_MAX_LENGTH || /[\0\r\n\t]/.test(name)) {
     throw new WorkspaceAutomationMutationError(
       'invalid-input',
-      `Automation names must stay on one line and be ${WORKSPACE_AUTOMATION_NAME_MAX_LENGTH} characters or fewer.`
+      `Automation names must stay on one line and be ${WORKSPACE_AUTOMATION_NAME_MAX_LENGTH} characters or fewer.`,
     );
   }
   if (!prompt || prompt.length > WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH || prompt.includes('\0')) {
     throw new WorkspaceAutomationMutationError(
       'invalid-input',
-      `Automation prompts must be ${WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH.toLocaleString('en-US')} characters or fewer.`
+      `Automation prompts must be ${WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH.toLocaleString('en-US')} characters or fewer.`,
     );
   }
   if (!isWorkspaceAutomationSchedule(value.schedule)) {
@@ -103,7 +103,7 @@ function automationFromInput(
   now: number,
   kind: WorkspaceAutomation['kind'] = 'custom',
   agentActionId?: WorkspaceAgentActionId,
-  agentRequestId?: string
+  agentRequestId?: string,
 ): WorkspaceAutomation {
   const nextRunAt =
     input.schedule.type === 'once'
@@ -169,7 +169,7 @@ export async function queueManagedWorkspaceAgentPrompt(
     name: string;
     prompt: string;
   },
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   const normalized = normalizeCreateInput({
     name: input.name,
@@ -181,12 +181,12 @@ export async function queueManagedWorkspaceAgentPrompt(
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const existing = stored.automations.find(
-      (automation) => automation.kind === 'agent-action' && automation.agentActionId === input.actionId
+      (automation) => automation.kind === 'agent-action' && automation.agentActionId === input.actionId,
     );
     if (existing?.enabled) {
       throw new WorkspaceAutomationMutationError(
         'conflict',
-        'A request for this agent action is already being delivered.'
+        'A request for this agent action is already being delivered.',
       );
     }
     const automation = existing
@@ -213,7 +213,7 @@ export async function queueManagedWorkspaceAgentPrompt(
 export async function createManagedWorkspaceAutomation(
   id: string,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   const input = normalizeCreateInput(value);
   return withWorkspaceStoreMutation(async () => {
@@ -226,7 +226,7 @@ export async function createManagedWorkspaceAutomation(
     if (customCount + pendingCount >= MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
-        `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`
+        `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`,
       );
     }
     const automation = automationFromInput(input, now);
@@ -249,13 +249,13 @@ export async function createManagedWorkspaceAutomationFromAgentRequest(
   id: string,
   requestIdValue: unknown,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   return applyManagedWorkspaceAutomationAgentRequest(
     id,
     requestIdValue,
     { type: 'create', automation: { ...(isRecord(value) ? value : {}), enabled: true } },
-    now
+    now,
   );
 }
 
@@ -284,7 +284,7 @@ function normalizeAgentOperation(value: unknown): NormalizedWorkspaceAutomationA
   if (!isRecord(value)) {
     throw new WorkspaceAutomationMutationError(
       'invalid-input',
-      'An automation create or update operation is required.'
+      'An automation create or update operation is required.',
     );
   }
   const configuration = normalizeAgentAutomationConfiguration(value.automation);
@@ -315,7 +315,7 @@ export async function applyManagedWorkspaceAutomationAgentRequest(
   id: string,
   requestIdValue: unknown,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   const requestId = normalizeAgentRequestId(requestIdValue);
   const operation = normalizeAgentOperation(value);
@@ -325,12 +325,12 @@ export async function applyManagedWorkspaceAutomationAgentRequest(
     if (index < 0) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const stored = state.workspaces[index];
     const previouslyApplied = stored.automations.find(
-      (automation) => automation.kind === 'custom' && automation.agentRequestId === requestId
+      (automation) => automation.kind === 'custom' && automation.agentRequestId === requestId,
     );
     if (previouslyApplied) return previouslyApplied;
     if (operation.type === 'update') {
       const current = stored.automations.find(
-        (automation) => automation.kind === 'custom' && automation.id === operation.automationId
+        (automation) => automation.kind === 'custom' && automation.id === operation.automationId,
       );
       if (!current) {
         throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
@@ -338,7 +338,7 @@ export async function applyManagedWorkspaceAutomationAgentRequest(
       if (current.updatedAt !== operation.expectedUpdatedAt) {
         throw new WorkspaceAutomationMutationError(
           'conflict',
-          'The automation changed after the agent request was prepared. Review the latest automation before retrying.'
+          'The automation changed after the agent request was prepared. Review the latest automation before retrying.',
         );
       }
       const scheduled = automationFromInput(operation.input, now);
@@ -365,7 +365,7 @@ export async function applyManagedWorkspaceAutomationAgentRequest(
     if (customCount + pendingCount > MAX_WORKSPACE_AUTOMATIONS) {
       throw new WorkspaceAutomationMutationError(
         'limit',
-        `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`
+        `A workspace can save up to ${MAX_WORKSPACE_AUTOMATIONS} automations.`,
       );
     }
     const automation = {
@@ -383,7 +383,7 @@ export async function setManagedWorkspaceAutomationEnabled(
   workspaceId: string,
   automationId: string,
   enabled: boolean,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
@@ -419,7 +419,7 @@ export async function updateManagedWorkspaceAutomation(
   workspaceId: string,
   automationId: string,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomation> {
   const input = normalizeCreateInput(value);
   return withWorkspaceStoreMutation(async () => {
@@ -427,7 +427,7 @@ export async function updateManagedWorkspaceAutomation(
     const stored = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
     const current = stored.automations.find(
-      (automation) => automation.id === automationId && automation.kind === 'custom'
+      (automation) => automation.id === automationId && automation.kind === 'custom',
     );
     if (!current) {
       throw new WorkspaceAutomationMutationError('automation-not-found', 'Automation was not found.');
@@ -511,7 +511,7 @@ export async function dispatchManagedWorkspaceAutomation(
   workspaceId: string,
   automationId: string,
   now: number,
-  prepare: PrepareAutomationSubmission
+  prepare: PrepareAutomationSubmission,
 ): Promise<'submitted' | 'failed' | 'not-ready' | 'not-due'> {
   return withWorkspaceStoreMutation(async () => {
     const state = await readWorkspaceStore();
@@ -571,7 +571,7 @@ function normalizeWorkspaceNoteAgentInstructions(value: unknown): string {
   ) {
     throw new WorkspaceAutomationMutationError(
       'invalid-input',
-      `Agent instructions must be between 1 and ${WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH.toLocaleString('en-US')} characters.`
+      `Agent instructions must be between 1 and ${WORKSPACE_NOTE_AGENT_INSTRUCTIONS_MAX_LENGTH.toLocaleString('en-US')} characters.`,
     );
   }
   return instructions;
@@ -594,7 +594,7 @@ function workspaceNotePrompt(path: string, instructions: string): string {
 export async function queueManagedWorkspaceNoteUpdate(
   workspaceId: string,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<{ automation: WorkspaceAutomation; notePath: string }> {
   const instructions = normalizeWorkspaceNoteAgentInstructions(value);
   return withWorkspaceStoreMutation(async () => {
@@ -672,7 +672,7 @@ export async function migrateManagedWorkspaceNotes(): Promise<number> {
         if (!fileNote && compatibilityNote) {
           await writeManagedWorkspaceNoteFile(stored.id, compatibilityNote);
         }
-      })
+      }),
     );
 
     await writeWorkspaceStore(state);

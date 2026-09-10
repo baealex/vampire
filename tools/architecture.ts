@@ -115,7 +115,7 @@ function resolveImport(
   repositoryRoot: string,
   sourcePath: string,
   specifier: string,
-  knownFiles: Set<string>
+  knownFiles: Set<string>,
 ): string | undefined {
   const cleanSpecifier = specifier.split(/[?#]/, 1)[0];
   let basePath: string;
@@ -171,7 +171,7 @@ function violationReason(source: Layer, target: Layer): string | undefined {
 }
 
 export async function findArchitectureViolations(
-  repositoryRoot = resolve(import.meta.dirname, '..')
+  repositoryRoot = resolve(import.meta.dirname, '..'),
 ): Promise<ArchitectureViolation[]> {
   const sourceRoots = [resolve(repositoryRoot, 'src'), resolve(repositoryRoot, 'packages', 'client', 'src')];
   const allFiles = (await Promise.all(sourceRoots.map((sourceRoot) => collectFiles(sourceRoot)))).flat();
@@ -233,6 +233,6 @@ export async function findArchitectureViolations(
   }
 
   return violations.sort((left, right) =>
-    `${left.source}:${left.line}:${left.specifier}`.localeCompare(`${right.source}:${right.line}:${right.specifier}`)
+    `${left.source}:${left.line}:${left.specifier}`.localeCompare(`${right.source}:${right.line}:${right.specifier}`),
   );
 }

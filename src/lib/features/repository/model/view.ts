@@ -33,7 +33,7 @@ export function repositorySelectionLabel(kind: RepositorySelection['kind']): 'Co
 
 export function repositoryNavigationPaths(
   selection: RepositorySelection,
-  snapshot: RepositorySnapshot | undefined
+  snapshot: RepositorySnapshot | undefined,
 ): string[] {
   if (selection.kind === 'file') return snapshot?.files ?? [];
   if (selection.kind === 'diff') return snapshot?.changes.map((change) => change.path) ?? [];
@@ -48,7 +48,7 @@ export type RepositoryViewerSection = {
 
 export function repositoryViewerSections(
   diff: RepositoryDiff | undefined,
-  commitDiff: RepositoryCommitDiff | undefined
+  commitDiff: RepositoryCommitDiff | undefined,
 ): RepositoryViewerSection[] {
   if (diff) {
     return diff.sections.map((section) => ({ ...section, lines: parseDiffLines(section.patch) }));
@@ -77,7 +77,7 @@ export function repositoryViewerEmptyState(kind: RepositorySelection['kind']): {
 export function buildVisibleFileTree(
   files: string[],
   expandedDirectories: string[],
-  directories: string[] = []
+  directories: string[] = [],
 ): FileTreeRow[] {
   const root: FileTreeNode = { kind: 'directory', name: '', path: '', children: new Map() };
   const directoryPaths = new Set(directories);

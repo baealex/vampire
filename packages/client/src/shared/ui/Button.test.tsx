@@ -8,7 +8,7 @@ test('uses safe button defaults and design-system classes', async () => {
   render(
     <Button block size="sm" variant="primary" onClick={onClick}>
       Save
-    </Button>
+    </Button>,
   );
   const button = screen.getByRole('button', { name: 'Save' });
   expect(button).toHaveAttribute('type', 'button');
@@ -22,7 +22,7 @@ test('forwards native disabled behavior', async () => {
   render(
     <Button disabled onClick={onClick}>
       Delete
-    </Button>
+    </Button>,
   );
   const button = screen.getByRole('button', { name: 'Delete' });
   expect(button).toBeDisabled();

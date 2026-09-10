@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WorkspaceAutomationMutationError } from '~/lib/features/workspace/server/workspace-automations.server.ts';
-import type { ManagedWorkspace } from './workspace-registry.server.ts';
 import {
   describeWorkspaceAgentAction,
   submitWorkspaceAgentAction,
-  WorkspaceAgentActionError,
   type WorkspaceAgentActionDependencies,
+  WorkspaceAgentActionError,
 } from './workspace-agent-actions.server.ts';
+import type { ManagedWorkspace } from './workspace-registry.server.ts';
 
 function workspace(): ManagedWorkspace {
   return {
@@ -98,7 +98,7 @@ test('describes the exact note path and immediately submits a minimal prompt', a
     'note',
     'Organize the blocker and next step.',
     1_000,
-    support
+    support,
   );
   assert.equal(submission.status, 'submitted');
   assert.deepEqual(submitted, [
@@ -124,7 +124,7 @@ test('supplies the current widget configuration, guide, and validator to the mai
       '/state/status-plugins.json',
       '/state/agent-guides/status-widget.md',
       "node '/state/agent-guides/validate-status-widgets.mjs' '/state/status-plugins.json'",
-    ]
+    ],
   );
 
   const submission = await submitWorkspaceAgentAction(
@@ -132,7 +132,7 @@ test('supplies the current widget configuration, guide, and validator to the mai
     'status-widget',
     'Show unread GitHub notifications.',
     2_000,
-    dependencies()
+    dependencies(),
   );
   assert.match(submission.prompt, /status-plugins\.json/);
   assert.match(submission.prompt, /status-widget\.md/);
@@ -146,7 +146,7 @@ test('supplies an isolated automation management request, guide, and apply comma
   assert.equal(descriptor.requestLabel, 'What should the agent create or change?');
   assert.deepEqual(
     descriptor.context.map((item) => item.value),
-    ['Prepared when sent']
+    ['Prepared when sent'],
   );
 
   const submission = await submitWorkspaceAgentAction(
@@ -154,7 +154,7 @@ test('supplies an isolated automation management request, guide, and apply comma
     'automation',
     'Every weekday at 9 AM, review open work.',
     3_000,
-    dependencies()
+    dependencies(),
   );
   assert.match(submission.prompt, /Create or update one Vampire workspace automation/);
   assert.match(submission.prompt, /currentAutomations snapshot/);
@@ -187,7 +187,7 @@ test('supplies an isolated Background favorites request without asking the agent
   assert.equal(descriptor.title, 'Manage Background commands with an agent');
   assert.deepEqual(
     descriptor.context.map((item) => item.value),
-    ['Prepared when sent']
+    ['Prepared when sent'],
   );
 
   const submission = await submitWorkspaceAgentAction(
@@ -195,7 +195,7 @@ test('supplies an isolated Background favorites request without asking the agent
     'background',
     'Save only the development server and test watcher.',
     4_500,
-    dependencies()
+    dependencies(),
   );
   assert.match(submission.prompt, /currentFavoriteCommands snapshot/);
   assert.match(submission.prompt, /workspace-background\.md/);
@@ -209,19 +209,19 @@ test('rejects stopped, shell-only, and empty agent requests before sending', asy
   stopped.state = 'missing';
   await assert.rejects(
     describeWorkspaceAgentAction('workspace-1', 'note', dependencies({ findWorkspace: async () => stopped })),
-    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'not-running'
+    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'not-running',
   );
 
   const shellOnly = workspace();
   shellOnly.terminals[0]!.foregroundProcess = { kind: 'shell', label: 'zsh' };
   await assert.rejects(
     describeWorkspaceAgentAction('workspace-1', 'note', dependencies({ findWorkspace: async () => shellOnly })),
-    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'no-process'
+    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'no-process',
   );
 
   await assert.rejects(
     submitWorkspaceAgentAction('workspace-1', 'note', '   ', 1, dependencies()),
-    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'invalid-request'
+    (error) => error instanceof WorkspaceAgentActionError && error.reason === 'invalid-request',
   );
 });
 
@@ -234,11 +234,11 @@ test('rejects automation agent requests before sending when pending request capa
         assertAutomationCapacity: async () => {
           throw new WorkspaceAutomationMutationError(
             'limit',
-            'A workspace can have up to 32 pending automation agent requests.'
+            'A workspace can have up to 32 pending automation agent requests.',
           );
         },
-      })
+      }),
     ),
-    (error) => error instanceof WorkspaceAutomationMutationError && error.reason === 'limit'
+    (error) => error instanceof WorkspaceAutomationMutationError && error.reason === 'limit',
   );
 });

@@ -16,7 +16,7 @@ test('validates weekly schedules with unique weekdays and an IANA time zone', ()
       timeZone: 'Asia/Seoul',
       startAt: 1,
     }),
-    true
+    true,
   );
   assert.equal(
     isWorkspaceAutomationSchedule({
@@ -27,7 +27,7 @@ test('validates weekly schedules with unique weekdays and an IANA time zone', ()
       timeZone: 'Asia/Seoul',
       startAt: 1,
     }),
-    false
+    false,
   );
   assert.equal(
     isWorkspaceAutomationSchedule({
@@ -38,7 +38,7 @@ test('validates weekly schedules with unique weekdays and an IANA time zone', ()
       timeZone: 'Not/A_Time_Zone',
       startAt: 1,
     }),
-    false
+    false,
   );
 });
 

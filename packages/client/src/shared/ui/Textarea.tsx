@@ -8,7 +8,7 @@ export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
   { autoFocus, className, mono = false, size = 'md', ...props },
-  ref
+  ref,
 ) {
   const classes = ['vampire-textarea', `vampire-textarea--${size}`, mono ? 'vampire-textarea--mono' : '', className]
     .filter(Boolean)

@@ -1,8 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
-import { mainWorkspacePromptTarget, type AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+import { type AgentState, mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 
 type ForegroundProcess = {
   kind: 'shell' | 'command';
@@ -80,7 +80,7 @@ async function captureBatch(targets: CaptureTarget[]): Promise<Array<string | un
       } catch {
         return undefined;
       }
-    })
+    }),
   );
 }
 

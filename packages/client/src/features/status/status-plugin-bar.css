@@ -17,8 +17,7 @@
 .status-plugin {
   position: relative;
 }
-.status-plugin > button,
-.status-manage {
+.status-plugin > button {
   display: flex;
   align-items: center;
   gap: 0.34rem;
@@ -37,78 +36,220 @@
 .status-plugin > button > span {
   color: var(--color-text-tertiary);
 }
+.status-plugin output {
+  min-width: 5ch;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .status-plugin-popover {
   z-index: 80;
-  width: max-content;
-  min-width: min(13rem, var(--radix-popover-content-available-width));
-  max-width: min(24rem, var(--radix-popover-content-available-width));
+  width: min(21rem, var(--radix-popover-content-available-width));
   max-height: min(32rem, var(--radix-popover-content-available-height));
-  padding: 0.8rem;
+  box-sizing: border-box;
   overflow: auto;
-  border: 1px solid var(--color-border-strong);
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+  color: var(--color-text);
   box-shadow: var(--shadow-popover);
+  font-size: var(--text-label);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-.status-plugin-popover header {
+.status-plugin-popover > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+.status-plugin-summary {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+.status-plugin-summary > strong {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.status-plugin-summary > output {
+  font-size: var(--text-title);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+.status-plugin-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  margin: -0.25rem -0.25rem 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.status-plugin-menu {
+  padding: 0.25rem 0.5rem;
+  border-top: 1px solid var(--color-divider-subtle);
+}
+.status-plugin-error {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
+  align-items: start;
+  gap: 0.5rem;
+  margin: 0.5rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-surface);
+  color: var(--color-danger-text);
+  font-size: var(--text-caption);
 }
-.status-plugin-popover > p {
-  color: var(--color-danger);
+.status-plugin-error > svg {
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
 }
 .status-plugin-popover > time {
   display: block;
-  margin-top: 0.55rem;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--color-divider-subtle);
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 .status-menu-item {
-  position: relative;
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 0.7rem;
-  padding: 0.55rem 0;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.75rem 0.5rem;
+  border-radius: var(--radius-sm);
   color: inherit;
   text-decoration: none;
 }
-.status-menu-item > div {
+.status-menu-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.status-menu-row > strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: normal;
+}
+.status-menu-row > output {
+  max-width: 55%;
+  color: var(--color-text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+a.status-menu-item .status-menu-row > strong {
+  color: var(--color-text);
+}
+.status-menu-row > svg {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--color-text-tertiary);
+}
+.status-menu-description {
   display: grid;
   gap: 0.18rem;
+}
+.status-menu-description:empty {
+  display: none;
 }
 .status-menu-item small {
   display: block;
   color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
   font-weight: normal;
 }
 .status-menu-heading {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-top: 0.6rem;
+  gap: 0.5rem;
+  padding: 0.875rem 0.5rem 0.375rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+}
+.status-menu-heading > strong {
+  font-weight: var(--weight-medium);
+}
+.status-menu-badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-hover);
   color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
+  font-size: var(--text-micro);
+  font-weight: normal;
+}
+.status-plugin-menu > hr {
+  margin: 0.35rem 0.5rem;
+  border: 0;
+  border-top: 1px solid var(--color-divider-subtle);
 }
 .status-progress {
-  position: absolute;
-  right: 0;
-  bottom: 0.15rem;
-  left: 0;
-  height: 2px;
+  display: block;
+  grid-column: 1 / -1;
+  height: 4px;
+  margin-top: 0.15rem;
   overflow: hidden;
+  border-radius: var(--radius-sm);
   background: var(--color-surface-sunken);
 }
-.status-progress i {
+.status-progress > span {
   display: block;
   height: 100%;
   background: var(--color-accent);
+  border-radius: inherit;
+}
+.status-plugin-popover[data-tone="warning"] > header .status-progress > span,
+.status-menu-item[data-tone="warning"] .status-progress > span {
+  background: var(--color-warning);
+}
+.status-plugin-popover[data-tone="danger"] > header .status-progress > span,
+.status-menu-item[data-tone="danger"] .status-progress > span {
+  background: var(--color-danger);
+}
+.status-plugin > button[aria-expanded="true"] {
+  background: var(--color-surface-active);
+  color: var(--color-text);
+}
+.status-plugin-close:focus-visible,
+a.status-menu-item:focus-visible,
+.status-plugin > button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 .status-manage {
-  margin-left: auto;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2.15rem;
+  min-height: 2.15rem;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--color-divider-subtle);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.status-manage:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  outline: none;
 }
 @media (hover: hover) {
+  .status-plugin-close:hover,
+  a.status-menu-item:hover,
   .status-plugin > button:hover,
   .status-manage:hover {
     background: var(--color-surface-hover);

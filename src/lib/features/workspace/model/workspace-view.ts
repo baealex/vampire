@@ -79,7 +79,7 @@ export function workspaceProcessHint(workspace: ManagedWorkspace): string {
 export function workspaceIsActive(
   workspace: ManagedWorkspace,
   activityRecords: WorkspaceActivityRecords = new Map(),
-  now = Date.now()
+  now = Date.now(),
 ): boolean {
   return (
     workspace.state === 'running' &&
@@ -101,7 +101,7 @@ export function workspaceActivityPriority(state: WorkspaceActivityState): number
 export function buildActivityOrder(
   workspaces: ManagedWorkspace[],
   previousOrder: string[],
-  activityRecords: WorkspaceActivityRecords = new Map()
+  activityRecords: WorkspaceActivityRecords = new Map(),
 ): string[] {
   const currentIds = new Set(workspaces.map((workspace) => workspace.id));
   const existingOrder = previousOrder.filter((workspaceId) => currentIds.has(workspaceId));
@@ -111,13 +111,13 @@ export function buildActivityOrder(
     ...workspaces.filter((workspace) => !knownIds.has(workspace.id)).map((workspace) => workspace.id),
   ];
   const states = new Map(
-    workspaces.map((workspace) => [workspace.id, workspaceActivityState(workspace, activityRecords)])
+    workspaces.map((workspace) => [workspace.id, workspaceActivityState(workspace, activityRecords)]),
   );
   const basePosition = new Map(baseOrder.map((workspaceId, index) => [workspaceId, index]));
   return [...baseOrder].sort(
     (left, right) =>
       workspaceActivityPriority(states.get(left) ?? 'idle') - workspaceActivityPriority(states.get(right) ?? 'idle') ||
-      (basePosition.get(left) ?? Number.MAX_SAFE_INTEGER) - (basePosition.get(right) ?? Number.MAX_SAFE_INTEGER)
+      (basePosition.get(left) ?? Number.MAX_SAFE_INTEGER) - (basePosition.get(right) ?? Number.MAX_SAFE_INTEGER),
   );
 }
 
@@ -131,7 +131,7 @@ export function reconcileWorkspaceOrder(workspaces: ManagedWorkspace[], manualOr
 export function workspaceActivityState(
   workspace: ManagedWorkspace,
   activityRecords: WorkspaceActivityRecords = new Map(),
-  now = Date.now()
+  now = Date.now(),
 ): WorkspaceActivityState {
   if (workspace.state === 'missing') return 'ended';
   const activity = activityRecords.get(workspace.id);
@@ -150,7 +150,7 @@ export function workspaceActivityLabel(state: WorkspaceActivityState): string {
 export function workspaceActivityHint(
   workspace: ManagedWorkspace,
   activityRecords: WorkspaceActivityRecords = new Map(),
-  now = Date.now()
+  now = Date.now(),
 ): string {
   if (workspace.state === 'missing') return 'Shell is offline';
   const state = workspaceActivityState(workspace, activityRecords, now);
@@ -173,7 +173,7 @@ export function sortWorkspaces(
   workspaces: ManagedWorkspace[],
   mode: WorkspaceOrderMode,
   manualOrder: string[],
-  activityOrder: string[] = []
+  activityOrder: string[] = [],
 ): ManagedWorkspace[] {
   if (mode === 'activity') {
     const position = new Map(activityOrder.map((id, index) => [id, index]));
@@ -181,7 +181,7 @@ export function sortWorkspaces(
       (left, right) =>
         (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
         left.createdAt - right.createdAt ||
-        left.id.localeCompare(right.id)
+        left.id.localeCompare(right.id),
     );
   }
 
@@ -189,7 +189,7 @@ export function sortWorkspaces(
   return [...workspaces].sort(
     (left, right) =>
       (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
-      left.createdAt - right.createdAt
+      left.createdAt - right.createdAt,
   );
 }
 

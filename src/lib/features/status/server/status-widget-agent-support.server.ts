@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { errorHasCode } from '~/lib/server/path-policy.ts';
+import { VAMPIRE_AGENT_GUIDES_DIRECTORY, vampireAgentSupportPath } from '~/lib/server/state-path.ts';
 import {
   MAX_STATUS_PLUGINS,
   STATUS_PLUGIN_COMMAND_MAX_LENGTH,
@@ -9,8 +11,6 @@ import {
   STATUS_PLUGIN_INTERVAL_MIN_MS,
   STATUS_PLUGIN_NAME_MAX_LENGTH,
 } from '~/lib/shared/contracts/status-plugin.ts';
-import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { VAMPIRE_AGENT_GUIDES_DIRECTORY, vampireAgentSupportPath } from '~/lib/server/state-path.ts';
 import {
   ensureStatusPluginStoreFile,
   STATUS_PLUGIN_STATE_VERSION,

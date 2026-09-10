@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { CURRENT_STATE_LAYOUT_VERSION, runStateMigrations } from './state-migrations.ts';
@@ -160,7 +160,7 @@ async function readSnapshotFile(root: string, path: string): Promise<SnapshotFil
 async function collectDurableDirectoryFiles(
   root: string,
   directory: string,
-  relativeDirectory: string
+  relativeDirectory: string,
 ): Promise<SnapshotFile[]> {
   const files: SnapshotFile[] = [];
   let entries;
@@ -191,7 +191,7 @@ async function collectDurableDirectoryFiles(
 async function collectDevelopmentStateFiles(sourceDirectory: string): Promise<SnapshotFile[]> {
   const files: SnapshotFile[] = [];
   for (const entry of (await readdir(sourceDirectory, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name)
+    left.name.localeCompare(right.name),
   )) {
     if (isDurableStateDirectory(entry.name)) {
       if (entry.isSymbolicLink()) {
@@ -199,7 +199,7 @@ async function collectDevelopmentStateFiles(sourceDirectory: string): Promise<Sn
       }
       if (!entry.isDirectory()) throw new Error(`The ${entry.name} state path is not a directory.`);
       files.push(
-        ...(await collectDurableDirectoryFiles(sourceDirectory, join(sourceDirectory, entry.name), entry.name))
+        ...(await collectDurableDirectoryFiles(sourceDirectory, join(sourceDirectory, entry.name), entry.name)),
       );
       continue;
     }
@@ -297,7 +297,7 @@ export type PreparedDevelopmentStateCopy = {
 };
 
 export async function prepareDevelopmentStateCopy(
-  options: PrepareDevelopmentStateCopyOptions
+  options: PrepareDevelopmentStateCopyOptions,
 ): Promise<PreparedDevelopmentStateCopy> {
   const sourceDirectory = await assertDirectory(resolve(options.sourceDirectory), 'The source state directory');
   const requestedTarget = resolve(options.targetDirectory);
@@ -391,7 +391,7 @@ export async function prepareDevelopmentStateCopy(
   }
   throw new Error(
     `Vampire state kept changing across ${maximumAttempts} online snapshot attempts; no development target was created.`,
-    { cause: lastChange }
+    { cause: lastChange },
   );
 }
 
@@ -407,17 +407,11 @@ export type PreparedDevelopmentEnvironment = {
 
 export async function prepareDevelopmentEnvironment(
   env: NodeJS.ProcessEnv = process.env,
-  options: PrepareDevelopmentEnvironmentOptions = {}
+  options: PrepareDevelopmentEnvironmentOptions = {},
 ): Promise<PreparedDevelopmentEnvironment> {
-  const requestedStateDirectory = env.VAMPIRE_STATE_DIR?.trim();
-  if (!requestedStateDirectory) {
-    throw new Error(
-      'VAMPIRE_STATE_DIR is required for development. Prepare a marked development copy instead of using ~/.vampire.'
-    );
-  }
-
-  const stateDirectory = await assertDirectory(resolve(requestedStateDirectory), 'The development state directory');
-  if (options.useExistingState) {
+  const requestedStateDirectory = env.VAMPIRE_STATE_DIR?.trim() || join(options.homeDirectory ?? homedir(), '.vampire');
+  const stateDirectory = await canonicalPotentialPath(requestedStateDirectory);
+  if (options.useExistingState !== false) {
     const tmuxSocketName = env.VAMPIRE_TMUX_SOCKET_NAME?.trim() || 'default';
     if (!TMUX_SOCKET_NAME_PATTERN.test(tmuxSocketName)) throw new Error('The development tmux socket name is invalid.');
     env.VAMPIRE_STATE_DIR = stateDirectory;
@@ -425,6 +419,7 @@ export async function prepareDevelopmentEnvironment(
     env.VAMPIRE_SAFE_DEVELOPMENT = '1';
     return { stateDirectory, tmuxSocketName };
   }
+  await assertDirectory(stateDirectory, 'The development state directory');
   const productionStateDirectory = await canonicalPotentialPath(join(options.homeDirectory ?? homedir(), '.vampire'));
   if (pathsOverlap(stateDirectory, productionStateDirectory)) {
     throw new Error('The development server refuses to use or contain the production state directory.');

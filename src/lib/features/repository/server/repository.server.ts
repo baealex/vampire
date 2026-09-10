@@ -118,7 +118,7 @@ export async function isGitRepository(cwd: string): Promise<boolean> {
 export async function readRepositoryCommits(
   cwd: string,
   offset = 0,
-  limit = DEFAULT_COMMIT_PAGE_SIZE
+  limit = DEFAULT_COMMIT_PAGE_SIZE,
 ): Promise<RepositoryCommitPage> {
   const root = await workspaceRoot(cwd);
   if (!(await isGitRepository(root))) {
@@ -136,7 +136,7 @@ export async function readRepositoryCommits(
 export async function discardRepositoryChange(
   cwd: string,
   path: string,
-  expected?: RepositoryChange
+  expected?: RepositoryChange,
 ): Promise<RepositoryDiscardResult> {
   const root = await workspaceRoot(cwd);
   const normalizedPath = normalizeRelativePath(path);
@@ -183,7 +183,7 @@ export async function discardRepositoryChange(
  */
 async function resolveReadableDirectory(
   cwd: string,
-  path: string
+  path: string,
 ): Promise<{ normalizedPath: string; target: string }> {
   const root = await workspaceRoot(cwd);
   const normalizedPath = path === '' ? '' : normalizeRelativePath(path);
@@ -275,7 +275,7 @@ const pendingRepositorySnapshots = new Map<string, Promise<RepositorySnapshot>>(
 
 export function readRepositorySnapshot(
   cwd: string,
-  commitLimit = DEFAULT_COMMIT_PAGE_SIZE
+  commitLimit = DEFAULT_COMMIT_PAGE_SIZE,
 ): Promise<RepositorySnapshot> {
   const limit = normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE);
   const key = JSON.stringify([cwd, limit]);
@@ -290,7 +290,7 @@ export function readRepositorySnapshot(
 
 async function buildRepositorySnapshot(
   cwd: string,
-  commitLimit = DEFAULT_COMMIT_PAGE_SIZE
+  commitLimit = DEFAULT_COMMIT_PAGE_SIZE,
 ): Promise<RepositorySnapshot> {
   const root = await workspaceRoot(cwd);
   const gitRepository = await isGitRepository(root);
@@ -357,7 +357,7 @@ export async function readRepositoryWatchPaths(cwd: string): Promise<RepositoryW
 async function resolveReadableFile(
   cwd: string,
   path: string,
-  maximumBytes = MAX_FILE_BYTES
+  maximumBytes = MAX_FILE_BYTES,
 ): Promise<{
   normalizedPath: string;
   target: string;
@@ -392,7 +392,7 @@ async function resolveReadableFile(
       'too-large',
       maximumBytes === MAX_IMAGE_BYTES
         ? 'Images larger than 10 MB are not shown.'
-        : 'Files larger than 5 MB are not shown.'
+        : 'Files larger than 5 MB are not shown.',
     );
   }
   return { normalizedPath, target, details };
@@ -403,7 +403,7 @@ async function resolveReadableFile(
 async function resolveWritableFile(
   cwd: string,
   path: string,
-  existingEntryIsConflict = false
+  existingEntryIsConflict = false,
 ): Promise<
   | { normalizedPath: string; target: string; exists: false }
   | { normalizedPath: string; target: string; exists: true; details: Stats }
@@ -624,7 +624,7 @@ export async function writeWorkspaceFile(
   cwd: string,
   path: string,
   content: string,
-  options: { expectedVersion?: string; createOnly?: boolean } = {}
+  options: { expectedVersion?: string; createOnly?: boolean } = {},
 ): Promise<WorkspaceFile> {
   if (typeof content !== 'string') throw repositoryError('unsupported-file', 'Only UTF-8 text files can be saved.');
   const bytes = Buffer.from(content, 'utf8');
@@ -674,7 +674,7 @@ function uploadConflictPath(path: string, index: number): string {
 
 async function resolveNewUploadTarget(
   cwd: string,
-  path: string
+  path: string,
 ): Promise<{
   normalizedPath: string;
   target: string;
@@ -702,7 +702,7 @@ async function writeUploadChunk(handle: FileHandle, chunk: Uint8Array): Promise<
 
 async function writeUploadContent(
   handle: FileHandle,
-  content: Uint8Array | ReadableStream<Uint8Array>
+  content: Uint8Array | ReadableStream<Uint8Array>,
 ): Promise<number> {
   if (!('getReader' in content)) return writeUploadChunk(handle, content);
   const reader = content.getReader();
@@ -721,7 +721,7 @@ async function writeUploadContent(
 async function writeTemporaryUpload(
   parent: string,
   content: Uint8Array | ReadableStream<Uint8Array>,
-  mode = 0o600
+  mode = 0o600,
 ): Promise<{ path: string; size: number }> {
   const path = join(parent, `${TEMPORARY_UPLOAD_PREFIX}${randomUUID()}`);
   let handle: FileHandle | undefined;
@@ -760,7 +760,7 @@ export async function uploadWorkspaceFile(
   cwd: string,
   path: string,
   content: Uint8Array | ReadableStream<Uint8Array>,
-  options: { conflict?: WorkspaceUploadConflict } = {}
+  options: { conflict?: WorkspaceUploadConflict } = {},
 ): Promise<WorkspaceUploadResult> {
   const conflict = options.conflict ?? 'reject';
   const requested = await resolveNewUploadTarget(cwd, path);
@@ -812,7 +812,7 @@ export async function uploadWorkspaceFile(
 async function resolveMovableEntry(
   cwd: string,
   path: string,
-  kind: WorkspaceEntryKind
+  kind: WorkspaceEntryKind,
 ): Promise<{
   normalizedPath: string;
   target: string;
@@ -926,7 +926,7 @@ export async function moveWorkspaceEntry(
   path: string,
   kind: WorkspaceEntryKind,
   targetDirectory: string,
-  options: { conflict?: WorkspaceMoveConflict; targetName?: string } = {}
+  options: { conflict?: WorkspaceMoveConflict; targetName?: string } = {},
 ): Promise<WorkspaceMoveResult> {
   const source = await resolveMovableEntry(cwd, path, kind);
   const normalizedTargetDirectory = targetDirectory === '' ? '' : normalizeRelativePath(targetDirectory);
@@ -1011,7 +1011,7 @@ export async function copyWorkspaceEntry(
   path: string,
   kind: WorkspaceEntryKind,
   targetDirectory: string,
-  options: { conflict?: WorkspaceMoveConflict } = {}
+  options: { conflict?: WorkspaceMoveConflict } = {},
 ): Promise<WorkspaceMoveResult> {
   const source = await resolveMovableEntry(cwd, path, kind);
   const normalizedTargetDirectory = targetDirectory === '' ? '' : normalizeRelativePath(targetDirectory);
@@ -1083,7 +1083,7 @@ export async function createWorkspaceDirectory(cwd: string, path: string): Promi
 export async function deleteWorkspaceEntry(
   cwd: string,
   path: string,
-  kind: 'file' | 'directory'
+  kind: 'file' | 'directory',
 ): Promise<{ path: string }> {
   const source = await resolveMovableEntry(cwd, path, kind);
 
@@ -1115,7 +1115,7 @@ export async function readRepositoryDiff(cwd: string, path: string): Promise<Rep
     const { stdout } = await runGit(
       root,
       ['diff', '--no-index', ...commonDiffArguments, '--', '/dev/null', normalizedPath],
-      { acceptedExitCodes: [0, 1], maxBuffer: MAX_DIFF_OUTPUT_BYTES }
+      { acceptedExitCodes: [0, 1], maxBuffer: MAX_DIFF_OUTPUT_BYTES },
     );
     if (stdout) sections.push({ kind: 'untracked', patch: stdout });
     return { path: normalizedPath, sections };
@@ -1148,7 +1148,7 @@ export async function readRepositoryCommitDiff(cwd: string, hash: string): Promi
   const { stdout } = await runGit(
     root,
     ['show', '--format=', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', hash, '--'],
-    { maxBuffer: MAX_DIFF_OUTPUT_BYTES }
+    { maxBuffer: MAX_DIFF_OUTPUT_BYTES },
   );
   return { hash, patch: stdout };
 }

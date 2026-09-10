@@ -74,13 +74,13 @@ export function terminalSubmissionSettleMs(bracketedPaste: boolean): number {
 export async function executeTerminalSubmission(
   data: string,
   bracketedPaste: boolean,
-  operations: TerminalSubmissionOperations
+  operations: TerminalSubmissionOperations,
 ): Promise<boolean> {
   if (!operations.inputAllowed()) return false;
   await operations.sendInput(terminalSubmissionData(data, bracketedPaste));
   if (!operations.inputAllowed()) return false;
   await (operations.wait ?? ((durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs))))(
-    terminalSubmissionSettleMs(bracketedPaste)
+    terminalSubmissionSettleMs(bracketedPaste),
   );
   if (!operations.inputAllowed()) return false;
   await operations.sendEnter();

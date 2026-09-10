@@ -34,14 +34,14 @@ test('stores terminal input behavior once for the server', async (t) => {
   assert.equal(managedTerminalInputSettingsPath(), join(directory, 'global', 'terminal-input.json'));
   assert.equal(
     (JSON.parse(await readFile(managedTerminalInputSettingsPath(), 'utf8')) as { version: number }).version,
-    2
+    2,
   );
 });
 
 test('rejects malformed terminal input settings', async () => {
   await assert.rejects(
     updateManagedTerminalInputSettings({ mode: 'compose', slashHandoff: null }),
-    TerminalInputSettingsError
+    TerminalInputSettingsError,
   );
 });
 
@@ -63,7 +63,7 @@ test('reads version-one input mode settings without retaining global Composer af
       slashHandoff: false,
       composePrefix: 'legacy prefix',
       composePostfix: 'legacy postfix',
-    })
+    }),
   );
 
   assert.deepEqual(await readManagedTerminalInputSettings(), { mode: 'compose', slashHandoff: false });

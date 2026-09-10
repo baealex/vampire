@@ -54,7 +54,7 @@ test('groups addresses and describes whether each process can be terminated', ()
         [999, '/code/vampire'],
       ]),
       processAccess: (pid) => (pid === 444 ? 'permission-denied' : 'available'),
-    }
+    },
   );
 
   assert.deepEqual(ports, [
@@ -122,7 +122,7 @@ test('rechecks listener identity before sending SIGTERM', async () => {
       signal: (pid, signal) => {
         signaled.push([pid, signal]);
       },
-    }
+    },
   );
 
   assert.deepEqual(signaled, [[120, 'SIGTERM']]);
@@ -150,9 +150,9 @@ test('refuses stale or protected listener termination requests', async () => {
             termination: 'available',
           },
         ],
-      }
+      },
     ),
-    (error: unknown) => error instanceof ListeningPortError && error.reason === 'stale'
+    (error: unknown) => error instanceof ListeningPortError && error.reason === 'stale',
   );
 
   await assert.rejects(
@@ -163,8 +163,8 @@ test('refuses stale or protected listener termination requests', async () => {
         processName: 'node',
         cwd: '/code/vampire',
       },
-      { currentPid: 999, list: async () => [] }
+      { currentPid: 999, list: async () => [] },
     ),
-    (error: unknown) => error instanceof ListeningPortError && error.reason === 'protected'
+    (error: unknown) => error instanceof ListeningPortError && error.reason === 'protected',
   );
 });

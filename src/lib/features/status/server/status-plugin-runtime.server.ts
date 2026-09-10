@@ -62,7 +62,7 @@ function cloneSnapshots(snapshots: readonly StatusPluginSnapshot[]): StatusPlugi
     const cloned = { ...snapshot };
     if (snapshot.menu) {
       cloned.menu = snapshot.menu.map((entry) =>
-        entry.type === 'item' && entry.time ? { ...entry, time: { ...entry.time } } : { ...entry }
+        entry.type === 'item' && entry.time ? { ...entry, time: { ...entry.time } } : { ...entry },
       );
     }
     return cloned;
@@ -106,7 +106,7 @@ export class StatusPluginRuntime {
         if (!this.#active || generation !== this.#generation) return;
         this.#configRefreshTimer = setInterval(
           () => void this.refreshConfiguration().catch(() => undefined),
-          this.#configRefreshIntervalMs
+          this.#configRefreshIntervalMs,
         );
         this.#configRefreshTimer.unref();
       })

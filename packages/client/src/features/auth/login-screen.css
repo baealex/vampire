@@ -2,7 +2,7 @@
   display: grid;
   min-height: 100dvh;
   place-items: center;
-  overflow: hidden;
+  box-sizing: border-box;
   padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
     max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   background: var(--color-canvas);
@@ -10,16 +10,12 @@
 }
 .login-panel {
   display: grid;
-  width: min(100%, 25rem);
+  width: min(100%, 24rem);
   min-width: 0;
-  gap: 1.25rem;
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-dialog);
+  gap: 1rem;
 }
 .login-heading {
+  margin-bottom: 1.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -32,21 +28,69 @@
   gap: 0.7rem;
 }
 .login-brand strong {
-  font-size: var(--text-heading);
+  font-size: var(--text-title);
   font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
 }
 .login-mark {
   display: block;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: var(--radius-md);
 }
 .login-error {
-  margin: 0.1rem 0 0;
-  color: var(--color-danger);
+  margin: 0;
+  color: var(--color-danger-text);
   font-size: var(--text-label);
   line-height: var(--leading-ui);
+  overflow-wrap: anywhere;
+}
+.login-intro {
+  margin-bottom: 0.5rem;
+}
+.login-intro h1 {
+  margin: 0;
+  font-size: var(--text-display);
+  font-weight: var(--weight-strong);
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+}
+.login-intro p {
+  margin: 0.65rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+.login-token-field {
+  position: relative;
+  display: block;
+}
+.login-token-field input {
+  min-height: 2.75rem;
+  padding-right: 3rem;
+}
+.login-token-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  transform: translateY(-50%);
+}
+.login-feedback {
+  min-height: 1.5rem;
+  margin-top: -0.5rem;
+}
+.login-token-hint {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+}
+.login-token-hint svg {
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
 }
 @media (max-width: 48rem) {
   .login-screen {

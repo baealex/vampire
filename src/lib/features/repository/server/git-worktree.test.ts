@@ -86,11 +86,11 @@ test('rejects invalid task names and repositories without a commit', async (t) =
 
   await assert.rejects(
     () => createGitWorktree(source, '   ', { managedRoot }),
-    (error) => error instanceof GitWorktreeError && error.reason === 'invalid-name'
+    (error) => error instanceof GitWorktreeError && error.reason === 'invalid-name',
   );
   await assert.rejects(
     () => createGitWorktree(source, 'First task', { managedRoot }),
-    (error) => error instanceof GitWorktreeError && error.reason === 'no-head'
+    (error) => error instanceof GitWorktreeError && error.reason === 'no-head',
   );
 });
 
@@ -108,7 +108,7 @@ test('never deletes a branch that already owns the generated worktree name', asy
         managedRoot,
         id: '01234567-89ab-cdef-0123-456789abcdef',
       }),
-    (error) => error instanceof GitWorktreeError && error.reason === 'command-failed'
+    (error) => error instanceof GitWorktreeError && error.reason === 'command-failed',
   );
   assert.equal((await git(source, 'rev-parse', branch)).trim(), expectedCommit);
 });
@@ -127,7 +127,7 @@ test('removes a managed working copy and registration while preserving its branc
       cwd: created.cwd,
       repositoryPath: source,
     },
-    { managedRoot }
+    { managedRoot },
   );
 
   assert.equal((await git(source, 'branch', '--list', created.branch)).trim(), created.branch);
@@ -149,7 +149,7 @@ test('clears a stale registration after the managed working directory was delete
       cwd: created.cwd,
       repositoryPath: source,
     },
-    { managedRoot }
+    { managedRoot },
   );
 
   assert.equal((await git(source, 'branch', '--list', created.branch)).trim(), created.branch);
@@ -170,9 +170,9 @@ test('refuses to remove a path outside the matching managed workspace ID', async
           cwd: source,
           repositoryPath: source,
         },
-        { managedRoot }
+        { managedRoot },
       ),
-    (error) => error instanceof GitWorktreeError && error.reason === 'invalid-location'
+    (error) => error instanceof GitWorktreeError && error.reason === 'invalid-location',
   );
   assert.equal(await readFile(join(source, 'app.txt'), 'utf8'), 'committed\n');
 });

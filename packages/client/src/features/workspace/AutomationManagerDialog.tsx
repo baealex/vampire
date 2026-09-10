@@ -1,5 +1,8 @@
-import { Clock3, Pause, Pencil, Play, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import {
+  loadWorkspaceAgentAction,
+  submitWorkspaceAgentAction,
+} from '@vampire/lib/shared/api/workspace-agent-actions.ts';
 import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
 import {
   MAX_AUTOMATION_INTERVAL_MS,
@@ -8,12 +11,11 @@ import {
   type WorkspaceAutomationSchedule,
   type WorkspaceAutomationWeekday,
 } from '@vampire/lib/shared/contracts/workspace-automations.ts';
-import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import { Clock3, Pause, Pencil, Play, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { requestJson } from '~/shared/api/request.ts';
-import {
-  loadWorkspaceAgentAction,
-  submitWorkspaceAgentAction,
-} from '@vampire/lib/shared/api/workspace-agent-actions.ts';
+import { navigationGuard } from '~/shared/lib/navigation-guard.ts';
 import {
   AskAgentPanel,
   Button,
@@ -42,7 +44,7 @@ function dateTime(timestamp = Date.now() + 300_000) {
 }
 function clock(hour: number, minute: number) {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(2020, 0, 1, hour, minute)
+    new Date(2020, 0, 1, hour, minute),
   );
 }
 function scheduleLabel(schedule: WorkspaceAutomationSchedule) {
@@ -79,61 +81,88 @@ export function AutomationManagerDialog({
   const [weekdays, setWeekdays] = useState<WorkspaceAutomationWeekday[]>([1, 2, 3, 4, 5]);
   const [weeklyTime, setWeeklyTime] = useState('09:00');
   const [timeZone, setTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [baseline, setBaseline] = useState('');
+  const draft = JSON.stringify([
+    name,
+    prompt,
+    scheduleType,
+    scheduleType === 'weekly'
+      ? [weekdays, weeklyTime, timeZone]
+      : [runAt, scheduleType === 'interval' ? intervalMinutes : ''],
+  ]);
+  const dirty = Boolean(editing) && draft !== baseline;
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === workspaceId),
-    [workspaceId, workspaces]
+    [workspaceId, workspaces],
   );
   const begin = useCallback((automation?: WorkspaceAutomation) => {
+    const schedule = automation?.schedule;
+    const initialRunAt = dateTime(
+      schedule?.type === 'once' ? schedule.runAt : schedule?.type === 'interval' ? schedule.startAt : undefined,
+    );
+    const initialInterval = schedule?.type === 'interval' ? String(schedule.intervalMs / 60_000) : '60';
+    const initialWeekdays: WorkspaceAutomationWeekday[] =
+      schedule?.type === 'weekly' ? schedule.weekdays : [1, 2, 3, 4, 5];
+    const initialTime =
+      schedule?.type === 'weekly'
+        ? `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`
+        : '09:00';
+    const initialZone =
+      schedule?.type === 'weekly' ? schedule.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    setRunAt(initialRunAt);
+    setIntervalMinutes(initialInterval);
+    setWeekdays(initialWeekdays);
+    setWeeklyTime(initialTime);
+    setTimeZone(initialZone);
+    setBaseline(
+      JSON.stringify([
+        automation?.name ?? '',
+        automation?.prompt ?? '',
+        schedule?.type ?? 'once',
+        schedule?.type === 'weekly'
+          ? [initialWeekdays, initialTime, initialZone]
+          : [initialRunAt, schedule?.type === 'interval' ? initialInterval : ''],
+      ]),
+    );
     setEditing(automation ?? 'new');
     setName(automation?.name ?? '');
     setPrompt(automation?.prompt ?? '');
     setScheduleType(automation?.schedule.type ?? 'once');
-    if (!automation) {
-      setRunAt(dateTime());
-      setIntervalMinutes('60');
-      return;
-    }
-    if (automation.schedule.type === 'once') setRunAt(dateTime(automation.schedule.runAt));
-    if (automation.schedule.type === 'interval') {
-      setRunAt(dateTime(automation.schedule.startAt));
-      setIntervalMinutes(String(automation.schedule.intervalMs / 60_000));
-    }
-    if (automation.schedule.type === 'weekly') {
-      setWeekdays(automation.schedule.weekdays);
-      setWeeklyTime(
-        `${String(automation.schedule.hour).padStart(2, '0')}:${String(automation.schedule.minute).padStart(2, '0')}`
-      );
-      setTimeZone(automation.schedule.timeZone);
-    }
   }, []);
-  const load = useCallback(async () => {
-    if (!workspaceId) return;
-    setLoading(true);
-    setError('');
-    try {
-      const loaded = (
-        await requestJson<{ automations: WorkspaceAutomation[] }>(
-          `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
-          { cache: 'no-store' },
-          'Unable to load automations'
-        )
-      ).automations;
-      setAutomations(loaded);
-      const requested = initialAutomationId && loaded.find((item) => item.id === initialAutomationId);
-      if (requested) begin(requested);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to load automations');
-    } finally {
-      setLoading(false);
-    }
-  }, [begin, initialAutomationId, workspaceId]);
+  const load = useCallback(
+    async (background = false) => {
+      if (!workspaceId) return;
+      if (!background) {
+        setLoading(true);
+        setError('');
+      }
+      try {
+        const loaded = (
+          await requestJson<{ automations: WorkspaceAutomation[] }>(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}/automations`,
+            { cache: 'no-store' },
+            'Unable to load automations',
+          )
+        ).automations;
+        setAutomations(loaded);
+        setError('');
+        const requested = initialAutomationId && loaded.find((item) => item.id === initialAutomationId);
+        if (requested && !background) begin(requested);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Unable to load automations');
+      } finally {
+        if (!background) setLoading(false);
+      }
+    },
+    [begin, initialAutomationId, workspaceId],
+  );
   useEffect(() => {
     setEditing(undefined);
     void load();
   }, [load]);
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (!editing && !askingAgent) void load();
+      if (!editing && !askingAgent) void load(true);
     }, 2_000);
     return () => window.clearInterval(timer);
   }, [askingAgent, editing, load]);
@@ -180,7 +209,7 @@ export function AutomationManagerDialog({
           method: id ? 'PATCH' : 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), prompt: prompt.trim(), schedule }),
-        }
+        },
       );
       setAutomations((current) => [
         response.automation,
@@ -198,7 +227,7 @@ export function AutomationManagerDialog({
     try {
       const response = await requestJson<{ automation: WorkspaceAutomation }>(
         `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(automation.id)}`,
-        { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) }
+        { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) },
       );
       setAutomations((current) => current.map((item) => (item.id === automation.id ? response.automation : item)));
     } finally {
@@ -210,7 +239,7 @@ export function AutomationManagerDialog({
     try {
       await requestJson(
         `/api/workspaces/${encodeURIComponent(workspaceId)}/automations/${encodeURIComponent(automation.id)}`,
-        { method: 'DELETE' }
+        { method: 'DELETE' },
       );
       setAutomations((current) => current.filter((item) => item.id !== automation.id));
     } finally {
@@ -218,25 +247,21 @@ export function AutomationManagerDialog({
     }
   };
   const title = editing && editing !== 'new' ? 'Edit automation' : 'Agent automations';
+  const leaveEditor = async () => {
+    if (busyId || (dirty && !(await navigationGuard()?.()))) return;
+    flushSync(() => setEditing(undefined));
+    if (editing && editing !== 'new') {
+      const returning = new URLSearchParams(location.search).get('return') === 'all';
+      onNavigate?.(`/workspaces/${encodeURIComponent(workspaceId)}/automations${returning ? '?return=all' : ''}`);
+    }
+  };
   return (
     <ManagementSurface
       title={title}
       titleId="workspace-automations-title"
-      back={
-        askingAgent
-          ? () => setAskingAgent(false)
-          : editing
-            ? () => {
-                setEditing(undefined);
-                if (editing !== 'new') {
-                  const returning = new URLSearchParams(location.search).get('return') === 'all';
-                  onNavigate?.(
-                    `/workspaces/${encodeURIComponent(workspaceId)}/automations${returning ? '?return=all' : ''}`
-                  );
-                }
-              }
-            : undefined
-      }
+      dirty={dirty}
+      busy={Boolean(busyId)}
+      back={askingAgent ? () => setAskingAgent(false) : editing ? () => void leaveEditor() : undefined}
       backLabel="Back to automations"
       close={onClose}
       closeLabel="Close agent automations"
@@ -252,7 +277,11 @@ export function AutomationManagerDialog({
         <div className="automation-manager">
           <label className="automation-workspace">
             Workspace
-            <Select value={workspaceId} onChange={(event) => setWorkspaceId(event.currentTarget.value)}>
+            <Select
+              disabled={Boolean(editing) || Boolean(busyId)}
+              value={workspaceId}
+              onChange={(event) => setWorkspaceId(event.currentTarget.value)}
+            >
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>
                   {workspaceName(workspace)}
@@ -260,18 +289,24 @@ export function AutomationManagerDialog({
               ))}
             </Select>
           </label>
-          {selectedWorkspace ? <p className="automation-cwd">{selectedWorkspace.cwd}</p> : null}
-          <div className="automation-toolbar">
-            <span>Scheduled prompts run in the main terminal.</span>
-            <Button size="sm" onClick={() => setAskingAgent(true)}>
-              <Sparkles size={15} />
-              Ask agent…
-            </Button>
-            <Button size="sm" onClick={() => begin()}>
-              <Plus size={15} />
-              New automation
-            </Button>
-          </div>
+          {selectedWorkspace ? (
+            <p className="automation-cwd" title={selectedWorkspace.cwd}>
+              {selectedWorkspace.cwd}
+            </p>
+          ) : null}
+          {!editing ? (
+            <div className="automation-toolbar">
+              <span>Scheduled prompts run in the main terminal.</span>
+              <Button size="sm" onClick={() => setAskingAgent(true)}>
+                <Sparkles size={15} />
+                Ask agent…
+              </Button>
+              <Button size="sm" onClick={() => begin()}>
+                <Plus size={15} />
+                New automation
+              </Button>
+            </div>
+          ) : null}
           {editing ? (
             <section className="automation-editor">
               <h3>{editing === 'new' ? 'New automation' : `Edit ${editing.name}`}</h3>
@@ -327,7 +362,7 @@ export function AutomationManagerDialog({
                           className={weekdays.includes(day) ? 'active' : ''}
                           onClick={() =>
                             setWeekdays((current) =>
-                              current.includes(day) ? current.filter((item) => item !== day) : [...current, day]
+                              current.includes(day) ? current.filter((item) => item !== day) : [...current, day],
                             )
                           }
                         >
@@ -349,7 +384,7 @@ export function AutomationManagerDialog({
                 </>
               )}
               <div className="automation-editor-actions">
-                <Button variant="ghost" onClick={() => setEditing(undefined)}>
+                <Button variant="ghost" disabled={Boolean(busyId)} onClick={() => void leaveEditor()}>
                   Cancel
                 </Button>
                 <Button variant="primary" disabled={Boolean(busyId)} onClick={() => void save()}>
@@ -363,12 +398,12 @@ export function AutomationManagerDialog({
               <Spinner />
               Loading automations…
             </div>
-          ) : automations.length === 0 ? (
+          ) : !editing && automations.length === 0 ? (
             <div className="automation-empty">
               <Clock3 size={22} />
               No automations for this workspace.
             </div>
-          ) : (
+          ) : !editing ? (
             <div className="automation-list">
               {automations.map((automation) => (
                 <article key={automation.id}>
@@ -399,7 +434,7 @@ export function AutomationManagerDialog({
                 </article>
               ))}
             </div>
-          )}
+          ) : null}
           {error ? (
             <p className="automation-error" role="alert">
               {error}

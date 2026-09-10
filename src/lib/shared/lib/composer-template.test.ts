@@ -14,7 +14,7 @@ test('renders the supported workspace variables without escaping prompt text', (
     'Date: {{ today }}\nNow: {{ now }}\nWorkspace: {{ workspace.name }} ({{ workspace.cwd }})\n\n{{ prompts }}',
     'Check <output> and keep {{ literal }} intact.',
     context,
-    renderedAt
+    renderedAt,
   );
 
   assert.deepEqual(result, {
@@ -43,7 +43,7 @@ test('falls back to the original prompt for invalid or oversized templates', () 
   const oversized = renderComposerTemplate(
     `${'x'.repeat(COMPOSER_TEMPLATE_OUTPUT_MAX_BYTES)}{{ prompts }}`,
     'Keep me',
-    context
+    context,
   );
   assert.equal(oversized.text, 'Keep me');
   assert.equal(oversized.usedFallback, true);

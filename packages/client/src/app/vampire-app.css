@@ -12,7 +12,7 @@ main {
 }
 .app-shell {
   display: grid;
-  grid-template-columns: 20rem minmax(0, 1fr);
+  grid-template-columns: 23.5rem minmax(0, 1fr);
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -51,7 +51,7 @@ main {
     position: absolute;
     z-index: 30;
     inset: 0;
-    display: flex;
+    display: grid;
     height: 100dvh;
     pointer-events: none;
     transform: translateX(-100%);

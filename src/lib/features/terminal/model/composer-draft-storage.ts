@@ -9,7 +9,7 @@ function composerDraftStorageKey(workspaceId: string, terminalId?: string): stri
 export function loadComposerDraft(
   workspaceId: string,
   terminalId?: string,
-  storage?: ComposerDraftStorage
+  storage?: ComposerDraftStorage,
 ): { value: string; available: boolean } {
   try {
     return {
@@ -25,7 +25,7 @@ export function saveComposerDraft(
   workspaceId: string,
   terminalId: string | undefined,
   value: string,
-  storage?: ComposerDraftStorage
+  storage?: ComposerDraftStorage,
 ): boolean {
   try {
     const target = storage ?? window.localStorage;

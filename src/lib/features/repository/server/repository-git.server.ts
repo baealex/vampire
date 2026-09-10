@@ -40,7 +40,7 @@ export const TEMPORARY_UPLOAD_PREFIX = '.vampire-upload-';
 export async function runGit(
   cwd: string,
   args: string[],
-  options: GitRunOptions = {}
+  options: GitRunOptions = {},
 ): Promise<{ stdout: string; stderr: string }> {
   const acceptedExitCodes = options.acceptedExitCodes ?? [0];
   try {
@@ -148,7 +148,7 @@ function countGitWorktrees(output: string): number {
     .filter(
       (entry) =>
         entry.split('\n').some((line) => line.startsWith('worktree ')) &&
-        !entry.split('\n').some((line) => line.startsWith('prunable '))
+        !entry.split('\n').some((line) => line.startsWith('prunable ')),
     ).length;
 }
 
@@ -265,10 +265,10 @@ function parseGitBranches(
   output: string,
   currentBranch: string | undefined,
   worktrees: RepositoryWorktree[],
-  root: string
+  root: string,
 ): RepositoryBranch[] {
   const worktreeByBranch = new Map(
-    worktrees.flatMap((worktree) => (worktree.branch ? [[worktree.branch, worktree.path] as const] : []))
+    worktrees.flatMap((worktree) => (worktree.branch ? [[worktree.branch, worktree.path] as const] : [])),
   );
   const branches = output
     .split('\n')
@@ -293,7 +293,7 @@ function parseGitBranches(
     branches.push({ name: currentBranch, current: true, worktreePath: root });
   }
   return branches.sort(
-    (left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name, 'en')
+    (left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name, 'en'),
   );
 }
 
@@ -301,7 +301,7 @@ export async function readGitBranches(
   cwd: string,
   currentBranch: string | undefined,
   worktrees: RepositoryWorktree[],
-  root: string
+  root: string,
 ): Promise<RepositoryBranch[]> {
   const { stdout } = await runGit(cwd, [
     'for-each-ref',
@@ -386,7 +386,7 @@ function addRepositoryChangeStats(target: RepositoryChangeStats, source: Reposit
 
 export async function readRepositoryChangeStats(
   cwd: string,
-  changes: RepositoryChange[]
+  changes: RepositoryChange[],
 ): Promise<RepositoryChangeStats> {
   if (changes.length === 0) return { additions: 0, deletions: 0 };
 
@@ -428,7 +428,7 @@ export async function readRepositoryChangeStats(
         ],
         {
           temporaryGitDirectory,
-        }
+        },
       );
       const { stdout } = await runGit(cwd, ['diff', '--numstat', '--no-renames', '--', '.'], {
         temporaryGitDirectory,

@@ -61,6 +61,13 @@
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }
+.port-confirm-path {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .port-endpoint > span[data-network="true"] {
   color: var(--color-warning);
 }
@@ -75,6 +82,14 @@
   gap: 0.3rem;
 }
 @media (max-width: 40rem) {
+  .port-process code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .port-process > strong {
+    overflow-wrap: anywhere;
+    font-size: var(--text-label);
+  }
   .ports-list li {
     grid-template-columns: 5rem minmax(0, 1fr);
   }

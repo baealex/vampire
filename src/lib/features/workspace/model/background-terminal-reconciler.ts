@@ -23,7 +23,7 @@ export class BackgroundTerminalReconciler {
     this.#deleteIfEmpty(workspaceId, overrides);
 
     return [...current.filter((terminal) => terminal.id !== process.id), process].sort(
-      (left, right) => left.index - right.index
+      (left, right) => left.index - right.index,
     );
   }
 

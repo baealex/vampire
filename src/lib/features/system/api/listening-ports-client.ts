@@ -1,5 +1,5 @@
+import { type QuerySubscriber, queryCache } from '~/lib/shared/api/query-cache';
 import { requestJson } from '~/lib/shared/api/request';
-import { queryCache, type QuerySubscriber } from '~/lib/shared/api/query-cache';
 import type { ListeningPort, ListeningPortsResponse } from '~/lib/shared/contracts/listening-ports';
 
 export const LISTENING_PORTS_QUERY = 'system/listening-ports';
@@ -15,9 +15,9 @@ function loadListeningPorts(force = false): Promise<ListeningPortsResponse> {
       requestJson<ListeningPortsResponse>(
         '/api/system/ports',
         { cache: 'no-store' },
-        'Unable to inspect listening ports.'
+        'Unable to inspect listening ports.',
       ),
-    force
+    force,
   );
 }
 

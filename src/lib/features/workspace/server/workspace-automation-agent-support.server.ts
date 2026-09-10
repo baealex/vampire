@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
 import {
@@ -15,16 +15,16 @@ import {
   WORKSPACE_AUTOMATION_PROMPT_MAX_LENGTH,
 } from '~/lib/shared/contracts/workspace-automations.ts';
 import {
+  pendingWorkspaceAutomationRequestCount,
+  WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME,
+  workspaceAutomationRequestKey,
+} from './workspace-automation-request-files.server.ts';
+import {
   applyManagedWorkspaceAutomationAgentRequest,
   createManagedWorkspaceAutomationFromAgentRequest,
   WorkspaceAutomationMutationError,
 } from './workspace-automations.server.ts';
 import { readWorkspaceStore, withWorkspaceStoreMutation } from './workspace-store.server.ts';
-import {
-  pendingWorkspaceAutomationRequestCount,
-  WORKSPACE_AUTOMATION_REQUEST_DIRECTORY_NAME,
-  workspaceAutomationRequestKey,
-} from './workspace-automation-request-files.server.ts';
 
 const GUIDE_FILE_NAME = 'workspace-automation.md';
 const APPLY_FILE_NAME = 'apply-workspace-automation.mjs';
@@ -184,7 +184,7 @@ async function assertCapacityWithoutLock(workspaceId: string): Promise<void> {
   if (pendingCount >= MAX_WORKSPACE_AUTOMATIONS) {
     throw new WorkspaceAutomationMutationError(
       'limit',
-      `A workspace can have up to ${MAX_WORKSPACE_AUTOMATIONS} pending automation agent requests.`
+      `A workspace can have up to ${MAX_WORKSPACE_AUTOMATIONS} pending automation agent requests.`,
     );
   }
 }
@@ -195,7 +195,7 @@ export async function assertWorkspaceAutomationAgentCapacity(workspaceId: string
 
 export async function reserveWorkspaceAutomationAgentSupport(
   workspaceId: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomationAgentSupport> {
   return withWorkspaceStoreMutation(async () => {
     await assertCapacityWithoutLock(workspaceId);
@@ -205,7 +205,7 @@ export async function reserveWorkspaceAutomationAgentSupport(
 
 export async function ensureWorkspaceAutomationAgentSupport(
   workspaceId: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceAutomationAgentSupport> {
   const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === workspaceId);
   if (!stored) throw new WorkspaceAutomationMutationError('not-found', 'Workspace was not found.');
@@ -250,9 +250,9 @@ export async function ensureWorkspaceAutomationAgentSupport(
         operation: null,
       },
       null,
-      2
+      2,
     )}\n`,
-    { encoding: 'utf8', mode: 0o600, flag: 'wx' }
+    { encoding: 'utf8', mode: 0o600, flag: 'wx' },
   );
   return {
     requestPath,
@@ -301,21 +301,21 @@ export async function importWorkspaceAutomationAgentRequests(): Promise<Workspac
         await createManagedWorkspaceAutomationFromAgentRequest(
           envelope.workspaceId,
           envelope.requestId,
-          envelope.automation
+          envelope.automation,
         );
       } else {
         await applyManagedWorkspaceAutomationAgentRequest(envelope.workspaceId, envelope.requestId, envelope.operation);
       }
       const draftPath = join(
         directory,
-        `${workspaceAutomationRequestKey(envelope.workspaceId)}.${envelope.requestId}.draft.json`
+        `${workspaceAutomationRequestKey(envelope.workspaceId)}.${envelope.requestId}.draft.json`,
       );
       await Promise.all(
         [requestPath, draftPath].map((path) =>
           unlink(path).catch((error) => {
             if (!errorHasCode(error, 'ENOENT')) throw error;
-          })
-        )
+          }),
+        ),
       );
       results.push({ requestPath, status: 'imported' });
     } catch (error) {

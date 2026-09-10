@@ -1,9 +1,9 @@
-import type { RequestHandler } from '~/lib/server/http-handler.server.ts';
 import {
   subscribeWorkspaceStatus,
   type WorkspaceStatusSubscriber,
 } from '~/lib/app/server/workspace-status-hub.server.ts';
 import { authorizeEventSession, requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import type { RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { onSessionRevoked } from '~/lib/server/session-cookie.ts';
 import {
   encodeWorkspaceAuthenticationEvent,
@@ -58,13 +58,13 @@ export const GET: RequestHandler = (event) => {
         if (session.expiresAt !== undefined) {
           expiryTimer = setTimeout(
             () => closeForAuthentication('authentication-expired'),
-            Math.max(0, session.expiresAt! - Date.now())
+            Math.max(0, session.expiresAt! - Date.now()),
           );
           expiryTimer.unref?.();
         }
         if (session.sessionId) {
           unsubscribeSession = onSessionRevoked(session.sessionId, () =>
-            closeForAuthentication('authentication-revoked')
+            closeForAuthentication('authentication-revoked'),
           );
         }
 
@@ -87,7 +87,7 @@ export const GET: RequestHandler = (event) => {
         closeStream();
       },
     },
-    new ByteLengthQueuingStrategy({ highWaterMark: STREAM_HIGH_WATER_MARK_BYTES })
+    new ByteLengthQueuingStrategy({ highWaterMark: STREAM_HIGH_WATER_MARK_BYTES }),
   );
 
   return new Response(stream, {

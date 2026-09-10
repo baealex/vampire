@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  MAX_TERMINAL_SCREEN_FRAME_BYTES,
-  MAX_TERMINAL_ENCODED_SCREEN_DATA_BYTES,
-  MAX_TERMINAL_SOCKET_BACKLOG_BYTES,
   decodeTmuxControlValue,
+  MAX_TERMINAL_ENCODED_SCREEN_DATA_BYTES,
+  MAX_TERMINAL_SCREEN_FRAME_BYTES,
+  MAX_TERMINAL_SOCKET_BACKLOG_BYTES,
   parseTmuxControlOutput,
   sendTerminalMessage,
-  terminalColorControlCommand,
-  terminalCaptureFlag,
   terminalAvailableHistoryLines,
+  terminalCaptureFlag,
+  terminalColorControlCommand,
+  terminalEncodedScreenDataBytes,
   terminalInputControlCommands,
   terminalPaneState,
-  terminalSubmissionData,
-  terminalSubmissionSettleMs,
+  terminalScreenMessageExceedsBackpressure,
   terminalSnapshotData,
   terminalSnapshotHistoryLines,
-  terminalScreenMessageExceedsBackpressure,
-  terminalEncodedScreenDataBytes,
+  terminalSubmissionData,
+  terminalSubmissionSettleMs,
   tmuxSupportsTerminalColorReports,
 } from '~/lib/features/terminal/server/terminal.server.ts';
 
@@ -28,7 +28,7 @@ test('bounds terminal screen frames and slow-subscriber backlogs by bytes', () =
   assert.equal(terminalScreenMessageExceedsBackpressure(0, MAX_TERMINAL_SCREEN_FRAME_BYTES + 1), true);
   assert.equal(
     terminalScreenMessageExceedsBackpressure(MAX_TERMINAL_SOCKET_BACKLOG_BYTES, MAX_TERMINAL_SCREEN_FRAME_BYTES),
-    true
+    true,
   );
 });
 
@@ -59,7 +59,7 @@ test('disconnects only a slow terminal screen subscriber at the high-water mark'
 test('reports browser terminal colors through the tmux control client', () => {
   assert.equal(
     terminalColorControlCommand('%7', 11, '#fbfafa'),
-    "refresh-client -r '%7:\u001b]11;rgb:fbfb/fafa/fafa\u001b\\'"
+    "refresh-client -r '%7:\u001b]11;rgb:fbfb/fafa/fafa\u001b\\'",
   );
   assert.throws(() => terminalColorControlCommand('not-a-pane', 11, '#fbfafa'), /pane identifier/);
   assert.throws(() => terminalColorControlCommand('%7', 11, "#fff'; kill-server"), /terminal color/);
@@ -68,13 +68,13 @@ test('reports browser terminal colors through the tmux control client', () => {
 test('detects tmux terminal color report support from available commands', () => {
   assert.equal(
     tmuxSupportsTerminalColorReports(
-      'refresh-client (refresh) [-cDlLRSU] [-C XxY] [-r pane:report] [-t target-client]\n'
+      'refresh-client (refresh) [-cDlLRSU] [-C XxY] [-r pane:report] [-t target-client]\n',
     ),
-    true
+    true,
   );
   assert.equal(
     tmuxSupportsTerminalColorReports('refresh-client (refresh) [-cDlLRSU] [-C XxY] [-t target-client]\n'),
-    false
+    false,
   );
   assert.equal(tmuxSupportsTerminalColorReports('run-shell (run) [-bdC] [-t target-pane] shell-command\n'), false);
 });
@@ -173,7 +173,7 @@ test('encodes terminal input as bounded UTF-8 tmux control commands', () => {
     command
       .split(' ')
       .slice(4)
-      .map((byte) => Number.parseInt(byte, 16))
+      .map((byte) => Number.parseInt(byte, 16)),
   );
   assert.equal(Buffer.from(bytes).toString(), input);
   assert.throws(() => Array.from(terminalInputControlCommands('not-a-pane', 'hello')), /pane identifier/);

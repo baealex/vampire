@@ -1,20 +1,20 @@
-import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
-import {
-  listManagedWorkspaces,
-  readManagedLaunchProfileSettings,
-  readManagedWorkspacePreferences,
-} from './workspace-registry.server.ts';
+import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
 import {
   listTmuxSessionActivity,
   type TmuxProcessHint,
   type TmuxSessionActivity,
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
-import type { WorkspaceChanges, WorkspaceServerMessage } from '~/lib/shared/contracts/workspace-protocol.ts';
-import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
-import type { LaunchProfile, ManagedWorkspace, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
-import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
+import { readWorkspaceAgentStates } from '~/lib/features/workspace/server/workspace-agent-activity.server.ts';
 import { statusWidgetCommandsAllowed } from '~/lib/server/runtime-safety.ts';
+import type { LaunchProfile, ManagedWorkspace, WorkspacePreferences } from '~/lib/shared/contracts/workspace.ts';
+import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+import type { WorkspaceChanges, WorkspaceServerMessage } from '~/lib/shared/contracts/workspace-protocol.ts';
+import {
+  listManagedWorkspaces,
+  readManagedLaunchProfileSettings,
+  readManagedWorkspacePreferences,
+} from './workspace-registry.server.ts';
 
 const WORKSPACE_ACTIVITY_REFRESH_INTERVAL_MS = 1_000;
 const WORKSPACE_REFRESH_INTERVAL_MS = 5_000;
@@ -59,7 +59,7 @@ export interface WorkspaceStatusSubscriber {
 
 function equalForegroundProcess(
   left: TmuxProcessHint | null | undefined,
-  right: TmuxProcessHint | null | undefined
+  right: TmuxProcessHint | null | undefined,
 ): boolean {
   return left?.kind === right?.kind && left?.label === right?.label;
 }
@@ -98,7 +98,7 @@ function equalStrings(left: string[] | undefined, right: string[] | undefined): 
 
 function equalComposerPromptPreview(
   left: ManagedWorkspace['composerPromptPreview'],
-  right: ManagedWorkspace['composerPromptPreview']
+  right: ManagedWorkspace['composerPromptPreview'],
 ): boolean {
   return (
     left === right ||
@@ -108,7 +108,7 @@ function equalComposerPromptPreview(
 
 function equalWorkspacePreferences(
   left: WorkspacePreferences | null | undefined,
-  right: WorkspacePreferences | null | undefined
+  right: WorkspacePreferences | null | undefined,
 ): boolean {
   return (
     left === right ||
@@ -152,7 +152,7 @@ function workspaceChanges(previous: ManagedWorkspace, next: ManagedWorkspace): W
 export function reconcileWorkspaceActivity(
   workspaces: Map<string, ManagedWorkspace>,
   tmuxActivity: TmuxSessionActivity[],
-  agentStates = new Map<string, AgentState>()
+  agentStates = new Map<string, AgentState>(),
 ): { workspaces: Map<string, ManagedWorkspace>; updates: WorkspaceUpdate[] } {
   const activityByName = new Map(tmuxActivity.map((activity) => [activity.name, activity]));
   const nextWorkspaces = new Map(workspaces);
@@ -186,7 +186,7 @@ export function reconcileWorkspaceActivity(
         activity.mainLastOutputAt > (mainTerminal.lastOutputAt ?? 0)
       ) {
         changes.terminals = workspace.terminals.map((terminal, index) =>
-          index === 0 ? { ...terminal, lastOutputAt: activity.mainLastOutputAt } : terminal
+          index === 0 ? { ...terminal, lastOutputAt: activity.mainLastOutputAt } : terminal,
         );
       }
     }
@@ -200,7 +200,7 @@ export function reconcileWorkspaceActivity(
 
 export function preserveLatestOutput(
   nextWorkspaces: Map<string, ManagedWorkspace>,
-  currentWorkspaces: Map<string, ManagedWorkspace> | undefined
+  currentWorkspaces: Map<string, ManagedWorkspace> | undefined,
 ): Map<string, ManagedWorkspace> {
   if (!currentWorkspaces) return nextWorkspaces;
   const preservedWorkspaces = new Map<string, ManagedWorkspace>();
@@ -235,7 +235,7 @@ export function preserveLatestOutput(
 export function stabilizeAgentStates(
   workspaces: Map<string, ManagedWorkspace>,
   detectedStates: Map<string, AgentState>,
-  pendingStates: Map<string, PendingAgentState>
+  pendingStates: Map<string, PendingAgentState>,
 ): Map<string, AgentState> {
   const stableStates = new Map<string, AgentState>();
   for (const [id, detectedState] of detectedStates) {
@@ -291,7 +291,7 @@ class WorkspaceStatusHub {
       const targetTerminal = workspace.terminals.find((terminal) => terminal.id === targetTerminalId);
       if (targetTerminal && timestamp > (targetTerminal.lastOutputAt ?? 0)) {
         changes.terminals = workspace.terminals.map((terminal) =>
-          terminal.id === targetTerminalId ? { ...terminal, lastOutputAt: timestamp } : terminal
+          terminal.id === targetTerminalId ? { ...terminal, lastOutputAt: timestamp } : terminal,
         );
       }
     }
@@ -375,7 +375,7 @@ class WorkspaceStatusHub {
     this.#refreshTimer.unref();
     this.#activityRefreshTimer = setInterval(
       () => void this.#refreshActivity().catch(() => undefined),
-      WORKSPACE_ACTIVITY_REFRESH_INTERVAL_MS
+      WORKSPACE_ACTIVITY_REFRESH_INTERVAL_MS,
     );
     this.#activityRefreshTimer.unref();
   }
@@ -394,7 +394,7 @@ class WorkspaceStatusHub {
       const nextDefaultStartupProfileId = nextProfileSettings.defaultStartupProfileId;
       const nextWorkspaces = preserveLatestOutput(
         new Map(managedWorkspaces.map((workspace) => [workspace.id, workspace])),
-        this.#workspaces
+        this.#workspaces,
       );
       const previousWorkspaces = this.#workspaces;
       const previousPreferences = this.#preferences;

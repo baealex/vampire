@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { ORGANIZED_STATE_BACKUP_DIRECTORY } from './state-migrations/0001-organize-state-directory.ts';
 import {
   CURRENT_STATE_LAYOUT_VERSION,
+  runStateMigrations,
   STATE_LAYOUT_FILE,
   STATE_MIGRATION_LOCK_FILE,
-  runStateMigrations,
 } from './state-migrations.ts';
-import { ORGANIZED_STATE_BACKUP_DIRECTORY } from './state-migrations/0001-organize-state-directory.ts';
 
 async function temporaryState(t: test.TestContext): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'vampire-state-migrations-'));
@@ -41,7 +41,7 @@ async function createLegacyFixture(stateDirectory: string): Promise<string> {
       ],
     },
     null,
-    2
+    2,
   )}\n`;
   await mkdir(join(stateDirectory, 'composer-history', 'workspaces'), { recursive: true });
   await mkdir(join(stateDirectory, 'agent-guides'), { recursive: true });
@@ -50,16 +50,16 @@ async function createLegacyFixture(stateDirectory: string): Promise<string> {
   await writeFile(join(stateDirectory, 'workspace.note.md'), '# Existing note without trailing newline');
   await writeFile(
     join(stateDirectory, 'composer-history', 'settings.json'),
-    '{"version":1,"enabled":true,"limit":20}\n'
+    '{"version":1,"enabled":true,"limit":20}\n',
   );
   await writeFile(
     join(stateDirectory, 'composer-history', 'workspaces', 'workspace.json'),
-    '{"version":1,"prompts":[{"id":"prompt-1","text":"Run tests","submittedAt":3}]}\n'
+    '{"version":1,"prompts":[{"id":"prompt-1","text":"Run tests","submittedAt":3}]}\n',
   );
   await writeFile(join(stateDirectory, 'status-plugins.json'), '{"version":1,"plugins":[]}\n');
   await writeFile(
     join(stateDirectory, 'terminal-input-settings.json'),
-    '{"version":2,"mode":"compose","slashHandoff":true}\n'
+    '{"version":2,"mode":"compose","slashHandoff":true}\n',
   );
   await writeFile(join(stateDirectory, 'agent-guides', 'guide.md'), 'legacy guide\n');
   await writeFile(join(stateDirectory, 'automation-requests', 'request.draft.json'), '{"draft":true}\n');
@@ -79,11 +79,11 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
   await assert.rejects(readFile(join(stateDirectory, 'composer-history', 'settings.json')), { code: 'ENOENT' });
   assert.equal(
     await readFile(join(stateDirectory, 'workspaces', 'workspace', 'note.md'), 'utf8'),
-    '# Existing note without trailing newline'
+    '# Existing note without trailing newline',
   );
   assert.match(
     await readFile(join(stateDirectory, 'workspaces', 'workspace', 'composer-history.json'), 'utf8'),
-    /Run tests/
+    /Run tests/,
   );
   assert.deepEqual(
     (
@@ -91,7 +91,7 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
         favoriteCommands: string[];
       }
     ).favoriteCommands,
-    ['pnpm dev']
+    ['pnpm dev'],
   );
   const registry = JSON.parse(await readFile(join(stateDirectory, 'registry.json'), 'utf8')) as {
     workspaces: Array<Record<string, unknown>>;
@@ -102,14 +102,14 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
   assert.equal(
     await readFile(
       join(stateDirectory, ...ORGANIZED_STATE_BACKUP_DIRECTORY.split('/'), 'legacy', 'sessions.json'),
-      'utf8'
+      'utf8',
     ),
-    sessions
+    sessions,
   );
   assert.equal(await readFile(join(stateDirectory, 'agent-support', 'guides', 'guide.md'), 'utf8'), 'legacy guide\n');
   assert.equal(
     await readFile(join(stateDirectory, 'agent-support', 'requests', 'automations', 'request.draft.json'), 'utf8'),
-    '{"draft":true}\n'
+    '{"draft":true}\n',
   );
   const layoutPath = join(stateDirectory, STATE_LAYOUT_FILE);
   const firstLayout = await readFile(layoutPath, 'utf8');
@@ -122,7 +122,7 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
   assert.equal(layout.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   assert.deepEqual(
     layout.appliedMigrations.map((migration) => migration.name),
-    ['0001-organize-state-directory', '0002-repair-workspace-composer-history']
+    ['0001-organize-state-directory', '0002-repair-workspace-composer-history'],
   );
   assert.ok(layout.appliedMigrations.every((migration) => /^[a-f0-9]{64}$/.test(migration.checksum)));
   assert.equal(layout.appliedMigrations[0]!.appliedAt, new Date(1_000).toISOString());
@@ -132,7 +132,7 @@ test('moves v0.20 state into the ownership layout, keeps a verified backup, and 
   assert.equal(await readFile(layoutPath, 'utf8'), firstLayout);
   assert.equal(
     (await readdir(stateDirectory)).some((name) => name.endsWith('.tmp') || name === STATE_MIGRATION_LOCK_FILE),
-    false
+    false,
   );
 });
 
@@ -185,7 +185,7 @@ test('does not enter a state directory while another live migration owns its loc
       pid: process.pid,
       hostname: hostname(),
       createdAt: new Date().toISOString(),
-    })}\n`
+    })}\n`,
   );
 
   await assert.rejects(runStateMigrations({ stateDirectory }), /locked.*live process/i);
@@ -202,7 +202,7 @@ test('archives a lock owned by a dead local process and resumes safely', async (
       pid: 2_147_483_647,
       hostname: hostname(),
       createdAt: new Date(1_000).toISOString(),
-    })}\n`
+    })}\n`,
   );
 
   const result = await runStateMigrations({ stateDirectory, now: () => 2_000 });
@@ -230,9 +230,9 @@ test('keeps legacy data and resumes from its backup after an interrupted target 
   assert.equal(
     await readFile(
       join(stateDirectory, ...ORGANIZED_STATE_BACKUP_DIRECTORY.split('/'), 'legacy', 'sessions.json'),
-      'utf8'
+      'utf8',
     ),
-    sessions
+    sessions,
   );
 });
 
@@ -253,8 +253,8 @@ test('repairs a missing workspace Composer history from the version-1 organized 
     `${JSON.stringify(
       { ...currentLayout, layoutVersion: 1, appliedMigrations: currentLayout.appliedMigrations.slice(0, 1) },
       null,
-      2
-    )}\n`
+      2,
+    )}\n`,
   );
 
   const repaired = await runStateMigrations({ stateDirectory, now: () => 2_000 });
@@ -274,7 +274,7 @@ test('refuses a damaged migration backup without touching the remaining legacy s
   await rm(conflict);
   await writeFile(
     join(stateDirectory, ...ORGANIZED_STATE_BACKUP_DIRECTORY.split('/'), 'legacy', 'sessions.json'),
-    `[${sessions.slice(1)}`
+    `[${sessions.slice(1)}`,
   );
 
   await assert.rejects(runStateMigrations({ stateDirectory }), /backup checksum/i);
@@ -298,25 +298,25 @@ test('absorbs inline compatibility notes and Composer history into workspace-own
           composerPromptHistory: [{ id: 'prompt-1', text: 'Do not lose this prompt', submittedAt: 10 }],
         },
       ],
-    })
+    }),
   );
 
   await runStateMigrations({ stateDirectory, now: () => 1_000 });
 
   assert.equal(
     await readFile(join(stateDirectory, 'workspaces', 'compatibility', 'note.md'), 'utf8'),
-    'Do not lose this note\n'
+    'Do not lose this note\n',
   );
   assert.match(
     await readFile(join(stateDirectory, 'workspaces', 'compatibility', 'composer-history.json'), 'utf8'),
-    /Do not lose this prompt/
+    /Do not lose this prompt/,
   );
   assert.match(
     await readFile(
       join(stateDirectory, ...ORGANIZED_STATE_BACKUP_DIRECTORY.split('/'), 'legacy', 'sessions.json'),
-      'utf8'
+      'utf8',
     ),
-    /Do not lose this note/
+    /Do not lose this note/,
   );
 });
 
@@ -326,29 +326,29 @@ test('retains notes and Composer history for workspaces no longer present in the
   await writeFile(join(stateDirectory, 'removed-workspace.note.md'), '# Removed workspace note\n');
   await writeFile(
     join(stateDirectory, 'composer-history', 'workspaces', 'removed-workspace.json'),
-    '{"version":1,"prompts":[{"id":"orphan-prompt","text":"Preserve me","submittedAt":4}]}\n'
+    '{"version":1,"prompts":[{"id":"orphan-prompt","text":"Preserve me","submittedAt":4}]}\n',
   );
 
   await runStateMigrations({ stateDirectory, now: () => 1_000 });
 
   assert.equal(
     await readFile(join(stateDirectory, 'workspaces', 'removed-workspace', 'note.md'), 'utf8'),
-    '# Removed workspace note\n'
+    '# Removed workspace note\n',
   );
   assert.deepEqual(
     JSON.parse(
-      await readFile(join(stateDirectory, 'workspaces', 'removed-workspace', 'composer-history.json'), 'utf8')
+      await readFile(join(stateDirectory, 'workspaces', 'removed-workspace', 'composer-history.json'), 'utf8'),
     ),
     {
       version: 1,
       prompts: [{ id: 'orphan-prompt', text: 'Preserve me', submittedAt: 4 }],
-    }
+    },
   );
   assert.equal(
     await readFile(
       join(stateDirectory, ...ORGANIZED_STATE_BACKUP_DIRECTORY.split('/'), 'legacy', 'removed-workspace.note.md'),
-      'utf8'
+      'utf8',
     ),
-    '# Removed workspace note\n'
+    '# Removed workspace note\n',
   );
 });

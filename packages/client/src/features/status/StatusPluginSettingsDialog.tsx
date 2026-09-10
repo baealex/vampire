@@ -1,5 +1,7 @@
-import { ChevronDown, ChevronRight, ChevronUp, Ellipsis, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  loadWorkspaceAgentAction,
+  submitWorkspaceAgentAction,
+} from '@vampire/lib/shared/api/workspace-agent-actions.ts';
 import {
   cloneStatusPlugins,
   createStatusPluginPreset,
@@ -8,13 +10,12 @@ import {
   type StatusPlugin,
   type StatusPluginPreset,
 } from '@vampire/lib/shared/contracts/status-plugin.ts';
-import { requestJson } from '~/shared/api/request.ts';
-import {
-  loadWorkspaceAgentAction,
-  submitWorkspaceAgentAction,
-} from '@vampire/lib/shared/api/workspace-agent-actions.ts';
-import { mainWorkspacePromptTarget } from '@vampire/lib/shared/contracts/workspace-agent.ts';
 import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
+import { mainWorkspacePromptTarget } from '@vampire/lib/shared/contracts/workspace-agent.ts';
+import { ChevronDown, ChevronRight, ChevronUp, Ellipsis, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { requestJson } from '~/shared/api/request.ts';
+import { registerNavigationGuard } from '~/shared/lib/navigation-guard.ts';
 import { CodeEditor } from '~/shared/ui/CodeEditor.tsx';
 import {
   AskAgentPanel,
@@ -27,8 +28,7 @@ import {
   Select,
   Spinner,
 } from '~/shared/ui/index.ts';
-import './status-plugin-settings-dialog.css';
-import { registerNavigationGuard } from '~/shared/lib/navigation-guard.ts';
+import styles from './status-plugin-settings-dialog.module.css';
 
 type Response = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
 function command(): StatusPlugin {
@@ -66,7 +66,7 @@ export function StatusPluginSettingsDialog({
         const process = mainWorkspacePromptTarget(workspace);
         return process ? [{ workspace, processLabel: process.label }] : [];
       }),
-    [workspaces]
+    [workspaces],
   );
   const [targetWorkspaceId, setTargetWorkspaceId] = useState(() => workspaceId ?? agentTargets[0]?.workspace.id ?? '');
   const dirty = useMemo(() => JSON.stringify(plugins) !== loaded, [loaded, plugins]);
@@ -94,7 +94,7 @@ export function StatusPluginSettingsDialog({
         new Promise<boolean>((resolve) => {
           discardResolver.current = resolve;
           setDiscardOpen(true);
-        })
+        }),
     );
   }, [dirty]);
   const resolveDiscard = (discard: boolean) => {
@@ -161,7 +161,7 @@ export function StatusPluginSettingsDialog({
         busy={saving}
         footer={
           dirty ? (
-            <div className="status-settings-footer">
+            <div className={styles.footer}>
               <span>Unsaved changes</span>
               <Button variant="primary" onClick={() => void save()} disabled={saving}>
                 <Save size={15} />
@@ -171,10 +171,10 @@ export function StatusPluginSettingsDialog({
           ) : undefined
         }
       >
-        <div className="status-settings">
+        <div className={styles.settings}>
           {askingAgent ? (
-            <div className="status-agent-view">
-              <label className="status-agent-target">
+            <div className={styles.agentView}>
+              <label className={styles.agentTarget}>
                 <span>Send to</span>
                 <Select
                   aria-label="Send to"
@@ -202,13 +202,13 @@ export function StatusPluginSettingsDialog({
               )}
             </div>
           ) : loading ? (
-            <div className="status-settings-loading">
+            <div className={styles.loading}>
               <Spinner />
               Loading status widgets…
             </div>
           ) : selected ? (
-            <div className="status-detail-editor">
-              <div className="status-plugin-editor__top">
+            <div className={styles.detail}>
+              <div className={styles.detailTop}>
                 <label>
                   Name
                   <Input
@@ -231,7 +231,7 @@ export function StatusPluginSettingsDialog({
                   />
                 </label>
               </div>
-              <label className="enabled-field">
+              <label className={styles.enabledField}>
                 <input
                   type="checkbox"
                   checked={selected.enabled}
@@ -242,10 +242,11 @@ export function StatusPluginSettingsDialog({
                 />
                 Enabled
               </label>
-              <label className="command-field">
+              <label className={styles.commandField}>
                 Command
                 <CodeEditor
                   label="Command"
+                  language="shell"
                   value={selected.source.command}
                   onChange={(value) =>
                     update(selected.id, (plugin) => ({ ...plugin, source: { type: 'command', command: value } }))
@@ -263,7 +264,7 @@ export function StatusPluginSettingsDialog({
             </div>
           ) : (
             <>
-              <div className="status-toolbar">
+              <div className={styles.toolbar}>
                 <span>
                   {plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}
                 </span>
@@ -274,6 +275,7 @@ export function StatusPluginSettingsDialog({
                 <DropdownMenu
                   align="end"
                   label="Add widget"
+                  triggerClassName={styles.addButton}
                   trigger={
                     <>
                       <Plus size={14} />
@@ -297,23 +299,23 @@ export function StatusPluginSettingsDialog({
                   </DropdownMenuItem>
                 </DropdownMenu>
               </div>
-              <div className="status-plugin-list">
+              <div className={styles.list}>
                 {plugins.map((plugin, index) => (
-                  <article className="status-plugin-list-row" key={plugin.id}>
+                  <article className={styles.row} key={plugin.id}>
                     <button
-                      className="status-plugin-list-summary"
+                      className={styles.summary}
                       type="button"
                       aria-label={`Edit ${plugin.name}`}
                       onClick={() => setSelectedId(plugin.id)}
                     >
-                      <span>{index + 1}</span>
-                      <span>
+                      <span className={styles.order}>{index + 1}</span>
+                      <span className={styles.main}>
                         <strong>{plugin.name}</strong>
                         <small>
                           {plugin.intervalMs / 1000}s · {plugin.enabled ? 'On' : 'Off'}
                         </small>
                       </span>
-                      <ChevronRight size={16} />
+                      <ChevronRight className={styles.chevron} size={16} />
                     </button>
                     <DropdownMenu align="end" label={`Actions for ${plugin.name}`} trigger={<Ellipsis size={17} />}>
                       <DropdownMenuItem
@@ -344,19 +346,19 @@ export function StatusPluginSettingsDialog({
             </>
           )}
           {error ? (
-            <p className="status-settings-error" role="alert">
+            <p className={styles.error} role="alert">
               {error}
             </p>
           ) : null}
         </div>
       </ManagementSurface>
       {discardOpen ? (
-        <div className="discard-widget-overlay">
+        <div className={styles.discardOverlay}>
           <section
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="discard-widget-title"
-            className="discard-widget-dialog"
+            className={styles.discardDialog}
           >
             <h2 id="discard-widget-title">Discard unsaved widget changes?</h2>
             <p>Your status widget edits have not been saved.</p>

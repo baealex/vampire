@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -34,7 +34,7 @@ async function createSourceState(root: string): Promise<string> {
           lastActiveAt: 1,
         },
       ],
-    })
+    }),
   );
   await writeFile(join(source, 'workspace-1.note.md'), '# Exact note without a trailing newline');
   await writeFile(join(source, 'status-plugins.json'), '{"version":1,"plugins":[]}\n');
@@ -56,7 +56,7 @@ test('copies legacy state and migrates only the fresh development copy into layo
 
   assert.equal(
     await readFile(join(target, 'workspaces', 'workspace-1', 'note.md'), 'utf8'),
-    '# Exact note without a trailing newline'
+    '# Exact note without a trailing newline',
   );
   await assert.rejects(readFile(join(target, 'sessions.json')), { code: 'ENOENT' });
   assert.match(await readFile(join(target, 'registry.json'), 'utf8'), /workspace-1/);
@@ -78,7 +78,7 @@ test('copies legacy state and migrates only the fresh development copy into layo
   assert.equal(marker.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   assert.equal(
     (JSON.parse(await readFile(join(target, STATE_LAYOUT_FILE), 'utf8')) as { layoutVersion: number }).layoutVersion,
-    CURRENT_STATE_LAYOUT_VERSION
+    CURRENT_STATE_LAYOUT_VERSION,
   );
   assert.deepEqual(
     marker.files.map((file) => file.path),
@@ -89,7 +89,7 @@ test('copies legacy state and migrates only the fresh development copy into layo
       'status-plugins.json',
       'terminal-input-settings.json',
       'workspace-1.note.md',
-    ]
+    ],
   );
   assert.ok(marker.files.every((file) => file.bytes > 0 && /^[a-f0-9]{64}$/.test(file.sha256)));
   assert.equal(result.fileCount, marker.files.length);
@@ -97,7 +97,7 @@ test('copies legacy state and migrates only the fresh development copy into layo
   assert.equal(result.layoutVersion, CURRENT_STATE_LAYOUT_VERSION);
   assert.deepEqual(
     (await readdir(root)).filter((name) => name.includes('.staging')),
-    []
+    [],
   );
 });
 
@@ -144,11 +144,11 @@ test('retries an online snapshot when state changes without exposing a partial t
   assert.equal(result.attempts, 2);
   assert.equal(
     await readFile(join(target, 'global', 'status-widgets.json'), 'utf8'),
-    `${JSON.stringify(updatedStatusValue, null, 2)}\n`
+    `${JSON.stringify(updatedStatusValue, null, 2)}\n`,
   );
   assert.deepEqual(
     (await readdir(root)).filter((name) => name.includes('.staging')),
-    []
+    [],
   );
 });
 
@@ -166,13 +166,13 @@ test('leaves no target or staging data when online state never settles', async (
         await writeFile(join(source, 'status-plugins.json'), `{"version":1,"attempt":${attempt}}\n`);
       },
     }),
-    /kept changing across 2 online snapshot attempts/i
+    /kept changing across 2 online snapshot attempts/i,
   );
 
   await assert.rejects(readFile(join(target, 'sessions.json')), { code: 'ENOENT' });
   assert.deepEqual(
     (await readdir(root)).filter((name) => name.includes('.staging')),
-    []
+    [],
   );
 });
 
@@ -185,12 +185,12 @@ test('never overwrites an existing development target or accepts overlapping pat
 
   await assert.rejects(
     prepareDevelopmentStateCopy({ sourceDirectory: source, targetDirectory: existingTarget }),
-    /must not already exist/i
+    /must not already exist/i,
   );
   assert.equal(await readFile(join(existingTarget, 'keep.txt'), 'utf8'), 'keep');
   await assert.rejects(
     prepareDevelopmentStateCopy({ sourceDirectory: source, targetDirectory: join(source, 'copy') }),
-    /must not overlap/i
+    /must not overlap/i,
   );
 });
 
@@ -203,34 +203,46 @@ test('rejects symlinks in copied state instead of following them', async (t) => 
 
   await assert.rejects(
     prepareDevelopmentStateCopy({ sourceDirectory: source, targetDirectory: join(root, 'development-state') }),
-    /symbolic link/i
+    /symbolic link/i,
   );
 });
 
-test('development startup requires an explicit marked non-production state directory', async (t) => {
+test('development startup uses the default state without requiring an existing directory', async (t) => {
+  const root = await temporaryRoot(t);
+  const homeDirectory = join(await realpath(root), 'home');
+  for (const stateDirectory of [undefined, '   ']) {
+    const env: NodeJS.ProcessEnv = { VAMPIRE_STATE_DIR: stateDirectory };
+    const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory });
+    assert.equal(prepared.stateDirectory, join(homeDirectory, '.vampire'));
+    assert.equal(env.VAMPIRE_STATE_DIR, prepared.stateDirectory);
+    assert.equal(prepared.tmuxSocketName, 'default');
+    assert.equal(env.VAMPIRE_SAFE_DEVELOPMENT, '1');
+  }
+});
+
+test('explicit isolated startup requires a marked non-production state directory', async (t) => {
   const root = await temporaryRoot(t);
   const homeDirectory = join(root, 'home');
   const liveState = join(homeDirectory, '.vampire');
   await mkdir(liveState, { recursive: true });
   await writeFile(join(liveState, 'sessions.json'), '{"version":1,"workspaces":[]}\n');
 
-  await assert.rejects(prepareDevelopmentEnvironment({}, { homeDirectory }), /VAMPIRE_STATE_DIR/i);
   await assert.rejects(
-    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: liveState }, { homeDirectory }),
-    /production state directory/i
+    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: liveState }, { homeDirectory, useExistingState: false }),
+    /production state directory/i,
   );
 
   const unmarked = join(root, 'unmarked');
   await mkdir(unmarked);
   await assert.rejects(
-    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: unmarked }, { homeDirectory }),
-    /development state marker/i
+    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: unmarked }, { homeDirectory, useExistingState: false }),
+    /development state marker/i,
   );
 
   const developmentState = join(root, 'development-state');
   const copy = await prepareDevelopmentStateCopy({ sourceDirectory: liveState, targetDirectory: developmentState });
   const env: NodeJS.ProcessEnv = { VAMPIRE_STATE_DIR: developmentState };
-  const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory });
+  const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory, useExistingState: false });
 
   assert.equal(prepared.stateDirectory, copy.stateDirectory);
   assert.match(prepared.tmuxSocketName, /^vampire-dev-[a-f0-9]{16}$/);
@@ -248,7 +260,7 @@ test('explicit existing-state startup retains state and tmux while disabling aut
 
   for (const socket of [undefined, 'custom-existing']) {
     const env: NodeJS.ProcessEnv = { VAMPIRE_STATE_DIR: liveState, VAMPIRE_TMUX_SOCKET_NAME: socket };
-    const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory, useExistingState: true });
+    const prepared = await prepareDevelopmentEnvironment(env, { homeDirectory });
     assert.equal(prepared.stateDirectory, await realpath(liveState));
     assert.equal(prepared.tmuxSocketName, socket ?? 'default');
     assert.equal(env.VAMPIRE_TMUX_SOCKET_NAME, prepared.tmuxSocketName);
@@ -259,9 +271,9 @@ test('explicit existing-state startup retains state and tmux while disabling aut
   await assert.rejects(
     prepareDevelopmentEnvironment(
       { VAMPIRE_STATE_DIR: liveState, VAMPIRE_TMUX_SOCKET_NAME: '../invalid' },
-      { homeDirectory, useExistingState: true }
+      { homeDirectory, useExistingState: true },
     ),
-    /socket name is invalid/
+    /socket name is invalid/,
   );
 });
 
@@ -274,8 +286,8 @@ test('development startup resolves symlinks before comparing with the production
   await symlink(liveState, alias);
 
   await assert.rejects(
-    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: alias }, { homeDirectory }),
-    /production state directory|symbolic link/i
+    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: alias }, { homeDirectory, useExistingState: false }),
+    /production state directory|symbolic link/i,
   );
 });
 
@@ -292,7 +304,10 @@ test('development startup rejects a malformed copy manifest', async (t) => {
   await writeFile(markerPath, `${JSON.stringify(marker)}\n`);
 
   await assert.rejects(
-    prepareDevelopmentEnvironment({ VAMPIRE_STATE_DIR: developmentState }, { homeDirectory: join(root, 'home') }),
-    /development state marker is invalid/i
+    prepareDevelopmentEnvironment(
+      { VAMPIRE_STATE_DIR: developmentState },
+      { homeDirectory: join(root, 'home'), useExistingState: false },
+    ),
+    /development state marker is invalid/i,
   );
 });

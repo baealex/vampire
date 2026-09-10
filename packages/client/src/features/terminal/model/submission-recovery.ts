@@ -7,15 +7,15 @@ function stateValue<T>(value: T): T {
 }
 
 import {
-  encodeTerminalClientMessage,
-  TERMINAL_INPUT_LIMIT_BYTES,
-  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
-  type TerminalSubmissionResult,
-} from '@vampire/lib/shared/contracts/terminal-protocol.ts';
-import {
   TerminalSubmissionTracker,
   type TerminalTrackedSubmission,
 } from '@vampire/lib/features/terminal/model/submission-tracker.ts';
+import {
+  encodeTerminalClientMessage,
+  TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
+  TERMINAL_INPUT_LIMIT_BYTES,
+  type TerminalSubmissionResult,
+} from '@vampire/lib/shared/contracts/terminal-protocol.ts';
 
 const memoryRecovery = new Map<string, TerminalTrackedSubmission[]>();
 const MAXIMUM_RETAINED_MESSAGES = 32;
@@ -60,7 +60,7 @@ export class SubmissionRecovery {
     // getRandomValues also works on self-hosted HTTP origins where browsers
     // do not expose the secure-context-only randomUUID convenience method.
     const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-      byte.toString(16).padStart(2, '0')
+      byte.toString(16).padStart(2, '0'),
     ).join('');
     const encoder = new TextEncoder();
     const encoded = encodeTerminalClientMessage({ type: 'submit', data, requestId, bracketedPaste: false });

@@ -7,8 +7,8 @@ import {
   decodeTerminalClientMessage,
   encodeTerminalServerMessage,
   TERMINAL_GEOMETRY_LIMITS,
-  TERMINAL_SCROLLBACK_LINES,
   TERMINAL_INPUT_LIMIT_BYTES,
+  TERMINAL_SCROLLBACK_LINES,
   type TerminalHistoryState,
   type TerminalServerMessage,
   type TerminalSubmissionResult,
@@ -265,7 +265,7 @@ export function terminalSnapshotData(
   output: string,
   state?: TerminalPaneState,
   savedMainOutput = '',
-  physicalOutput = ''
+  physicalOutput = '',
 ): string {
   // runControlCommand terminates command output with a record separator newline.
   // Writing that separator into an exactly full xterm grid scrolls the screen by
@@ -313,7 +313,7 @@ interface QueuedOutput {
 
 async function terminalTarget(
   tmuxSession: string,
-  requestedWindowId?: string
+  requestedWindowId?: string,
 ): Promise<{ windowId: string; paneId: string; geometry: TerminalSize }> {
   if (requestedWindowId !== undefined && !/^@\d+$/.test(requestedWindowId)) {
     throw new Error('Terminal identifier is invalid.');
@@ -327,7 +327,7 @@ async function terminalTarget(
       '-t',
       target,
       '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}',
-    ])
+    ]),
   );
   const [sessionName, windowId, paneId, rawColumns, rawRows] = stdout.trim().split('\t');
   const columns = Number(rawColumns);
@@ -398,7 +398,7 @@ export async function attachTerminal(
   socket: WebSocket,
   tmuxSession: string,
   initialSize: TerminalSize | undefined,
-  options: AttachTerminalOptions = {}
+  options: AttachTerminalOptions = {},
 ): Promise<void> {
   if (options.isAuthorized?.() === false) throw new Error('Terminal authorization is no longer active.');
   const snapshotHistoryLines = terminalSnapshotHistoryLines(options.historyLines);
@@ -428,7 +428,6 @@ export async function attachTerminal(
   let lastOutputActivityNotice = 0;
   let sizeIgnored = Boolean(options.ignoreSize);
   let historyCapturePending = false;
-  let loadedHistoryLines = options.lazyHistory ? 0 : snapshotHistoryLines;
   let explicitActivationPending = false;
 
   const runControlCommand = (command: string, onSuccess?: (output: string) => void): Promise<string> =>
@@ -453,7 +452,7 @@ export async function attachTerminal(
   };
   const captureTerminalSnapshot = async (
     requestedHistoryLines: number,
-    geometry: TerminalSize
+    geometry: TerminalSize,
   ): Promise<{ data: string; history: TerminalHistoryState; throughSequence: number }> => {
     // A snapshot is a slow recovery operation, never the live rendering path.
     // Capture the pane from tmux and fence it with a control command so the
@@ -504,7 +503,7 @@ export async function attachTerminal(
 
   const terminalSnapshot = async (
     requestedHistoryLines: number,
-    geometry: TerminalSize
+    geometry: TerminalSize,
   ): Promise<{ data: string; history: TerminalHistoryState; throughSequence: number }> =>
     captureTerminalSnapshot(requestedHistoryLines, geometry);
 
@@ -519,7 +518,7 @@ export async function attachTerminal(
   const runResizeControlCommand = async (
     geometry: TerminalSize,
     onCommitted: () => void,
-    onFailed?: () => void
+    onFailed?: () => void,
   ): Promise<void> => {
     // tmux may emit the SIGWINCH redraw before the control command's %end
     // record. Hold only that short raw-output window so every browser receives
@@ -539,7 +538,7 @@ export async function attachTerminal(
 
   const boundedTerminalSnapshot = async (
     requestedHistoryLines: number,
-    geometry: TerminalSize
+    geometry: TerminalSize,
   ): ReturnType<typeof terminalSnapshot> => {
     let snapshot = await terminalSnapshot(requestedHistoryLines, geometry);
     while (
@@ -576,7 +575,7 @@ export async function attachTerminal(
     data: string,
     operation: () => Promise<unknown>,
     scheduleGlobally = true,
-    callbacks: { onCompleted?: () => void; onFailed?: (error: unknown) => void } = {}
+    callbacks: { onCompleted?: () => void; onFailed?: (error: unknown) => void } = {},
   ): void => {
     if (!inputAllowed()) return;
     const reportFailure = (error: unknown): void => {
@@ -680,7 +679,6 @@ export async function attachTerminal(
       const geometry = options.getGeometry?.() ?? currentGeometry;
       const snapshot = await boundedTerminalSnapshot(lines, geometry);
       if (closed) return;
-      loadedHistoryLines = snapshot.history.loaded;
       terminalDelivery.publishSnapshot(snapshot.throughSequence);
       pendingSnapshotId = options.snapshotIds ? ++snapshotId : undefined;
       sendTerminalMessage(socket, {
@@ -738,23 +736,19 @@ export async function attachTerminal(
         const key = `${next.columns}x${next.rows}`;
         if (key === appliedSize) continue;
         const previousGeometry = currentGeometry;
-        try {
-          currentGeometry = next;
-          await runResizeControlCommand(
-            next,
-            () => {
-              appliedSize = key;
-              lastControlledSize = next;
-              options.onGeometryChange?.(next);
-            },
-            () => {
-              currentGeometry = previousGeometry;
-              options.onGeometryChange?.(previousGeometry);
-            }
-          );
-        } catch (error) {
-          throw error;
-        }
+        currentGeometry = next;
+        await runResizeControlCommand(
+          next,
+          () => {
+            appliedSize = key;
+            lastControlledSize = next;
+            options.onGeometryChange?.(next);
+          },
+          () => {
+            currentGeometry = previousGeometry;
+            options.onGeometryChange?.(previousGeometry);
+          },
+        );
       }
     } catch (error) {
       sendTerminalMessage(socket, {
@@ -783,23 +777,19 @@ export async function attachTerminal(
         const next = requested;
         const key = `${next.columns}x${next.rows}`;
         const previousGeometry = currentGeometry;
-        try {
-          currentGeometry = next;
-          await runResizeControlCommand(
-            next,
-            () => {
-              appliedSize = key;
-              lastControlledSize = next;
-              options.onGeometryChange?.(next);
-            },
-            () => {
-              currentGeometry = previousGeometry;
-              options.onGeometryChange?.(previousGeometry);
-            }
-          );
-        } catch (error) {
-          throw error;
-        }
+        currentGeometry = next;
+        await runResizeControlCommand(
+          next,
+          () => {
+            appliedSize = key;
+            lastControlledSize = next;
+            options.onGeometryChange?.(next);
+          },
+          () => {
+            currentGeometry = previousGeometry;
+            options.onGeometryChange?.(previousGeometry);
+          },
+        );
       }
       if (firstSizeOwner) await runControlCommand('refresh-client -f !ignore-size');
       sizeIgnored = false;
@@ -844,7 +834,7 @@ export async function attachTerminal(
               explicitActivationPending = false;
             }
           },
-          false
+          false,
         );
       } else if (input.type === 'refresh-screen') {
         if (terminalDelivery.acknowledged && !historyCapturePending) {
@@ -952,7 +942,6 @@ export async function attachTerminal(
   });
   const { geometry: snapshotGeometry, snapshot } = initialSnapshot;
   sendTerminalGeometry(snapshotGeometry);
-  loadedHistoryLines = snapshot.history.loaded;
   terminalDelivery.publishSnapshot(snapshot.throughSequence);
   pendingSnapshotId = options.snapshotIds ? ++snapshotId : undefined;
   sendTerminalMessage(socket, {

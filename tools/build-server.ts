@@ -1,5 +1,5 @@
-import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { build } from 'esbuild';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
 const outputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';

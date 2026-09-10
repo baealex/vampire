@@ -69,12 +69,12 @@ export function isWorkspaceComposerHistorySettings(value: unknown): value is Wor
 
 export function normalizeWorkspaceComposerPromptHistory(
   value: unknown,
-  limit = DEFAULT_WORKSPACE_COMPOSER_PROMPTS
+  limit = DEFAULT_WORKSPACE_COMPOSER_PROMPTS,
 ): WorkspaceComposerPrompt[] {
   if (!Array.isArray(value)) return [];
   const normalizedLimit = Math.min(
     MAX_WORKSPACE_COMPOSER_PROMPTS,
-    Math.max(MIN_WORKSPACE_COMPOSER_PROMPTS, Math.trunc(limit))
+    Math.max(MIN_WORKSPACE_COMPOSER_PROMPTS, Math.trunc(limit)),
   );
   return value
     .filter(isWorkspaceComposerPrompt)
@@ -83,7 +83,7 @@ export function normalizeWorkspaceComposerPromptHistory(
 }
 
 export function workspaceComposerPromptPreview(
-  history: readonly WorkspaceComposerPrompt[]
+  history: readonly WorkspaceComposerPrompt[],
 ): WorkspaceComposerPromptPreview | null {
   const prompt = history.at(-1);
   if (!prompt) return null;

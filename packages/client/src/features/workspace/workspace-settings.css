@@ -1,14 +1,16 @@
 .workspace-settings-page {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 .workspace-setting-group {
   display: grid;
   gap: 0.75rem;
-  padding: 0.85rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  min-width: 0;
+  padding: 1rem 0;
+}
+.workspace-setting-group + .workspace-setting-group {
+  border-top: 1px solid var(--color-border);
 }
 .workspace-setting-group > header {
   display: flex;
@@ -44,6 +46,7 @@
 .workspace-path code {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .template-field {
   display: grid;
@@ -68,6 +71,7 @@
 .preview-output pre {
   margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .profile-options {
   display: grid;
@@ -84,6 +88,8 @@
 .profile-options label span {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .settings-actions {
   display: flex;

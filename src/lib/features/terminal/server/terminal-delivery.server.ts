@@ -79,7 +79,7 @@ export class TerminalDeliveryBuffer<TOutput> {
     this.#latestObservedSequence = Math.max(this.#latestObservedSequence, throughSequence);
     if (this.#pendingOutputs.length === 0) return;
     this.#pendingOutputs = this.#pendingOutputs.filter(
-      (output) => output.sequence > this.#authoritativeThroughSequence
+      (output) => output.sequence > this.#authoritativeThroughSequence,
     );
     this.#pendingBytes = this.#pendingOutputs.reduce((total, output) => total + output.bytes, 0);
   }

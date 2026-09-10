@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import { removeManagedWorkspace } from '~/lib/app/server/workspace-registry.server.ts';
 import {
   appendManagedWorkspaceComposerPrompt,
   ensureManagedWorkspaceComposerHistoryFile,
@@ -14,7 +15,6 @@ import {
   updateManagedWorkspaceComposerHistorySettings,
   WorkspaceComposerHistoryError,
 } from './workspace-composer-history.server.ts';
-import { removeManagedWorkspace } from '~/lib/app/server/workspace-registry.server.ts';
 import { readWorkspaceStateFile, WORKSPACE_STATE_VERSION } from './workspace-store.server.ts';
 
 async function createStoredWorkspace(t: test.TestContext, legacyHistory?: unknown[]) {
@@ -40,7 +40,7 @@ async function createStoredWorkspace(t: test.TestContext, legacyHistory?: unknow
           ...(legacyHistory ? { composerPromptHistory: legacyHistory } : {}),
         },
       ],
-    })
+    }),
   );
   return directory;
 }
@@ -56,13 +56,13 @@ test('stores exact Composer prompts outside sessions.json and lists the newest f
     [
       { text: 'Next prompt', submittedAt: 20 },
       { text: '  First line\nsecond line  ', submittedAt: 10 },
-    ]
+    ],
   );
   const rawState = (await readWorkspaceStateFile()) as { workspaces: Array<Record<string, unknown>> };
   assert.equal('composerPromptHistory' in rawState.workspaces[0]!, false);
   assert.equal(
     managedWorkspaceComposerHistoryPath('workspace-1'),
-    join(directory, 'workspaces', 'workspace-1', 'composer-history.json')
+    join(directory, 'workspaces', 'workspace-1', 'composer-history.json'),
   );
   assert.match(await readFile(managedWorkspaceComposerHistoryPath('workspace-1'), 'utf8'), /Next prompt/);
 });
@@ -91,7 +91,7 @@ test('uses server settings to disable recording and bound each workspace history
   }
   assert.deepEqual(
     (await listManagedWorkspaceComposerPrompts('workspace-1')).map((prompt) => prompt.text),
-    ['Prompt 3', 'Prompt 2']
+    ['Prompt 3', 'Prompt 2'],
   );
   assert.equal(managedWorkspaceComposerHistorySettingsPath(), join(directory, 'global', 'composer-history.json'));
 
@@ -99,7 +99,7 @@ test('uses server settings to disable recording and bound each workspace history
   assert.deepEqual(await appendManagedWorkspaceComposerPrompt('workspace-1', 'Not recorded', 5), { saved: false });
   assert.deepEqual(
     (await listManagedWorkspaceComposerPrompts('workspace-1')).map((prompt) => prompt.text),
-    ['Prompt 3', 'Prompt 2']
+    ['Prompt 3', 'Prompt 2'],
   );
 });
 
@@ -112,7 +112,7 @@ test('migrates legacy sessions history only after writing the dedicated file', a
   assert.equal(await migrateManagedWorkspaceComposerHistories(), 1);
   assert.deepEqual(
     (await listManagedWorkspaceComposerPrompts('workspace-1')).map((prompt) => prompt.text),
-    ['Latest legacy prompt', 'Legacy prompt']
+    ['Latest legacy prompt', 'Legacy prompt'],
   );
   const migrated = (await readWorkspaceStateFile()) as { workspaces: Array<Record<string, unknown>> };
   assert.equal('composerPromptHistory' in migrated.workspaces[0]!, false);
@@ -133,15 +133,15 @@ test('rejects invalid prompts, settings, and unsafe workspace paths', async (t) 
   const directory = await createStoredWorkspace(t);
   await assert.rejects(
     appendManagedWorkspaceComposerPrompt('workspace-1', '   ', 10),
-    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'invalid-prompt'
+    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'invalid-prompt',
   );
   await assert.rejects(
     appendManagedWorkspaceComposerPrompt('missing', 'Prompt', 10),
-    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'not-found'
+    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'not-found',
   );
   await assert.rejects(
     updateManagedWorkspaceComposerHistorySettings({ enabled: true, limit: 0 }),
-    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'invalid-settings'
+    (error) => error instanceof WorkspaceComposerHistoryError && error.reason === 'invalid-settings',
   );
   const unsafePath = managedWorkspaceComposerHistoryPath('../../outside');
   assert.equal(dirname(dirname(unsafePath)), join(directory, 'workspaces'));

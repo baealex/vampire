@@ -76,9 +76,9 @@ test('does not cache a failed request and allows retry', async () => {
         calls += 1;
         throw new Error('offline');
       },
-      true
+      true,
     ),
-    /offline/
+    /offline/,
   );
 
   assert.equal(cache.has('workspace'), false);
@@ -87,7 +87,7 @@ test('does not cache a failed request and allows retry', async () => {
       calls += 1;
       return { value: 1 };
     }),
-    { value: 1 }
+    { value: 1 },
   );
   assert.equal(calls, 2);
 });

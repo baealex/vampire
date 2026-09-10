@@ -82,7 +82,7 @@ function applyArguments(support: { applyCommand: string }): [string, string, str
 
 async function stageAgentRequest(
   support: { requestPath: string; applyCommand: string },
-  request: AgentAutomationRequest
+  request: AgentAutomationRequest,
 ): Promise<[string, string, string]> {
   await writeFile(support.requestPath, JSON.stringify(request));
   const command = applyArguments(support);
@@ -106,7 +106,7 @@ async function createState(t: test.TestContext): Promise<string> {
       workspaces: [
         { id: 'workspace-1', tmuxSession: 'vampire-workspace-1', cwd: tmpdir(), createdAt: 1, lastActiveAt: 1 },
       ],
-    })
+    }),
   );
   return directory;
 }
@@ -120,7 +120,7 @@ test('materializes an isolated automation draft, guide, and apply command', asyn
       prompt: 'Preserve this automation.',
       schedule: { type: 'interval', intervalMs: 60_000, startAt: 2_000 },
     },
-    500
+    500,
   );
   const support = await ensureWorkspaceAutomationAgentSupport('workspace-1', 1_000);
   assert.match(support.requestPath, /agent-support\/requests\/automations\/[^/]+\.draft\.json$/);
@@ -161,7 +161,7 @@ test('discard removes an unqueued draft without touching shared support files', 
   await discardWorkspaceAutomationAgentSupport(support);
   await assert.rejects(
     readFile(support.requestPath, 'utf8'),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
   assert.match(await readFile(support.guidePath, 'utf8'), /workspace automation agent guide/);
 });
@@ -184,7 +184,7 @@ test('the apply command stages a valid request and the runner imports it', async
   await stageAgentRequest(support, request);
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   const [automation] = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(automation?.name, 'Weekday review');
@@ -219,7 +219,7 @@ test('a hidden agent action does not consume the final custom automation slot', 
   await queueManagedWorkspaceAgentPrompt(
     'workspace-1',
     { actionId: 'automation', name: 'Automation request', prompt: 'Create the final automation.' },
-    2_000
+    2_000,
   );
   const support = await ensureWorkspaceAutomationAgentSupport('workspace-1', 2_000);
   const request = await readAgentRequest(support);
@@ -230,7 +230,7 @@ test('a hidden agent action does not consume the final custom automation slot', 
   await stageAgentRequest(support, request);
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   assert.equal((await listManagedWorkspaceAutomations('workspace-1')).length, 32);
 });
@@ -275,7 +275,7 @@ test('an in-flight create operation reserves the final custom automation slot', 
       prompt: 'Try to consume the reserved create slot.',
       schedule: { type: 'once', runAt: 20_000 },
     }),
-    (error) => error instanceof Error && /up to 32/.test(error.message)
+    (error) => error instanceof Error && /up to 32/.test(error.message),
   );
   await Promise.all([
     discardWorkspaceAutomationAgentSupport(reserved),
@@ -309,7 +309,7 @@ test('draft and ready files for one request consume one reservation at the final
 
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   assert.equal((await listManagedWorkspaceAutomations('workspace-1')).length, 32);
   await assert.rejects(readFile(support.requestPath, 'utf8'), { code: 'ENOENT' });
@@ -349,7 +349,7 @@ test('the agent can update one automation without replacing its identity or hist
       prompt: 'Review current work.',
       schedule: { type: 'once', runAt: 10_000 },
     },
-    1_000
+    1_000,
   );
   const support = await ensureWorkspaceAutomationAgentSupport('workspace-1', 2_000);
   const request = await readAgentRequest(support);
@@ -377,7 +377,7 @@ test('the agent can update one automation without replacing its identity or hist
 
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   const [updated] = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(updated?.id, existing.id);
@@ -404,7 +404,7 @@ test('the importer rejects an update when the automation changed after the snaps
       prompt: 'Review original work.',
       schedule: { type: 'once', runAt: 10_000 },
     },
-    1_000
+    1_000,
   );
   const support = await ensureWorkspaceAutomationAgentSupport('workspace-1', 2_000);
   const request = await readAgentRequest(support);
@@ -427,7 +427,7 @@ test('the importer rejects an update when the automation changed after the snaps
       prompt: 'Keep the newer settings.',
       schedule: { type: 'interval', intervalMs: 60_000, startAt: 20_000 },
     },
-    3_000
+    3_000,
   );
   await stageAgentRequest(support, request);
 
@@ -449,7 +449,7 @@ test('a full workspace still accepts an agent update without consuming another s
         prompt: 'Existing automation.',
         schedule: { type: 'once', runAt: 10_000 + index },
       },
-      1_000 + index
+      1_000 + index,
     );
   }
   const support = await reserveWorkspaceAutomationAgentSupport('workspace-1', 2_000);
@@ -466,13 +466,13 @@ test('a full workspace still accepts an agent update without consuming another s
 
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   const automations = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(automations.length, 32);
   assert.equal(
     automations.some((automation) => automation.name === 'Updated at capacity'),
-    true
+    true,
   );
 });
 
@@ -513,7 +513,7 @@ test('a staged version-one create remains importable during an upgrade', async (
 
   assert.deepEqual(
     (await importWorkspaceAutomationAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   const [automation] = await listManagedWorkspaceAutomations('workspace-1');
   assert.equal(automation?.name, 'Legacy request');

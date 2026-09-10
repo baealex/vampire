@@ -63,10 +63,11 @@ function worktreeError(reason: GitWorktreeErrorReason, message: string): GitWork
 
 function normalizeLabel(value: string): string {
   const label = typeof value === 'string' ? value.trim().replace(/\s+/gu, ' ') : '';
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Worktree labels must reject ASCII control characters.
   if (!label || label.length > WORKTREE_LABEL_MAX_LENGTH || /[\0-\x1f\x7f]/u.test(label)) {
     throw worktreeError(
       'invalid-name',
-      `Task name must be a single line between 1 and ${WORKTREE_LABEL_MAX_LENGTH} characters.`
+      `Task name must be a single line between 1 and ${WORKTREE_LABEL_MAX_LENGTH} characters.`,
     );
   }
   return label;
@@ -97,7 +98,7 @@ async function runGit(
   cwd: string,
   args: string[],
   acceptedExitCodes: number[] = [0],
-  operation: GitOperation = 'create'
+  operation: GitOperation = 'create',
 ): Promise<{ stdout: string; stderr: string }> {
   try {
     return await execFile('git', ['-C', cwd, ...args], {
@@ -122,14 +123,14 @@ async function runGit(
         'command-failed',
         operation === 'remove'
           ? 'Git took too long to remove the managed working copy.'
-          : 'Git took too long to create the isolated workspace.'
+          : 'Git took too long to create the isolated workspace.',
       );
     }
     throw worktreeError(
       'command-failed',
       operation === 'remove'
         ? 'Git could not remove the managed working copy.'
-        : 'Git could not create the isolated workspace.'
+        : 'Git could not create the isolated workspace.',
     );
   }
 }
@@ -204,7 +205,7 @@ async function cleanupCreatedWorktree(worktree: CreatedGitWorktree, removeBranch
 export async function createGitWorktree(
   cwd: string,
   name: string,
-  options: CreateGitWorktreeOptions = {}
+  options: CreateGitWorktreeOptions = {},
 ): Promise<CreatedGitWorktree> {
   const label = normalizeLabel(name);
   const id = creationId(options.id);
@@ -217,7 +218,7 @@ export async function createGitWorktree(
   if (pathStaysInside(sourceRoot, managedRoot)) {
     throw worktreeError(
       'invalid-location',
-      'VAMPIRE_STATE_DIR must be outside the source Git working tree to create isolated workspaces.'
+      'VAMPIRE_STATE_DIR must be outside the source Git working tree to create isolated workspaces.',
     );
   }
 
@@ -259,7 +260,7 @@ export async function rollbackGitWorktree(worktree: CreatedGitWorktree): Promise
  */
 export async function removeManagedGitWorktree(
   worktree: ManagedGitWorktree,
-  options: RemoveManagedGitWorktreeOptions = {}
+  options: RemoveManagedGitWorktreeOptions = {},
 ): Promise<void> {
   const id = creationId(worktree.id);
   const requestedManagedRoot = resolve(options.managedRoot ?? join(dirname(vampireStatePath()), 'worktrees'));
@@ -270,7 +271,7 @@ export async function removeManagedGitWorktree(
   if (dirname(targetLocation.path) !== workspaceDirectory) {
     throw worktreeError(
       'invalid-location',
-      'Vampire refused to remove a working copy outside its managed worktree directory.'
+      'Vampire refused to remove a working copy outside its managed worktree directory.',
     );
   }
 
@@ -283,7 +284,7 @@ export async function removeManagedGitWorktree(
   if (!gitCwd) {
     throw worktreeError(
       'command-failed',
-      'The source Git repository is unavailable, so Vampire could not clear the managed worktree registration.'
+      'The source Git repository is unavailable, so Vampire could not clear the managed worktree registration.',
     );
   }
 

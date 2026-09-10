@@ -66,21 +66,21 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
         data: 'hello\nworld',
         bracketedPaste: true,
         requestId: 'submission-7',
-      })
+      }),
     ),
-    { type: 'submit', data: 'hello\nworld', bracketedPaste: true, requestId: 'submission-7' }
+    { type: 'submit', data: 'hello\nworld', bracketedPaste: true, requestId: 'submission-7' },
   );
   assert.deepEqual(
     decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'submit', data: 'legacy', bracketedPaste: false })),
-    { type: 'submit', data: 'legacy', bracketedPaste: false }
+    { type: 'submit', data: 'legacy', bracketedPaste: false },
   );
   assert.deepEqual(
     decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 120, rows: 40 })),
-    { type: 'resize', columns: 120, rows: 40 }
+    { type: 'resize', columns: 120, rows: 40 },
   );
   assert.deepEqual(
     decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'resize', columns: 257, rows: 57 })),
-    { type: 'resize', columns: 257, rows: 57 }
+    { type: 'resize', columns: 257, rows: 57 },
   );
   assert.deepEqual(decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'load-history', lines: 500 })), {
     type: 'load-history',
@@ -88,7 +88,7 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
   });
   assert.deepEqual(
     decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'snapshot-ready', snapshotId: 7 })),
-    { type: 'snapshot-ready', snapshotId: 7 }
+    { type: 'snapshot-ready', snapshotId: 7 },
   );
   assert.deepEqual(
     decodeTerminalClientMessage(
@@ -96,9 +96,9 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
         type: 'terminal-color',
         slot: 11,
         color: '#fbfafa',
-      })
+      }),
     ),
-    { type: 'terminal-color', slot: 11, color: '#fbfafa' }
+    { type: 'terminal-color', slot: 11, color: '#fbfafa' },
   );
   assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":19,"rows":40}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"resize","columns":513,"rows":40}'), undefined);
@@ -109,17 +109,17 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
   assert.equal(decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":"yes"}'), undefined);
   assert.equal(
     decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":true,"requestId":""}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalClientMessage('{"type":"submit","data":"hello","bracketedPaste":true,"requestId":"contains space"}'),
-    undefined
+    undefined,
   );
   assert.equal(decodeTerminalClientMessage('{"type":"snapshot-ready","snapshotId":0}'), undefined);
   assert.equal(decodeTerminalClientMessage('{"type":"terminal-color","slot":9,"color":"#fbfafa"}'), undefined);
   assert.equal(
     decodeTerminalClientMessage('{"type":"terminal-color","slot":11,"color":"red; kill-server"}'),
-    undefined
+    undefined,
   );
 });
 
@@ -132,7 +132,7 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
         history: { loaded: 500, available: 1_200 },
         snapshotId: 9,
         throughSequence: 41,
-      })
+      }),
     ),
     {
       type: 'snapshot',
@@ -140,17 +140,17 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
       history: { loaded: 500, available: 1_200 },
       snapshotId: 9,
       throughSequence: 41,
-    }
+    },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(encodeTerminalServerMessage({ type: 'geometry', columns: 120, rows: 40 })),
-    { type: 'geometry', columns: 120, rows: 40 }
+    { type: 'geometry', columns: 120, rows: 40 },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
-      encodeTerminalServerMessage({ type: 'geometry', columns: 48, rows: 20, active: false })
+      encodeTerminalServerMessage({ type: 'geometry', columns: 48, rows: 20, active: false }),
     ),
-    { type: 'geometry', columns: 48, rows: 20, active: false }
+    { type: 'geometry', columns: 48, rows: 20, active: false },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
@@ -160,27 +160,27 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
         activity: true,
         activityAt: 4_000,
         sequence: 42,
-      })
+      }),
     ),
-    { type: 'output', data: 'ready', activity: true, activityAt: 4_000, sequence: 42 }
+    { type: 'output', data: 'ready', activity: true, activityAt: 4_000, sequence: 42 },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
-      encodeTerminalServerMessage({ type: 'repository-status', changeCount: 2, worktreeCount: 1 })
+      encodeTerminalServerMessage({ type: 'repository-status', changeCount: 2, worktreeCount: 1 }),
     ),
-    { type: 'repository-status', changeCount: 2, worktreeCount: 1 }
+    { type: 'repository-status', changeCount: 2, worktreeCount: 1 },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
-      encodeTerminalServerMessage({ type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' })
+      encodeTerminalServerMessage({ type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' }),
     ),
-    { type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' }
+    { type: 'repository-status', changeCount: 2, worktreeCount: 1, branch: 'fix-login' },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
-      encodeTerminalServerMessage({ type: 'submission-result', requestId: 'submission-7', status: 'completed' })
+      encodeTerminalServerMessage({ type: 'submission-result', requestId: 'submission-7', status: 'completed' }),
     ),
-    { type: 'submission-result', requestId: 'submission-7', status: 'completed' }
+    { type: 'submission-result', requestId: 'submission-7', status: 'completed' },
   );
   assert.deepEqual(
     decodeTerminalServerMessage(
@@ -189,56 +189,56 @@ test('round-trips valid terminal server messages and rejects incomplete payloads
         requestId: 'submission-8',
         status: 'failed',
         message: 'tmux command failed',
-      })
+      }),
     ),
     {
       type: 'submission-result',
       requestId: 'submission-8',
       status: 'failed',
       message: 'tmux command failed',
-    }
+    },
   );
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot"}'), undefined);
   assert.equal(decodeTerminalServerMessage('{"type":"snapshot","data":"screen","snapshotId":0}'), undefined);
   assert.equal(
     decodeTerminalServerMessage('{"type":"snapshot","data":"screen","history":{"loaded":6,"available":5}}'),
-    undefined
+    undefined,
   );
   assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":0,"rows":40}'), undefined);
   assert.equal(decodeTerminalServerMessage('{"type":"geometry","columns":120,"rows":40,"active":"yes"}'), undefined);
   assert.equal(
     decodeTerminalServerMessage('{"type":"output","data":"ready","activity":true,"activityAt":null}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"output","data":"screen","activity":false,"activityAt":null,"reset":true}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"output","data":"screen","activity":false,"activityAt":null,"sequence":0}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage(
-      '{"type":"output","data":"screen","activity":false,"activityAt":null,"throughSequence":4}'
+      '{"type":"output","data":"screen","activity":false,"activityAt":null,"throughSequence":4}',
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"repository-status","changeCount":-1,"worktreeCount":1}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"repository-status","changeCount":0,"worktreeCount":1,"branch":42}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"submission-result","requestId":"submission-7","status":"failed"}'),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeTerminalServerMessage('{"type":"submission-result","requestId":"bad id","status":"completed"}'),
-    undefined
+    undefined,
   );
 });
 
@@ -267,24 +267,24 @@ test('validates complete workspace messages before applying them to client state
       encodeWorkspaceServerMessage({
         type: 'launch-profiles-updated',
         launchProfiles: [{ id: 'codex', name: 'Codex CLI', command: 'codex' }],
-      })
+      }),
     ),
     {
       type: 'launch-profiles-updated',
       launchProfiles: [{ id: 'codex', name: 'Codex CLI', command: 'codex' }],
-    }
+    },
   );
   assert.deepEqual(
     decodeWorkspaceServerMessage(
       encodeWorkspaceServerMessage({
         type: 'workspace-preferences-updated',
         preferences: { workspaceOrderMode: 'activity', manualWorkspaceOrder: ['workspace-1'] },
-      })
+      }),
     ),
     {
       type: 'workspace-preferences-updated',
       preferences: { workspaceOrderMode: 'activity', manualWorkspaceOrder: ['workspace-1'] },
-    }
+    },
   );
   assert.deepEqual(
     decodeWorkspaceServerMessage(
@@ -292,13 +292,13 @@ test('validates complete workspace messages before applying them to client state
         type: 'workspace-updated',
         id: 'workspace-1',
         changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
-      })
+      }),
     ),
     {
       type: 'workspace-updated',
       id: 'workspace-1',
       changes: { state: 'missing', lastOutputAt: null, foregroundProcess: null, agentState: null },
-    }
+    },
   );
   assert.deepEqual(
     decodeWorkspaceServerMessage(
@@ -306,67 +306,67 @@ test('validates complete workspace messages before applying them to client state
         type: 'workspace-updated',
         id: 'workspace-1',
         changes: { composerTemplate: '{{ prompts }}\n\nVerify the result.' },
-      })
+      }),
     ),
     {
       type: 'workspace-updated',
       id: 'workspace-1',
       changes: { composerTemplate: '{{ prompts }}\n\nVerify the result.' },
-    }
+    },
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ composerPromptPreview: { text: 42, submittedAt: 4 } })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ attachedClients: '1' })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ isGitRepository: 'true' })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ workspaceLabel: 42 })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ workspaceKind: 'clone' })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ workspaceAvailable: 'yes' })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
@@ -379,9 +379,9 @@ test('validates complete workspace messages before applying them to client state
             automations: [{ prompt: 'private prompt' }],
           }),
         ],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
@@ -389,27 +389,27 @@ test('validates complete workspace messages before applying them to client state
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace()],
         preferences: { workspaceOrderMode: 'manual', manualWorkspaceOrder: [42] },
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspace-preferences-updated',
         preferences: { workspaceOrderMode: 'smart', manualWorkspaceOrder: [] },
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'workspaces-snapshot',
         workspaces: [managedWorkspace({ favoriteCommands: ['pnpm dev', 42] })],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
@@ -433,9 +433,9 @@ test('validates complete workspace messages before applying them to client state
             ],
           }),
         ],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
@@ -443,9 +443,9 @@ test('validates complete workspace messages before applying them to client state
         type: 'workspace-updated',
         id: 'workspace-1',
         changes: { unknownField: true },
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
@@ -453,9 +453,9 @@ test('validates complete workspace messages before applying them to client state
         type: 'workspace-updated',
         id: 'workspace-1',
         changes: { agentState: 'done' },
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
 });
 
@@ -486,27 +486,27 @@ test('round-trips status plugin snapshots without exposing command configuration
       JSON.stringify({
         type: 'status-plugins-snapshot',
         plugins: [{ ...snapshot.plugins[0], progress: 101 }],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'status-plugins-snapshot',
         plugins: [{ ...snapshot.plugins[0], menu: [{ type: 'item', text: 'Docs', href: 'javascript:alert(1)' }] }],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
   assert.equal(
     decodeWorkspaceServerMessage(
       JSON.stringify({
         type: 'status-plugins-snapshot',
         plugins: [{ ...snapshot.plugins[0], command: 'cat ~/.ssh/id_rsa' }],
-      })
+      }),
     ),
-    undefined
+    undefined,
   );
 });
 
@@ -529,12 +529,12 @@ test('keeps activity from compatibility terminal updates without erasing richer 
             },
           ],
         },
-      })
+      }),
     ),
     {
       type: 'workspace-updated',
       id: 'workspace-1',
       changes: { lastOutputAt: 4 },
-    }
+    },
   );
 });

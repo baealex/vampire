@@ -1,22 +1,23 @@
 .app-settings {
   display: grid;
   gap: 1rem;
-  min-width: min(46rem, 80vw);
-  max-height: 70dvh;
-  overflow: auto;
+  min-width: 0;
 }
 .settings-section {
   display: grid;
   gap: 1rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  min-width: 0;
+  padding: 1rem 0;
+}
+.settings-section + .settings-section {
+  border-top: 1px solid var(--color-border);
 }
 .settings-section > header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  align-items: start;
+  flex-wrap: wrap;
 }
 .settings-section > header > div > div {
   display: flex;
@@ -51,6 +52,9 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  min-width: 0;
+  align-items: center;
+  min-height: var(--control-height-md);
 }
 .theme-options label.active {
   border-color: var(--color-accent);
@@ -70,6 +74,34 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  min-width: 0;
+}
+.setting-row > span {
+  min-width: 0;
+}
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: var(--control-height-md);
+  cursor: pointer;
+}
+.setting-toggle > span {
+  display: grid;
+  gap: 0.2rem;
+}
+.setting-toggle input,
+.theme-options input {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.setting-toggle small {
+  color: var(--color-text-tertiary);
+}
+.theme-options label:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 .setting-row > .vampire-input,
 .setting-row > .vampire-select {
@@ -101,6 +133,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 .settings-action p {
   margin: 0;
@@ -146,7 +179,15 @@
     min-width: 0;
   }
   .theme-options {
-    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+  .theme-options label {
+    padding: 0.5rem;
+    gap: 0.35rem;
+    justify-content: center;
+  }
+  .theme-options small {
+    display: none;
   }
   .setting-row {
     align-items: flex-start;

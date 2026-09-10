@@ -3,6 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.server.ts';
+import {
+  findManagedWorkspaceNote,
+  removeManagedWorkspace,
+  updateManagedWorkspaceNote,
+} from '~/lib/app/server/workspace-registry.server.ts';
+import { ensureWorkspaceAutomationAgentSupport } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
 import {
   migrateManagedWorkspaceNotes,
   queueManagedWorkspaceNoteUpdate,
@@ -11,13 +18,6 @@ import {
   managedWorkspaceNoteMigrationBackupPath,
   managedWorkspaceNotePath,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
-import { installWorkspaceAutomationRunner } from '~/lib/app/server/workspace-automation-runner.server.ts';
-import { ensureWorkspaceAutomationAgentSupport } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
-import {
-  findManagedWorkspaceNote,
-  removeManagedWorkspace,
-  updateManagedWorkspaceNote,
-} from '~/lib/app/server/workspace-registry.server.ts';
 import {
   readWorkspaceStateFile,
   readWorkspaceStore,
@@ -27,7 +27,7 @@ import {
 
 async function useTemporaryStateDirectory(
   t: test.TestContext,
-  prefix: string
+  prefix: string,
 ): Promise<{
   directory: string;
   stateDirectory: string;
@@ -62,7 +62,7 @@ test('the note agent action uses only the custom instructions and exposes the li
           lastActiveAt: 1,
         },
       ],
-    })
+    }),
   );
 
   const notePath = managedWorkspaceNotePath('workspace-1');
@@ -80,7 +80,7 @@ test('the note agent action uses only the custom instructions and exposes the li
   await writeFile(notePath, '## Done\n\nBuilt the automation queue.\n\n## Next\n\nVerify the UI.\n');
   assert.equal(
     await findManagedWorkspaceNote('workspace-1'),
-    '## Done\n\nBuilt the automation queue.\n\n## Next\n\nVerify the UI.'
+    '## Done\n\nBuilt the automation queue.\n\n## Next\n\nVerify the UI.',
   );
   await unlink(notePath);
   assert.equal(await findManagedWorkspaceNote('workspace-1'), '');
@@ -119,7 +119,7 @@ test('startup migration preserves notes from the legacy sessions collection befo
           note: 'Compatibility three',
         },
       ],
-    })
+    }),
   );
 
   assert.equal(await migrateManagedWorkspaceNotes(), 3);
@@ -131,7 +131,7 @@ test('startup migration preserves notes from the legacy sessions collection befo
   };
   assert.deepEqual(
     backup.sessions.map((workspace) => workspace.note),
-    ['Compatibility one', 'Compatibility two', 'Compatibility three']
+    ['Compatibility one', 'Compatibility two', 'Compatibility three'],
   );
   const migrated = (await readWorkspaceStateFile()) as {
     sessions?: unknown;
@@ -141,7 +141,7 @@ test('startup migration preserves notes from the legacy sessions collection befo
   assert.equal(migrated.workspaces.length, 3);
   assert.equal(
     migrated.workspaces.some((workspace) => 'note' in workspace),
-    false
+    false,
   );
   assert.equal(await migrateManagedWorkspaceNotes(), 0);
 
@@ -164,7 +164,7 @@ test('startup migration also preserves notes from the compatibility workspaces c
           note: 'Compatibility workspace note',
         },
       ],
-    })
+    }),
   );
 
   assert.equal(await migrateManagedWorkspaceNotes(), 1);
@@ -188,7 +188,7 @@ test('a compatibility JSON note blocks migration when its note file cannot be cr
           note: 'Compatibility value',
         },
       ],
-    })
+    }),
   );
   await mkdir(managedWorkspaceNotePath('blocked-note'), { recursive: true });
 

@@ -1,10 +1,10 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   createManagedBackgroundProcess,
   WorkspaceMutationError,
 } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 export const POST: RequestHandler = async (event) => {
   requireAuthentication(event);
@@ -18,7 +18,7 @@ export const POST: RequestHandler = async (event) => {
   if (command.length > BACKGROUND_COMMAND_MAX_LENGTH) {
     throw error(
       400,
-      `Background command must be ${BACKGROUND_COMMAND_MAX_LENGTH.toLocaleString('en-US')} characters or fewer.`
+      `Background command must be ${BACKGROUND_COMMAND_MAX_LENGTH.toLocaleString('en-US')} characters or fewer.`,
     );
   }
   if (/[\0\r\n\t]/.test(command)) throw error(400, 'Background command must fit on one line.');
@@ -29,7 +29,7 @@ export const POST: RequestHandler = async (event) => {
     if (cause instanceof WorkspaceMutationError) {
       throw error(
         cause.reason === 'not-found' ? 404 : cause.reason === 'invalid-background-command' ? 400 : 409,
-        cause.message
+        cause.message,
       );
     }
     throw error(500, 'Vampire could not start the background command.');

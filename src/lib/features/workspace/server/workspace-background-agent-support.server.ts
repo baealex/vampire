@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { errorHasCode } from '~/lib/server/path-policy.ts';
 import {
@@ -8,13 +8,13 @@ import {
   vampireStateDirectory,
 } from '~/lib/server/state-path.ts';
 import { BACKGROUND_COMMAND_MAX_LENGTH, MAX_FAVORITE_COMMANDS } from '~/lib/shared/contracts/workspace-store.ts';
-import { readWorkspaceStore, withWorkspaceStoreMutation, writeWorkspaceStore } from './workspace-store.server.ts';
 import {
   MAX_PENDING_WORKSPACE_BACKGROUND_REQUESTS,
   pendingWorkspaceBackgroundRequestCount,
   WORKSPACE_BACKGROUND_REQUEST_DIRECTORY_NAME,
   workspaceBackgroundRequestKey,
 } from './workspace-background-request-files.server.ts';
+import { readWorkspaceStore, withWorkspaceStoreMutation, writeWorkspaceStore } from './workspace-store.server.ts';
 
 const GUIDE_FILE_NAME = 'workspace-background.md';
 const APPLY_FILE_NAME = 'apply-workspace-background.mjs';
@@ -87,13 +87,13 @@ function normalizeCommand(value: unknown, label: string): string {
   if (command !== value || !command || command.length > BACKGROUND_COMMAND_MAX_LENGTH || /[\0\r\n\t]/.test(command)) {
     throw new WorkspaceBackgroundMutationError(
       'invalid-input',
-      `${label} commands must be trimmed, single-line values up to ${BACKGROUND_COMMAND_MAX_LENGTH.toLocaleString('en-US')} characters.`
+      `${label} commands must be trimmed, single-line values up to ${BACKGROUND_COMMAND_MAX_LENGTH.toLocaleString('en-US')} characters.`,
     );
   }
   if (backgroundCommandContainsInlineSecret(command)) {
     throw new WorkspaceBackgroundMutationError(
       'invalid-input',
-      `${label} contains a command with an inline secret. Use an environment reference without storing the value.`
+      `${label} contains a command with an inline secret. Use an environment reference without storing the value.`,
     );
   }
   return command;
@@ -103,7 +103,7 @@ function normalizeCommandList(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length > MAX_FAVORITE_COMMANDS) {
     throw new WorkspaceBackgroundMutationError(
       'invalid-input',
-      `${label} must contain at most ${MAX_FAVORITE_COMMANDS} commands.`
+      `${label} must contain at most ${MAX_FAVORITE_COMMANDS} commands.`,
     );
   }
   const commands = value.map((command) => normalizeCommand(command, label));
@@ -129,7 +129,7 @@ function normalizeOperation(value: unknown, currentFavoriteCommands: string[]): 
   if (remove.some((command) => !current.has(command))) {
     throw new WorkspaceBackgroundMutationError(
       'invalid-input',
-      'operation.remove contains a command outside the snapshot.'
+      'operation.remove contains a command outside the snapshot.',
     );
   }
   const removeSet = new Set(remove);
@@ -139,7 +139,7 @@ function normalizeOperation(value: unknown, currentFavoriteCommands: string[]): 
   if (currentFavoriteCommands.length - remove.length + add.length > MAX_FAVORITE_COMMANDS) {
     throw new WorkspaceBackgroundMutationError(
       'limit',
-      `A workspace can save up to ${MAX_FAVORITE_COMMANDS} favorite commands.`
+      `A workspace can save up to ${MAX_FAVORITE_COMMANDS} favorite commands.`,
     );
   }
   return { add, remove };
@@ -188,7 +188,7 @@ async function applyWorkspaceBackgroundRequest(request: WorkspaceBackgroundReque
     if (!equalCommands(stored.favoriteCommands, request.currentFavoriteCommands)) {
       throw new WorkspaceBackgroundMutationError(
         'conflict',
-        'Favorite commands changed after this request was prepared. Ask the agent again with a fresh snapshot.'
+        'Favorite commands changed after this request was prepared. Ask the agent again with a fresh snapshot.',
       );
     }
     const workspaces = [...state.workspaces];
@@ -323,7 +323,7 @@ async function assertCapacityWithoutLock(workspaceId: string): Promise<void> {
   if (pendingCount >= MAX_PENDING_WORKSPACE_BACKGROUND_REQUESTS) {
     throw new WorkspaceBackgroundMutationError(
       'limit',
-      `A workspace can have up to ${MAX_PENDING_WORKSPACE_BACKGROUND_REQUESTS} pending Background agent requests.`
+      `A workspace can have up to ${MAX_PENDING_WORKSPACE_BACKGROUND_REQUESTS} pending Background agent requests.`,
     );
   }
 }
@@ -334,7 +334,7 @@ export async function assertWorkspaceBackgroundAgentCapacity(workspaceId: string
 
 export async function reserveWorkspaceBackgroundAgentSupport(
   workspaceId: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceBackgroundAgentSupport> {
   return withWorkspaceStoreMutation(async () => {
     await assertCapacityWithoutLock(workspaceId);
@@ -344,7 +344,7 @@ export async function reserveWorkspaceBackgroundAgentSupport(
 
 export async function ensureWorkspaceBackgroundAgentSupport(
   workspaceId: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<WorkspaceBackgroundAgentSupport> {
   const stored = (await readWorkspaceStore()).workspaces.find((workspace) => workspace.id === workspaceId);
   if (!stored) throw new WorkspaceBackgroundMutationError('not-found', 'Workspace was not found.');
@@ -379,9 +379,9 @@ export async function ensureWorkspaceBackgroundAgentSupport(
         operation: null,
       },
       null,
-      2
+      2,
     )}\n`,
-    { encoding: 'utf8', mode: 0o600, flag: 'wx' }
+    { encoding: 'utf8', mode: 0o600, flag: 'wx' },
   );
   return {
     requestPath,
@@ -421,14 +421,14 @@ export async function importWorkspaceBackgroundAgentRequests(): Promise<Workspac
       await applyWorkspaceBackgroundRequest(request);
       const draftPath = join(
         directory,
-        `${workspaceBackgroundRequestKey(request.workspaceId)}.${request.requestId}.draft.json`
+        `${workspaceBackgroundRequestKey(request.workspaceId)}.${request.requestId}.draft.json`,
       );
       await Promise.all(
         [requestPath, draftPath].map((path) =>
           unlink(path).catch((error) => {
             if (!errorHasCode(error, 'ENOENT')) throw error;
-          })
-        )
+          }),
+        ),
       );
       results.push({ requestPath, status: 'imported' });
     } catch (error) {

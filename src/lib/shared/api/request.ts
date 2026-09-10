@@ -17,7 +17,7 @@ export async function readResponseError(response: Response, fallback = 'Request 
 export async function requestResponse(
   path: string,
   init?: RequestInit,
-  fallback = 'Request failed'
+  fallback = 'Request failed',
 ): Promise<Response> {
   const response = await fetch(path, init);
   if (!response.ok) {

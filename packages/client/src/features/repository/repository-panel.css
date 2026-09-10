@@ -1,116 +1,53 @@
-.repository-panel {
-  position: absolute;
-  z-index: 20;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  grid-column: 2;
-  grid-row: 1;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  border-left: 1px solid var(--color-border);
-  background: var(--color-panel);
-  color: var(--color-text);
-  pointer-events: none;
-  transform: translateX(100%);
-  visibility: hidden;
-  transition: none;
-}
-.repository-panel.open {
-  position: relative;
-  transform: translateX(0);
-  pointer-events: auto;
-  visibility: visible;
-  transition-delay: 0s;
-}
-.repository-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 3rem;
-  padding: 0.35rem 0.55rem 0.35rem 0.8rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.repository-header strong {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--text-label);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@media (min-width: 64rem) {
+  .workspace-terminal-layout.repository-open > .repository-viewer {
+    right: min(22rem, 45%);
+  }
 }
 .repository-tabs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 .repository-tabs button {
-  min-height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.7rem;
+  padding: 0 0.5rem;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--color-text-tertiary);
   font: inherit;
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }
 .repository-tabs button[aria-selected="true"] {
   border-bottom-color: var(--color-accent);
   color: var(--color-text);
 }
-.repository-list {
-  min-height: 0;
-  overflow: auto;
+.repository-refresh.spinning svg {
+  animation: repository-spinner 0.8s linear infinite;
 }
-.repository-list > button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: 2.35rem;
-  padding: 0.35rem 0.75rem;
-  border: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  text-align: left;
-  cursor: pointer;
-}
-.repository-list > button span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.repository-list > button.selected {
-  background: var(--color-surface-active);
-  color: var(--color-text);
-}
-.change-status {
-  flex: 0 0 2rem;
-  color: var(--color-warning-accent);
-}
-.repository-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  color: var(--color-text-secondary);
-  font-size: var(--text-label);
-}
-.repository-error,
-.repository-empty {
+.repository-error {
   margin: 1rem;
   color: var(--color-text-secondary);
   font-size: var(--text-label);
 }
 .repository-error {
   color: var(--color-danger-text);
+}
+.repository-notice {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-size: var(--text-label);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .repository-viewer {
   position: absolute;
@@ -146,6 +83,23 @@
 .repository-viewer header span {
   color: var(--color-warning-accent);
   font-size: var(--text-caption);
+}
+.repository-viewer .document-kind {
+  color: var(--color-accent-soft-text);
+  font-size: var(--text-micro);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.repository-viewer .repository-mobile-navigation {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+}
+@media (max-width: 63.999rem) {
+  .repository-viewer .repository-mobile-navigation {
+    display: flex;
+  }
 }
 .repository-viewer > .vampire-textarea {
   height: 100%;
@@ -183,58 +137,33 @@
   gap: 0.15rem;
   padding: 0.25rem;
   overflow-x: auto;
-  border-bottom: 1px solid var(--color-border-subtle);
 }
 .repository-toolbar .vampire-button {
   flex: 0 0 auto;
-}
-.repository-tree > button > span:first-child {
-  width: 0.9rem;
-}
-.repository-change,
-.repository-branch {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.repository-change > button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-  padding: 0.5rem 0.75rem;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  text-align: left;
-}
-.repository-branch {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-}
-.repository-branch > span,
-.repository-list > button > span {
-  display: grid;
-  min-width: 0;
-}
-.repository-branch small,
-.repository-list > button small {
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-micro);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .repository-viewer > .vampire-code-editor {
   min-height: 0;
   overflow: hidden;
 }
-@media (min-width: 64rem) {
-  .workspace-terminal-layout.repository-open > .repository-viewer {
-    right: 38%;
-  }
+.image-document {
+  display: grid;
+  min-width: 100%;
+  min-height: 100%;
+  place-items: center;
+  padding: 1.5rem;
+  overflow: auto;
+  background-color: var(--color-code-background);
+  background-image:
+    linear-gradient(45deg, var(--color-checkerboard) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-checkerboard) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-checkerboard) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-checkerboard) 75%);
+  background-position:
+    0 0,
+    0 0.5rem,
+    0.5rem -0.5rem,
+    -0.5rem 0;
+  background-size: 1rem 1rem;
 }
 .repository-image {
   align-self: center;
@@ -242,73 +171,18 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  box-shadow: var(--shadow-image);
 }
 .repository-content {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
-.repository-content > .repository-list {
-  flex: 1;
-}
-.tree-row-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  min-width: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.tree-row-shell > button:first-child {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-  min-height: 2.35rem;
-  padding: 0.35rem 0.75rem;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  text-align: left;
-  cursor: pointer;
-}
-.tree-row-shell > button:first-child > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tree-row-shell.drop-target {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-  background: var(--color-surface-active);
-}
-.repository-root-row {
-  font-weight: var(--weight-medium);
-}
 .repository-panel.root-drop-active {
   box-shadow: inset 0 0 0 2px var(--color-accent);
-}
-@media (max-width: 63.999rem) {
-  .repository-panel,
-  .repository-panel.open {
-    position: absolute;
-    inset: 0;
-    grid-column: 1;
-    grid-row: 1;
-    width: 100%;
-  }
-  .repository-panel {
-    transition:
-      transform 0.18s ease,
-      visibility 0s linear 0.18s;
-  }
-  .repository-panel.open {
-    transition-delay: 0s;
-  }
 }
 .repository-code-editor {
   display: flex;
@@ -350,6 +224,88 @@
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: repository-spinner 0.8s linear infinite;
+}
+.viewer-state {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 2rem 1rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  text-align: center;
+}
+.viewer-state p {
+  margin: 0.4rem 0 0;
+}
+.diff-document {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  background: var(--color-code-background);
+}
+.diff-virtual-space {
+  position: relative;
+  width: 100%;
+}
+.diff-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+.diff-section-heading {
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+.diff-line {
+  display: grid;
+  grid-template-columns: 3.1rem 3.1rem minmax(0, 1fr);
+  min-width: 100%;
+  min-height: 1.35rem;
+  color: var(--color-diff-text);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.diff-line.addition {
+  background: var(--color-diff-add-background);
+  color: var(--color-diff-add-text);
+}
+.diff-line.deletion {
+  background: var(--color-diff-delete-background);
+  color: var(--color-diff-delete-text);
+}
+.diff-line.hunk {
+  padding: 0.35rem 0;
+  background: var(--color-diff-hunk-background);
+  color: var(--color-diff-hunk-text);
+}
+.diff-line.meta {
+  color: var(--color-text-tertiary);
+}
+.diff-line code {
+  min-width: 0;
+  padding: 0 0.8rem;
+  font: inherit;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.line-number {
+  padding: 0 0.55rem;
+  border-right: 1px solid var(--color-border-subtle);
+  color: var(--color-text-disabled);
+  text-align: right;
+  user-select: none;
+}
+.diff-line.addition .line-number {
+  color: var(--color-diff-add-line);
+}
+.diff-line.deletion .line-number {
+  color: var(--color-diff-delete-line);
 }
 @keyframes repository-spinner {
   to {

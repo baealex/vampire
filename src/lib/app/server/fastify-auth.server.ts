@@ -1,11 +1,11 @@
 import type { FastifyRequest } from 'fastify';
 import {
+  type AuthorizedSession,
   authorizeSession,
   parseCookie,
+  type RejectedSession,
   SECURE_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
-  type AuthorizedSession,
-  type RejectedSession,
 } from '~/lib/server/session-cookie.ts';
 
 export function authorizeFastifySession(request: FastifyRequest): AuthorizedSession | RejectedSession {

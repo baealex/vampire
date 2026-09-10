@@ -1,6 +1,3 @@
-import { Clock3, LayoutDashboard, LogOut, Plus, Save, Trash2 } from 'lucide-react';
-import { observer } from 'mobx-react-lite';
-import { useMemo, useState } from 'react';
 import {
   loadTerminalFontSize,
   MAXIMUM_TERMINAL_FONT_SIZE,
@@ -8,13 +5,16 @@ import {
   saveTerminalFontSize,
 } from '@vampire/lib/features/terminal/model/terminal-display-preference.ts';
 import { MAX_LAUNCH_PROFILES } from '@vampire/lib/shared/contracts/launch-profiles.ts';
+import type { LaunchProfile } from '@vampire/lib/shared/contracts/workspace.ts';
 import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
   MIN_WORKSPACE_COMPOSER_PROMPTS,
 } from '@vampire/lib/shared/contracts/workspace-composer-history.ts';
-import type { LaunchProfile } from '@vampire/lib/shared/contracts/workspace.ts';
+import { Clock3, LayoutDashboard, LogOut, Plus, Save, Trash2 } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { useMemo, useState } from 'react';
 import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
-import { useTheme, type AppThemePreference } from '~/shared/theme/theme.ts';
+import { type AppThemePreference, useTheme } from '~/shared/theme/theme.ts';
 import { Button, Input, ManagementSurface, Select } from '~/shared/ui/index.ts';
 import './app-settings-dialog.css';
 
@@ -49,14 +49,14 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
     () =>
       JSON.stringify(profiles) !== JSON.stringify(state.launchProfiles) ||
       defaultId !== (state.defaultStartupProfileId ?? ''),
-    [defaultId, profiles, state.defaultStartupProfileId, state.launchProfiles]
+    [defaultId, profiles, state.defaultStartupProfileId, state.launchProfiles],
   );
   const historyDirty =
     historyEnabled !== state.composerHistorySettings.enabled ||
     Number(historyLimit) !== state.composerHistorySettings.limit;
   const updateProfile = (index: number, changes: Partial<LaunchProfile>) =>
     setProfiles((current) =>
-      current.map((profile, position) => (position === index ? { ...profile, ...changes } : profile))
+      current.map((profile, position) => (position === index ? { ...profile, ...changes } : profile)),
     );
   const addProfile = () => {
     if (profiles.length >= MAX_LAUNCH_PROFILES) return;
@@ -101,7 +101,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
       setProfileFeedback(
         applyDefaultToAll
           ? `Default updated for ${state.workspaces.length} workspace${state.workspaces.length === 1 ? '' : 's'}.`
-          : 'Launch profiles saved.'
+          : 'Launch profiles saved.',
       );
     } else setProfileFeedback(result.error ?? 'Unable to save launch profiles.');
   };
@@ -109,7 +109,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
     const limit = Number(historyLimit);
     if (!Number.isInteger(limit) || limit < MIN_WORKSPACE_COMPOSER_PROMPTS || limit > MAX_WORKSPACE_COMPOSER_PROMPTS) {
       setHistoryFeedback(
-        `Keep between ${MIN_WORKSPACE_COMPOSER_PROMPTS} and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`
+        `Keep between ${MIN_WORKSPACE_COMPOSER_PROMPTS} and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`,
       );
       return;
     }
@@ -122,12 +122,18 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
         ? historyEnabled
           ? `Composer history will keep ${limit} prompts per workspace.`
           : 'Composer history is off. Existing history is retained.'
-        : (result.error ?? 'Unable to save Composer history settings.')
+        : (result.error ?? 'Unable to save Composer history settings.'),
     );
   };
   return (
-    <Dialog open title="Settings" onClose={onClose}>
-      <div className="app-settings">
+    <Dialog
+      open
+      title="Settings"
+      onClose={onClose}
+      dirty={profileDirty || historyDirty}
+      busy={savingProfiles || savingHistory}
+    >
+      <>
         <SettingsSection title="Appearance" scope="Browser" description="Saved in this browser.">
           <div className="theme-options" role="radiogroup" aria-label="Theme">
             {(
@@ -166,7 +172,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
             >
               {Array.from(
                 { length: MAXIMUM_TERMINAL_FONT_SIZE - MINIMUM_TERMINAL_FONT_SIZE + 1 },
-                (_, index) => MINIMUM_TERMINAL_FONT_SIZE + index
+                (_, index) => MINIMUM_TERMINAL_FONT_SIZE + index,
               ).map((size) => (
                 <option key={size} value={size}>
                   {size}px
@@ -180,7 +186,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
           scope="Server"
           description="Only successfully sent Compose prompts are saved; direct terminal input is never recorded."
         >
-          <label className="setting-row">
+          <label className="setting-toggle">
             <input
               type="checkbox"
               checked={historyEnabled}
@@ -318,7 +324,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
             </Button>
           </SettingsSection>
         ) : null}
-      </div>
+      </>
     </Dialog>
   );
 });
@@ -355,45 +361,53 @@ function ActionRow({ children, feedback }: React.PropsWithChildren<{ feedback: s
   );
 }
 
-function Dialog({ children, onClose }: React.PropsWithChildren<{ open: boolean; onClose: () => void; title: string }>) {
+function Dialog({
+  children,
+  onClose,
+  dirty,
+  busy,
+}: React.PropsWithChildren<{ open: boolean; onClose: () => void; title: string; dirty: boolean; busy: boolean }>) {
   const meta = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   return (
     <ManagementSurface
       title="Settings"
       titleId="application-settings-title"
-      eyebrow="Vampire"
+      dirty={dirty}
+      busy={busy}
       close={onClose}
       closeLabel="Close settings"
     >
-      {children}
-      <section className="settings-section">
-        <header>
-          <div>
+      <div className="app-settings">
+        {children}
+        <section className="settings-section">
+          <header>
             <div>
-              <h2>Keyboard shortcuts</h2>
-              <span>Desktop</span>
+              <div>
+                <h2>Keyboard shortcuts</h2>
+                <span>Desktop</span>
+              </div>
+              <p>Each workspace remembers its input surface, draft, and editing position.</p>
             </div>
-            <p>Each workspace remembers its input surface, draft, and editing position.</p>
+          </header>
+          <div className="shortcut-list" aria-label="Keyboard shortcuts">
+            <Shortcut
+              title="Switch input"
+              description="Move between Compose and direct terminal input."
+              keys={meta ? ['⌘', '/'] : ['Ctrl', '`']}
+            />
+            <Shortcut
+              title="Composer history"
+              description="Open saved prompts from Compose."
+              keys={['Ctrl', 'Alt', 'H']}
+            />
+            <Shortcut
+              title="Literal slash"
+              description="Insert a slash without handing off to the terminal."
+              keys={['Ctrl', '/']}
+            />
           </div>
-        </header>
-        <div className="shortcut-list" aria-label="Keyboard shortcuts">
-          <Shortcut
-            title="Switch input"
-            description="Move between Compose and direct terminal input."
-            keys={meta ? ['⌘', '/'] : ['Ctrl', '`']}
-          />
-          <Shortcut
-            title="Composer history"
-            description="Open saved prompts from Compose."
-            keys={['Ctrl', 'Alt', 'H']}
-          />
-          <Shortcut
-            title="Literal slash"
-            description="Insert a slash without handing off to the terminal."
-            keys={['Ctrl', '/']}
-          />
-        </div>
-      </section>
+        </section>
+      </div>
     </ManagementSurface>
   );
 }

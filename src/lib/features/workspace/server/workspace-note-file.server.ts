@@ -9,7 +9,7 @@ import {
   vampireStatePath,
   vampireWorkspaceStatePath,
 } from '~/lib/server/state-path.ts';
-import { normalizeWorkspaceNote, workspaceNoteByteLength, WORKSPACE_NOTE_MAX_BYTES } from './workspace-note.server.ts';
+import { normalizeWorkspaceNote, WORKSPACE_NOTE_MAX_BYTES, workspaceNoteByteLength } from './workspace-note.server.ts';
 
 export function managedWorkspaceNotePath(workspaceId: string): string {
   return vampireWorkspaceStatePath(workspaceId, VAMPIRE_WORKSPACE_NOTE_FILE);

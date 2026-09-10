@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ServerRequestEvent } from '~/lib/server/http-handler.server.ts';
+import { initializeAuthentication, verifyConfiguredToken } from '~/lib/server/token-authentication.ts';
 import { authenticate, authenticationRequired, clearAuthentication, isAuthenticated } from './auth.server.ts';
 import { loginRateLimit } from './login-rate-limit.server.ts';
-import { initializeAuthentication, verifyConfiguredToken } from '~/lib/server/token-authentication.ts';
 
 function loginEvent(token: string, values = new Map<string, string>()): ServerRequestEvent {
   const url = new URL('http://localhost:7677/api/login');
@@ -111,14 +111,14 @@ test('accepts the maximum TOKEN size even when JSON escaping expands the body', 
 test('does not turn concurrent malformed login requests into a global credential lockout', async () => {
   await initializeAuthentication({ VAMPIRE_TOKEN: 'correct horse battery staple' });
   const attempts = await Promise.allSettled(
-    Array.from({ length: 30 }, (_, index) => authenticate(rawLoginEvent('{', `malformed-${index}`)))
+    Array.from({ length: 30 }, (_, index) => authenticate(rawLoginEvent('{', `malformed-${index}`))),
   );
   const statuses = attempts.flatMap((attempt) =>
-    attempt.status === 'rejected' ? [(attempt.reason as { status?: number }).status] : []
+    attempt.status === 'rejected' ? [(attempt.reason as { status?: number }).status] : [],
   );
   assert.equal(
     statuses.every((status) => status === 401 || status === 429),
-    true
+    true,
   );
   assert.equal(statuses.includes(429), true);
 
@@ -140,7 +140,7 @@ test('does not treat one untrusted reverse-proxy address as a per-client login l
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await assert.rejects(
         () => authenticate(loginEvent('wrong password', new Map())),
-        (cause: unknown) => (cause as { status?: number }).status === 401
+        (cause: unknown) => (cause as { status?: number }).status === 401,
       );
     }
 
@@ -161,17 +161,17 @@ test('bounds and times out stalled login bodies without leaking admission slots'
   await initializeAuthentication({ VAMPIRE_TOKEN: 'correct horse battery staple' });
   const startedAt = Date.now();
   const stalledAttempts = Array.from({ length: loginRateLimit.MAX_CONCURRENT_LOGIN_REQUESTS }, (_, index) =>
-    authenticate(stalledLoginEvent(`stalled-client-${index}`))
+    authenticate(stalledLoginEvent(`stalled-client-${index}`)),
   );
 
   await assert.rejects(
     () => authenticate(stalledLoginEvent('overflow-client')),
-    (cause: unknown) => (cause as { status?: number }).status === 429
+    (cause: unknown) => (cause as { status?: number }).status === 429,
   );
   const results = await Promise.allSettled(stalledAttempts);
   assert.equal(
     results.every((result) => result.status === 'rejected' && (result.reason as { status?: number }).status === 408),
-    true
+    true,
   );
   assert.ok(Date.now() - startedAt >= 4_500);
 

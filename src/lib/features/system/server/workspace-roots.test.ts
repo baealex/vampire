@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import test from 'node:test';
 import {
   listWorkspaceRoots,
@@ -18,7 +18,7 @@ test('only resolves directories inside the configured root, including symlink es
   const root = await mkdtemp(join(tmpdir(), 'vampire-workspace-root-'));
   const outside = await mkdtemp(join(tmpdir(), 'vampire-workspace-outside-'));
   t.after(() =>
-    Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })])
+    Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]),
   );
 
   await mkdir(join(root, 'project'));
@@ -32,19 +32,19 @@ test('only resolves directories inside the configured root, including symlink es
 
   await assert.rejects(
     () => resolveWorkspaceDirectory(join(root, '..', basename(outside)), roots),
-    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root'
+    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root',
   );
   await assert.rejects(
     () => resolveWorkspaceDirectory(join(canonicalRoot, 'missing'), roots),
-    (error) => error instanceof WorkspaceRootError && error.reason === 'not-found'
+    (error) => error instanceof WorkspaceRootError && error.reason === 'not-found',
   );
   await assert.rejects(
     () => resolveWorkspaceDirectory(join(canonicalRoot, 'linked-outside'), roots),
-    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root'
+    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root',
   );
   await assert.rejects(
     () => resolveWorkspaceDirectory(join(outside, 'secret'), roots),
-    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root'
+    (error) => error instanceof WorkspaceRootError && error.reason === 'outside-root',
   );
 });
 
@@ -70,7 +70,7 @@ test('lists immediate real directories and never exposes files or linked directo
   const roots = await listWorkspaceRoots();
   assert.deepEqual(
     roots.map(({ path }) => path),
-    [await realpath(root)]
+    [await realpath(root)],
   );
 
   const canonicalRoot = await realpath(root);
@@ -79,7 +79,7 @@ test('lists immediate real directories and never exposes files or linked directo
   assert.equal(listing.parentPath, null);
   assert.deepEqual(
     listing.directories.map(({ name }) => name),
-    ['.hidden', 'alpha', 'zeta']
+    ['.hidden', 'alpha', 'zeta'],
   );
   assert.equal(listing.truncated, false);
 });

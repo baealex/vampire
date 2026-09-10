@@ -55,12 +55,12 @@ function parseComposerEditorState(value: string | null): ComposerEditorState | u
 export function loadComposerEditorState(
   workspaceId: string,
   terminalId?: string,
-  storage?: ComposerEditorStateStorage
+  storage?: ComposerEditorStateStorage,
 ): { value: ComposerEditorState | undefined; available: boolean } {
   try {
     return {
       value: parseComposerEditorState(
-        (storage ?? window.localStorage).getItem(composerEditorStateStorageKey(workspaceId, terminalId))
+        (storage ?? window.localStorage).getItem(composerEditorStateStorageKey(workspaceId, terminalId)),
       ),
       available: true,
     };
@@ -73,12 +73,12 @@ export function saveComposerEditorState(
   workspaceId: string,
   terminalId: string | undefined,
   value: ComposerEditorState,
-  storage?: ComposerEditorStateStorage
+  storage?: ComposerEditorStateStorage,
 ): boolean {
   try {
     (storage ?? window.localStorage).setItem(
       composerEditorStateStorageKey(workspaceId, terminalId),
-      JSON.stringify(value)
+      JSON.stringify(value),
     );
     return true;
   } catch {
@@ -105,7 +105,7 @@ export function normalizeComposerEditorState(value: ComposerEditorState, textLen
 
 export function restoreComposerEditorState(
   element: HTMLTextAreaElement,
-  value: ComposerEditorState
+  value: ComposerEditorState,
 ): ComposerEditorState {
   const restored = normalizeComposerEditorState(value, element.value.length);
   element.setSelectionRange(restored.selectionStart, restored.selectionEnd, restored.selectionDirection);

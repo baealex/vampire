@@ -138,6 +138,6 @@ export function parseCookie(header: string | undefined): Record<string, string> 
       } catch {
         return [];
       }
-    })
+    }),
   );
 }

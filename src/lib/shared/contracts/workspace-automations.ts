@@ -1,7 +1,7 @@
 import {
   isWorkspaceAgentActionId,
-  WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
   WORKSPACE_AGENT_ACTION_IDS,
+  WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
   type WorkspaceAgentActionId,
 } from './workspace-agent-actions.ts';
 
@@ -94,7 +94,7 @@ export function isWorkspaceAutomationSchedule(value: unknown): value is Workspac
       (weekday, index) =>
         Number.isInteger(weekday) &&
         WORKSPACE_AUTOMATION_WEEKDAYS.includes(weekday as WorkspaceAutomationWeekday) &&
-        weekdays.indexOf(weekday) === index
+        weekdays.indexOf(weekday) === index,
     ) ||
     typeof hour !== 'number' ||
     !Number.isInteger(hour) ||
@@ -226,7 +226,7 @@ function zonedTimestamp(parts: ZonedDateTimeParts, timeZone: string): number | u
 
 export function nextAutomationWeeklyRunAt(
   schedule: Extract<WorkspaceAutomationSchedule, { type: 'weekly' }>,
-  after: number
+  after: number,
 ): number {
   const local = zonedDateTimeParts(Math.max(after, schedule.startAt), schedule.timeZone);
   const localMidnight = Date.UTC(local.year, local.month - 1, local.day);
@@ -241,7 +241,7 @@ export function nextAutomationWeeklyRunAt(
         hour: schedule.hour,
         minute: schedule.minute,
       },
-      schedule.timeZone
+      schedule.timeZone,
     );
     if (candidate !== undefined && candidate >= schedule.startAt && candidate > after) return candidate;
   }

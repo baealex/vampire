@@ -47,7 +47,7 @@ function runTests(environment: NodeJS.ProcessEnv): Promise<number> {
         '--test',
         ...tests.map((path) => relative(repositoryRoot, path)),
       ],
-      { cwd: repositoryRoot, env: environment, stdio: 'inherit' }
+      { cwd: repositoryRoot, env: environment, stdio: 'inherit' },
     );
 
     child.once('error', () => resolveRun(1));

@@ -1,9 +1,9 @@
-import { requestJson } from './request.ts';
 import type {
   WorkspaceAgentActionDescriptor,
   WorkspaceAgentActionId,
   WorkspaceAgentActionSubmission,
 } from '../contracts/workspace-agent-actions.ts';
+import { requestJson } from './request.ts';
 
 const AGENT_ACTION_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -26,19 +26,19 @@ async function requestAgentAction<T>(path: string, init: RequestInit, fallback: 
 
 export function loadWorkspaceAgentAction(
   workspaceId: string,
-  actionId: WorkspaceAgentActionId
+  actionId: WorkspaceAgentActionId,
 ): Promise<WorkspaceAgentActionDescriptor> {
   return requestAgentAction<{ action: WorkspaceAgentActionDescriptor }>(
     actionUrl(workspaceId, actionId),
     { cache: 'no-store' },
-    'Unable to prepare the agent request'
+    'Unable to prepare the agent request',
   ).then(({ action }) => action);
 }
 
 export function submitWorkspaceAgentAction(
   workspaceId: string,
   actionId: WorkspaceAgentActionId,
-  request: string
+  request: string,
 ): Promise<WorkspaceAgentActionSubmission> {
   return requestAgentAction<{ submission: WorkspaceAgentActionSubmission }>(
     actionUrl(workspaceId, actionId),
@@ -47,6 +47,6 @@ export function submitWorkspaceAgentAction(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ request }),
     },
-    'Unable to send the agent request'
+    'Unable to send the agent request',
   ).then(({ submission }) => submission);
 }

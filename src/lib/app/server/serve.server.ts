@@ -2,8 +2,8 @@ import type { IncomingMessage } from 'node:http';
 import { resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { configureAdapterRequestOrigin, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
-import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { runStateMigrations } from '~/lib/server/state-migrations.ts';
+import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { rejectWebSocketUpgrade, webSocketRequestUrl } from '~/lib/server/websocket-support.ts';
 import { createFastifyApp } from './fastify-app.server.ts';
 import { installTerminalWebSocket } from './terminal-websocket.server.ts';
@@ -56,7 +56,7 @@ console.log(
     ? 'TOKEN authentication is enabled.'
     : config.externalAccess
       ? 'Warning: external access is running without TOKEN authentication.'
-      : 'Local access does not require TOKEN authentication.'
+      : 'Local access does not require TOKEN authentication.',
 );
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
@@ -81,7 +81,7 @@ const shutdown = () => {
       console.error(error);
       process.exitCode = 1;
       process.exit();
-    }
+    },
   );
 };
 

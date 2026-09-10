@@ -1,21 +1,21 @@
 import {
-  dispatchManagedWorkspaceAutomation,
-  listDueManagedWorkspaceAutomations,
-  migrateManagedWorkspaceNotes,
-} from '~/lib/features/workspace/server/workspace-automations.server.ts';
-import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
-import { migrateManagedWorkspaceComposerHistories } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
-import {
   listTmuxSessions,
   submitTmuxPrompt,
   type TmuxSession,
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
+import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
+import {
+  dispatchManagedWorkspaceAutomation,
+  listDueManagedWorkspaceAutomations,
+  migrateManagedWorkspaceNotes,
+} from '~/lib/features/workspace/server/workspace-automations.server.ts';
+import { importWorkspaceBackgroundAgentRequests } from '~/lib/features/workspace/server/workspace-background-agent-support.server.ts';
+import { migrateManagedWorkspaceComposerHistories } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
+import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
+import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
 import { mainWorkspacePromptTarget } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
-import { importWorkspaceAutomationAgentRequests } from '~/lib/features/workspace/server/workspace-automation-agent-support.server.ts';
-import { importWorkspaceBackgroundAgentRequests } from '~/lib/features/workspace/server/workspace-background-agent-support.server.ts';
-import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
 
 const AUTOMATION_POLL_INTERVAL_MS = 2_000;
 
@@ -39,10 +39,10 @@ const submissionDependencies: AutomationSubmissionDependencies = {
 export async function prepareAutomationSubmission(
   stored: StoredWorkspace,
   automation: WorkspaceAutomation,
-  dependencies: AutomationSubmissionDependencies = submissionDependencies
+  dependencies: AutomationSubmissionDependencies = submissionDependencies,
 ): Promise<(() => Promise<void>) | undefined> {
   const running = (await dependencies.listTmuxSessions()).find(
-    (tmuxSession) => tmuxSession.name === stored.tmuxSession
+    (tmuxSession) => tmuxSession.name === stored.tmuxSession,
   );
   if (!running) return undefined;
   const terminal = automationSubmissionTerminal(running);
@@ -64,7 +64,7 @@ export async function runWorkspaceAutomationTick(now = Date.now()): Promise<void
         candidate.workspaceId,
         candidate.automationId,
         now,
-        (stored, automation) => prepareAutomationSubmission(stored, automation)
+        (stored, automation) => prepareAutomationSubmission(stored, automation),
       );
     } catch {
       // One unreadable workspace must not stop other users' scheduled automations.

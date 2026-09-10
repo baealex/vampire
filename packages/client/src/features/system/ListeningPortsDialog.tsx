@@ -1,10 +1,10 @@
-import { CircleStop, RefreshCw, Search, Shield } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ListeningPort,
   ListeningPortsResponse,
   TerminateListeningProcessRequest,
 } from '@vampire/lib/shared/contracts/listening-ports.ts';
+import { CircleStop, RefreshCw, Search, Shield } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { requestJson } from '~/shared/api/request.ts';
 import { Button, Dialog, Input, Spinner } from '~/shared/ui/index.ts';
 import './listening-ports-dialog.css';
@@ -34,7 +34,7 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
         await requestJson<ListeningPortsResponse>(
           '/api/system/ports',
           { cache: 'no-store' },
-          'Unable to inspect listening ports'
+          'Unable to inspect listening ports',
         )
       ).ports;
       cachedPorts = next;
@@ -55,8 +55,8 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
           [port.port, port.processName, port.cwd, ...port.addresses].some((value) =>
             String(value ?? '')
               .toLocaleLowerCase()
-              .includes(query)
-          )
+              .includes(query),
+          ),
         )
       : ports;
   }, [filter, ports]);
@@ -70,7 +70,7 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
       await requestJson(
         `/api/system/ports/${port.pid}`,
         { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
-        `Unable to stop ${processLabel(port)}.`
+        `Unable to stop ${processLabel(port)}.`,
       );
       setStatus(`SIGTERM sent to ${processLabel(port)} (PID ${port.pid}).`);
       setConfirming(undefined);
@@ -83,7 +83,7 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
   };
   return (
     <>
-      <Dialog open title="Listening ports" onClose={onClose}>
+      <Dialog open title="Listening ports" onClose={onClose} busy={stopping}>
         <div className="ports-toolbar listening-ports-toolbar">
           <label>
             <Search size={15} aria-hidden="true" />
@@ -173,10 +173,12 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
         <Dialog
           open
           title={`Stop ${processLabel(confirming)}?`}
+          role="alertdialog"
+          busy={stopping}
           onClose={() => setConfirming(undefined)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setConfirming(undefined)} disabled={stopping}>
+              <Button variant="ghost" data-autofocus onClick={() => setConfirming(undefined)} disabled={stopping}>
                 Cancel
               </Button>
               <Button variant="danger" onClick={() => void stop()} disabled={stopping}>
@@ -189,6 +191,12 @@ export function ListeningPortsDialog({ onClose }: { onClose: () => void }) {
             Send SIGTERM to {processLabel(confirming)} (PID {confirming.pid}). This closes port {confirming.port} and
             any other work owned by that process.
           </p>
+          {confirming.cwd ? <code className="port-confirm-path">{confirming.cwd}</code> : null}
+          {error ? (
+            <p className="ports-error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </Dialog>
       ) : null}
     </>

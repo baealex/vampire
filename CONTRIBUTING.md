@@ -24,31 +24,17 @@ corepack enable
 pnpm install --frozen-lockfile
 ```
 
-### Use isolated development state
+### Run the development server
 
-`pnpm dev` refuses to start with the live `~/.vampire` directory, an unmarked directory, or no explicit state directory. This prevents a development build from migrating or overwriting the state used by an installed Vampire process.
-
-Create a new development-only snapshot at a path outside the repository and outside `~/.vampire`. The installed Vampire process may remain running:
+Development uses `~/.vampire` and the default tmux socket, just like the installed application. Set `VAMPIRE_STATE_DIR` or `VAMPIRE_TMUX_SOCKET_NAME` to override these defaults, and choose another `VAMPIRE_PORT` if the default port is already in use:
 
 ```sh
-pnpm dev:state:prepare -- \
-  --source "$HOME/.vampire" \
-  --target "$HOME/.vampire-development/vampire-main"
-```
-
-The target must not already exist. The preparation command copies only durable state files into a private staging directory, verifies both the source and copied bytes, and retries when an atomic source-file update overlaps the snapshot. It applies pending layout migrations to staging, writes the development marker last, and then renames the completed directory into place. It never edits the source or replaces an existing target. Worktrees, pending agent requests, support files, backups, locks, and temporary files are not copied. Keep the copy private: it still contains notes, prompts, commands, and local project paths. There is no reverse synchronization into the live state.
-
-Start the development server with the exact marked target and a port that does not conflict with an installed Vampire process:
-
-```sh
-VAMPIRE_STATE_DIR="$HOME/.vampire-development/vampire-main" \
-VAMPIRE_PORT=7677 \
 pnpm dev
 ```
 
-Development uses a separate tmux socket and disables automatic launch profiles, automations, and status-widget commands. Explicit terminal, Background, and Repository actions are still real: copied workspaces retain their original `cwd`, so those actions can modify the referenced projects. Use disposable project copies when testing destructive behavior.
+Development operates on the live workspace registry and referenced project directories. Terminal, Background, Repository, workspace settings, notes, and other stateful actions are real, so avoid destructive testing against workspaces you need to keep.
 
-The development server is restricted to loopback and listens on `127.0.0.1:7677` by default. Put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file when testing authentication; never expose the Vite development server remotely. Node and browser test runners use separate disposable state and tmux namespaces, and browser tests default to their own port.
+The development server is restricted to loopback and listens on `127.0.0.1:7677` by default. Put a development-only `VAMPIRE_TOKEN` in the ignored `.env` file when testing authentication; never expose the Vite development server remotely. Node and browser test runners use disposable state and tmux namespaces, and browser tests default to their own port.
 
 See [docs/STATE_STORAGE.md](docs/STATE_STORAGE.md) for state ownership, forward-migration, locking, and recovery rules.
 

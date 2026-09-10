@@ -60,6 +60,25 @@
   gap: 0.55rem;
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+.vampire-dialog-content[role="alertdialog"] {
+  width: min(28rem, calc(100vw - 2rem));
+  height: auto;
+  max-height: calc(100dvh - 2rem);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+.vampire-dialog-content[role="alertdialog"] .vampire-dialog-header,
+.vampire-dialog-content[role="alertdialog"] .vampire-dialog-footer {
+  border: 0;
+}
+.vampire-dialog-content[role="alertdialog"] .vampire-dialog-body p {
+  margin: 0;
 }
 @media (max-width: 32rem) {
   .vampire-dialog-content {

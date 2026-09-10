@@ -55,7 +55,7 @@ test('leaves an interrupted submission unconfirmed and propagates operation fail
         throw new Error('Enter failed');
       },
     }),
-    /Enter failed/
+    /Enter failed/,
   );
 });
 
@@ -70,7 +70,7 @@ test('deduplicates pending and settled request IDs within a bounded ledger', () 
   assert.equal(ledger.settle(completed), true);
   assert.equal(
     ledger.settle({ type: 'submission-result', requestId: 'request-1', status: 'failed', message: 'late failure' }),
-    false
+    false,
   );
   assert.deepEqual(ledger.register('request-1'), { state: 'settled', result: completed });
 
@@ -85,6 +85,6 @@ test('bounds terminal submission failure details for the wire protocol', () => {
   assert.equal(terminalSubmissionFailureMessage(new Error('  tmux failed  ')), 'tmux failed');
   assert.equal(
     terminalSubmissionFailureMessage(new Error('x'.repeat(TERMINAL_SUBMISSION_FAILURE_MESSAGE_MAX_LENGTH + 20))).length,
-    TERMINAL_SUBMISSION_FAILURE_MESSAGE_MAX_LENGTH
+    TERMINAL_SUBMISSION_FAILURE_MESSAGE_MAX_LENGTH,
   );
 });

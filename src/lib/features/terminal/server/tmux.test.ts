@@ -60,7 +60,7 @@ test('uses an explicit tmux socket namespace without changing production default
   ]);
   assert.throws(
     () => tmux.tmuxCommandArguments(['list-windows'], { VAMPIRE_TMUX_SOCKET_NAME: '../default' }),
-    /socket name/i
+    /socket name/i,
   );
 });
 
@@ -92,7 +92,7 @@ test('labels workspaces with the lower-case executable at the front of the comma
       'vampire-npm\t1\t0\t0\t@0\tnpm\t1\t2\t%0\tnpm i\t0\t',
       'vampire-codex\t1\t0\t0\t@1\tcodex\t1\t2\t%1\tCodex --project /tmp/project\t0\t',
       'vampire-shell\t1\t0\t0\t@2\tzsh\t1\t2\t%2\tzsh\t0\t',
-    ].join('\n')
+    ].join('\n'),
   );
 
   assert.deepEqual(
@@ -101,7 +101,7 @@ test('labels workspaces with the lower-case executable at the front of the comma
       { kind: 'command', label: 'npm' },
       { kind: 'command', label: 'codex' },
       { kind: 'shell', label: 'zsh' },
-    ]
+    ],
   );
 });
 
@@ -123,7 +123,7 @@ test('groups tmux windows while keeping background activity out of the main work
     [
       'workspace\t1\t2\t0\t@0\tprimary\t0\t3\t%0\tcodex\t0\t',
       'workspace\t1\t2\t1\t@1\tserver\t1\t5\t%1\tnode\t0\t',
-    ].join('\n')
+    ].join('\n'),
   );
 
   assert.equal(workspace.name, 'workspace');
@@ -196,7 +196,7 @@ test('describes managed background commands and their exit status', () => {
         '1',
         '7',
       ].join('\t'),
-    ].join('\n')
+    ].join('\n'),
   );
 
   assert.deepEqual(workspaces[0].terminals[0], {
@@ -228,7 +228,7 @@ test('describes managed background commands and their exit status', () => {
 test('removes trailing tmux pane padding without changing log formatting', () => {
   assert.equal(
     tmux.stripTmuxCapturePadding('\nfirst line\n\n  indented line  \n\n\n'),
-    '\nfirst line\n\n  indented line  '
+    '\nfirst line\n\n  indented line  ',
   );
   assert.equal(tmux.stripTmuxCapturePadding('\n\n\n'), '');
 });
@@ -236,11 +236,11 @@ test('removes trailing tmux pane padding without changing log formatting', () =>
 test('parses the lightweight tmux output activity snapshot', () => {
   assert.deepEqual(
     tmux.parseTmuxSessionActivity(
-      ['vampire-one\t0\t1712345678', 'vampire-one\t1\t1712345682', 'vampire-two\t3\t1712345680'].join('\n')
+      ['vampire-one\t0\t1712345678', 'vampire-one\t1\t1712345682', 'vampire-two\t3\t1712345680'].join('\n'),
     ),
     [
       { name: 'vampire-one', lastOutputAt: 1_712_345_678_000, mainLastOutputAt: 1_712_345_678_000 },
       { name: 'vampire-two', lastOutputAt: 1_712_345_680_000, mainLastOutputAt: 1_712_345_680_000 },
-    ]
+    ],
   );
 });

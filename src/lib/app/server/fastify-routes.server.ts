@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ServerCookies, ServerRequestEvent } from '~/lib/server/http-handler.server.ts';
 import { expectedRequestOrigin } from '~/lib/server/runtime-config.ts';
-import { serverRouteManifest, type ServerRouteModule } from './fastify-route-manifest.server.ts';
+import { type ServerRouteModule, serverRouteManifest } from './fastify-route-manifest.server.ts';
 
 const HTTP_METHODS = ['DELETE', 'GET', 'PATCH', 'POST', 'PUT'] as const;
 
@@ -92,7 +92,7 @@ async function sendResponse(response: Response, reply: FastifyReply): Promise<vo
 async function executeRoute(
   routeModule: ServerRouteModule,
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> {
   const handler = routeModule[request.method as keyof ServerRouteModule];
   if (!handler) {

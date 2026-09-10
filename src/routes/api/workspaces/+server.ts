@@ -1,5 +1,3 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   createManagedWorkspace,
   listManagedWorkspaces,
@@ -7,7 +5,9 @@ import {
   readManagedWorkspacePreferences,
   WorkspaceLaunchError,
 } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { readManagedWorkspaceComposerHistorySettings } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);
@@ -19,7 +19,7 @@ export const GET: RequestHandler = async (event) => {
   ]);
   return json(
     { workspaces, preferences, ...profileSettings, composerHistorySettings },
-    { headers: { 'cache-control': 'no-store' } }
+    { headers: { 'cache-control': 'no-store' } },
   );
 };
 

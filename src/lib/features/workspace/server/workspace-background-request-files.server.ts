@@ -22,7 +22,7 @@ function requestEntry(workspaceId: string, entry: string): { requestId: string; 
 
 async function pendingWorkspaceBackgroundRequests(
   workspaceId: string,
-  now: number
+  now: number,
 ): Promise<Map<string, Set<'draft' | 'ready'>>> {
   const directory = join(vampireStateDirectory(), WORKSPACE_BACKGROUND_REQUEST_DIRECTORY_NAME);
   let entries: string[];
@@ -108,8 +108,8 @@ export async function prepareWorkspaceBackgroundRequestRemoval(workspaceId: stri
       paths.map((path) =>
         unlink(path).catch((error) => {
           if (!errorHasCode(error, 'ENOENT')) throw error;
-        })
-      )
+        }),
+      ),
     );
   };
 }

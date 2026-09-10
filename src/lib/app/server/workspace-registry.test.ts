@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  readManagedLaunchProfileSettings,
-  readManagedLaunchProfiles,
-  WorkspaceMutationError,
-  updateManagedLaunchProfiles,
-  updateManagedStartupProfile,
-  updateManagedWorkspaceSettings,
-  updateManagedWorkspaceStartup,
-} from './workspace-registry.server.ts';
-import {
   readWorkspaceStore,
   WORKSPACE_STATE_VERSION,
   writeWorkspaceStore,
 } from '~/lib/features/workspace/server/workspace-store.server.ts';
+import {
+  readManagedLaunchProfileSettings,
+  readManagedLaunchProfiles,
+  updateManagedLaunchProfiles,
+  updateManagedStartupProfile,
+  updateManagedWorkspaceSettings,
+  updateManagedWorkspaceStartup,
+  WorkspaceMutationError,
+} from './workspace-registry.server.ts';
 
 test('deleting a global profile clears workspace selections without blocking the deletion', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-global-profiles-'));
@@ -58,7 +58,7 @@ test('deleting a global profile clears workspace selections without blocking the
   assert.equal(await updateManagedStartupProfile('workspace-1', 'claude'), 'claude');
   await assert.rejects(
     () => updateManagedStartupProfile('workspace-1', 'missing'),
-    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile'
+    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile',
   );
 });
 
@@ -112,7 +112,7 @@ test('saving from a workspace updates the shared cache and its local selection a
         launchProfiles: [],
         startupProfileId: 'missing',
       }),
-    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile'
+    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-startup-profile',
   );
   assert.deepEqual(await readWorkspaceStore(), stored);
 });
@@ -155,7 +155,7 @@ test('saves a workspace Composer template with its startup profile and rejects u
       workspaceLabel: 'Vampire',
       startupProfileId: 'codex',
       composerTemplate,
-    }
+    },
   );
   const saved = await readWorkspaceStore();
   assert.equal(saved.workspaces[0]?.workspaceLabel, 'Vampire');
@@ -169,7 +169,7 @@ test('saves a workspace Composer template with its startup profile and rejects u
         startupProfileId: null,
         composerTemplate: 'The prompt slot is missing.',
       }),
-    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-composer-template'
+    (error) => error instanceof WorkspaceMutationError && error.reason === 'invalid-composer-template',
   );
   assert.deepEqual(await readWorkspaceStore(), saved);
 });
@@ -218,7 +218,7 @@ test('changes the shared default atomically for every registered workspace', asy
   assert.equal(stored.defaultStartupProfileId, 'claude');
   assert.deepEqual(
     stored.workspaces.map((workspace) => workspace.startupProfileId),
-    ['claude', 'claude']
+    ['claude', 'claude'],
   );
   assert.deepEqual(await readManagedLaunchProfileSettings(), {
     launchProfiles,

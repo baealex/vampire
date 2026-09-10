@@ -14,13 +14,13 @@ test('safe development can explicitly allow status widget commands only', () => 
       VAMPIRE_SAFE_DEVELOPMENT: '1',
       VAMPIRE_ALLOW_STATUS_WIDGET_COMMANDS: '1',
     }),
-    true
+    true,
   );
   assert.equal(
     automaticCommandsAllowed({
       VAMPIRE_SAFE_DEVELOPMENT: '1',
       VAMPIRE_ALLOW_STATUS_WIDGET_COMMANDS: '1',
     }),
-    false
+    false,
   );
 });

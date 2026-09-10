@@ -1,6 +1,6 @@
 import type { LaunchProfile, WorkspacePreferences } from './workspace.ts';
-import { parseWorkspaceStore, type StoredWorkspace, type WorkspaceStore } from './workspace-store.ts';
 import type { WorkspaceAutomation } from './workspace-automations.ts';
+import { parseWorkspaceStore, type StoredWorkspace, type WorkspaceStore } from './workspace-store.ts';
 
 export const WORKSPACE_PERSISTENCE_VERSION = 1;
 const REVISION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -90,7 +90,7 @@ function assertRevision(value: unknown, expected?: string): asserts value is str
 
 function assertDocument(
   value: unknown,
-  revision?: string
+  revision?: string,
 ): asserts value is Record<string, unknown> & {
   version: typeof WORKSPACE_PERSISTENCE_VERSION;
   revision: string;
@@ -117,7 +117,7 @@ function registryEntry(workspace: StoredWorkspace): WorkspaceRegistryEntry {
 
 export function createWorkspacePersistenceDocuments(
   value: WorkspaceStore,
-  revision: string
+  revision: string,
 ): WorkspacePersistenceDocuments {
   assertRevision(revision);
   const state = parseWorkspaceStore(value);

@@ -1,11 +1,11 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   deleteManagedWorkspaceAutomation,
-  WorkspaceAutomationMutationError,
   setManagedWorkspaceAutomationEnabled,
   updateManagedWorkspaceAutomation,
+  WorkspaceAutomationMutationError,
 } from '~/lib/features/workspace/server/workspace-automations.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 function automationError(cause: WorkspaceAutomationMutationError): never {
   throw error(
@@ -14,7 +14,7 @@ function automationError(cause: WorkspaceAutomationMutationError): never {
       : cause.reason === 'limit'
         ? 409
         : 400,
-    cause.message
+    cause.message,
   );
 }
 

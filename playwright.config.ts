@@ -17,7 +17,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-chromium',
-      testMatch: ['**/desktop.spec.ts', '**/security.spec.ts'],
+      testMatch: ['**/desktop.spec.ts', '**/security.spec.ts', '**/ui-regressions.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
     },
     {

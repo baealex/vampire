@@ -36,7 +36,7 @@ async function runClaudeLimitPreset(kind: 'session' | 'workspace'): Promise<Reco
       `globalThis.fetch = async () => ({
   ok: true,
   json: async () => JSON.parse(process.env.VAMPIRE_CLAUDE_USAGE_PAYLOAD)
-});\n`
+});\n`,
     );
     const payload = {
       limits: [
@@ -60,7 +60,7 @@ async function runClaudeLimitPreset(kind: 'session' | 'workspace'): Promise<Reco
           NODE_OPTIONS: `--import=${mockFetch}`,
           VAMPIRE_CLAUDE_USAGE_PAYLOAD: JSON.stringify(payload),
         },
-      }
+      },
     );
     return JSON.parse(stdout) as Record<string, unknown>;
   } finally {
@@ -73,11 +73,11 @@ test('treats CPU and RAM as ordinary default preset instances', () => {
 
   assert.deepEqual(
     plugins.map((plugin) => plugin.name),
-    ['CPU', 'RAM']
+    ['CPU', 'RAM'],
   );
   assert.deepEqual(
     plugins.map((plugin) => plugin.source.command),
-    [STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND]
+    [STATUS_PLUGIN_CPU_COMMAND, STATUS_PLUGIN_MEMORY_COMMAND],
   );
   assert.equal(isStatusPluginList(plugins), true);
 
@@ -106,7 +106,7 @@ test('offers editable Codex and Claude limit API scripts', () => {
   assert.deepEqual([codex?.enabled, claude?.enabled], [true, true]);
   assert.deepEqual(
     [codex?.source.command, claude?.source.command],
-    [STATUS_PLUGIN_CODEX_LIMIT_COMMAND, STATUS_PLUGIN_CLAUDE_LIMIT_COMMAND]
+    [STATUS_PLUGIN_CODEX_LIMIT_COMMAND, STATUS_PLUGIN_CLAUDE_LIMIT_COMMAND],
   );
   assert.equal(isStatusPluginList([codex, claude]), true);
   assert.match(STATUS_PLUGIN_CODEX_LIMIT_COMMAND, /account\/rateLimits\/read/);
@@ -126,7 +126,7 @@ test('labels current and compatibility Claude session limits as the 5-hour windo
       (output.menu as Array<{ text?: string; type: string }>)
         .filter((item) => item.type === 'item')
         .map((item) => item.text),
-      ['5h', '7d', 'Fable']
+      ['5h', '7d', 'Fable'],
     );
   }
 });
@@ -145,11 +145,11 @@ test('accepts bounded multiline scripts and rejects unsafe configuration', () =>
   assert.equal(isStatusPluginList([{ ...commandPlugin, intervalMs: STATUS_PLUGIN_INTERVAL_MAX_MS + 1 }]), false);
   assert.equal(
     isStatusPluginList([{ ...commandPlugin, source: { type: 'command', command: 'echo ok\necho visible' } }]),
-    true
+    true,
   );
   assert.equal(
     isStatusPluginList([{ ...commandPlugin, source: { type: 'command', command: 'echo ok\r\necho invalid' } }]),
-    false
+    false,
   );
   assert.equal(isStatusPluginList([{ ...commandPlugin, source: { type: 'command', command: 'echo ok\0' } }]), false);
   assert.equal(isStatusPluginList([{ ...commandPlugin, source: { type: 'system', metric: 'disk' } }]), false);

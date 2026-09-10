@@ -3,9 +3,9 @@ import type {
   RepositoryChange,
   RepositoryCommitDiff,
   RepositoryCommitPage,
-  RepositoryDiscardResult,
   RepositoryDiff,
   RepositoryDirectoryListing,
+  RepositoryDiscardResult,
   RepositorySnapshot,
   WorkspaceEntryKind,
   WorkspaceFile,
@@ -36,7 +36,7 @@ export class RepositoryClient {
     return requestJson<RepositorySnapshot>(
       `${this.#basePath}?${new URLSearchParams({ commitLimit: String(commitLimit) }).toString()}`,
       signal ? { signal } : undefined,
-      'Unable to refresh this repository.'
+      'Unable to refresh this repository.',
     );
   }
 
@@ -44,7 +44,7 @@ export class RepositoryClient {
     return requestJson<RepositoryCommitPage>(
       `${this.#basePath}/commits?${new URLSearchParams({ offset: String(offset) }).toString()}`,
       signal ? { signal } : undefined,
-      'Unable to load more commits.'
+      'Unable to load more commits.',
     );
   }
 
@@ -53,7 +53,7 @@ export class RepositoryClient {
     return requestJson<RepositoryDirectoryListing>(
       endpoint,
       signal ? { signal } : undefined,
-      'Unable to read this folder.'
+      'Unable to read this folder.',
     );
   }
 
@@ -61,7 +61,7 @@ export class RepositoryClient {
     return requestJson<WorkspaceFile>(
       pathUrl(`${this.#basePath}/file`, path),
       signal ? { signal } : undefined,
-      'Unable to read this file.'
+      'Unable to read this file.',
     );
   }
 
@@ -69,7 +69,7 @@ export class RepositoryClient {
     return requestJson<RepositoryDiff>(
       pathUrl(`${this.#basePath}/diff`, path),
       signal ? { signal } : undefined,
-      'Unable to read this diff.'
+      'Unable to read this diff.',
     );
   }
 
@@ -77,7 +77,7 @@ export class RepositoryClient {
     return requestJson<RepositoryCommitDiff>(
       pathUrl(`${this.#basePath}/commit`, hash),
       signal ? { signal } : undefined,
-      'Unable to read this commit.'
+      'Unable to read this commit.',
     );
   }
 
@@ -85,7 +85,7 @@ export class RepositoryClient {
     return requestJson<{ name: string }>(
       pathUrl(`${this.#basePath}/branch`, name),
       { method: 'DELETE' },
-      'The branch could not be deleted.'
+      'The branch could not be deleted.',
     );
   }
 
@@ -101,7 +101,7 @@ export class RepositoryClient {
           ...(change.previousPath ? { previousPath: change.previousPath } : {}),
         }),
       },
-      'The changes could not be discarded.'
+      'The changes could not be discarded.',
     );
   }
 
@@ -113,7 +113,7 @@ export class RepositoryClient {
     return requestResponse(
       this.mediaUrl(path),
       withSignal({ method: 'HEAD' }, signal),
-      'This image cannot be previewed.'
+      'This image cannot be previewed.',
     );
   }
 
@@ -125,7 +125,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path, content: '' }),
       },
-      'The file could not be created.'
+      'The file could not be created.',
     );
   }
 
@@ -137,7 +137,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content, version }),
       },
-      'The file could not be saved.'
+      'The file could not be saved.',
     );
   }
 
@@ -149,7 +149,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path }),
       },
-      'The folder could not be created.'
+      'The folder could not be created.',
     );
   }
 
@@ -162,7 +162,7 @@ export class RepositoryClient {
         headers: { 'content-type': file.type || 'application/octet-stream' },
         body: file,
       },
-      'The file could not be added.'
+      'The file could not be added.',
     );
   }
 
@@ -170,7 +170,7 @@ export class RepositoryClient {
     path: string,
     kind: WorkspaceEntryKind,
     targetDirectory: string,
-    conflict: WorkspaceMoveConflict = 'reject'
+    conflict: WorkspaceMoveConflict = 'reject',
   ): Promise<WorkspaceMoveResult> {
     return requestJson<WorkspaceMoveResult>(
       `${this.#basePath}/move`,
@@ -179,7 +179,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path, kind, targetDirectory, conflict }),
       },
-      'The entry could not be moved.'
+      'The entry could not be moved.',
     );
   }
 
@@ -193,7 +193,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path, kind, targetDirectory, targetName, conflict: 'reject' }),
       },
-      'The entry could not be renamed.'
+      'The entry could not be renamed.',
     );
   }
 
@@ -201,7 +201,7 @@ export class RepositoryClient {
     path: string,
     kind: WorkspaceEntryKind,
     targetDirectory: string,
-    conflict: WorkspaceMoveConflict = 'reject'
+    conflict: WorkspaceMoveConflict = 'reject',
   ): Promise<WorkspaceMoveResult> {
     return requestJson<WorkspaceMoveResult>(
       `${this.#basePath}/copy`,
@@ -210,7 +210,7 @@ export class RepositoryClient {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path, kind, targetDirectory, conflict }),
       },
-      'The entry could not be copied.'
+      'The entry could not be copied.',
     );
   }
 
@@ -220,7 +220,7 @@ export class RepositoryClient {
     return requestJson<{ path: string }>(
       pathUrl(`${this.#basePath}/${endpoint}`, path),
       { method: 'DELETE' },
-      fallback
+      fallback,
     );
   }
 }

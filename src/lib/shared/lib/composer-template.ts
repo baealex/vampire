@@ -97,7 +97,7 @@ export function renderComposerTemplate(
   template: string | undefined,
   prompt: string,
   context: ComposerTemplateContext,
-  renderedAt = new Date()
+  renderedAt = new Date(),
 ): ComposerTemplateRenderResult {
   const source = template ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE;
   const parsed = parseComposerTemplate(source);

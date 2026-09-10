@@ -1,0 +1,117 @@
+.popover {
+  box-sizing: border-box;
+  z-index: 80;
+  width: min(34rem, var(--radix-popover-content-available-width));
+  max-height: min(34rem, var(--radix-popover-content-available-height));
+  padding: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+}
+
+.content {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  outline: none;
+  background: var(--color-control-background);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.search:focus {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-accent-focus);
+}
+
+.search::placeholder {
+  color: var(--color-field-placeholder);
+}
+
+.list {
+  max-height: min(24rem, 55dvh);
+  overflow-y: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+}
+
+.item {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.selected {
+  background: var(--color-surface-active);
+}
+
+.item span {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.item time {
+  color: var(--color-text-disabled);
+  font-size: var(--text-micro);
+}
+
+.message {
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.help {
+  margin: 0;
+  color: var(--color-text-disabled);
+  font-size: var(--text-micro);
+}
+
+@media (hover: hover) {
+  .item:hover {
+    background: var(--color-surface-hover);
+  }
+}

@@ -1,7 +1,5 @@
-import { ChevronRight, CirclePlay, GitBranch, Plus, SquareTerminal, X } from 'lucide-react';
-import { observer } from 'mobx-react-lite';
-import { useEffect, useState } from 'react';
-import { AppSidebarActions } from '~/app/AppSidebarActions.tsx';
+import { DragDropProvider } from '@dnd-kit/react';
+import { isSortable, useSortable } from '@dnd-kit/react/sortable';
 import {
   formatWorkspaceTimestamp,
   isWorktreeWorkspace,
@@ -9,14 +7,39 @@ import {
   workspaceActivityLabel,
   workspaceActivityState,
   workspaceName,
-  workspaceRepositoryName,
   workspaceProcess,
+  workspaceRepositoryName,
 } from '@vampire/lib/features/workspace/model/workspace-view.ts';
-import { Button } from '~/shared/ui/index.ts';
+import {
+  ArrowDownWideNarrow,
+  ChevronRight,
+  CirclePlay,
+  GitFork,
+  GripVertical,
+  MessageSquare,
+  Plus,
+  SlidersHorizontal,
+  SquareTerminal,
+  StickyNote,
+  X,
+} from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { type PropsWithChildren, useEffect, useState } from 'react';
+import { AppSidebarActions } from '~/app/AppSidebarActions.tsx';
+import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
 import { WorkspaceActionsMenu } from '~/features/workspace/WorkspaceActionsMenu.tsx';
 import { WorkspaceDirectoryPicker } from '~/features/workspace/WorkspaceDirectoryPicker.tsx';
-import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '~/shared/ui/index.ts';
 import '../features/workspace/workspace-navigator.css';
+
+const SHOW_NOTES_KEY = 'vampire:sidebar-show-notes';
+const SHOW_LAST_MESSAGE_KEY = 'vampire:sidebar-show-last-message';
 
 export const WorkspaceNavigator = observer(function WorkspaceNavigator({
   onAutomations,
@@ -40,13 +63,42 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
   const [now, setNow] = useState(Date.now());
   const [endedOpen, setEndedOpen] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string>();
+  const [showNotes, setShowNotes] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_NOTES_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [showLastMessage, setShowLastMessage] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_LAST_MESSAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
+    try {
+      localStorage.setItem(SHOW_NOTES_KEY, String(showNotes));
+      localStorage.setItem(SHOW_LAST_MESSAGE_KEY, String(showLastMessage));
+    } catch {
+      // Keep the control usable when browser storage is unavailable.
+    }
+  }, [showNotes, showLastMessage]);
+  useEffect(() => {
+    const update = () => {
+      if (!document.hidden) setNow(Date.now());
+    };
+    const timer = window.setInterval(update, 1_000);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', update);
+    };
   }, []);
   useEffect(() => {
-    if (state.activeWorkspace?.state === 'missing') setEndedOpen(true);
-  }, [state.activeWorkspace?.state]);
+    if (state.activeWorkspace?.state === 'missing' && !state.workspaceAction) setEndedOpen(true);
+  }, [state.activeWorkspace?.state, state.workspaceAction]);
   const groups = [
     { state: 'active', label: 'Working' },
     { state: 'review', label: 'Review needed' },
@@ -55,20 +107,24 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
   ].map((group) => ({
     ...group,
     workspaces: state.displayedWorkspaces.filter(
-      (workspace) => workspaceActivityState(workspace, state.activityRecords, now) === group.state
+      (workspace) => workspaceActivityState(workspace, state.activityRecords, now) === group.state,
     ),
   }));
   const renderRows = (workspaces: typeof state.workspaces) =>
-    workspaces.map((workspace) => {
+    workspaces.map((workspace, index) => {
       const activity = workspaceActivityState(workspace, state.activityRecords, now);
       const name = workspaceName(workspace);
       const outputAt = latestWorkspaceOutputAt(workspace);
       const process = workspaceProcess(workspace);
       const backgroundCount = Math.max(0, workspace.terminals.length - 1);
       return (
-        <div
-          className={`workspace-row-shell${state.requestedWorkspaceId === workspace.id ? ' selected' : ''}`}
+        <WorkspaceRowShell
           key={workspace.id}
+          id={workspace.id}
+          index={index}
+          name={name}
+          selected={state.requestedWorkspaceId === workspace.id}
+          manual={state.workspaceOrderMode === 'manual'}
         >
           <button
             className="workspace-row"
@@ -94,29 +150,26 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
               if (target) state.reorderWorkspace(workspace.id, target.id, event.key === 'ArrowUp' ? 'before' : 'after');
             }}
           >
-            <span className="workspace-title">
+            <span className="workspace-title" title={name}>
               <strong>{name}</strong>
             </span>
             {isWorktreeWorkspace(workspace) ? (
               <span className="workspace-origin">
-                <GitBranch size={12} strokeWidth={1.8} aria-hidden="true" />
+                <GitFork size={12} strokeWidth={1.8} aria-hidden="true" />
                 {workspaceRepositoryName(workspace)}
-                {workspace.worktreeBranch ? ` · ${workspace.worktreeBranch}` : ''}
               </span>
             ) : null}
             <span className="agent-summary">
               <span className={`status-dot ${activity}`} aria-hidden="true" />
+              <span className="workspace-state">{workspaceActivityLabel(activity)}</span>
               {process ? (
-                <>
-                  <span className="workspace-program">{process.label}</span>
-                  <span aria-hidden="true">·</span>
-                </>
+                <span className="workspace-program" title={process.label}>
+                  {process.label}
+                </span>
               ) : null}
-              <span className={state.workspaceOrderMode === 'manual' ? 'workspace-state' : undefined}>
-                {workspaceActivityLabel(activity)}
-              </span>
-              <span aria-hidden="true">·</span>
-              <time dateTime={new Date(outputAt).toISOString()}>{formatWorkspaceTimestamp(outputAt, now)}</time>
+              <time title={new Date(outputAt).toLocaleString()} dateTime={new Date(outputAt).toISOString()}>
+                {formatWorkspaceTimestamp(outputAt, now)}
+              </time>
             </span>
             {backgroundCount > 0 ? (
               <span
@@ -125,6 +178,25 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
               >
                 <CirclePlay size={13} aria-hidden="true" />
                 <span>{backgroundCount} background</span>
+              </span>
+            ) : null}
+            {(showNotes && workspace.notePreview) || (showLastMessage && workspace.composerPromptPreview) ? (
+              <span className="workspace-previews">
+                {showNotes && workspace.notePreview ? (
+                  <span className="workspace-note-preview" title={`Note: ${workspace.notePreview}`}>
+                    <StickyNote size={13} strokeWidth={1.7} aria-hidden="true" />
+                    <span>{workspace.notePreview}</span>
+                  </span>
+                ) : null}
+                {showLastMessage && workspace.composerPromptPreview ? (
+                  <span
+                    className="workspace-message-preview"
+                    title={`Last message: ${workspace.composerPromptPreview.text}`}
+                  >
+                    <MessageSquare size={13} strokeWidth={1.7} aria-hidden="true" />
+                    <span>{workspace.composerPromptPreview.text}</span>
+                  </span>
+                ) : null}
               </span>
             ) : null}
           </button>
@@ -148,24 +220,59 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
               }}
             />
           </div>
-        </div>
+        </WorkspaceRowShell>
       );
     });
   return (
     <aside className={`workspace-column${mobileOpen ? ' mobile-open' : ''}`}>
+      <AppSidebarActions
+        onPorts={() => {
+          onClose();
+          onPorts();
+        }}
+        onSettings={() => {
+          onClose();
+          onSettings();
+        }}
+      />
       <section className="workspace-panel" aria-label="Workspace list">
-        <AppSidebarActions
-          onPorts={() => {
-            onClose();
-            onPorts();
-          }}
-          onSettings={() => {
-            onClose();
-            onSettings();
-          }}
-        />
         <header className="workspace-navigator-heading">
           <strong>Workspaces</strong>
+          <DropdownMenu
+            label="Order by"
+            title={`Order by: ${state.workspaceOrderMode === 'manual' ? 'Manual' : 'Activity'}`}
+            align="end"
+            trigger={<ArrowDownWideNarrow size={16} aria-hidden="true" />}
+          >
+            <DropdownMenuRadioGroup
+              value={state.workspaceOrderMode}
+              onValueChange={(value) => state.setWorkspaceOrderMode(value === 'manual' ? 'manual' : 'activity')}
+            >
+              <DropdownMenuRadioItem value="activity">Activity</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="manual">Manual</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenu>
+          <DropdownMenu
+            label="Workspace view options"
+            title="View options"
+            align="end"
+            trigger={<SlidersHorizontal size={16} aria-hidden="true" />}
+          >
+            <DropdownMenuCheckboxItem
+              checked={showNotes}
+              onCheckedChange={(checked) => setShowNotes(checked === true)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              Show notes
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={showLastMessage}
+              onCheckedChange={(checked) => setShowLastMessage(checked === true)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              Show last message
+            </DropdownMenuCheckboxItem>
+          </DropdownMenu>
           <button
             className="new-workspace-button"
             type="button"
@@ -186,27 +293,6 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
             <X size={17} aria-hidden="true" />
           </button>
         </header>
-        <div className="workspace-order-toolbar">
-          <span>Order by</span>
-          <button
-            type="button"
-            aria-label="Group workspaces by status"
-            aria-pressed={state.workspaceOrderMode === 'activity'}
-            className={state.workspaceOrderMode === 'activity' ? 'active' : ''}
-            onClick={() => state.setWorkspaceOrderMode('activity')}
-          >
-            Activity
-          </button>
-          <button
-            type="button"
-            aria-label="Arrange workspaces manually"
-            aria-pressed={state.workspaceOrderMode === 'manual'}
-            className={state.workspaceOrderMode === 'manual' ? 'active' : ''}
-            onClick={() => state.setWorkspaceOrderMode('manual')}
-          >
-            Manual
-          </button>
-        </div>
         {state.errorMessage ? (
           <p className="panel-message" role="alert">
             {state.errorMessage}
@@ -214,49 +300,101 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
         ) : state.workspaces.length === 0 ? (
           <Empty state={state} />
         ) : (
-          <div className="workspaces">
-            {state.workspaceOrderMode === 'manual'
-              ? renderRows(state.displayedWorkspaces)
-              : groups
-                  .filter((group) => group.workspaces.length)
-                  .map((group) => (
-                    <section
-                      className={`workspace-group ${group.state === 'active' ? 'working' : group.state}`}
-                      key={group.state}
-                      aria-labelledby={`workspace-group-${group.state}`}
-                    >
-                      {group.state === 'ended' ? (
-                        <>
-                          <button
-                            type="button"
-                            className="workspace-group-header workspace-group-toggle"
-                            aria-expanded={endedOpen}
-                            onClick={() => setEndedOpen((open) => !open)}
-                          >
-                            <span id="workspace-group-ended">{group.label}</span>
-                            <span className="workspace-group-count">{group.workspaces.length}</span>
-                            <ChevronRight size={14} className={endedOpen ? 'expanded' : ''} />
-                          </button>
-                          {endedOpen ? renderRows(group.workspaces) : null}
-                        </>
-                      ) : (
-                        <>
-                          <h2 className="workspace-group-header" id={`workspace-group-${group.state}`}>
-                            <span>{group.label}</span>
-                            <span className="workspace-group-count">{group.workspaces.length}</span>
-                          </h2>
-                          {renderRows(group.workspaces)}
-                        </>
-                      )}
-                    </section>
-                  ))}
-          </div>
+          <DragDropProvider
+            onDragEnd={(event) => {
+              if (event.canceled || state.workspaceOrderMode !== 'manual') return;
+              const { source } = event.operation;
+              if (!isSortable(source) || source.initialIndex === source.index) return;
+              const target = state.displayedWorkspaces[source.index];
+              if (target && state.displayedWorkspaces.some((workspace) => workspace.id === source.id)) {
+                state.reorderWorkspace(
+                  String(source.id),
+                  target.id,
+                  source.index > source.initialIndex ? 'after' : 'before',
+                );
+              }
+            }}
+          >
+            <div className="workspaces">
+              {state.workspaceOrderMode === 'manual'
+                ? renderRows(state.displayedWorkspaces)
+                : groups
+                    .filter((group) => group.workspaces.length)
+                    .map((group) => (
+                      <section
+                        className={`workspace-group ${group.state === 'active' ? 'working' : group.state}`}
+                        key={group.state}
+                        aria-labelledby={`workspace-group-${group.state}`}
+                      >
+                        {group.state === 'ended' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="workspace-group-header workspace-group-toggle"
+                              aria-expanded={endedOpen}
+                              onClick={() => setEndedOpen((open) => !open)}
+                            >
+                              <span id="workspace-group-ended">{group.label}</span>
+                              <span className="workspace-group-count">{group.workspaces.length}</span>
+                              <ChevronRight size={14} className={endedOpen ? 'expanded' : ''} />
+                            </button>
+                            {endedOpen ? renderRows(group.workspaces) : null}
+                          </>
+                        ) : (
+                          <>
+                            <h2 className="workspace-group-header" id={`workspace-group-${group.state}`}>
+                              <span>{group.label}</span>
+                              <span className="workspace-group-count">{group.workspaces.length}</span>
+                            </h2>
+                            {renderRows(group.workspaces)}
+                          </>
+                        )}
+                      </section>
+                    ))}
+            </div>
+          </DragDropProvider>
         )}
       </section>
       {state.newWorkspaceOpen ? <WorkspaceDirectoryPicker state={state} /> : null}
     </aside>
   );
 });
+
+function WorkspaceRowShell({
+  children,
+  id,
+  index,
+  manual,
+  name,
+  selected,
+}: PropsWithChildren<{
+  id: string;
+  index: number;
+  manual: boolean;
+  name: string;
+  selected: boolean;
+}>) {
+  const { ref, handleRef, isDragging } = useSortable({ id, index, disabled: !manual });
+  return (
+    <div
+      ref={manual ? ref : undefined}
+      className={`workspace-row-shell${selected ? ' selected' : ''}${manual ? ' manual' : ''}${isDragging ? ' dragging' : ''}`}
+    >
+      {manual ? (
+        <button
+          ref={handleRef}
+          type="button"
+          className="workspace-drag-handle"
+          aria-label={`Reorder ${name}`}
+          title="Drag to reorder. With keyboard, press Space, then arrow keys, then Space to drop."
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </button>
+      ) : null}
+      {children}
+    </div>
+  );
+}
 
 function Empty({ state }: { state: WorkspaceState }) {
   return (

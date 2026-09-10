@@ -1,10 +1,10 @@
-import { Send } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
 import {
   WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH,
   type WorkspaceAgentActionDescriptor,
   type WorkspaceAgentActionSubmission,
 } from '@vampire/lib/shared/contracts/workspace-agent-actions.ts';
+import { Send } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './Button.tsx';
 import { Field } from './Field.tsx';
 import { Textarea } from './Textarea.tsx';

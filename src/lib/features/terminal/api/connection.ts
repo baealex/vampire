@@ -62,10 +62,10 @@ export interface TerminalConnectionCallbacks {
 
 export interface TerminalSocket {
   readyState: number;
-  onopen: ((event: any) => void) | null;
-  onmessage: ((event: any) => void) | null;
-  onerror: ((event: any) => void) | null;
-  onclose: ((event: any) => void) | null;
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onclose: ((event: CloseEvent) => void) | null;
   send(data: string): void;
   close(code?: number, reason?: string): void;
 }
@@ -119,7 +119,7 @@ export class TerminalConnection {
   constructor(
     url: TerminalConnectionUrl,
     callbacks: TerminalConnectionCallbacks,
-    dependencies: TerminalConnectionDependencies = {}
+    dependencies: TerminalConnectionDependencies = {},
   ) {
     this.#url = typeof url === 'function' ? () => String(url()) : () => String(url);
     this.#now = dependencies.now ?? (() => performance.now());
@@ -276,7 +276,7 @@ export class TerminalConnection {
           code: TERMINAL_READY_TIMEOUT_CLOSE_CODE,
           reason: TERMINAL_READY_TIMEOUT_REASON,
         },
-        true
+        true,
       );
       this.#scheduleReconnect();
     }, TERMINAL_READY_TIMEOUT_MS);
@@ -311,7 +311,7 @@ export class TerminalConnection {
 
   #report(
     phase: TerminalConnectionDiagnostic['phase'],
-    detail: Pick<TerminalConnectionDiagnostic, 'delayMs' | 'closeCode' | 'reason'> = {}
+    detail: Pick<TerminalConnectionDiagnostic, 'delayMs' | 'closeCode' | 'reason'> = {},
   ): void {
     try {
       this.#callbacks.onDiagnostic?.({

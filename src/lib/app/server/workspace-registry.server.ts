@@ -1,9 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import {
+  createGitWorktree,
+  GitWorktreeError,
+  removeManagedGitWorktree,
+  rollbackGitWorktree,
+} from '~/lib/features/repository/server/git-worktree.server.ts';
+import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.server.ts';
+import {
+  resolveAllowedWorkspaceDirectory,
+  resolveExistingWorkspaceDirectory,
+  WorkspaceRootError,
+} from '~/lib/features/system/server/workspace-roots.server.ts';
+import {
   captureTmuxBackgroundOutput,
-  createTmuxSession,
   createTmuxBackgroundProcess,
+  createTmuxSession,
   killTmuxBackgroundProcess,
   killTmuxSession,
   listTmuxSessions,
@@ -12,23 +24,20 @@ import {
   type TmuxSession,
   type TmuxTerminal,
 } from '~/lib/features/terminal/server/tmux.server.ts';
-import { isGitRepository as readIsGitRepository } from '~/lib/features/repository/server/repository.server.ts';
-import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
-import { prepareStructuredWorkspaceStateRemoval } from '~/lib/server/workspace-state-files.ts';
+import { prepareWorkspaceAutomationRequestRemoval } from '~/lib/features/workspace/server/workspace-automation-request-files.server.ts';
+import { prepareWorkspaceBackgroundRequestRemoval } from '~/lib/features/workspace/server/workspace-background-request-files.server.ts';
+import {
+  ensureManagedWorkspaceComposerHistoryFile,
+  prepareManagedWorkspaceComposerHistoryRemoval,
+  readManagedWorkspaceComposerPromptPreview,
+} from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
+import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
 import {
   ensureManagedWorkspaceNoteFile,
   prepareManagedWorkspaceNoteRemoval,
   readManagedWorkspaceNoteFile,
   writeManagedWorkspaceNoteFile,
 } from '~/lib/features/workspace/server/workspace-note-file.server.ts';
-import { createWorkspaceNotePreview } from '~/lib/features/workspace/server/workspace-note.server.ts';
-import {
-  ensureManagedWorkspaceComposerHistoryFile,
-  prepareManagedWorkspaceComposerHistoryRemoval,
-  readManagedWorkspaceComposerPromptPreview,
-} from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
-import { prepareWorkspaceAutomationRequestRemoval } from '~/lib/features/workspace/server/workspace-automation-request-files.server.ts';
-import { prepareWorkspaceBackgroundRequestRemoval } from '~/lib/features/workspace/server/workspace-background-request-files.server.ts';
 import {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
@@ -37,25 +46,16 @@ import {
   withWorkspaceStoreMutation,
   writeWorkspaceStore as writeState,
 } from '~/lib/features/workspace/server/workspace-store.server.ts';
-import {
-  resolveAllowedWorkspaceDirectory,
-  resolveExistingWorkspaceDirectory,
-  WorkspaceRootError,
-} from '~/lib/features/system/server/workspace-roots.server.ts';
-import {
-  createGitWorktree,
-  GitWorktreeError,
-  removeManagedGitWorktree,
-  rollbackGitWorktree,
-} from '~/lib/features/repository/server/git-worktree.server.ts';
-import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
+import { automaticCommandsAllowed } from '~/lib/server/runtime-safety.ts';
+import { prepareStructuredWorkspaceStateRemoval } from '~/lib/server/workspace-state-files.ts';
 import { isLaunchProfileList, normalizeLaunchProfiles } from '~/lib/shared/contracts/launch-profiles.ts';
 import {
-  WORKSPACE_ALIAS_MAX_LENGTH,
   type LaunchProfile,
   type LaunchProfileSettings,
+  WORKSPACE_ALIAS_MAX_LENGTH,
   type WorkspacePreferences,
 } from '~/lib/shared/contracts/workspace.ts';
+import type { AgentState } from '~/lib/shared/contracts/workspace-agent.ts';
 import type { WorkspaceComposerPromptPreview } from '~/lib/shared/contracts/workspace-composer-history.ts';
 import {
   DEFAULT_WORKSPACE_COMPOSER_TEMPLATE,
@@ -146,7 +146,7 @@ async function readManagedWorkspaceNotePreview(stored: StoredWorkspace): Promise
 }
 
 async function readManagedComposerPromptPreview(
-  stored: StoredWorkspace
+  stored: StoredWorkspace,
 ): Promise<WorkspaceComposerPromptPreview | null> {
   try {
     return await readManagedWorkspaceComposerPromptPreview(stored.id);
@@ -185,7 +185,7 @@ async function detectWorkspaceAvailable(cwd: string): Promise<boolean> {
 
 function reconcileWorkspacePreferences(
   workspaces: StoredWorkspace[],
-  preferences: WorkspacePreferences
+  preferences: WorkspacePreferences,
 ): WorkspacePreferences {
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   const manualWorkspaceOrder = [...new Set(preferences.manualWorkspaceOrder)].filter((id) => workspaceIds.has(id));
@@ -218,7 +218,7 @@ function normalizeWorkspaceAlias(alias: string): string {
   if (normalizedAlias.length > WORKSPACE_ALIAS_MAX_LENGTH || /[\0\r\n\t]/.test(normalizedAlias)) {
     throw new WorkspaceMutationError(
       'invalid-workspace-alias',
-      `Workspace aliases must stay on one line and be ${WORKSPACE_ALIAS_MAX_LENGTH} characters or fewer.`
+      `Workspace aliases must stay on one line and be ${WORKSPACE_ALIAS_MAX_LENGTH} characters or fewer.`,
     );
   }
   return normalizedAlias;
@@ -245,8 +245,8 @@ export async function listManagedWorkspaces(): Promise<ManagedWorkspace[]> {
           detectWorkspaceAvailable(cwd),
         ]);
         return [cwd, isGitRepository, workspaceAvailable];
-      }
-    )
+      },
+    ),
   );
   const repositoryByCwd = new Map(workspaceStates.map(([cwd, isGitRepository]) => [cwd, isGitRepository]));
   const availabilityByCwd = new Map(workspaceStates.map(([cwd, , workspaceAvailable]) => [cwd, workspaceAvailable]));
@@ -310,7 +310,7 @@ export async function updateManagedWorkspacePreferences(input: WorkspacePreferen
 
 export async function updateManagedWorkspaceSettings(
   id: string,
-  input: { workspaceLabel: string; startupProfileId: string | null; composerTemplate: string }
+  input: { workspaceLabel: string; startupProfileId: string | null; composerTemplate: string },
 ): Promise<{ workspaceLabel: string; startupProfileId: string | null; composerTemplate: string }> {
   return exclusively(async () => {
     const state = await readState();
@@ -486,7 +486,7 @@ export async function createManagedWorktreeWorkspace(input: {
 
 export async function restartManagedWorkspace(
   id: string,
-  input: { launchProfileId?: string | null } = {}
+  input: { launchProfileId?: string | null } = {},
 ): Promise<ManagedWorkspace> {
   return exclusively(async () => {
     const state = await readState();
@@ -578,7 +578,7 @@ function validateLaunchProfiles(input: LaunchProfile[]): LaunchProfile[] {
   if (!isLaunchProfileList(input)) {
     throw new WorkspaceMutationError(
       'invalid-launch-profiles',
-      'Launch profiles must contain valid names and single-line commands.'
+      'Launch profiles must contain valid names and single-line commands.',
     );
   }
   const launchProfiles = normalizeLaunchProfiles(input);
@@ -602,7 +602,7 @@ export type WorkspaceStartupUpdate = LaunchProfileUpdate & {
 
 export async function updateManagedLaunchProfiles(
   input: LaunchProfile[],
-  options: { defaultStartupProfileId?: string | null; applyDefaultToAll?: boolean } = {}
+  options: { defaultStartupProfileId?: string | null; applyDefaultToAll?: boolean } = {},
 ): Promise<LaunchProfileUpdate> {
   return exclusively(async () => {
     const launchProfiles = validateLaunchProfiles(input);
@@ -653,7 +653,7 @@ export async function updateManagedStartupProfile(id: string, input: string | nu
 
 export async function updateManagedWorkspaceStartup(
   id: string,
-  input: { launchProfiles: LaunchProfile[]; startupProfileId: string | null }
+  input: { launchProfiles: LaunchProfile[]; startupProfileId: string | null },
 ): Promise<WorkspaceStartupUpdate> {
   return exclusively(async () => {
     const launchProfiles = validateLaunchProfiles(input.launchProfiles);
@@ -699,7 +699,7 @@ export async function updateManagedWorkspaceStartup(
 function resolveRestartProfileId(
   stored: StoredWorkspace,
   launchProfiles: LaunchProfile[],
-  launchProfileId: string | null | undefined
+  launchProfileId: string | null | undefined,
 ): string | null {
   if (launchProfileId === undefined) return stored.startupProfileId;
   if (launchProfileId === null) return null;
@@ -714,7 +714,7 @@ async function sendLaunchProfile(
   tmuxSession: string,
   running: TmuxSession,
   launchProfiles: LaunchProfile[],
-  launchProfileId: string | null
+  launchProfileId: string | null,
 ): Promise<void> {
   if (!automaticCommandsAllowed()) return;
   const profile = launchProfileId ? launchProfiles.find((candidate) => candidate.id === launchProfileId) : undefined;
@@ -734,12 +734,12 @@ export async function createManagedBackgroundProcess(id: string, command: string
     if (!running)
       throw new WorkspaceMutationError(
         'workspace-not-running',
-        'Reopen the workspace before running a background command.'
+        'Reopen the workspace before running a background command.',
       );
     if (running.terminals.slice(1).length >= MAX_BACKGROUND_PROCESSES) {
       throw new WorkspaceMutationError(
         'background-limit',
-        `A workspace can run up to ${MAX_BACKGROUND_PROCESSES} background commands.`
+        `A workspace can run up to ${MAX_BACKGROUND_PROCESSES} background commands.`,
       );
     }
     return createTmuxBackgroundProcess(stored.tmuxSession, stored.cwd, normalizedCommand);
@@ -758,7 +758,7 @@ export async function favoriteManagedBackgroundCommand(id: string, command: stri
     if (stored.favoriteCommands.length >= MAX_FAVORITE_COMMANDS) {
       throw new WorkspaceMutationError(
         'favorite-limit',
-        `A workspace can save up to ${MAX_FAVORITE_COMMANDS} favorite commands.`
+        `A workspace can save up to ${MAX_FAVORITE_COMMANDS} favorite commands.`,
       );
     }
 
@@ -798,7 +798,7 @@ export async function stopManagedBackgroundProcess(id: string, terminalId: strin
     if (!running)
       throw new WorkspaceMutationError(
         'workspace-not-running',
-        'Reopen the workspace before stopping a background process.'
+        'Reopen the workspace before stopping a background process.',
       );
     const backgroundProcess = running.terminals.slice(1).find((candidate) => candidate.id === terminalId);
     if (!backgroundProcess) return;
@@ -892,7 +892,7 @@ async function cleanupManagedWorktree(stored: StoredWorkspace): Promise<void> {
     }
     throw new WorkspaceMutationError(
       'worktree-cleanup-failed',
-      'Vampire could not remove the managed working copy. The workspace remains registered.'
+      'Vampire could not remove the managed working copy. The workspace remains registered.',
     );
   }
 }

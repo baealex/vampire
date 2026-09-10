@@ -1,9 +1,9 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status.ts';
 import { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
+import type { TmuxStatus } from '~/lib/shared/contracts/tmux-status.ts';
+import { listProcesses, type ProcessRecord, terminateProcessTrees } from './process-cleanup.server.ts';
 import { terminalSubmissionData, terminalSubmissionSettleMs } from './submission.server.ts';
-import { listProcesses, terminateProcessTrees, type ProcessRecord } from './process-cleanup.server.ts';
 
 export { tmuxCommandArguments } from '~/lib/server/tmux-command.ts';
 
@@ -23,7 +23,7 @@ const VAMPIRE_SERVER_ENVIRONMENT_KEYS = [
 export function tmuxSessionLaunch(
   name: string,
   cwd: string,
-  sourceEnvironment: NodeJS.ProcessEnv = process.env
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
 ): { arguments: string[]; environment: NodeJS.ProcessEnv } {
   const serverEnvironmentKeys = [
     ...new Set([
@@ -48,7 +48,7 @@ export function tmuxSessionLaunch(
         '-F',
         TMUX_WINDOW_FORMAT,
       ],
-      sourceEnvironment
+      sourceEnvironment,
     ),
     environment,
   };
@@ -157,7 +157,7 @@ function foregroundProcessForPane(panePid: number, processes: Map<number, Proces
   let foregroundProcess = paneProcess?.tpgid ? processes.get(paneProcess.tpgid) : undefined;
   while (foregroundProcess && !SHELL_COMMANDS.has(executableName(foregroundProcess.command))) {
     const children = [...processes.values()].filter(
-      (candidate) => candidate.ppid === foregroundProcess?.pid && candidate.tpgid === foregroundProcess?.tpgid
+      (candidate) => candidate.ppid === foregroundProcess?.pid && candidate.tpgid === foregroundProcess?.tpgid,
     );
     if (children.length !== 1) break;
     foregroundProcess = children[0];
@@ -169,7 +169,7 @@ function classifyProcess(
   currentCommand: string,
   title: string,
   panePid: number,
-  processes: Map<number, ProcessRecord>
+  processes: Map<number, ProcessRecord>,
 ): TmuxProcessHint | null {
   if (!currentCommand && !title && panePid <= 0) return null;
   const foregroundProcess = foregroundProcessForPane(panePid, processes);
@@ -201,7 +201,7 @@ async function assertTmuxTerminalOwner(name: string, terminalId: string): Promis
   const { stdout } = await execFile(
     'tmux',
     tmuxCommandArguments(['display-message', '-p', '-t', terminalId, '#{session_name}']),
-    { timeout: 3_000 }
+    { timeout: 3_000 },
   );
   if (stdout.trim() !== name) throw new Error('Terminal does not belong to this workspace.');
 }
@@ -225,7 +225,7 @@ async function listTmuxPanePids(name: string, target: string, workspaceScope: bo
       '-F',
       '#{session_name}\t#{pane_pid}',
     ]),
-    { timeout: 3_000 }
+    { timeout: 3_000 },
   );
   const panePids = new Set<number>();
   for (const row of stdout.trim().split('\n').filter(Boolean)) {
@@ -276,7 +276,7 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
       cwd,
       '-n',
       backgroundWindowName(command),
-    ])
+    ]),
   );
   const terminalId = stdout.trim();
   if (!/^@\d+$/.test(terminalId)) throw new Error('tmux did not describe the new background process.');
@@ -319,7 +319,7 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
         terminalId,
         '@vampire_background_started_at',
         String(startedAt),
-      ])
+      ]),
     );
     const shell = process.env.SHELL?.trim() || '/bin/sh';
     await execFile(
@@ -330,7 +330,7 @@ export async function createTmuxBackgroundProcess(name: string, cwd: string, com
         '-t',
         terminalId,
         `exec ${shellArgument(shell)} -lc ${shellArgument(command)}`,
-      ])
+      ]),
     );
     const terminal = (await listTmuxSessions())
       .find((workspace) => workspace.name === name)
@@ -393,7 +393,7 @@ export async function submitTmuxPrompt(name: string, terminalId: string, data: s
   const { stdout } = await execFile(
     'tmux',
     tmuxCommandArguments(['display-message', '-p', '-t', terminalId, '#{bracket_paste_flag}']),
-    { timeout: 3_000 }
+    { timeout: 3_000 },
   );
   const bracketedPaste = stdout.trim() === '1';
   await execFile('tmux', tmuxCommandArguments(tmuxPromptSubmissionArguments(terminalId, data, bracketedPaste)), {
@@ -550,7 +550,7 @@ export async function listTmuxSessionActivity(): Promise<TmuxSessionActivity[]> 
   try {
     const { stdout } = await execFile(
       'tmux',
-      tmuxCommandArguments(['list-windows', '-a', '-F', '#{session_name}\t#{window_index}\t#{window_activity}'])
+      tmuxCommandArguments(['list-windows', '-a', '-F', '#{session_name}\t#{window_index}\t#{window_activity}']),
     );
     return parseTmuxSessionActivity(stdout);
   } catch (error) {

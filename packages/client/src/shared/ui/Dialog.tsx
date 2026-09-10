@@ -1,10 +1,11 @@
 import * as DialogPrimitive from '@baejino/react-ui/modal/dialog';
 import { X } from 'lucide-react';
-import { useRef, type PropsWithChildren, type ReactNode } from 'react';
+import { type PropsWithChildren, type ReactNode, useRef } from 'react';
 import './dialog.css';
 
 export function Dialog({
   children,
+  busy = false,
   footer,
   onClose,
   open,
@@ -12,6 +13,7 @@ export function Dialog({
   title,
 }: PropsWithChildren<{
   footer?: ReactNode;
+  busy?: boolean;
   onClose: () => void;
   open: boolean;
   role?: 'dialog' | 'alertdialog';
@@ -22,7 +24,7 @@ export function Dialog({
     <DialogPrimitive.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next && !busy) onClose();
       }}
     >
       <DialogPrimitive.Portal>
@@ -41,7 +43,7 @@ export function Dialog({
         >
           <header className="vampire-dialog-header">
             <DialogPrimitive.Title className="vampire-dialog-title">{title}</DialogPrimitive.Title>
-            <DialogPrimitive.Close className="vampire-dialog-close" aria-label="Close">
+            <DialogPrimitive.Close className="vampire-dialog-close" aria-label="Close" disabled={busy}>
               <X size={18} aria-hidden="true" />
             </DialogPrimitive.Close>
           </header>

@@ -4,8 +4,8 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOpt
 import { expectedRequestOrigin, requestHostAllowed } from '~/lib/server/runtime-config.ts';
 import { authorizeSession, SECURE_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from '~/lib/server/session-cookie.ts';
 import { registerServerRoutes } from './fastify-routes.server.ts';
-import { registerWorkspaceEventRoutes } from './fastify-workspace-events.server.ts';
 import { registerUploadRoutes } from './fastify-upload-routes.server.ts';
+import { registerWorkspaceEventRoutes } from './fastify-workspace-events.server.ts';
 
 const MAX_REQUEST_BODY_BYTES = 11 * 1024 * 1024;
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -26,7 +26,7 @@ function applySecurityHeaders(reply: FastifyReply): void {
   reply.header('cross-origin-resource-policy', 'same-origin');
   reply.header(
     'content-security-policy',
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
   );
 }
 
@@ -76,6 +76,7 @@ export function createFastifyApp(options: CreateFastifyAppOptions = {}): Fastify
     app.register(fastifyStatic, {
       root: options.clientDirectory,
       decorateReply: true,
+      preCompressed: true,
     });
   }
 

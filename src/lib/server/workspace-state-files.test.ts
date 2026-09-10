@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { WorkspaceStore } from '~/lib/shared/contracts/workspace-store.ts';
 import {
-  readStructuredWorkspaceState,
   prepareStructuredWorkspaceStateRemoval,
+  readStructuredWorkspaceState,
   recoverStructuredWorkspaceState,
   WORKSPACE_STATE_TRANSACTION_FILE,
   writeStructuredWorkspaceState,
@@ -67,7 +67,7 @@ test('stores each ownership domain in its final file and round-trips the aggrega
         favoriteCommands: string[];
       }
     ).favoriteCommands,
-    ['pnpm dev']
+    ['pnpm dev'],
   );
   assert.equal(
     (
@@ -75,7 +75,7 @@ test('stores each ownership domain in its final file and round-trips the aggrega
         startupProfileId: string;
       }
     ).startupProfileId,
-    'development'
+    'development',
   );
   assert.deepEqual((await readdir(join(directory, 'global'))).sort(), ['launch-profiles.json', 'settings.json']);
   await assert.rejects(readFile(join(directory, WORKSPACE_STATE_TRANSACTION_FILE)), { code: 'ENOENT' });
@@ -90,7 +90,7 @@ test('replays a durable transaction after failure before the registry commit', a
       stateDirectory: directory,
       revision: 'revision-1',
       now: 1_000,
-    })
+    }),
   );
   assert.match(await readFile(join(directory, WORKSPACE_STATE_TRANSACTION_FILE), 'utf8'), /revision-1/);
 
@@ -107,7 +107,7 @@ test('fails closed on corrupt recovery data without replacing a committed regist
   const committedRegistry = await readFile(registryPath, 'utf8');
   await writeFile(
     join(directory, WORKSPACE_STATE_TRANSACTION_FILE),
-    '{"version":1,"id":"00000000-0000-0000-0000-000000000000","createdAt":"1970-01-01T00:00:00.000Z","files":[]}'
+    '{"version":1,"id":"00000000-0000-0000-0000-000000000000","createdAt":"1970-01-01T00:00:00.000Z","files":[]}',
   );
 
   await assert.rejects(readStructuredWorkspaceState(directory), /recovery data is unreadable/i);
@@ -121,7 +121,7 @@ test('removes a known workspace directory only after its registry entry is commi
   await assert.rejects(removeWorkspace(), /remains registered/i);
   await writeStructuredWorkspaceState(
     { version: 1, launchProfiles: [], defaultStartupProfileId: null, workspaces: [] },
-    { stateDirectory: directory, revision: 'revision-2' }
+    { stateDirectory: directory, revision: 'revision-2' },
   );
 
   await removeWorkspace();

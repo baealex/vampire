@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import './primitives.css';
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -9,7 +9,7 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { block = false, className, size = 'md', type = 'button', variant = 'secondary', ...props },
-  ref
+  ref,
 ) {
   const classes = [
     'vampire-button',

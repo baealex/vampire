@@ -22,16 +22,12 @@ test('the npm package includes every runtime module reachable from its CLI', asy
 
     assert.ok(
       isPackaged(modulePath, packageFiles),
-      `${modulePath} is required at runtime but omitted from package.json files.`
+      `${modulePath} is required at runtime but omitted from package.json files.`,
     );
     if (isGeneratedBuildFile(modulePath)) continue;
 
     const absolutePath = resolve(repositoryRoot, modulePath);
-    try {
-      await access(absolutePath);
-    } catch (error) {
-      throw error;
-    }
+    await access(absolutePath);
 
     const source = await readFile(absolutePath, 'utf8');
     for (const specifier of relativeModuleSpecifiers(source)) {

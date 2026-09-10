@@ -1,12 +1,20 @@
-import { Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import {
   loadWorkspaceAgentAction,
   submitWorkspaceAgentAction,
 } from '@vampire/lib/shared/api/workspace-agent-actions.ts';
-import { AskAgentPanel, Button, Spinner, Textarea, ToolbarButton } from '~/shared/ui/index.ts';
-import type { WorkspaceState } from './model/workspace-state.ts';
+import { Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { registerNavigationGuard } from '~/shared/lib/navigation-guard.ts';
+import {
+  AskAgentPanel,
+  Button,
+  PanelState,
+  Textarea,
+  WorkspacePanelHeader,
+  WorkspaceSidePanel,
+} from '~/shared/ui/index.ts';
+import type { WorkspaceState } from './model/workspace-state.ts';
 import './workspace-note.css';
 
 export function WorkspaceNoteDialog({
@@ -20,6 +28,7 @@ export function WorkspaceNoteDialog({
   state: WorkspaceState;
   workspaceId: string;
 }) {
+  const workspace = state.workspaces.find((item) => item.id === workspaceId);
   const [draft, setDraft] = useState('');
   const [saved, setSaved] = useState('');
   const [loading, setLoading] = useState(true);
@@ -111,11 +120,7 @@ export function WorkspaceNoteDialog({
       if (ok) onClose();
     });
   return (
-    <aside
-      className={`workspace-note-panel${open ? ' open' : ''}`}
-      aria-hidden={!open}
-      inert={!open ? true : undefined}
-    >
+    <WorkspaceSidePanel open={open} className="workspace-note-panel" aria-label="Workspace note panel">
       <section
         className="note-editor panel"
         aria-label={askingAgent ? 'Ask agent about this note' : undefined}
@@ -135,9 +140,14 @@ export function WorkspaceNoteDialog({
           />
         ) : (
           <>
-            <header>
-              <h2 id="workspace-note-title">Note</h2>
-              <div>
+            <WorkspacePanelHeader
+              title="Note"
+              subtitle={workspace ? workspaceName(workspace) : undefined}
+              subtitleTitle={workspace?.cwd}
+              titleId="workspace-note-title"
+              close={close}
+              closeLabel="Close workspace note"
+              actions={
                 <Button
                   id="workspace-note-ask-agent"
                   size="sm"
@@ -147,16 +157,10 @@ export function WorkspaceNoteDialog({
                   <Sparkles size={15} />
                   Ask agent…
                 </Button>
-                <ToolbarButton label="Close workspace note" onClick={close}>
-                  <X size={17} />
-                </ToolbarButton>
-              </div>
-            </header>
+              }
+            />
             {loading ? (
-              <div className="repository-loading">
-                <Spinner />
-                Loading note…
-              </div>
+              <PanelState loading>Loading note…</PanelState>
             ) : (
               <Textarea
                 className="note-textarea"
@@ -182,6 +186,6 @@ export function WorkspaceNoteDialog({
           </>
         )}
       </section>
-    </aside>
+    </WorkspaceSidePanel>
   );
 }

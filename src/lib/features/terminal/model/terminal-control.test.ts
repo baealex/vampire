@@ -29,7 +29,7 @@ test('encodes cursor controls for the active terminal mode', () => {
   }
 });
 
-test('recognizes cross-platform input surface toggles without taking terminal control sequences', () => {
+test('recognizes only Command+Slash as the input surface toggle', () => {
   const shortcut = (changes: Partial<Parameters<typeof isInputSurfaceToggleShortcut>[0]>) =>
     isInputSurfaceToggleShortcut({
       altKey: false,
@@ -43,7 +43,6 @@ test('recognizes cross-platform input surface toggles without taking terminal co
     });
 
   assert.equal(shortcut({ code: 'Slash', metaKey: true }), true);
-  assert.equal(shortcut({ code: 'Backquote', ctrlKey: true }), true);
   assert.equal(shortcut({ code: 'Slash', ctrlKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ code: 'Backquote', ctrlKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ code: 'Backquote', ctrlKey: true, isComposing: true }), false);
@@ -51,6 +50,7 @@ test('recognizes cross-platform input surface toggles without taking terminal co
   assert.equal(shortcut({ code: 'Backslash', metaKey: true }), false);
   assert.equal(shortcut({ code: 'Backquote', metaKey: true }), false);
   assert.equal(shortcut({ code: 'Slash', ctrlKey: true }), false);
+  assert.equal(shortcut({ code: 'Backquote', ctrlKey: true }), false);
   assert.equal(shortcut({ code: 'Slash', metaKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ code: 'Slash', ctrlKey: true, metaKey: true, shiftKey: true }), false);
   assert.equal(shortcut({ altKey: true, code: 'Slash', ctrlKey: true, shiftKey: true }), false);

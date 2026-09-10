@@ -1,6 +1,6 @@
 # Architecture
 
-Vampire is a React + Vite client served by a Fastify application. It uses a small pnpm workspace, follows Ocean Brain's client/server package split where that split improves runtime clarity, and keeps Vampire's existing domain-oriented modules rather than copying unrelated GraphQL or persistence choices.
+Vampire is a React + Vite client served by a Fastify application. It uses a small pnpm workspace, separates client and server packages where that split improves runtime clarity, and keeps Vampire's existing domain-oriented modules.
 
 When two conventions compete, use this priority:
 
@@ -10,7 +10,7 @@ When two conventions compete, use this priority:
 4. Keep HTTP and realtime adapters thin.
 5. Prefer the simplest placement over directory symmetry.
 
-Do not introduce GraphQL, Prisma, or a second server process only to mirror Ocean Brain. Vampire's existing REST contract and filesystem/tmux domain services remain the appropriate fit.
+Do not introduce GraphQL, Prisma, or a second server process solely for architectural symmetry. Vampire's existing REST contract and filesystem/tmux domain services remain the appropriate fit.
 
 ## Module map
 
@@ -41,6 +41,7 @@ Folders are created only when a domain needs them. Ownership matters more than r
 The production deployment is one Fastify process and one browser origin:
 
 - Vite builds `packages/client` into `build/client`.
+- The build adds gzip variants of compressible client assets; Fastify negotiates these without runtime compression.
 - esbuild bundles the Fastify entry into `build/vampire-server.js`.
 - Fastify serves REST routes, event streams, terminal WebSockets, and the client SPA.
 - Development runs Fastify and Vite together; Vite proxies `/api`, `/events`, and `/ws`.

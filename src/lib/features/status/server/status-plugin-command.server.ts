@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 
 export const STATUS_PLUGIN_COMMAND_TIMEOUT_MS = 10_000;
 export const STATUS_PLUGIN_COMMAND_MAX_OUTPUT_BYTES = 32 * 1_024;
@@ -27,7 +27,7 @@ export class StatusPluginCommandError extends Error {
     kind: StatusPluginCommandErrorKind,
     result: StatusPluginCommandResult = { stdout: '', stderr: '' },
     exitCode: number | null = null,
-    options?: ErrorOptions
+    options?: ErrorOptions,
   ) {
     super(message, options);
     this.name = 'StatusPluginCommandError';
@@ -60,7 +60,7 @@ function killRemainingProcessGroup(child: ChildProcess): void {
 
 export async function runStatusPluginCommand(
   command: string,
-  options: StatusPluginCommandOptions = {}
+  options: StatusPluginCommandOptions = {},
 ): Promise<StatusPluginCommandResult> {
   if (options.signal?.aborted) {
     throw new StatusPluginCommandError('Status plugin command was cancelled.', 'abort');
@@ -68,7 +68,7 @@ export async function runStatusPluginCommand(
   const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? STATUS_PLUGIN_COMMAND_TIMEOUT_MS, 60_000));
   const maxOutputBytes = Math.max(
     1,
-    Math.min(options.maxOutputBytes ?? STATUS_PLUGIN_COMMAND_MAX_OUTPUT_BYTES, STATUS_PLUGIN_COMMAND_MAX_OUTPUT_BYTES)
+    Math.min(options.maxOutputBytes ?? STATUS_PLUGIN_COMMAND_MAX_OUTPUT_BYTES, STATUS_PLUGIN_COMMAND_MAX_OUTPUT_BYTES),
   );
   const shell = process.env.SHELL?.trim() || (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
   const shellArguments = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command];
@@ -107,7 +107,7 @@ export async function runStatusPluginCommand(
     const timeoutTimer = setTimeout(
       () =>
         terminate(new StatusPluginCommandError(`Status plugin command exceeded ${timeoutMs} ms.`, 'timeout', result())),
-      timeoutMs
+      timeoutMs,
     );
     timeoutTimer.unref();
 
@@ -119,8 +119,8 @@ export async function runStatusPluginCommand(
           new StatusPluginCommandError(
             `Status plugin command exceeded ${maxOutputBytes} output bytes.`,
             'output-limit',
-            result()
-          )
+            result(),
+          ),
         );
         return;
       }
@@ -133,7 +133,7 @@ export async function runStatusPluginCommand(
       settled = true;
       cleanup();
       reject(
-        new StatusPluginCommandError('Unable to start status plugin command.', 'spawn', result(), null, { cause })
+        new StatusPluginCommandError('Unable to start status plugin command.', 'spawn', result(), null, { cause }),
       );
     });
     child.once('close', (code) => {
@@ -153,8 +153,8 @@ export async function runStatusPluginCommand(
             `Status plugin command exited with code ${code ?? 'unknown'}.`,
             'exit',
             result(),
-            code
-          )
+            code,
+          ),
         );
         return;
       }

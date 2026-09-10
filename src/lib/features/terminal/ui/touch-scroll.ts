@@ -18,7 +18,7 @@ const COMPATIBILITY_MOUSE_SUPPRESSION_MS = 500;
 export function installTerminalTouchScroll(
   element: HTMLElement,
   getTerminal: () => TouchScrollableTerminal | undefined,
-  options: TerminalTouchScrollOptions = {}
+  options: TerminalTouchScrollOptions = {},
 ): () => void {
   let pointerId: number | undefined;
   let startY = 0;

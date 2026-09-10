@@ -1,11 +1,11 @@
-import { watch, type PathLike } from 'node:fs';
+import { type PathLike, watch } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
+  type RepositorySummary,
   readRepositorySummary,
   readRepositoryWatchPaths,
-  type RepositorySummary,
 } from '~/lib/features/repository/server/repository.server.ts';
 import { findWorkspaceConnection } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import { encodeTerminalServerMessage, type TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
@@ -155,7 +155,7 @@ class RepositoryStatusMonitor {
         },
         (_event, filename) => {
           if (shouldRefresh(filename)) this.#scheduleRefresh();
-        }
+        },
       );
       watcher.on('error', () => this.#startFallback());
       return true;
@@ -182,7 +182,7 @@ class RepositoryStatusMonitor {
         this.#refreshTimer = undefined;
         void this.#refresh();
       },
-      Math.max(STATUS_SETTLE_MS, MIN_REFRESH_INTERVAL_MS - (Date.now() - this.#lastRefreshAt))
+      Math.max(STATUS_SETTLE_MS, MIN_REFRESH_INTERVAL_MS - (Date.now() - this.#lastRefreshAt)),
     );
   }
 

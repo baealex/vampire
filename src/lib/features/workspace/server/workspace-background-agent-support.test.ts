@@ -63,7 +63,7 @@ function applyArguments(command: string): [string, string, string] {
 
 async function stageRequest(
   support: { requestPath: string; applyCommand: string },
-  request: BackgroundRequest
+  request: BackgroundRequest,
 ): Promise<[string, string, string]> {
   await writeFile(support.requestPath, `${JSON.stringify(request, null, 2)}\n`);
   const command = applyArguments(support.applyCommand);
@@ -104,7 +104,7 @@ test('the apply command validates and atomically imports add and remove operatio
 
   assert.deepEqual(
     (await importWorkspaceBackgroundAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   assert.deepEqual((await readWorkspaceStore()).workspaces[0]?.favoriteCommands, ['pnpm dev', 'pnpm test --watch']);
 });
@@ -121,7 +121,7 @@ test('re-importing an applied request is idempotent', async (t) => {
   await writeFile(command[2], staged);
   assert.deepEqual(
     (await importWorkspaceBackgroundAgentRequests()).map((result) => result.status),
-    ['imported']
+    ['imported'],
   );
   assert.deepEqual((await readWorkspaceStore()).workspaces[0]?.favoriteCommands, ['pnpm dev', 'pnpm test --watch']);
 });

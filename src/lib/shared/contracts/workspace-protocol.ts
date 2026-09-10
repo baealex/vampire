@@ -1,12 +1,12 @@
+import { isLaunchProfile } from './launch-profiles.ts';
+import { isStatusPluginSnapshotList, type StatusPluginSnapshot } from './status-plugin.ts';
 import type {
   LaunchProfile,
   ManagedWorkspace,
+  WorkspacePreferences,
   WorkspaceProcess,
   WorkspaceTerminal,
-  WorkspacePreferences,
 } from './workspace.ts';
-import { isLaunchProfile } from './launch-profiles.ts';
-import { isStatusPluginSnapshotList, type StatusPluginSnapshot } from './status-plugin.ts';
 import { isWorkspaceComposerPromptPreview } from './workspace-composer-history.ts';
 import { isWorkspaceComposerTemplate } from './workspace-composer-template.ts';
 
@@ -105,7 +105,7 @@ function isWorkspaceTerminal(value: unknown): value is WorkspaceTerminal {
  *
  */
 function isWorkspaceTerminalUpdate(
-  value: unknown
+  value: unknown,
 ): value is Partial<WorkspaceTerminal> &
   Pick<WorkspaceTerminal, 'id' | 'index' | 'name' | 'active' | 'lastOutputAt' | 'foregroundProcess'> {
   return (

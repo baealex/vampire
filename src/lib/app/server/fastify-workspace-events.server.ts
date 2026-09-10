@@ -6,8 +6,8 @@ import {
   WORKSPACE_EVENT_STREAM_HEARTBEAT,
   type WorkspaceAuthenticationEvent,
 } from '~/lib/shared/contracts/workspace-event-stream.ts';
-import { subscribeWorkspaceStatus, type WorkspaceStatusSubscriber } from './workspace-status-hub.server.ts';
 import { authorizeFastifySession } from './fastify-auth.server.ts';
+import { subscribeWorkspaceStatus, type WorkspaceStatusSubscriber } from './workspace-status-hub.server.ts';
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const MAX_EVENT_STREAMS = 32;
@@ -70,7 +70,7 @@ async function openWorkspaceEventStream(request: FastifyRequest, reply: FastifyR
   if (session.expiresAt !== undefined) {
     expiryTimer = setTimeout(
       () => closeForAuthentication('authentication-expired'),
-      Math.max(0, session.expiresAt - Date.now())
+      Math.max(0, session.expiresAt - Date.now()),
     );
     expiryTimer.unref();
   }

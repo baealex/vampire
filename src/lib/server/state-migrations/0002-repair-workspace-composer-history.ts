@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, link, open, unlink, type FileHandle } from 'node:fs/promises';
+import { type FileHandle, link, lstat, open, unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { errorHasFileCode, syncDirectory } from '../atomic-file.ts';
 import {
@@ -71,7 +71,7 @@ async function ensureWorkspaceComposerHistoryFile(stateDirectory: string, worksp
 async function repairWorkspaceComposerHistory({ stateDirectory }: StateMigrationContext): Promise<void> {
   const state = await readStructuredWorkspaceState(stateDirectory);
   await Promise.all(
-    state.workspaces.map((workspace) => ensureWorkspaceComposerHistoryFile(stateDirectory, workspace.id))
+    state.workspaces.map((workspace) => ensureWorkspaceComposerHistoryFile(stateDirectory, workspace.id)),
   );
 }
 

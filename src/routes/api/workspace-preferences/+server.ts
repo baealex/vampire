@@ -1,10 +1,10 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   readManagedWorkspacePreferences,
-  WorkspaceMutationError,
   updateManagedWorkspacePreferences,
+  WorkspaceMutationError,
 } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

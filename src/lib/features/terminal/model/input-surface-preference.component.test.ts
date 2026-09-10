@@ -35,7 +35,7 @@ test('ignores invalid values and degrades safely when browser storage is unavail
     loadLastFocusedInputSurface('workspace-1', undefined, {
       getItem: () => 'other',
       setItem: () => undefined,
-    })
+    }),
   ).toEqual({ value: undefined, available: true });
 
   const unavailableStorage = {

@@ -12,7 +12,7 @@ test('parses SwiftBar-style plain output into a generic menu', () => {
         '--Usage dashboard | href=https://example.com/usage',
         '---',
         'Resets Friday',
-      ].join('\n')
+      ].join('\n'),
     ),
     {
       text: '42%',
@@ -25,7 +25,7 @@ test('parses SwiftBar-style plain output into a generic menu', () => {
       ],
       progress: 42,
       tone: 'warning',
-    }
+    },
   );
 });
 
@@ -51,7 +51,7 @@ test('parses bounded generic menu output', () => {
         ],
         progress: 18,
         tone: 'success',
-      })
+      }),
     ),
     {
       text: '18%',
@@ -72,7 +72,7 @@ test('parses bounded generic menu output', () => {
       ],
       progress: 18,
       tone: 'success',
-    }
+    },
   );
 });
 
@@ -81,7 +81,7 @@ test('rejects empty and invalid structured output', () => {
   assert.throws(() => parseStatusPluginOutput('{"text":"ok","progress":120}'), /structured output/i);
   assert.throws(
     () => parseStatusPluginOutput('{"text":"ok","menu":[{"type":"item","text":"Docs","href":"javascript:alert(1)"}]}'),
-    /structured output/i
+    /structured output/i,
   );
   assert.throws(() => parseStatusPluginOutput('{"detail":"missing text"}'), /no output/i);
 });

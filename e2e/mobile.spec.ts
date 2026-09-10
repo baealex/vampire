@@ -727,8 +727,8 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
-  await expect(workspaceList.getByRole('button', { name: 'Open settings' })).toBeVisible();
-  await workspaceList.getByRole('button', { name: 'Open settings' }).click();
+  await expect(page.getByRole('button', { name: 'Open settings' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
@@ -798,7 +798,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(openBackground).toBeVisible();
   await openBackground.click();
   const backgroundSheet = page.locator('aside.background-panel');
-  const backgroundTitle = backgroundSheet.locator('.workspace-panel-title strong');
+  const backgroundTitle = backgroundSheet.locator('header').first().locator('strong');
   await expect(backgroundSheet).toBeVisible();
   await expect(backgroundTitle).toHaveText('Background');
   await expect(page.getByRole('textbox', { name: 'Background command' })).toHaveCount(0);
@@ -815,7 +815,7 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   const output = backgroundSheet.getByRole('region', { name: `Output for ${backgroundCommandValue}` }).locator('pre');
   await expect(output).toContainText('300');
   await expect(backgroundTitle).toHaveText('Output');
-  await expect(backgroundSheet.locator('.workspace-panel-title span')).toHaveText(backgroundCommandValue);
+  await expect(backgroundSheet.getByText(backgroundCommandValue, { exact: true })).toBeVisible();
   const stopBackground = page.getByRole('button', { name: `Stop ${backgroundCommandValue}` });
   await expect(stopBackground).toBeVisible();
   const sheetLayout = await backgroundSheet.evaluate((sheet) => {
@@ -877,7 +877,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await expect(page.locator('.xterm-rows')).toContainText('conflict.txt');
   await page.getByRole('button', { name: 'Open repository' }).click();
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
-  await expect(page.locator('[aria-label="Edit conflict.txt"] .cm-content')).toBeVisible({ timeout: 15_000 });
+  const fileEditor = page.getByLabel('File for conflict.txt');
+  await expect(fileEditor.locator('.monaco-editor .view-lines')).toBeVisible({ timeout: 15_000 });
+  await fileEditor.locator('.monaco-editor .view-lines').click();
+  await expect(fileEditor.getByRole('textbox', { name: 'Editor for conflict.txt' })).toBeFocused();
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
   await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
 
@@ -971,7 +974,7 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   await expect(cpuPlugin).toBeVisible();
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
-  const settingsButton = workspaceList.getByRole('button', { name: 'Open settings' });
+  const settingsButton = page.getByRole('button', { name: 'Open settings' });
   await expect(settingsButton).toBeVisible();
   const settingsCenterDifference = await settingsButton.evaluate((button) => {
     const icon = button.querySelector('svg');
@@ -993,7 +996,7 @@ test('anchors a status popover to the mobile status bar and dismisses it for wor
   ]);
   expect(popoverBox).not.toBeNull();
   expect(statusBarBox).not.toBeNull();
-  expect(popoverBox!.width).toBeLessThanOrEqual(14 * 16);
+  expect(popoverBox!.width).toBeLessThanOrEqual(Math.min(21 * 16, viewportWidth - 16));
   expect(popoverBox!.x).toBeGreaterThanOrEqual(7);
   expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(viewportWidth + 1);
   const statusBarBottom = statusBarBox!.y + statusBarBox!.height;

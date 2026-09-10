@@ -11,7 +11,7 @@ function inputSurfaceStorageKey(workspaceId: string, terminalId?: string): strin
 export function loadLastFocusedInputSurface(
   workspaceId: string,
   terminalId?: string,
-  storage?: InputSurfaceStorage
+  storage?: InputSurfaceStorage,
 ): {
   value: TerminalInputSurface | undefined;
   available: boolean;
@@ -31,7 +31,7 @@ export function saveLastFocusedInputSurface(
   workspaceId: string,
   terminalId: string | undefined,
   value: TerminalInputSurface,
-  storage?: InputSurfaceStorage
+  storage?: InputSurfaceStorage,
 ): boolean {
   try {
     (storage ?? window.sessionStorage).setItem(inputSurfaceStorageKey(workspaceId, terminalId), value);

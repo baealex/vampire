@@ -1,4 +1,5 @@
 import { error, type ServerRequestEvent } from '~/lib/server/http-handler.server.ts';
+import { configuredPublicOrigin, MAXIMUM_TOKEN_BYTES } from '~/lib/server/runtime-config.ts';
 import {
   authenticationSessionRequired,
   authorizeSession,
@@ -7,7 +8,6 @@ import {
   SECURE_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
 } from '~/lib/server/session-cookie.ts';
-import { configuredPublicOrigin, MAXIMUM_TOKEN_BYTES } from '~/lib/server/runtime-config.ts';
 import { verifyConfiguredToken } from '~/lib/server/token-authentication.ts';
 import {
   acquireLoginAdmission,

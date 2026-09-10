@@ -20,7 +20,7 @@ function readCpuSample(): CpuSample {
       sample.total += idle + user + nice + sys + irq;
       return sample;
     },
-    { idle: 0, total: 0 }
+    { idle: 0, total: 0 },
   );
 }
 

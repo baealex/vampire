@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import test from 'node:test';
-import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
+import { promisify } from 'node:util';
 import type { TerminalServerMessage } from '~/lib/shared/contracts/terminal-protocol.ts';
+import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
 
 const run = promisify(execFile);
 type RepositoryStatusMessage = Extract<TerminalServerMessage, { type: 'repository-status' }>;
@@ -75,13 +75,13 @@ test('pushes Git change counts and releases its watcher with the socket', async 
     JSON.stringify({
       version: 1,
       workspaces: [{ id: workspaceId, tmuxSession: 'vampire-e272a1ce', cwd: workspace }],
-    })
+    }),
   );
 
   const socket = new TestSocket();
   await observeRepositoryStatus(socket, workspaceId);
   await waitFor(() =>
-    socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 0)
+    socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 0),
   );
   assert.equal(socket.messages.at(-1)?.worktreeCount, 2);
   assert.equal(socket.messages.at(-1)?.branch, (await git(workspace, 'branch', '--show-current')).trim());
@@ -91,7 +91,7 @@ test('pushes Git change counts and releases its watcher with the socket', async 
 
   await writeFile(join(workspace, 'app.js'), 'export const value = 2;\n');
   await waitFor(() =>
-    socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 1)
+    socket.messages.some((message) => message.type === 'repository-status' && message.changeCount === 1),
   );
 
   const beforeSameCountEdit = socket.messages.length;
@@ -102,7 +102,7 @@ test('pushes Git change counts and releases its watcher with the socket', async 
   await git(workspace, 'add', 'app.js');
   await git(workspace, 'commit', '--quiet', '-m', 'update');
   await waitFor(
-    () => socket.messages.filter((message) => message.type === 'repository-status').at(-1)?.changeCount === 0
+    () => socket.messages.filter((message) => message.type === 'repository-status').at(-1)?.changeCount === 0,
   );
 
   const messageCountBeforeClose = socket.messages.length;

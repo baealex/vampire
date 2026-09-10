@@ -2,39 +2,39 @@ import { observer } from 'mobx-react-lite';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { LoginScreen } from '~/features/auth/LoginScreen.tsx';
 import { TmuxSetupScreen } from '~/features/system/TmuxSetupScreen.tsx';
+import { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
 import { NewWorktreeDialog } from '~/features/workspace/NewWorktreeDialog.tsx';
 import { UnavailableWorkspace } from '~/features/workspace/UnavailableWorkspace.tsx';
-import { WorkspaceTerminal } from './WorkspaceTerminal.tsx';
-import { WorkspaceNavigator } from './WorkspaceNavigator.tsx';
-import { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
+import { navigationGuard } from '~/shared/lib/navigation-guard.ts';
 import { Spinner } from '~/shared/ui/index.ts';
 import { useConnectionStore } from './model/connection-store.ts';
-import { navigationGuard } from '~/shared/lib/navigation-guard.ts';
+import { WorkspaceNavigator } from './WorkspaceNavigator.tsx';
+import { WorkspaceTerminal } from './WorkspaceTerminal.tsx';
 import './vampire-app.css';
 
 const AppSettingsDialog = lazy(() =>
-  import('./AppSettingsDialog.tsx').then((module) => ({ default: module.AppSettingsDialog }))
+  import('./AppSettingsDialog.tsx').then((module) => ({ default: module.AppSettingsDialog })),
 );
 const ListeningPortsDialog = lazy(() =>
-  import('~/features/system/ListeningPortsDialog.tsx').then((module) => ({ default: module.ListeningPortsDialog }))
+  import('~/features/system/ListeningPortsDialog.tsx').then((module) => ({ default: module.ListeningPortsDialog })),
 );
 const StatusPluginSettingsDialog = lazy(() =>
   import('~/features/status/StatusPluginSettingsDialog.tsx').then((module) => ({
     default: module.StatusPluginSettingsDialog,
-  }))
+  })),
 );
 const AutomationManagerDialog = lazy(() =>
   import('~/features/workspace/AutomationManagerDialog.tsx').then((module) => ({
     default: module.AutomationManagerDialog,
-  }))
+  })),
 );
 const WorkspaceSettingsDialog = lazy(() =>
   import('~/features/workspace/WorkspaceSettingsDialog.tsx').then((module) => ({
     default: module.WorkspaceSettingsDialog,
-  }))
+  })),
 );
 const AppAutomationsPage = lazy(() =>
-  import('./AppAutomationsPage.tsx').then((module) => ({ default: module.AppAutomationsPage }))
+  import('./AppAutomationsPage.tsx').then((module) => ({ default: module.AppAutomationsPage })),
 );
 
 function navigate(path: string) {
@@ -100,11 +100,7 @@ const VampireApp = observer(function VampireApp() {
           : acceptedNavigationIndexRef.current;
       const workspaceSettings = /^\/workspaces\/([^/]+)\/settings\/?$/.exec(location.pathname);
       const workspaceAutomations = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(location.pathname);
-      const plainWorkspace = /^\/workspaces\/([^/]+)\/?$/.exec(location.pathname);
       const queryWorkspace = new URLSearchParams(location.search).get('workspace') ?? undefined;
-      const nextWorkspaceId = decodeURIComponent(
-        workspaceSettings?.[1] ?? workspaceAutomations?.[1] ?? plainWorkspace?.[1] ?? queryWorkspace ?? ''
-      );
       const activeGuard = navigationGuard();
       if (
         activeGuard &&
@@ -119,7 +115,7 @@ const VampireApp = observer(function VampireApp() {
           history.replaceState(
             { ...history.state, vampireNavigationIndex: acceptedNavigationIndexRef.current },
             '',
-            acceptedLocationRef.current
+            acceptedLocationRef.current,
           );
         }
         return;
@@ -132,7 +128,7 @@ const VampireApp = observer(function VampireApp() {
           ? 'widgets'
           : /^\/settings\/automations\/?$/.test(location.pathname) || workspaceAutomations
             ? 'automations'
-            : undefined
+            : undefined,
       );
       setManagementWorkspaceId(workspaceAutomations ? decodeURIComponent(workspaceAutomations[1]!) : queryWorkspace);
       setWorkspaceSettingsId(workspaceSettings ? decodeURIComponent(workspaceSettings[1]!) : undefined);
@@ -146,11 +142,23 @@ const VampireApp = observer(function VampireApp() {
     window.addEventListener('popstate', syncRoute);
     window.addEventListener('vampire:navigation', syncRoute);
     const shortcut = (event: KeyboardEvent) => {
-      if (!event.altKey || event.ctrlKey || event.metaKey || !/^Digit[0-9]$/.test(event.code)) return;
-      const index = event.code === 'Digit0' ? 9 : Number(event.code.slice(-1)) - 1;
-      const workspace = workspaceState.displayedWorkspaces[index];
+      const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
+      if (
+        event.repeat ||
+        event.isComposing ||
+        event.shiftKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        !event.metaKey ||
+        !digitMatch
+      )
+        return;
+      if (document.querySelector('[data-vampire-overlay]')) return;
+      const index = digitMatch[1] === '0' ? 9 : Number(digitMatch[1]) - 1;
+      const workspace = workspaceState.shortcutWorkspaces[index];
       if (!workspace) return;
       event.preventDefault();
+      event.stopPropagation();
       navigate(`/workspaces/${encodeURIComponent(workspace.id)}`);
     };
     window.addEventListener('keydown', shortcut, { capture: true });
@@ -196,7 +204,7 @@ const VampireApp = observer(function VampireApp() {
           token={connection.token}
           error={connection.loginError || connection.errorMessage}
           onTokenChange={connection.setToken}
-          onSubmit={() => void connection.unlock()}
+          onSubmit={() => connection.unlock()}
         />
       </main>
     );
@@ -234,7 +242,7 @@ const VampireApp = observer(function VampireApp() {
             navigate(
               workspaceState.requestedWorkspaceId
                 ? `/settings?workspace=${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                : '/settings'
+                : '/settings',
             )
           }
           onAutomations={openAutomations}
@@ -249,7 +257,7 @@ const VampireApp = observer(function VampireApp() {
                 navigate(
                   workspaceState.requestedWorkspaceId
                     ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                    : '/'
+                    : '/',
                 );
                 focusSoon('.workspace-row-shell.selected [aria-label^="Workspace actions for"]');
               }}
@@ -257,7 +265,7 @@ const VampireApp = observer(function VampireApp() {
                 navigate(
                   workspaceState.requestedWorkspaceId
                     ? `/settings/automations?workspace=${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                    : '/settings/automations'
+                    : '/settings/automations',
                 )
               }
               onManageWidgets={openStatusWidgets}
@@ -291,7 +299,7 @@ const VampireApp = observer(function VampireApp() {
                 navigate(
                   workspaceState.requestedWorkspaceId
                     ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                    : '/'
+                    : '/',
                 );
                 focusSoon('[aria-label="Manage status widgets"]');
               }}
@@ -307,7 +315,7 @@ const VampireApp = observer(function VampireApp() {
                   navigate(
                     workspaceState.requestedWorkspaceId
                       ? `/settings?workspace=${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                      : '/settings'
+                      : '/settings',
                   )
                 }
               />
@@ -329,13 +337,13 @@ const VampireApp = observer(function VampireApp() {
                           : '/settings'
                         : workspaceState.requestedWorkspaceId
                           ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                          : '/'
+                          : '/',
                   );
                   if (!fromSettings && !returningToAll) {
                     focusSoon(
                       window.matchMedia('(max-width: 63.999rem)').matches
                         ? '[aria-label="Open workspaces"]'
-                        : '.workspace-row-shell.selected [aria-label^="Workspace actions for"]'
+                        : '.workspace-row-shell.selected [aria-label^="Workspace actions for"]',
                     );
                   }
                 }}

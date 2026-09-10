@@ -18,18 +18,18 @@ test('reports non-zero commands without treating stderr as status text', async (
       error instanceof StatusPluginCommandError &&
       error.kind === 'exit' &&
       error.exitCode === 7 &&
-      error.stderr === 'bad news'
+      error.stderr === 'bad news',
   );
 });
 
 test('terminates commands that exceed their time or output budget', async () => {
   await assert.rejects(
     runStatusPluginCommand('sleep 2', { timeoutMs: 50 }),
-    (error: unknown) => error instanceof StatusPluginCommandError && error.kind === 'timeout'
+    (error: unknown) => error instanceof StatusPluginCommandError && error.kind === 'timeout',
   );
   await assert.rejects(
     runStatusPluginCommand("printf '%04096d' 0", { maxOutputBytes: 128 }),
-    (error: unknown) => error instanceof StatusPluginCommandError && error.kind === 'output-limit'
+    (error: unknown) => error instanceof StatusPluginCommandError && error.kind === 'output-limit',
   );
 });
 
@@ -48,14 +48,10 @@ test('does not leave detached command children running after a refresh', async (
   await assert.rejects(
     async () => {
       for (let attempt = 0; attempt < 50; attempt += 1) {
-        try {
-          process.kill(pid, 0);
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        } catch (error) {
-          throw error;
-        }
+        process.kill(pid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
     },
-    (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ESRCH'
+    (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ESRCH',
   );
 });

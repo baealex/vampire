@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { automationSubmissionTerminal, prepareAutomationSubmission } from './workspace-automation-runner.server.ts';
-import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import type { TmuxSession } from '~/lib/features/terminal/server/tmux.server.ts';
+import type { StoredWorkspace } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import type { WorkspaceAutomation } from '~/lib/shared/contracts/workspace-automations.ts';
+import { automationSubmissionTerminal, prepareAutomationSubmission } from './workspace-automation-runner.server.ts';
 
 const running: TmuxSession = {
   name: 'vampire-workspace-1',
@@ -73,7 +73,7 @@ test('automation submission targets any foreground command in the main terminal 
       ...running,
       terminals: [{ ...running.terminals[0], foregroundProcess: { kind: 'shell', label: 'zsh' } }],
     }),
-    undefined
+    undefined,
   );
 });
 

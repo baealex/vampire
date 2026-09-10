@@ -28,7 +28,7 @@ test('the CLI rejects unknown options with a usage hint', async () => {
       assert.match(stderr, /could not parse the command line/);
       assert.match(stderr, /--help/);
       return true;
-    }
+    },
   );
 });
 
@@ -39,7 +39,7 @@ test('CLI configuration follows CLI, process, env-file, and default precedence',
     const tokenFile = join(directory, 'token');
     await writeFile(
       environmentFile,
-      ['VAMPIRE_HOST=file-host', 'VAMPIRE_PORT=7000', 'VAMPIRE_TOKEN=file-token'].join('\n')
+      ['VAMPIRE_HOST=file-host', 'VAMPIRE_PORT=7000', 'VAMPIRE_TOKEN=file-token'].join('\n'),
     );
     await writeFile(tokenFile, 'token-file-value\n');
 

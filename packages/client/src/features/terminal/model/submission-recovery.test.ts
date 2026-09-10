@@ -18,7 +18,7 @@ test('retains the raw draft until the server confirms the submission', () => {
       requestId = id;
       expect(recovery.entries[0]).toMatchObject({ draft: 'raw prompt', status: 'pending' });
       return true;
-    })
+    }),
   ).toBe(true);
   recovery.applyResult({ type: 'submission-result', requestId, status: 'completed' });
   expect(recovery.entries).toEqual([]);

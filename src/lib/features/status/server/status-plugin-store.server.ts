@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { errorHasCode } from '~/lib/server/path-policy.ts';
+import { VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE, vampireGlobalStatePath } from '~/lib/server/state-path.ts';
 import {
   cloneStatusPlugins,
   defaultStatusPlugins,
@@ -11,8 +13,6 @@ import {
   STATUS_PLUGIN_MEMORY_COMMAND,
   type StatusPlugin,
 } from '~/lib/shared/contracts/status-plugin.ts';
-import { errorHasCode } from '~/lib/server/path-policy.ts';
-import { VAMPIRE_GLOBAL_STATUS_WIDGETS_FILE, vampireGlobalStatePath } from '~/lib/server/state-path.ts';
 
 export const STATUS_PLUGIN_STATE_VERSION = 1;
 
@@ -140,14 +140,14 @@ export async function ensureStatusPluginStoreFile(file = statusPluginStatePath()
   const operation = mutationQueue.then(() => materializeStatusPluginStoreFile(file));
   mutationQueue = operation.then(
     () => undefined,
-    () => undefined
+    () => undefined,
   );
   return operation;
 }
 
 export async function replaceStatusPlugins(
   plugins: StatusPlugin[],
-  file = statusPluginStatePath()
+  file = statusPluginStatePath(),
 ): Promise<StatusPluginStore> {
   if (!isStatusPluginList(plugins)) throw new TypeError('Invalid status plugin configuration.');
   const operation = mutationQueue.then(async () => {
@@ -157,7 +157,7 @@ export async function replaceStatusPlugins(
         version: STATUS_PLUGIN_STATE_VERSION,
         plugins: cloneStatusPlugins(plugins),
       },
-      file
+      file,
     );
   });
   mutationQueue = operation.catch(() => undefined);

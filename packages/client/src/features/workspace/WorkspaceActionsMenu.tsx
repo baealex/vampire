@@ -1,8 +1,8 @@
+import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
 import { Clock3, Ellipsis, GitBranchPlus, LogOut, Settings2, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
-import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
-import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '~/shared/ui/index.ts';
 import type { WorkspaceState } from './model/workspace-state.ts';
 import './workspace-actions-menu.css';
@@ -106,7 +106,6 @@ export const WorkspaceActionsMenu = observer(function WorkspaceActionsMenu({
               Close workspace
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
           <DropdownMenuItem
             danger
             onSelect={(event) => {

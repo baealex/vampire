@@ -6,8 +6,8 @@ import test from 'node:test';
 import {
   findWorkspaceConnection,
   readWorkspaceStore,
-  type WorkspaceStore,
   WORKSPACE_STATE_VERSION,
+  type WorkspaceStore,
   writeWorkspaceStore,
 } from '~/lib/features/workspace/server/workspace-store.server.ts';
 import { writeStructuredWorkspaceState } from '~/lib/server/workspace-state-files.ts';
@@ -22,7 +22,7 @@ test('finds the terminal and workspace registered for a workspace ID', async (t)
     JSON.stringify({
       version: WORKSPACE_STATE_VERSION,
       workspaces: [{ id, tmuxSession: 'vampire-e272a1ce', cwd: '/tmp/workspace', createdAt: 1 }],
-    })
+    }),
   );
 
   assert.deepEqual(await findWorkspaceConnection(id, file), {
@@ -97,7 +97,7 @@ test('reads compatibility session-shaped state as workspace state', async (t) =>
       version: WORKSPACE_STATE_VERSION,
       sessions: [{ id, tmuxSession: 'vampire-compatibility', cwd: '/tmp/compatibility', createdAt: 1 }],
       workspacePreferences: { sessionOrderMode: 'manual', manualSessionOrder: [id, id] },
-    })
+    }),
   );
 
   const store = await readWorkspaceStore(file);
@@ -132,7 +132,7 @@ test('migrates compatibility workspaces without inventing command favorites', as
     JSON.stringify({
       version: WORKSPACE_STATE_VERSION,
       workspaces: [{ ...workspace, favoriteCommands: ['pnpm dev'] }],
-    })
+    }),
   );
   assert.deepEqual((await readWorkspaceStore(file)).workspaces[0]?.favoriteCommands, ['pnpm dev']);
 });
@@ -159,7 +159,7 @@ test('moves compatibility workspace launch profiles into the shared profile list
           autoStartDefaultProfile: true,
         },
       ],
-    })
+    }),
   );
 
   const store = await readWorkspaceStore(file);
@@ -192,7 +192,7 @@ test('preserves managed worktree identity without changing compatibility workspa
           createdAt: 2,
         },
       ],
-    })
+    }),
   );
 
   const [worktree, compatibility] = (await readWorkspaceStore(file)).workspaces;
@@ -219,7 +219,7 @@ test('normalizes shared workspace order preferences without changing the state v
         workspaceOrderMode: 'manual',
         manualWorkspaceOrder: ['workspace-2', 'workspace-1', 'workspace-2'],
       },
-    })
+    }),
   );
 
   assert.deepEqual((await readWorkspaceStore(file)).workspacePreferences, {
@@ -233,7 +233,7 @@ test('normalizes shared workspace order preferences without changing the state v
       version: WORKSPACE_STATE_VERSION,
       workspaces: [],
       workspacePreferences: { workspaceOrderMode: 'manual', manualWorkspaceOrder: [42] },
-    })
+    }),
   );
   await assert.rejects(() => readWorkspaceStore(file), /Vampire workspace registry is unreadable/);
 });

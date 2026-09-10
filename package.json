@@ -1,6 +1,6 @@
 {
   "name": "vampire",
-  "version": "0.25.1",
+  "version": "0.26.0",
   "description": "Self-hosted web workspace for running Codex, Claude Code, and other terminal-based coding agents.",
   "license": "MIT",
   "type": "module",
@@ -41,15 +41,15 @@
   },
   "scripts": {
     "dev": "node --import ./tools/register-ts-alias.mjs src/lib/app/server/dev.server.ts",
-    "dev:state:prepare": "node tools/prepare-development-state.ts",
-    "build": "node tools/clean-build.ts && pnpm build:react && node tools/build-server.ts",
+    "build": "node tools/clean-build.ts && pnpm build:react && node tools/build-server.ts && node tools/compress-client.ts",
     "build:react": "pnpm --filter @vampire/client build",
     "start": "node bin/vampire.js",
-    "check": "node tools/check.ts",
+    "check": "pnpm lint && node tools/check.ts",
     "check:architecture": "node tools/check-architecture.ts",
     "check:design-system": "node tools/check-design-system.ts",
-    "format": "node tools/format-changed.ts --write",
-    "format:check": "node tools/format-changed.ts",
+    "lint": "biome check . && pnpm --filter @vampire/client lint",
+    "format": "biome check --write . && pnpm --filter @vampire/client format",
+    "format:check": "pnpm lint",
     "test": "pnpm check && pnpm check:react && pnpm test:node && pnpm test:react && pnpm build",
     "test:node": "node tools/run-node-tests.ts",
     "test:component": "vitest run --config vitest.config.ts",
@@ -60,9 +60,6 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.10.4",
-    "@codemirror/state": "^6.7.1",
-    "@codemirror/view": "^6.43.6",
     "@fastify/cookie": "^11.1.2",
     "@fastify/multipart": "^10.1.1",
     "@fastify/static": "^10.1.3",
@@ -74,7 +71,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.9",
+    "@biomejs/biome": "2.4.11",
     "@playwright/test": "^1.62.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@types/node": "^22.0.0",

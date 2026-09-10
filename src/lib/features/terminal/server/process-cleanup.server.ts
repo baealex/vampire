@@ -98,7 +98,7 @@ class OwnedProcessTracker {
     return [...this.#ownedProcessGroupIds]
       .filter((processGroupId) => processGroupId !== currentProcessGroupId)
       .filter((processGroupId) =>
-        [...processes.values()].some((candidate) => candidate.pgid === processGroupId && isRunningProcess(candidate))
+        [...processes.values()].some((candidate) => candidate.pgid === processGroupId && isRunningProcess(candidate)),
       )
       .sort((left, right) => left - right);
   }
@@ -118,7 +118,7 @@ function signalProcessGroups(
   processGroupIds: number[],
   signal: NodeJS.Signals,
   alreadySignaled: Set<number>,
-  dependencies: ProcessTerminationDependencies
+  dependencies: ProcessTerminationDependencies,
 ): void {
   for (const processGroupId of processGroupIds) {
     if (alreadySignaled.has(processGroupId)) continue;
@@ -136,7 +136,7 @@ async function signalUntilExit(
   signal: NodeJS.Signals,
   pollAttempts: number,
   dependencies: ProcessTerminationDependencies,
-  signaled = new Set<number>()
+  signaled = new Set<number>(),
 ): Promise<number[]> {
   let activeProcessGroupIds: number[] = [];
   for (let attempt = 0; attempt <= pollAttempts; attempt += 1) {
@@ -158,7 +158,7 @@ function throwTerminationErrors(errors: unknown[]): void {
 export async function terminateProcessTrees(
   rootProcessIds: Iterable<number>,
   releaseTerminal: () => Promise<void>,
-  dependencies: ProcessTerminationDependencies = defaultDependencies
+  dependencies: ProcessTerminationDependencies = defaultDependencies,
 ): Promise<void> {
   const roots = [...rootProcessIds].filter((pid) => Number.isInteger(pid) && pid > 1);
   if (roots.length === 0) {
@@ -192,7 +192,7 @@ export async function terminateProcessTrees(
         'SIGTERM',
         GRACEFUL_EXIT_POLL_ATTEMPTS,
         dependencies,
-        termSignaled
+        termSignaled,
       );
       if (remainingAfterTerm.length > 0) {
         const remainingAfterKill = await signalUntilExit(tracker, 'SIGKILL', FORCED_EXIT_POLL_ATTEMPTS, dependencies);

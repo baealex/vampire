@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 
@@ -97,9 +97,9 @@ test('uses the same persisted theme key before and after hydration', async () =>
 test('overrides xterm viewport defaults with the active terminal theme', async () => {
   const terminalViewport = await readFile(
     join(clientSourceRoot, 'features', 'terminal', 'terminal-viewport.css'),
-    'utf8'
+    'utf8',
   );
-  assert.match(terminalViewport, /\.xterm-viewport[^\{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s);
+  assert.match(terminalViewport, /\.xterm-viewport[^{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s);
 });
 
 test('uses native mono faces with multilingual system fallbacks', async () => {
@@ -133,11 +133,11 @@ test('keeps component mono fonts behind the shared token', async () => {
 test('gives xterm the resolved shared font stack and the browser language', async () => {
   const terminalViewport = await readFile(
     join(clientSourceRoot, 'features', 'terminal', 'TerminalViewport.tsx'),
-    'utf8'
+    'utf8',
   );
   const terminalRuntime = await readFile(
     join(sourceRoot, 'lib', 'features', 'terminal', 'ui', 'terminal-runtime.ts'),
-    'utf8'
+    'utf8',
   );
   assert.match(terminalViewport, /getFontFamily:\s*terminalFontFamily/);
   assert.match(terminalRuntime, /fontFamily:\s*this\.#options\.getFontFamily\(\)/);

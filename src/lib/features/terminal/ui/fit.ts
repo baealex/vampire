@@ -35,7 +35,7 @@ export function terminalSizeForVisibleArea(fitAddon: TerminalFitAddon): Terminal
 
 export function fitTerminalToVisibleArea(
   fitAddon: TerminalFitAddon,
-  resize?: TerminalResize
+  resize?: TerminalResize,
 ): TerminalSize | undefined {
   const dimensions = terminalSizeForVisibleArea(fitAddon);
   if (!dimensions) return undefined;

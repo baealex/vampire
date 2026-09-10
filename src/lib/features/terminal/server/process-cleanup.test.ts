@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  parseProcessTable,
-  terminateProcessTrees,
   type ProcessRecord,
   type ProcessTerminationDependencies,
+  parseProcessTable,
+  terminateProcessTrees,
 } from '~/lib/features/terminal/server/process-cleanup.server.ts';
 
 test('parses process ownership fields without splitting command arguments', () => {
@@ -80,7 +80,7 @@ test('force kills process groups that ignore graceful termination', async () => 
     async () => {
       events.push('terminal-released');
     },
-    dependencies
+    dependencies,
   );
 
   assert.deepEqual(
@@ -88,14 +88,14 @@ test('force kills process groups that ignore graceful termination', async () => 
     [
       [300, 'SIGTERM'],
       [302, 'SIGTERM'],
-    ]
+    ],
   );
   assert.deepEqual(
     signals.filter(([, signal]) => signal === 'SIGKILL'),
     [
       [300, 'SIGKILL'],
       [302, 'SIGKILL'],
-    ]
+    ],
   );
   assert.ok(events.indexOf('terminal-released') > events.indexOf('SIGTERM:302'));
   assert.ok(events.indexOf('terminal-released') < events.indexOf('SIGKILL:300'));
@@ -111,7 +111,7 @@ test('reports process groups that remain after forced termination', async () => 
 
   await assert.rejects(
     terminateProcessTrees([400], async () => undefined, dependencies),
-    /Workspace process groups did not stop: 400/
+    /Workspace process groups did not stop: 400/,
   );
 });
 
@@ -132,9 +132,9 @@ test('continues process cleanup when releasing the terminal fails', async () => 
       async () => {
         throw new Error('tmux failed');
       },
-      dependencies
+      dependencies,
     ),
-    /tmux failed/
+    /tmux failed/,
   );
   assert.equal(forceKilled, true);
 });

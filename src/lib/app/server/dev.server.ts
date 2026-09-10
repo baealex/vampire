@@ -1,13 +1,13 @@
 import { resolve } from 'node:path';
 import { createServer, loadEnv } from 'vite';
-import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
+import { prepareDevelopmentEnvironment } from '~/lib/server/development-state.ts';
 import {
   applyVampireEnvironmentDefaults,
   developmentRuntimeConfig,
   listeningUrl,
 } from '~/lib/server/runtime-config.ts';
-import { prepareDevelopmentEnvironment } from '~/lib/server/development-state.ts';
 import { runStateMigrations } from '~/lib/server/state-migrations.ts';
+import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { createFastifyApp } from './fastify-app.server.ts';
 import { installTerminalWebSocket } from './terminal-websocket.server.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.server.ts';
@@ -17,9 +17,7 @@ applyVampireEnvironmentDefaults(fileEnvironment);
 delete fileEnvironment.VAMPIRE_TOKEN;
 const args = process.argv.slice(2);
 const config = developmentRuntimeConfig(args);
-const developmentEnvironment = await prepareDevelopmentEnvironment(process.env, {
-  useExistingState: args.includes('--use-existing-state'),
-});
+const developmentEnvironment = await prepareDevelopmentEnvironment();
 if (args.includes('--allow-status-widgets')) process.env.VAMPIRE_ALLOW_STATUS_WIDGET_COMMANDS = '1';
 const stateMigration = await runStateMigrations({ stateDirectory: developmentEnvironment.stateDirectory });
 await initializeAuthentication();
@@ -59,11 +57,11 @@ try {
 vite.printUrls();
 if (config.externalAccess)
   console.warn(
-    'Development network access is enabled. Vite module and HMR endpoints are not protected by TOKEN authentication; restrict access to trusted VPN or LAN devices.'
+    'Development network access is enabled. Vite module and HMR endpoints are not protected by TOKEN authentication; restrict access to trusted VPN or LAN devices.',
   );
 console.log(`Vampire runtime URL: ${config.publicOrigin ?? listeningUrl(config)}`);
 console.log(
-  config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Local access does not require TOKEN authentication.'
+  config.tokenConfigured ? 'TOKEN authentication is enabled.' : 'Local access does not require TOKEN authentication.',
 );
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);

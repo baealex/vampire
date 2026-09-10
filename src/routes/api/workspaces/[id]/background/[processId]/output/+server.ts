@@ -1,6 +1,6 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { captureManagedBackgroundOutput, WorkspaceMutationError } from '~/lib/app/server/workspace-registry.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);
@@ -12,7 +12,7 @@ export const GET: RequestHandler = async (event) => {
   try {
     return json(
       { output: await captureManagedBackgroundOutput(id, processId) },
-      { headers: { 'cache-control': 'no-store' } }
+      { headers: { 'cache-control': 'no-store' } },
     );
   } catch (cause) {
     if (cause instanceof WorkspaceMutationError) {

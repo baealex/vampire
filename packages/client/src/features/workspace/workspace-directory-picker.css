@@ -1,7 +1,7 @@
 .directory-picker {
   display: grid;
   gap: 1rem;
-  min-width: min(42rem, 80vw);
+  min-width: 0;
 }
 .directory-picker form {
   display: grid;
@@ -61,6 +61,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.directory-current small {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.5;
+}
 .directory-list {
   display: grid;
   max-height: 35dvh;
@@ -95,6 +101,14 @@
   }
 }
 @media (max-width: 32rem) {
+  .directory-current {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .directory-current > button:last-child {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    min-height: 2.75rem;
+  }
   .directory-list {
     max-height: none;
     overflow: visible;

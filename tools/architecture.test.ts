@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import assert from 'node:assert/strict';
 import { findArchitectureViolations } from './architecture.ts';
 
 test('the repository has no architecture violations', async () => {
@@ -18,15 +18,15 @@ test('the architecture checker rejects upward and peer dependencies', async () =
     await mkdir(join(root, 'src/lib/app'), { recursive: true });
     await writeFile(
       join(root, 'src/lib/shared/index.ts'),
-      "import Terminal from '~/lib/features/terminal/ui/Terminal.tsx';\n"
+      "import Terminal from '~/lib/features/terminal/ui/Terminal.tsx';\n",
     );
     await writeFile(
       join(root, 'src/lib/features/terminal/ui/Terminal.ts'),
-      "import Workspace from '~/lib/features/workspace/ui/Workspace.tsx';\n"
+      "import Workspace from '~/lib/features/workspace/ui/Workspace.tsx';\n",
     );
     await writeFile(
       join(root, 'src/lib/features/workspace/ui/Workspace.tsx'),
-      'export default function Workspace() {}\n'
+      'export default function Workspace() {}\n',
     );
     await writeFile(join(root, 'src/lib/features/terminal/ui/Terminal.tsx'), 'export default function Terminal() {}\n');
     await writeFile(join(root, 'src/lib/app/index.ts'), '<div />\n');
@@ -50,22 +50,22 @@ test('the architecture checker rejects server-only imports from browser-capable 
     await writeFile(join(root, 'src/lib/server/runtime.ts'), 'export const runtime = true;\n');
     await writeFile(
       join(root, 'src/lib/features/terminal/server/terminal.server.ts'),
-      'export const terminal = true;\n'
+      'export const terminal = true;\n',
     );
     await writeFile(
       join(root, 'src/lib/features/terminal/server/terminal-types.server.ts'),
-      'export interface ServerTerminal { id: string }\n'
+      'export interface ServerTerminal { id: string }\n',
     );
     await writeFile(
       join(root, 'src/lib/features/terminal/ui/Terminal.tsx'),
-      "import { terminal } from '../server/terminal.server.ts';\nexport default terminal;\n"
+      "import { terminal } from '../server/terminal.server.ts';\nexport default terminal;\n",
     );
     await writeFile(
       join(root, 'src/routes/+page.ts'),
       [
         "import { runtime } from '$lib/server/runtime.ts';",
         "import type { ServerTerminal } from '$lib/features/terminal/server/terminal-types.server.ts';",
-      ].join('\n')
+      ].join('\n'),
     );
     await writeFile(join(root, 'src/routes/+server.ts'), "import { runtime } from '$lib/server/runtime.ts';\n");
 
@@ -95,7 +95,7 @@ test('the architecture checker requires protected filenames in app and feature s
     assert.ok(violations.every(({ reason }) => reason.includes('*.server.*')));
     assert.deepEqual(
       violations.map(({ source }) => source),
-      ['src/lib/app/server/bootstrap.ts', 'src/lib/features/terminal/server/process.ts']
+      ['src/lib/app/server/bootstrap.ts', 'src/lib/features/terminal/server/process.ts'],
     );
   } finally {
     await rm(root, { recursive: true, force: true });

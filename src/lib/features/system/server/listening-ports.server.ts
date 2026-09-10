@@ -148,7 +148,7 @@ function defaultProcessAccess(pid: number): Exclude<ListeningPortTermination, 'p
 
 export function createListeningPorts(
   sockets: ListeningSocket[],
-  options: CreateListeningPortsOptions
+  options: CreateListeningPortsOptions,
 ): ListeningPort[] {
   const grouped = new Map<
     string,
@@ -204,7 +204,7 @@ export function createListeningPorts(
     (left, right) =>
       left.port - right.port ||
       (left.processName ?? '').localeCompare(right.processName ?? '') ||
-      (left.pid ?? 0) - (right.pid ?? 0)
+      (left.pid ?? 0) - (right.pid ?? 0),
   );
 }
 
@@ -246,7 +246,7 @@ async function readListeningSockets(platform: NodeJS.Platform, run: CommandRunne
 
   throw new ListeningPortError(
     'unsupported-platform',
-    'Listening port inspection is available on macOS, Linux, and WSL.'
+    'Listening port inspection is available on macOS, Linux, and WSL.',
   );
 }
 
@@ -274,7 +274,7 @@ function parseLsofWorkingDirectories(output: string): Map<number, string> {
 async function readWorkingDirectories(
   platform: NodeJS.Platform,
   pids: number[],
-  run: CommandRunner
+  run: CommandRunner,
 ): Promise<Map<number, string>> {
   const directories = new Map<number, string>();
   if (pids.length === 0) return directories;
@@ -295,7 +295,7 @@ async function readWorkingDirectories(
         } catch {
           // Other users' processes commonly hide their working directory.
         }
-      })
+      }),
     );
   }
   return directories;
@@ -316,7 +316,7 @@ export async function listListeningPorts(): Promise<ListeningPort[]> {
 
   const pids = [...new Set(sockets.flatMap((socket) => (socket.pid === null ? [] : [socket.pid])))];
   const workingDirectories = await readWorkingDirectories(platform, pids, runCommand).catch(
-    () => new Map<number, string>()
+    () => new Map<number, string>(),
   );
   return createListeningPorts(sockets, {
     currentPid: process.pid,
@@ -326,7 +326,7 @@ export async function listListeningPorts(): Promise<ListeningPort[]> {
 
 export async function terminateListeningProcess(
   input: TerminateListeningProcessInput,
-  dependencies: TerminateListeningProcessDependencies = {}
+  dependencies: TerminateListeningProcessDependencies = {},
 ): Promise<void> {
   const currentPid = dependencies.currentPid ?? process.pid;
   if (!Number.isSafeInteger(input.pid) || input.pid <= 1 || input.pid === currentPid) {
@@ -342,12 +342,12 @@ export async function terminateListeningProcess(
       port.pid === input.pid &&
       port.port === input.port &&
       port.processName === input.processName &&
-      port.cwd === input.cwd
+      port.cwd === input.cwd,
   );
   if (!listener) {
     throw new ListeningPortError(
       'stale',
-      'This listening process changed or already ended. Refresh the list and try again.'
+      'This listening process changed or already ended. Refresh the list and try again.',
     );
   }
   if (listener.termination === 'protected') {
@@ -356,13 +356,13 @@ export async function terminateListeningProcess(
   if (listener.termination === 'permission-denied') {
     throw new ListeningPortError(
       'permission-denied',
-      'The Vampire server user does not have permission to stop this process.'
+      'The Vampire server user does not have permission to stop this process.',
     );
   }
   if (listener.termination !== 'available') {
     throw new ListeningPortError(
       'stale',
-      'This listening process changed or already ended. Refresh the list and try again.'
+      'This listening process changed or already ended. Refresh the list and try again.',
     );
   }
 
@@ -381,7 +381,7 @@ export async function terminateListeningProcess(
     if (code === 'EPERM' || code === 'EACCES') {
       throw new ListeningPortError(
         'permission-denied',
-        'The Vampire server user does not have permission to stop this process.'
+        'The Vampire server user does not have permission to stop this process.',
       );
     }
     throw new ListeningPortError('signal-failed', 'Vampire could not signal this process to stop.');

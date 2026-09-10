@@ -8,7 +8,7 @@ if (violations.length > 0) {
     console.error(
       violation.specifier
         ? `  ${violation.source}:${violation.line} imports ${violation.specifier} -> ${violation.target} (${violation.reason})`
-        : `  ${violation.source}:${violation.line} (${violation.reason})`
+        : `  ${violation.source}:${violation.line} (${violation.reason})`,
     );
   }
   process.exitCode = 1;

@@ -1,7 +1,7 @@
 .automation-manager {
   display: grid;
   gap: 0.8rem;
-  min-width: min(46rem, 80vw);
+  min-width: 0;
 }
 .automation-workspace {
   display: grid;
@@ -16,12 +16,23 @@
   font-family: var(--font-mono);
   font-size: var(--text-caption);
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .automation-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+.automation-toolbar > .vampire-select {
+  flex: 1;
+  min-width: 0;
+}
+.automation-summary {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
 }
 .automation-toolbar > span {
   color: var(--color-text-tertiary);
@@ -32,7 +43,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
   padding: 1rem;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
 }
@@ -110,6 +121,17 @@
 .automation-error {
   color: var(--color-danger);
 }
+.automation-empty {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.automation-empty strong {
+  color: var(--color-text);
+}
+.automation-empty p {
+  margin: 0;
+}
 @media (max-width: 48rem) {
   .automation-manager {
     min-width: 0;
@@ -119,6 +141,10 @@
   }
   .automation-editor > * {
     grid-column: 1 !important;
+  }
+  .automation-list article,
+  .automation-list li {
+    flex-wrap: wrap;
   }
 }
 .automation-list article {

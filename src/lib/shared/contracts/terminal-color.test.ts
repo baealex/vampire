@@ -12,7 +12,7 @@ test('parses xterm default color reports without forwarding them as keyboard inp
     [
       { slot: 10, color: '#2c2527' },
       { slot: 11, color: '#fbfafa' },
-    ]
+    ],
   );
   assert.equal(parseTerminalColorReports('\u001b]11;rgb:fbfb/fafa/fafa\u001b\\typed text'), undefined);
   assert.equal(parseTerminalColorReports('\u001b]13;rgb:fbfb/fafa/fafa\u001b\\'), undefined);

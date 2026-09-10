@@ -36,7 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStoredWorkspace(
-  value: unknown
+  value: unknown,
 ): value is Record<string, unknown> & Pick<StoredWorkspace, 'id' | 'tmuxSession' | 'cwd' | 'createdAt'> {
   return (
     isRecord(value) &&
@@ -117,8 +117,8 @@ function normalizeFavoriteCommands(value: unknown): string[] {
         .map((command) => command.trim())
         .filter(
           (command) =>
-            command.length > 0 && command.length <= BACKGROUND_COMMAND_MAX_LENGTH && !/[\0\r\n\t]/.test(command)
-        )
+            command.length > 0 && command.length <= BACKGROUND_COMMAND_MAX_LENGTH && !/[\0\r\n\t]/.test(command),
+        ),
     ),
   ].slice(0, MAX_FAVORITE_COMMANDS);
 }

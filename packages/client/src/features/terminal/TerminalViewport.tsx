@@ -1,32 +1,32 @@
-import { ArrowLeftRight, CircleAlert, Ellipsis, ImagePlus, MonitorSmartphone, RefreshCw, Send } from 'lucide-react';
-import { observer } from 'mobx-react-lite';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  acquireTerminalRuntime,
-  releaseTerminalRuntime,
-  type TerminalRuntime,
-  type TerminalRuntimeState,
-} from '@vampire/lib/features/terminal/ui/terminal-runtime.ts';
 import { loadComposerDraft, saveComposerDraft } from '@vampire/lib/features/terminal/model/composer-draft-storage.ts';
 import {
-  parseWorkspaceEntryDragEntries,
-  type WorkspaceEntryDragData,
-  WORKSPACE_ENTRY_DRAG_TYPE,
-  workspaceEntryDragText,
-} from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
+  loadLastFocusedInputSurface,
+  saveLastFocusedInputSurface,
+  type TerminalInputSurface,
+} from '@vampire/lib/features/terminal/model/input-surface-preference.ts';
 import {
   isInputSurfaceToggleShortcut,
   type TerminalControlKey,
 } from '@vampire/lib/features/terminal/model/terminal-control.ts';
 import { loadTerminalFontSize } from '@vampire/lib/features/terminal/model/terminal-display-preference.ts';
 import {
-  loadLastFocusedInputSurface,
-  saveLastFocusedInputSurface,
-  type TerminalInputSurface,
-} from '@vampire/lib/features/terminal/model/input-surface-preference.ts';
+  acquireTerminalRuntime,
+  releaseTerminalRuntime,
+  type TerminalRuntime,
+  type TerminalRuntimeState,
+} from '@vampire/lib/features/terminal/ui/terminal-runtime.ts';
 import type { TerminalInputSettings } from '@vampire/lib/shared/contracts/terminal-input.ts';
 import type { WorkspaceComposerPrompt } from '@vampire/lib/shared/contracts/workspace-composer-history.ts';
 import { renderComposerTemplate } from '@vampire/lib/shared/lib/composer-template.ts';
+import {
+  parseWorkspaceEntryDragEntries,
+  WORKSPACE_ENTRY_DRAG_TYPE,
+  type WorkspaceEntryDragData,
+  workspaceEntryDragText,
+} from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
+import { ArrowLeftRight, CircleAlert, Ellipsis, ImagePlus, MonitorSmartphone, RefreshCw, Send } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { requestJson } from '~/shared/api/request.ts';
 import { THEME_CHANGE_EVENT, terminalFontFamily, terminalTheme } from '~/shared/theme/theme.ts';
 import { Button, Textarea, ToolbarButton } from '~/shared/ui/index.ts';
@@ -91,6 +91,7 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
   const terminalElement = useRef<HTMLDivElement>(null);
   const composerElement = useRef<HTMLTextAreaElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+  const imageNoticeTimer = useRef<number | undefined>(undefined);
   const runtime = useRef<TerminalRuntime | null>(null);
   const activityCallbacks = useRef({ onInputActivity, onOutputActivity, onRepositoryStatus, onWorkspaceObserved });
   activityCallbacks.current = { onInputActivity, onOutputActivity, onRepositoryStatus, onWorkspaceObserved };
@@ -99,14 +100,16 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
   const [draft, setDraft] = useState(() => loadComposerDraft(workspaceId, terminalId).value);
   const [templateWarning, setTemplateWarning] = useState('');
   const [imageError, setImageError] = useState('');
+  const [imageNotice, setImageNotice] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [messageActionsOpen, setMessageActionsOpen] = useState(false);
   const [terminalDropKind, setTerminalDropKind] = useState<'' | 'files' | 'path'>('');
   const [inputSettings, setInputSettings] = useState(DEFAULT_INPUT);
   const [inputSurface, setInputSurface] = useState<TerminalInputSurface>(
-    () => loadLastFocusedInputSurface(workspaceId, terminalId).value ?? 'compose'
+    () => loadLastFocusedInputSurface(workspaceId, terminalId).value ?? 'compose',
   );
   const loadPrompts = useCallback(() => onLoadComposerPrompts(workspaceId), [onLoadComposerPrompts, workspaceId]);
+  const inputShortcut = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘ /' : 'Ctrl `';
 
   useEffect(() => {
     let active = true;
@@ -204,13 +207,13 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
     const sent = recovery.submit(
       rendered.text,
       prompt,
-      (data, requestId) => runtime.current?.submit(data, requestId) ?? false
+      (data, requestId) => runtime.current?.submit(data, requestId) ?? false,
     );
     if (!sent) return;
     setTemplateWarning(
       rendered.error
         ? `The Compose template could not be applied, so the original message was sent. ${rendered.error}`
-        : ''
+        : '',
     );
     setDraft('');
     saveComposerDraft(workspaceId, terminalId, '');
@@ -229,24 +232,57 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
       element?.setSelectionRange(start + text.length, start + text.length);
     }, 0);
   };
-  const uploadImage = async (image: File) => {
-    setUploadingImage(true);
-    setImageError('');
-    const form = new FormData();
-    form.set('image', image);
-    const query = terminalId ? `?terminal=${encodeURIComponent(terminalId)}` : '';
-    try {
-      await requestJson(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/image${query}`,
-        { method: 'POST', body: form },
-        'Unable to send the image to the shell.'
+  const uploadImage = useCallback(
+    async (image: File) => {
+      if (!runtimeState.inputReady) {
+        setImageError('Connect to the terminal before sending an image.');
+        return;
+      }
+      if (imageNoticeTimer.current !== undefined) window.clearTimeout(imageNoticeTimer.current);
+      setUploadingImage(true);
+      setImageError('');
+      setImageNotice('Sending image to the shell…');
+      const form = new FormData();
+      form.set('image', image, image.name || 'pasted-image');
+      const query = terminalId ? `?terminal=${encodeURIComponent(terminalId)}` : '';
+      try {
+        await requestJson(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/image${query}`,
+          { method: 'POST', body: form },
+          'Unable to send the image to the shell.',
+        );
+        setImageNotice('Image pasted into the shell.');
+        imageNoticeTimer.current = window.setTimeout(() => {
+          setImageNotice('');
+          imageNoticeTimer.current = undefined;
+        }, 5_000);
+      } catch (cause) {
+        setImageNotice('');
+        setImageError(cause instanceof Error ? cause.message : 'Unable to send the image to the shell.');
+      } finally {
+        setUploadingImage(false);
+      }
+    },
+    [runtimeState.inputReady, terminalId, workspaceId],
+  );
+  useEffect(() => {
+    const pasteImage = (event: ClipboardEvent) => {
+      const imageItem = Array.from(event.clipboardData?.items ?? []).find(
+        (item) => item.kind === 'file' && item.type.startsWith('image/'),
       );
-    } catch (cause) {
-      setImageError(cause instanceof Error ? cause.message : 'Unable to send the image to the shell.');
-    } finally {
-      setUploadingImage(false);
-    }
-  };
+      const image =
+        imageItem?.getAsFile() ??
+        Array.from(event.clipboardData?.files ?? []).find((file) => file.type.startsWith('image/'));
+      if (!image) return;
+      event.preventDefault();
+      void uploadImage(image);
+    };
+    window.addEventListener('paste', pasteImage, true);
+    return () => {
+      window.removeEventListener('paste', pasteImage, true);
+      if (imageNoticeTimer.current !== undefined) window.clearTimeout(imageNoticeTimer.current);
+    };
+  }, [uploadImage]);
   const handleTerminalDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     setTerminalDropKind('');
     const raw = event.dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE);
@@ -269,11 +305,6 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
   };
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (isInputSurfaceToggleShortcut(event.nativeEvent)) {
-      event.preventDefault();
-      toggleInput();
-      return;
-    }
     if (event.ctrlKey && event.altKey && event.key.toLocaleLowerCase() === 'h' && composerHistoryEnabled) {
       event.preventDefault();
       document.querySelector<HTMLButtonElement>('[aria-label="Open Composer history"]')?.click();
@@ -311,7 +342,15 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
   };
 
   return (
-    <div className="terminal-body">
+    <div
+      className="terminal-body"
+      onKeyDownCapture={(event) => {
+        if (!isInputSurfaceToggleShortcut(event.nativeEvent)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleInput();
+      }}
+    >
       <div className="terminal-frame">
         <div
           ref={terminalElement}
@@ -398,15 +437,14 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
               ['tab', 'Tab'],
               ['backspace', 'Backspace'],
               ['enter', 'Enter'],
-              ['arrow-up', '↑'],
-              ['arrow-down', '↓'],
-              ['arrow-left', '←'],
-              ['arrow-right', '→'],
             ] as const
           ).map(([control, label]) => (
             <button
               key={control}
               type="button"
+              className={
+                control === 'interrupt' || control === 'backspace' || control === 'enter' ? 'wide-key' : undefined
+              }
               disabled={!runtimeState.inputReady}
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => sendControl(control)}
@@ -414,6 +452,27 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
               {label}
             </button>
           ))}
+          <span className="toolbar-divider" aria-hidden="true" />
+          {(
+            [
+              ['arrow-up', '↑', 'Arrow up'],
+              ['arrow-down', '↓', 'Arrow down'],
+              ['arrow-left', '←', 'Arrow left'],
+              ['arrow-right', '→', 'Arrow right'],
+            ] as const
+          ).map(([control, label, ariaLabel]) => (
+            <button
+              key={control}
+              type="button"
+              aria-label={ariaLabel}
+              disabled={!runtimeState.inputReady}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => sendControl(control)}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="toolbar-divider" aria-hidden="true" />
           {(
             [
               ['Scroll to terminal top', 'Top', () => runtime.current?.scrollToTop()],
@@ -434,56 +493,63 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
             </button>
           ))}
         </div>
-        {recovery.entries.length ? (
-          <div className="submission-recovery" role="region" aria-label="Compose delivery status">
-            {recovery.entries.map((entry) => (
-              <div key={entry.requestId}>
-                <span>{entry.status === 'pending' ? 'Sending message…' : entry.message}</span>
-                {entry.status !== 'pending' ? <span aria-label="Draft excerpt">{entry.draft}</span> : null}
-                {entry.status !== 'pending' ? (
-                  <Button
-                    size="sm"
-                    aria-label="Restore draft"
-                    onClick={() => {
-                      setDraft(entry.draft);
-                      saveComposerDraft(workspaceId, terminalId, entry.draft);
-                      recovery.dismiss(entry.requestId);
-                    }}
-                  >
-                    Restore draft
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {recovery.error ? (
-          <p className="composer-notice" role="alert">
-            {recovery.error}
-          </p>
-        ) : null}
-        {templateWarning ? (
-          <p className="composer-notice" role="status">
-            {templateWarning}
-          </p>
-        ) : null}
-        {imageError ? (
-          <p className="composer-notice" role="alert">
-            {imageError}
-          </p>
-        ) : null}
+        <div className="composer-feedback">
+          {recovery.entries.length ? (
+            <div className="submission-recovery" role="region" aria-label="Compose delivery status">
+              {recovery.entries.map((entry) => (
+                <div key={entry.requestId}>
+                  <span>{entry.status === 'pending' ? 'Sending message…' : entry.message}</span>
+                  {entry.status !== 'pending' ? <span aria-label="Draft excerpt">{entry.draft}</span> : null}
+                  {entry.status !== 'pending' ? (
+                    <Button
+                      size="sm"
+                      aria-label="Restore draft"
+                      onClick={() => {
+                        setDraft(entry.draft);
+                        saveComposerDraft(workspaceId, terminalId, entry.draft);
+                        recovery.dismiss(entry.requestId);
+                      }}
+                    >
+                      Restore draft
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {recovery.error ? (
+            <p className="composer-notice" role="alert">
+              {recovery.error}
+            </p>
+          ) : null}
+          {templateWarning ? (
+            <p className="composer-notice" role="status">
+              {templateWarning}
+            </p>
+          ) : null}
+          {imageError ? (
+            <p className="composer-notice" role="alert">
+              {imageError}
+            </p>
+          ) : null}
+          {imageNotice ? (
+            <p className="composer-notice" role="status">
+              {imageNotice}
+            </p>
+          ) : null}
+        </div>
         <div className="composer-slot">
           <div className={`terminal-composer composer ${inputSurface}-mode`} role="group" aria-label="Terminal input">
             <button
               className="composer-mode"
               type="button"
               aria-label="Switch between Compose and Terminal"
-              title="Switch input"
+              title={`Switch to ${inputSurface === 'compose' ? 'Terminal' : 'Compose'} (${inputShortcut})`}
+              aria-pressed={inputSurface === 'terminal'}
               onClick={toggleInput}
             >
               <ArrowLeftRight size={18} />
-              <span>Switch input</span>
-              <kbd>{/Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘ /' : 'Ctrl + `'}</kbd>
+              <span>{inputSurface === 'compose' ? 'Compose' : 'Terminal'}</span>
             </button>
             <Textarea
               ref={composerElement}
@@ -498,13 +564,6 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
               }}
               onKeyDown={handleComposerKeyDown}
               onPointerDown={() => setMessageActionsOpen(false)}
-              onPaste={(event) => {
-                const image = [...event.clipboardData.files].find((file) => file.type.startsWith('image/'));
-                if (image) {
-                  event.preventDefault();
-                  void uploadImage(image);
-                }
-              }}
               onFocus={() => chooseInputSurface('compose')}
               onBlur={() => saveComposerDraft(workspaceId, terminalId, draft)}
               placeholder="Compose a message…"
@@ -563,10 +622,10 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
                           () =>
                             document
                               .querySelector<HTMLButtonElement>(
-                                '.composer-secondary-actions [aria-label="Open Composer history"]'
+                                '.composer-secondary-actions [aria-label="Open Composer history"]',
                               )
                               ?.click(),
-                          0
+                          0,
                         );
                       }}
                     >

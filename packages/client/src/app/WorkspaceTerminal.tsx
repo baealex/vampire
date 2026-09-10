@@ -1,18 +1,22 @@
+import { RepositoryClient } from '@vampire/lib/features/repository/api/client.ts';
+import { uploadSelectionFromDataTransfer } from '@vampire/lib/features/repository/api/upload.ts';
+import {
+  isWorktreeWorkspace,
+  workspaceName,
+  workspaceRepositoryName,
+} from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
+import type { WorkspaceEntryDragData } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
 import { Activity, GitBranch, ListTree, PanelLeft, StickyNote } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
-import type { WorkspaceEntryDragData } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
-import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
-import { isWorktreeWorkspace, workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
-import { RepositoryClient } from '@vampire/lib/features/repository/api/client.ts';
-import { uploadSelectionFromDataTransfer } from '@vampire/lib/features/repository/api/upload.ts';
-import { StatusPluginBar } from '~/features/status/StatusPluginBar.tsx';
 import { RepositoryPanel } from '~/features/repository/RepositoryPanel.tsx';
-import { WorkspaceNoteDialog } from '~/features/workspace/WorkspaceNoteDialog.tsx';
-import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
-import { ToolbarButton } from '~/shared/ui/index.ts';
+import { StatusPluginBar } from '~/features/status/StatusPluginBar.tsx';
 import { BackgroundDialog } from '~/features/terminal/BackgroundDialog.tsx';
 import { TerminalViewport } from '~/features/terminal/TerminalViewport.tsx';
+import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
+import { WorkspaceNoteDialog } from '~/features/workspace/WorkspaceNoteDialog.tsx';
+import { ToolbarButton } from '~/shared/ui/index.ts';
 import '../features/terminal/workspace-terminal.css';
 
 export const WorkspaceTerminal = observer(function WorkspaceTerminal({
@@ -26,9 +30,10 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
   state: WorkspaceState;
   statusPlugins: StatusPluginSnapshot[];
 }) {
-  const [repositoryOpen, setRepositoryOpen] = useState(false);
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const [sidePanel, setSidePanel] = useState<'repository' | 'note' | 'background'>();
+  const repositoryOpen = sidePanel === 'repository';
+  const noteOpen = sidePanel === 'note';
+  const backgroundOpen = sidePanel === 'background';
   const [repositoryStatus, setRepositoryStatus] = useState<{
     branch?: string;
     changeCount: number;
@@ -45,8 +50,11 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
     );
   const terminal = [...workspace.terminals].sort((left, right) => left.index - right.index)[0];
   const backgroundCount = Math.max(0, workspace.terminals.length - 1);
+  const repositoryName = workspaceRepositoryName(workspace);
   return (
-    <section className={`workspace-terminal-layout${repositoryOpen ? ' repository-open' : ''}`}>
+    <section
+      className={`workspace-terminal-layout${sidePanel ? ' side-panel-open' : ''}${repositoryOpen ? ' repository-open' : ''}`}
+    >
       <div className="terminal-sheet workspace-primary" aria-label={`Terminal for ${workspaceName(workspace)}`}>
         <div className="terminal-topbar">
           <StatusPluginBar plugins={statusPlugins} onManage={onManageStatusWidgets} />
@@ -56,7 +64,7 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
             </ToolbarButton>
             <div className="terminal-identity">
               <div className="terminal-identity-title">
-                <strong>{workspaceName(workspace)}</strong>
+                <strong title={workspaceName(workspace)}>{workspaceName(workspace)}</strong>
                 {repositoryStatus.branch || isWorktreeWorkspace(workspace) ? (
                   <span
                     className="branch-label"
@@ -72,7 +80,7 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
                   </span>
                 ) : null}
               </div>
-              <span title={workspace.cwd}>{workspace.cwd}</span>
+              {repositoryName !== workspaceName(workspace) ? <span title={workspace.cwd}>{repositoryName}</span> : null}
             </div>
             <div className="terminal-controls">
               <div className="terminal-tools" role="group" aria-label="Terminal tools">
@@ -83,7 +91,7 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
                   active={backgroundOpen}
                   aria-expanded={backgroundOpen}
                   aria-controls="background-process-panel"
-                  onClick={() => setBackgroundOpen((open) => !open)}
+                  onClick={() => setSidePanel((current) => (current === 'background' ? undefined : 'background'))}
                 >
                   <Activity size={16} strokeWidth={1.8} aria-hidden="true" />
                   {backgroundCount > 0 ? <span>{backgroundCount > 99 ? '99+' : backgroundCount}</span> : null}
@@ -99,16 +107,17 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
                   }
                   active={noteOpen}
                   aria-expanded={noteOpen}
-                  onClick={() => setNoteOpen((open) => !open)}
+                  onClick={() => setSidePanel((current) => (current === 'note' ? undefined : 'note'))}
                 >
                   <StickyNote size={16} strokeWidth={1.8} aria-hidden="true" />
                 </ToolbarButton>
                 <ToolbarButton
+                  id="repository-panel-trigger"
                   className="repository-button"
                   label={repositoryOpen ? 'Close repository' : 'Open repository'}
                   active={repositoryOpen}
                   aria-expanded={repositoryOpen}
-                  onClick={() => setRepositoryOpen((open) => !open)}
+                  onClick={() => setSidePanel((current) => (current === 'repository' ? undefined : 'repository'))}
                 >
                   <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />
                   {workspace.isGitRepository && repositoryStatus.changeCount > 0 ? (
@@ -149,28 +158,34 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
             }}
           />
         </div>
-        <WorkspaceNoteDialog
-          open={noteOpen}
-          workspaceId={workspace.id}
-          state={state}
-          onClose={() => setNoteOpen(false)}
-        />
-        <BackgroundDialog
-          open={backgroundOpen}
-          workspaceId={workspace.id}
-          state={state}
-          onClose={() => setBackgroundOpen(false)}
-        />
       </div>
+      <WorkspaceNoteDialog
+        open={noteOpen}
+        workspaceId={workspace.id}
+        state={state}
+        onClose={() => setSidePanel(undefined)}
+      />
+      <BackgroundDialog
+        open={backgroundOpen}
+        workspaceId={workspace.id}
+        workspaceLabel={workspaceName(workspace)}
+        state={state}
+        onClose={() => setSidePanel(undefined)}
+      />
       <RepositoryPanel
         key={workspace.id}
         open={repositoryOpen}
+        projectName={repositoryName}
+        projectPath={workspace.cwd}
         workspaceId={workspace.id}
         onInsertPath={(entry) => {
           setPathInsertion({ entry, token: Date.now() });
-          if (window.matchMedia('(max-width: 63.999rem)').matches) setRepositoryOpen(false);
+          if (window.matchMedia('(max-width: 63.999rem)').matches) setSidePanel(undefined);
         }}
-        onClose={() => setRepositoryOpen(false)}
+        onClose={() => {
+          setSidePanel(undefined);
+          window.setTimeout(() => document.querySelector<HTMLButtonElement>('#repository-panel-trigger')?.focus(), 0);
+        }}
       />
     </section>
   );

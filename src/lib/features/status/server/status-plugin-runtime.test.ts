@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
 import type { StatusPluginCommandOptions } from '~/lib/features/status/server/status-plugin-command.server.ts';
+import { StatusPluginRuntime } from '~/lib/features/status/server/status-plugin-runtime.server.ts';
 import {
   STATUS_PLUGIN_STATE_VERSION,
   type StatusPluginStore,
@@ -113,14 +113,14 @@ test('runs CPU and RAM through the same ordered runtime contract', async () => {
 
   await runtime.start();
   await waitFor(
-    () => runtime.snapshots().length === 2 && runtime.snapshots().every((snapshot) => snapshot.state === 'ready')
+    () => runtime.snapshots().length === 2 && runtime.snapshots().every((snapshot) => snapshot.state === 'ready'),
   );
   assert.deepEqual(
     runtime.snapshots().map(({ id, name, text }) => ({ id, name, text })),
     [
       { id: 'ram', name: 'Memory', text: '34%' },
       { id: 'cpu', name: 'Processor', text: '≈12%' },
-    ]
+    ],
   );
   runtime.stop();
 });
@@ -186,7 +186,7 @@ test('runs every enabled plugin once when saved configuration changes', async ()
   await waitFor(() => [...executions.values()].reduce((sum, count) => sum + count, 0) === 4);
   assert.deepEqual(
     runtime.snapshots().map((snapshot) => snapshot.id),
-    ['two', 'one']
+    ['two', 'one'],
   );
   assert.deepEqual(Object.fromEntries(executions), { one: 2, two: 2 });
   runtime.stop();
@@ -222,7 +222,7 @@ test('reuses a recent server result when every browser disconnects and reconnect
   await runtime.start();
   assert.deepEqual(
     runtime.snapshots().map((snapshot) => snapshot.text),
-    ['12%']
+    ['12%'],
   );
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(executions, 1);

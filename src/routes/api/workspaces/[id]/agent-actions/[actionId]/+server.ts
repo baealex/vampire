@@ -1,12 +1,12 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
-import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   describeWorkspaceAgentAction,
   submitWorkspaceAgentAction,
   WorkspaceAgentActionError,
 } from '~/lib/app/server/workspace-agent-actions.server.ts';
+import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { WorkspaceAutomationMutationError } from '~/lib/features/workspace/server/workspace-automations.server.ts';
 import { WorkspaceBackgroundMutationError } from '~/lib/features/workspace/server/workspace-background-agent-support.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import {
   isWorkspaceAgentActionId,
   type WorkspaceAgentActionId,
@@ -45,7 +45,7 @@ export const GET: RequestHandler = async (event) => {
   try {
     return json(
       { action: await describeWorkspaceAgentAction(workspaceId, actionId) },
-      { headers: { 'cache-control': 'no-store' } }
+      { headers: { 'cache-control': 'no-store' } },
     );
   } catch (cause) {
     actionError(cause);

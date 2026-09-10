@@ -88,7 +88,7 @@ test('preserves an API conflict as a typed request error', async (t) => {
       error instanceof Error &&
       'status' in error &&
       error.status === 409 &&
-      error.message === 'This file changed elsewhere.'
+      error.message === 'This file changed elsewhere.',
   );
 });
 

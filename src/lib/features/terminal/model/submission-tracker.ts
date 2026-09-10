@@ -102,15 +102,15 @@ export class TerminalSubmissionTracker {
 
   constructor(options: TerminalSubmissionTrackerOptions = {}) {
     this.#acknowledgementTimeoutMs = positiveDuration(
-      options.acknowledgementTimeoutMs ?? TERMINAL_SUBMISSION_ACKNOWLEDGEMENT_TIMEOUT_MS
+      options.acknowledgementTimeoutMs ?? TERMINAL_SUBMISSION_ACKNOWLEDGEMENT_TIMEOUT_MS,
     );
     this.#maximumPending = positiveInteger(
       options.maximumPending ?? MAX_PENDING_TERMINAL_SUBMISSIONS,
-      'Terminal pending submission limit'
+      'Terminal pending submission limit',
     );
     this.#maximumRecoverable = positiveInteger(
       options.maximumRecoverable ?? MAX_RECOVERABLE_TERMINAL_SUBMISSIONS,
-      'Terminal recoverable submission limit'
+      'Terminal recoverable submission limit',
     );
     this.#now = options.now ?? Date.now;
     if (options.initialEntries !== undefined) this.restore(options.initialEntries);
@@ -178,7 +178,7 @@ export class TerminalSubmissionTracker {
     if (!isTimestamp(updatedAt) || !message) return 0;
     const pending = Array.from(this.#entries.values()).filter(
       (entry): entry is TerminalPendingSubmission =>
-        entry.status === 'pending' && (requestId === undefined || entry.requestId === requestId)
+        entry.status === 'pending' && (requestId === undefined || entry.requestId === requestId),
     );
     for (const entry of pending) {
       this.#entries.delete(entry.requestId);
@@ -205,7 +205,7 @@ export class TerminalSubmissionTracker {
     const expiredRequestIds = Array.from(this.#entries.values())
       .filter(
         (entry): entry is TerminalPendingSubmission =>
-          entry.status === 'pending' && entry.acknowledgementDeadlineAt <= updatedAt
+          entry.status === 'pending' && entry.acknowledgementDeadlineAt <= updatedAt,
       )
       .map((entry) => entry.requestId);
     let changed = 0;

@@ -62,7 +62,7 @@ test('ignores malformed state and degrades safely when browser storage is unavai
     loadComposerEditorState('workspace-1', undefined, {
       getItem: () => '{"selectionStart":4,"selectionEnd":2,"scrollTop":0}',
       setItem: () => undefined,
-    })
+    }),
   ).toEqual({ value: undefined, available: true });
 
   const unavailableStorage = {

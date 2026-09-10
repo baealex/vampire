@@ -105,7 +105,7 @@ test('shares one ordered tmux reader across pane subscribers', async (t) => {
     firstLease.hub.dispose();
     await assert.rejects(
       () => firstLease.hub.runOperation(async () => 'should not run'),
-      /tmux control client is unavailable/
+      /tmux control client is unavailable/,
     );
     firstLease.release();
     secondLease.release();

@@ -1,8 +1,36 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { configureSessionAuthentication } from '~/lib/server/session-cookie.ts';
 import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { createFastifyApp } from './fastify-app.server.ts';
+
+test('Fastify negotiates precompressed assets without changing identity responses or security headers', async () => {
+  configureSessionAuthentication(false);
+  const clientDirectory = await mkdtemp(join(tmpdir(), 'vampire-static-assets-'));
+  const content = 'console.log("compressed client");\n'.repeat(200);
+  await writeFile(join(clientDirectory, 'app.js'), content);
+  await writeFile(join(clientDirectory, 'app.js.gz'), gzipSync(content));
+  const app = createFastifyApp({ clientDirectory });
+  try {
+    const compressed = await app.inject({ url: '/app.js', headers: { 'accept-encoding': 'gzip' } });
+    assert.equal(compressed.statusCode, 200);
+    assert.equal(compressed.headers['content-encoding'], 'gzip');
+    assert.match(String(compressed.headers.vary), /Accept-Encoding/i);
+    assert.equal(compressed.headers['x-content-type-options'], 'nosniff');
+    assert.equal(gunzipSync(compressed.rawPayload).toString(), content);
+    const identity = await app.inject({ url: '/app.js', headers: { 'accept-encoding': 'identity' } });
+    assert.equal(identity.statusCode, 200);
+    assert.equal(identity.headers['content-encoding'], undefined);
+    assert.equal(identity.body, content);
+  } finally {
+    await app.close();
+    await rm(clientDirectory, { recursive: true, force: true });
+  }
+});
 
 test('Fastify foundation serves health with the existing security headers', async () => {
   configureSessionAuthentication(false);
@@ -22,7 +50,7 @@ test('Fastify foundation preserves Host and mutating Origin protection', async (
 
   assert.equal(
     (await app.inject({ method: 'GET', url: '/health', headers: { host: 'attacker.example' } })).statusCode,
-    421
+    421,
   );
   assert.equal(
     (
@@ -32,7 +60,7 @@ test('Fastify foundation preserves Host and mutating Origin protection', async (
         headers: { host: 'localhost', origin: 'https://attacker.example' },
       })
     ).statusCode,
-    403
+    403,
   );
   await app.close();
 });

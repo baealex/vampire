@@ -1,74 +1,67 @@
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Ellipsis,
-  File,
-  Folder,
-  FolderPlus,
-  GitBranch,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Scissors,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-react';
-import { observer } from 'mobx-react-lite';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { RepositoryClient } from '@vampire/lib/features/repository/api/client.ts';
 import { uploadSelectionFromFiles } from '@vampire/lib/features/repository/api/upload.ts';
-import { isPreviewableImage } from '@vampire/lib/features/repository/model/view.ts';
 import {
-  parseWorkspaceEntryDragEntries,
-  WORKSPACE_ENTRY_DRAG_TYPE,
-} from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
+  isPreviewableImage,
+  repositoryNavigationPaths,
+  repositorySelectionLabel,
+  repositoryViewerEmptyState,
+  repositoryViewerSections,
+} from '@vampire/lib/features/repository/model/view.ts';
 import type {
   RepositoryCommitDiff,
   RepositoryDiff,
   RepositorySelection,
-  WorkspaceEntryKind,
   WorkspaceFile,
 } from '@vampire/lib/shared/contracts/repository.ts';
-import { Button, Dialog, DropdownMenu, DropdownMenuItem, Input, Spinner, ToolbarButton } from '~/shared/ui/index.ts';
+import { ChevronLeft, ChevronRight, Pencil, RefreshCw, X } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Button,
+  Dialog,
+  Input,
+  PanelState,
+  Spinner,
+  ToolbarButton,
+  WorkspacePanelHeader,
+  WorkspaceSidePanel,
+} from '~/shared/ui/index.ts';
 import { RepositoryWorkspaceState } from './model/repository-workspace-state.ts';
+import { RepositoryDiffDocument } from './RepositoryDiffDocument.tsx';
+import { RepositoryExplorer } from './RepositoryExplorer.tsx';
+import { RepositoryGitPanel, type RepositoryGitView } from './RepositoryGitPanel.tsx';
+import { type RepositoryEntry, repositoryBasename, repositoryParentPath } from './repository-path.ts';
 import './repository-panel.css';
 
-type Tab = 'files' | 'changes' | 'commits' | 'branches';
+type Tab = 'files' | 'git';
 const CodeEditor = lazy(() => import('~/shared/ui/CodeEditor.tsx').then((module) => ({ default: module.CodeEditor })));
-type Entry = { kind: WorkspaceEntryKind; path: string };
-function parent(path: string) {
-  const index = path.lastIndexOf('/');
-  return index < 0 ? '' : path.slice(0, index);
-}
-function basename(path: string) {
-  return path.slice(path.lastIndexOf('/') + 1);
-}
 
 export const RepositoryPanel = observer(function RepositoryPanel({
   onClose,
   onInsertPath,
   open,
+  projectName,
+  projectPath,
   workspaceId,
 }: {
   onClose: () => void;
-  onInsertPath: (entry: Entry) => void;
+  onInsertPath: (entry: RepositoryEntry) => void;
   open: boolean;
+  projectName: string;
+  projectPath: string;
   workspaceId: string;
 }) {
   const openRef = useRef(open);
   openRef.current = open;
   const [state] = useState(() => new RepositoryWorkspaceState(workspaceId, { isOpen: () => openRef.current }));
   const [tab, setTab] = useState<Tab>('files');
+  const [gitView, setGitView] = useState<RepositoryGitView>('changes');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selectedEntry, setSelectedEntry] = useState<Entry>();
+  const [selectedEntry, setSelectedEntry] = useState<RepositoryEntry>();
   const [entryDialog, setEntryDialog] = useState<{
     action: 'file' | 'directory' | 'rename';
     directory: string;
-    entry?: Entry;
+    entry?: RepositoryEntry;
   }>();
   const [entryName, setEntryName] = useState('');
   const [entryError, setEntryError] = useState('');
@@ -115,14 +108,18 @@ export const RepositoryPanel = observer(function RepositoryPanel({
     }
   };
   const directory =
-    selectedEntry?.kind === 'directory' ? selectedEntry.path : selectedEntry ? parent(selectedEntry.path) : '';
+    selectedEntry?.kind === 'directory'
+      ? selectedEntry.path
+      : selectedEntry
+        ? repositoryParentPath(selectedEntry.path)
+        : '';
   const openEntryDialog = (
     action: 'file' | 'directory' | 'rename',
     targetDirectory = directory,
-    targetEntry = selectedEntry
+    targetEntry = selectedEntry,
   ) => {
     const entry = action === 'rename' ? targetEntry : undefined;
-    setEntryName(entry ? basename(entry.path) : '');
+    setEntryName(entry ? repositoryBasename(entry.path) : '');
     setEntryError('');
     setEntryDialog({ action, directory: targetDirectory, entry });
   };
@@ -151,13 +148,12 @@ export const RepositoryPanel = observer(function RepositoryPanel({
   const snapshot = state.snapshot;
   return (
     <>
-      <aside
+      <WorkspaceSidePanel
+        open={open}
         className={`repository-panel${open ? ' open' : ''}${rootDropActive ? ' root-drop-active' : ''}`}
-        aria-label="Repository for workspace"
-        aria-hidden={!open}
-        inert={!open ? true : undefined}
+        aria-label={`${snapshot?.isGitRepository === false ? 'Files' : 'Repository'} for ${projectName}`}
         onDragOver={(event) => {
-          if (event.target instanceof Element && event.target.closest('.tree-row-shell.root')) {
+          if (event.target instanceof Element && event.target.closest('[data-repository-root]')) {
             event.preventDefault();
             setRootDropActive(true);
           }
@@ -168,113 +164,84 @@ export const RepositoryPanel = observer(function RepositoryPanel({
           if (event.defaultPrevented) return;
         }}
       >
-        <header className="repository-header">
-          <GitBranch size={17} />
-          <strong>{state.branch || 'Repository'}</strong>
-          <ToolbarButton label="Refresh repository" onClick={() => void state.refresh()}>
-            <RefreshCw size={16} />
-          </ToolbarButton>
-          <ToolbarButton label="Close workspace panel" onClick={onClose}>
-            <X size={17} />
-          </ToolbarButton>
-        </header>
-        <div className="repository-tabs" role="tablist">
-          {(['files', 'changes'] as Tab[]).map((value) => (
-            <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>
-              {value === 'files' ? 'Explorer' : 'Git'}
-              {value === 'changes' && state.changeCount ? <span>{state.changeCount}</span> : null}
+        <WorkspacePanelHeader
+          title="Workspace"
+          subtitle={projectName}
+          subtitleTitle={projectPath}
+          subtitleMonospace
+          close={onClose}
+          closeLabel="Close workspace panel"
+          actions={
+            <ToolbarButton
+              className={state.loading ? 'repository-refresh spinning' : 'repository-refresh'}
+              label="Refresh workspace and Git"
+              disabled={state.loading}
+              onClick={() => void state.refresh()}
+            >
+              <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
+            </ToolbarButton>
+          }
+        />
+        {snapshot?.isGitRepository !== false ? (
+          <div className="repository-tabs" role="tablist" aria-label="Repository view">
+            <button type="button" role="tab" aria-selected={tab === 'files'} onClick={() => setTab('files')}>
+              Explorer
             </button>
-          ))}
-        </div>
-        {state.loading && !snapshot ? (
-          <div className="repository-loading">
-            <Spinner />
-            Loading repository…
+            <button type="button" role="tab" aria-selected={tab === 'git'} onClick={() => setTab('git')}>
+              Git
+            </button>
           </div>
+        ) : null}
+        <input
+          hidden
+          multiple
+          ref={uploadInput}
+          type="file"
+          onChange={(event) => {
+            void upload(event.currentTarget.files);
+            event.currentTarget.value = '';
+          }}
+        />
+        <input
+          hidden
+          multiple
+          ref={(element) => {
+            uploadFolderInput.current = element;
+            element?.setAttribute('webkitdirectory', '');
+          }}
+          type="file"
+          onChange={(event) => {
+            void upload(event.currentTarget.files);
+            event.currentTarget.value = '';
+          }}
+        />
+        {state.loading && !snapshot ? (
+          <PanelState loading>Loading repository…</PanelState>
         ) : state.errorMessage && !snapshot ? (
-          <p className="repository-error" role="alert">
-            {state.errorMessage}
-          </p>
+          <PanelState error>{state.errorMessage}</PanelState>
         ) : snapshot ? (
           <div className="repository-content">
-            <div className="repository-toolbar">
-              <Button size="sm" variant="ghost" onClick={() => openEntryDialog('file')}>
-                <File size={14} />
-                New file
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => openEntryDialog('directory')}>
-                <FolderPlus size={14} />
-                New folder
-              </Button>
-              <input
-                hidden
-                multiple
-                ref={uploadInput}
-                type="file"
-                onChange={(event) => {
-                  void upload(event.currentTarget.files);
-                  event.currentTarget.value = '';
-                }}
-              />
-              <input
-                hidden
-                multiple
-                ref={(element) => {
-                  uploadFolderInput.current = element;
-                  element?.setAttribute('webkitdirectory', '');
-                }}
-                type="file"
-                onChange={(event) => {
-                  void upload(event.currentTarget.files);
-                  event.currentTarget.value = '';
-                }}
-              />
-              <Button size="sm" variant="ghost" disabled={state.uploading} onClick={() => uploadInput.current?.click()}>
-                <Upload size={14} />
-                {state.uploading ? 'Adding…' : 'Add files'}
-              </Button>
-              {selectedEntry ? (
-                <>
-                  <Button size="sm" variant="ghost" onClick={() => openEntryDialog('rename')}>
-                    <Pencil size={14} />
-                    Rename
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => state.setClipboard('copy', [selectedEntry])}>
-                    <Copy size={14} />
-                    Copy
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => state.setClipboard('cut', [selectedEntry])}>
-                    <Scissors size={14} />
-                    Cut
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger-outline"
-                    onClick={() => state.requestDelete(selectedEntry.path, selectedEntry.kind)}
-                  >
-                    <Trash2 size={14} />
-                    Delete
-                  </Button>
-                </>
-              ) : null}
-              {state.clipboard ? (
-                <Button size="sm" onClick={() => void state.pasteEntries(directory)}>
-                  Paste {state.clipboard.entries.length}
-                </Button>
-              ) : null}
-            </div>
             {state.uploadNotice ? (
-              <p className={state.uploadNoticeKind === 'error' ? 'repository-error' : ''} role="status">
+              <p
+                className={`repository-notice${state.uploadNoticeKind === 'error' ? ' repository-error' : ''}`}
+                role="status"
+              >
                 {state.uploadNotice}
               </p>
             ) : null}
-            {tab === 'files' ? (
-              <RepositoryTree
+            {tab === 'files' || !snapshot.git ? (
+              <RepositoryExplorer
                 state={state}
                 expanded={expanded}
+                projectName={projectName}
+                projectPath={projectPath}
                 selected={selectedEntry}
                 onSelect={setSelectedEntry}
                 onToggle={toggleDirectory}
+                onCollapseAll={() => {
+                  for (const path of expanded) state.collapseDirectory(path);
+                  setExpanded(new Set());
+                }}
                 onCreate={(action, targetDirectory, entry) => openEntryDialog(action, targetDirectory, entry)}
                 onUpload={(targetDirectory) => {
                   setSelectedEntry(targetDirectory ? { kind: 'directory', path: targetDirectory } : undefined);
@@ -287,16 +254,12 @@ export const RepositoryPanel = observer(function RepositoryPanel({
                 onInsertPath={onInsertPath}
                 onUploadDrop={(files, targetDirectory) => upload(files, targetDirectory)}
               />
-            ) : tab === 'changes' ? (
-              <RepositoryChanges state={state} />
-            ) : tab === 'commits' ? (
-              <RepositoryCommits state={state} />
             ) : (
-              <RepositoryBranches state={state} />
+              <RepositoryGitPanel state={state} view={gitView} onViewChange={setGitView} />
             )}
           </div>
         ) : null}
-      </aside>
+      </WorkspaceSidePanel>
       {state.selection ? (
         <RepositoryViewer
           workspaceId={workspaceId}
@@ -306,6 +269,8 @@ export const RepositoryPanel = observer(function RepositoryPanel({
           onRequestDiscardChange={(path) => state.requestDiscardChange(path)}
           onDirtyChange={state.markFileDirty}
           onSaved={state.handleFileSaved}
+          navigationPaths={repositoryNavigationPaths(state.selection, snapshot)}
+          onNavigate={(selection) => void state.selectItem(selection)}
         />
       ) : null}
       {entryDialog ? (
@@ -350,273 +315,14 @@ export const RepositoryPanel = observer(function RepositoryPanel({
   );
 });
 
-const RepositoryTree = observer(function RepositoryTree({
-  expanded,
-  onCreate,
-  onInsertPath,
-  onSelect,
-  onToggle,
-  onUpload,
-  onUploadFolder,
-  onUploadDrop,
-  selected,
-  state,
-}: {
-  expanded: Set<string>;
-  onCreate: (action: 'file' | 'directory' | 'rename', directory: string, entry?: Entry) => void;
-  onInsertPath: (entry: Entry) => void;
-  onSelect: (entry: Entry) => void;
-  onToggle: (path: string) => Promise<void>;
-  onUpload: (directory: string) => void;
-  onUploadFolder: (directory: string) => void;
-  onUploadDrop: (files: FileList, directory: string) => Promise<void>;
-  selected?: Entry;
-  state: RepositoryWorkspaceState;
-}) {
-  const snapshot = state.snapshot!;
-  const [menuKey, setMenuKey] = useState<string>();
-  const [dropTarget, setDropTarget] = useState<string>();
-  const rows = useMemo(
-    () =>
-      [
-        ...snapshot.directories.map((path) => ({ kind: 'directory' as const, path })),
-        ...snapshot.files.map((path) => ({ kind: 'file' as const, path })),
-      ]
-        .filter((entry) => {
-          const ancestors = entry.path.split('/').slice(0, -1);
-          return ancestors.every((_, index) => expanded.has(ancestors.slice(0, index + 1).join('/')));
-        })
-        .sort(
-          (a, b) =>
-            parent(a.path).localeCompare(parent(b.path)) ||
-            Number(a.kind === 'file') - Number(b.kind === 'file') ||
-            a.path.localeCompare(b.path)
-        ),
-    [expanded, snapshot.directories, snapshot.files]
-  );
-  const drop = async (event: React.DragEvent, targetDirectory: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setDropTarget(undefined);
-    if (event.dataTransfer.files.length) await onUploadDrop(event.dataTransfer.files, targetDirectory);
-    else {
-      const entries = parseWorkspaceEntryDragEntries(event.dataTransfer.getData(WORKSPACE_ENTRY_DRAG_TYPE));
-      for (const entry of entries ?? []) await state.moveEntry(entry.path, entry.kind, targetDirectory);
-    }
-    if (targetDirectory) {
-      if (!expanded.has(targetDirectory)) await onToggle(targetDirectory);
-      else await state.loadDirectory(targetDirectory);
-      setDropTarget(undefined);
-    }
-  };
-  const EntryMenu = ({ entry }: { entry: Entry }) => (
-    <DropdownMenu
-      align="end"
-      open={menuKey === `${entry.kind}:${entry.path}`}
-      onOpenChange={(open) => setMenuKey(open ? `${entry.kind}:${entry.path}` : undefined)}
-      label={`Actions for ${entry.kind} ${basename(entry.path)}`}
-      trigger={<Ellipsis size={15} />}
-    >
-      {entry.kind === 'directory' ? (
-        <>
-          <DropdownMenuItem onSelect={() => onCreate('file', entry.path)}>New file</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onCreate('directory', entry.path)}>New folder</DropdownMenuItem>
-        </>
-      ) : null}
-      <DropdownMenuItem onSelect={() => onInsertPath(entry)}>Insert path into terminal</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => onCreate('rename', parent(entry.path), entry)}>Rename</DropdownMenuItem>
-      <DropdownMenuItem danger onSelect={() => state.requestDelete(entry.path, entry.kind)}>
-        Delete
-      </DropdownMenuItem>
-    </DropdownMenu>
-  );
-  return (
-    <div className="repository-list repository-tree">
-      <div
-        className={`tree-row-shell root${dropTarget === '' ? ' drop-target' : ''}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDropTarget('');
-        }}
-        onDragLeave={() => setDropTarget(undefined)}
-        onDrop={(event) => void drop(event, '')}
-      >
-        <button type="button" className="repository-root-row">
-          Workspace root
-        </button>
-        <DropdownMenu align="end" label="Add inside workspace root" trigger={<Plus size={16} />}>
-          <DropdownMenuItem onSelect={() => onCreate('file', '')}>New file</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onCreate('directory', '')}>New folder</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onUpload('')}>Upload files…</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onUploadFolder('')}>Upload folder…</DropdownMenuItem>
-        </DropdownMenu>
-      </div>
-      {rows.map((entry) => {
-        const key = `${entry.kind}:${entry.path}`;
-        return (
-          <div
-            key={key}
-            className={`tree-row-shell ${entry.kind}${dropTarget === entry.path ? ' drop-target' : ''}`}
-            data-path={entry.path}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              onSelect(entry);
-              setMenuKey(key);
-            }}
-            onDragOver={
-              entry.kind === 'directory'
-                ? (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setDropTarget(entry.path);
-                  }
-                : undefined
-            }
-            onDragLeave={() => setDropTarget(undefined)}
-            onDrop={entry.kind === 'directory' ? (event) => void drop(event, entry.path) : undefined}
-          >
-            <button
-              type="button"
-              aria-label={`${entry.kind === 'directory' ? (expanded.has(entry.path) ? 'Collapse' : 'Expand') : 'Open'} ${entry.path}`}
-              className={selected?.kind === entry.kind && selected.path === entry.path ? 'selected' : ''}
-              style={{ paddingLeft: `${0.75 + entry.path.split('/').length * 0.8}rem` }}
-              onClick={() => {
-                onSelect(entry);
-                if (entry.kind === 'directory') void onToggle(entry.path);
-                else void state.editFile(entry.path);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'F2') {
-                  event.preventDefault();
-                  onCreate('rename', parent(entry.path), entry);
-                } else if (event.key === 'Delete') {
-                  event.preventDefault();
-                  state.requestDelete(entry.path, entry.kind);
-                } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-                  event.preventDefault();
-                  state.setClipboard('copy', [entry]);
-                } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x') {
-                  event.preventDefault();
-                  state.setClipboard('cut', [entry]);
-                } else if (
-                  entry.kind === 'directory' &&
-                  (event.ctrlKey || event.metaKey) &&
-                  event.key.toLowerCase() === 'v'
-                ) {
-                  event.preventDefault();
-                  void state
-                    .pasteEntries(entry.path)
-                    .then(() => (expanded.has(entry.path) ? state.loadDirectory(entry.path) : onToggle(entry.path)));
-                }
-              }}
-            >
-              {entry.kind === 'directory' ? (
-                expanded.has(entry.path) ? (
-                  <ChevronDown size={14} />
-                ) : (
-                  <ChevronRight size={14} />
-                )
-              ) : (
-                <span />
-              )}
-              {entry.kind === 'directory' ? <Folder size={15} /> : <File size={15} />}
-              <span>{basename(entry.path)}</span>
-            </button>
-            <EntryMenu entry={entry} />
-          </div>
-        );
-      })}
-    </div>
-  );
-});
-
-const RepositoryChanges = observer(function RepositoryChanges({ state }: { state: RepositoryWorkspaceState }) {
-  const changes = state.snapshot?.changes ?? [];
-  return (
-    <div className="repository-list">
-      {changes.length === 0 ? (
-        <p className="repository-empty">The working tree is clean.</p>
-      ) : (
-        changes.map((change) => (
-          <div className="repository-change" key={`${change.status}:${change.path}`}>
-            <button
-              type="button"
-              aria-label={`Open diff for ${change.path}`}
-              onClick={() => void state.selectItem({ kind: 'diff', path: change.path })}
-            >
-              <span className="change-status">{change.status}</span>
-              <span>{change.path}</span>
-            </button>
-            <ToolbarButton
-              label={`Discard changes for ${change.path}`}
-              onClick={() => state.requestDiscardChange(change)}
-            >
-              <Trash2 size={14} />
-            </ToolbarButton>
-          </div>
-        ))
-      )}
-    </div>
-  );
-});
-const RepositoryCommits = observer(function RepositoryCommits({ state }: { state: RepositoryWorkspaceState }) {
-  const git = state.snapshot?.git;
-  if (!git) return <p className="repository-empty">This is not a Git repository.</p>;
-  return (
-    <div className="repository-list">
-      {git.commits.map((commit) => (
-        <button
-          key={commit.hash}
-          type="button"
-          onClick={() => void state.selectItem({ kind: 'commit', path: commit.hash })}
-        >
-          <code>{commit.shortHash}</code>
-          <span>
-            <strong>{commit.subject}</strong>
-            <small>
-              {commit.authorName} · {new Date(commit.authoredAt).toLocaleString()} · +{commit.stats.additions} −
-              {commit.stats.deletions}
-            </small>
-          </span>
-        </button>
-      ))}
-      {git.hasMoreCommits ? (
-        <Button block variant="ghost" disabled={state.loadingMoreCommits} onClick={() => void state.loadMoreCommits()}>
-          {state.loadingMoreCommits ? 'Loading…' : 'Load older commits'}
-        </Button>
-      ) : null}
-    </div>
-  );
-});
-const RepositoryBranches = observer(function RepositoryBranches({ state }: { state: RepositoryWorkspaceState }) {
-  const git = state.snapshot?.git;
-  if (!git) return <p className="repository-empty">This is not a Git repository.</p>;
-  return (
-    <div className="repository-list">
-      {git.branches.map((branch) => (
-        <div className="repository-branch" key={branch.name}>
-          {branch.current ? <Check size={14} /> : <GitBranch size={14} />}
-          <span>
-            <strong>{branch.name}</strong>
-            <small>{branch.worktreePath ?? branch.head ?? 'No commits'}</small>
-          </span>
-          {!branch.current && !branch.worktreePath ? (
-            <ToolbarButton label={`Delete branch ${branch.name}`} onClick={() => state.requestDeleteBranch(branch)}>
-              <Trash2 size={14} />
-            </ToolbarButton>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-});
-
 function RepositoryViewer({
   onClose,
   onDirtyChange,
   onEditFile,
   onRequestDiscardChange,
   onSaved,
+  navigationPaths,
+  onNavigate,
   selection,
   workspaceId,
 }: {
@@ -625,6 +331,8 @@ function RepositoryViewer({
   onEditFile: (path: string) => void;
   onRequestDiscardChange: (path: string) => void;
   onSaved: (file: WorkspaceFile, dirty?: boolean) => void;
+  navigationPaths: string[];
+  onNavigate: (selection: RepositorySelection) => void;
   selection: RepositorySelection;
   workspaceId: string;
 }) {
@@ -636,8 +344,17 @@ function RepositoryViewer({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const failedContentRef = useRef<string | undefined>(undefined);
   const contentRef = useRef(content);
   contentRef.current = content;
+  const image = selection.kind !== 'commit' && isPreviewableImage(selection.path);
+  const parsedSections = useMemo(() => repositoryViewerSections(diff, commit), [diff, commit]);
+  const navigationIndex = navigationPaths.indexOf(selection.path);
+  const previousPath = navigationIndex > 0 ? navigationPaths[navigationIndex - 1] : undefined;
+  const nextPath =
+    navigationIndex >= 0 && navigationIndex < navigationPaths.length - 1
+      ? navigationPaths[navigationIndex + 1]
+      : undefined;
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -645,8 +362,9 @@ function RepositoryViewer({
     setFile(undefined);
     setDiff(undefined);
     setCommit(undefined);
-    const request =
-      selection.kind === 'file'
+    const request = image
+      ? Promise.resolve()
+      : selection.kind === 'file'
         ? api.readFile(selection.path, controller.signal).then((value) => {
             setFile(value);
             setContent(value.content);
@@ -663,29 +381,53 @@ function RepositoryViewer({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api, selection.kind, selection.path]);
-  const save = async () => {
-    if (!file || saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      const saved = await api.updateFile(file.path, contentRef.current, file.version);
-      setFile(saved);
-      const dirty = contentRef.current !== saved.content;
-      onDirtyChange(dirty);
-      onSaved(saved, dirty);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The file could not be saved.');
-    } finally {
-      setSaving(false);
-    }
-  };
-  const image = selection.kind === 'file' && isPreviewableImage(selection.path);
-  const documentKind = selection.kind === 'diff' ? 'Diff' : selection.kind === 'commit' ? 'Commit' : 'File';
+  }, [api, image, selection.kind, selection.path]);
+  useEffect(() => {
+    if (!file || saving || content === file.content || failedContentRef.current === content) return;
+    const timer = window.setTimeout(() => {
+      const requestedContent = contentRef.current;
+      setSaving(true);
+      setError('');
+      void api
+        .updateFile(file.path, requestedContent, file.version)
+        .then((saved) => {
+          failedContentRef.current = undefined;
+          setFile(saved);
+          const dirty = contentRef.current !== saved.content;
+          onDirtyChange(dirty);
+          onSaved(saved, dirty);
+        })
+        .catch((cause) => {
+          failedContentRef.current = requestedContent;
+          setError(cause instanceof Error ? cause.message : 'The file could not be saved.');
+        })
+        .finally(() => setSaving(false));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [api, content, file, onDirtyChange, onSaved, saving]);
+  const documentKind = repositorySelectionLabel(selection.kind);
+  const emptyState = repositoryViewerEmptyState(selection.kind);
   return (
     <section className="repository-viewer" aria-label={`${documentKind} for ${selection.path}`}>
       <header>
+        <span className="document-kind">{documentKind}</span>
         <strong title={selection.path}>{selection.path}</strong>
+        <span className="repository-mobile-navigation">
+          <ToolbarButton
+            label={`Open previous ${documentKind.toLowerCase()}`}
+            disabled={!previousPath}
+            onClick={() => previousPath && onNavigate({ kind: selection.kind, path: previousPath })}
+          >
+            <ChevronLeft size={17} />
+          </ToolbarButton>
+          <ToolbarButton
+            label={`Open next ${documentKind.toLowerCase()}`}
+            disabled={!nextPath}
+            onClick={() => nextPath && onNavigate({ kind: selection.kind, path: nextPath })}
+          >
+            <ChevronRight size={17} />
+          </ToolbarButton>
+        </span>
         {selection.kind === 'diff' ? (
           <>
             <ToolbarButton
@@ -712,24 +454,28 @@ function RepositoryViewer({
         <div
           className="document-opening"
           role="status"
-          aria-label={`Loading ${selection.kind === 'file' ? 'file' : 'changes'}: ${basename(selection.path)}`}
+          aria-label={`Loading ${selection.kind === 'file' ? 'file' : 'changes'}: ${repositoryBasename(selection.path)}`}
         >
           <span className="document-opening__spinner" aria-hidden="true" />
           <span>
-            Loading {selection.kind === 'file' ? 'file' : 'changes'} <code>{basename(selection.path)}</code>
+            Loading {selection.kind === 'file' ? 'file' : 'changes'} <code>{repositoryBasename(selection.path)}</code>
           </span>
         </div>
       ) : image ? (
-        <img className="repository-image" src={api.mediaUrl(selection.path)} alt={selection.path} />
+        <div className="image-document">
+          <img className="repository-image" src={api.mediaUrl(selection.path)} alt={selection.path} />
+        </div>
       ) : file ? (
         <div className="repository-code-editor" aria-label={`Edit ${file.path}`}>
-          <Suspense fallback={<div className="repository-loading">Loading editor…</div>}>
+          <Suspense fallback={<PanelState loading>Loading editor…</PanelState>}>
             <CodeEditor
               label={`Editor for ${file.path}`}
+              path={file.path}
               value={content}
               onChange={(next) => {
                 setContent(next);
                 contentRef.current = next;
+                failedContentRef.current = undefined;
                 setError('');
                 onDirtyChange(next !== file.content);
               }}
@@ -737,17 +483,14 @@ function RepositoryViewer({
           </Suspense>
           <footer>
             <span role="status">
-              {saving ? 'Saving…' : error ? 'Save failed' : content !== file.content ? 'Unsaved changes' : 'Saved'}
+              {saving
+                ? 'Saving…'
+                : error
+                  ? 'Auto-save failed'
+                  : content !== file.content
+                    ? 'Waiting to save…'
+                    : 'Saved'}
             </span>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => void save()}
-              disabled={saving || content === file.content}
-            >
-              <Save size={15} />
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
           </footer>
           {error ? (
             <p className="editor-error" role="alert">
@@ -755,10 +498,15 @@ function RepositoryViewer({
             </p>
           ) : null}
         </div>
+      ) : parsedSections.length > 0 ? (
+        <RepositoryDiffDocument key={`${selection.kind}:${selection.path}`} sections={parsedSections} />
       ) : (
-        <pre>
-          {diff?.sections.map((section) => section.patch).join('\n') || commit?.patch || 'No text diff available.'}
-        </pre>
+        <div className="viewer-state">
+          <div>
+            <strong>{emptyState.title}</strong>
+            <p>{emptyState.description}</p>
+          </div>
+        </div>
       )}
       {error && !file ? (
         <p className="editor-error" role="alert">

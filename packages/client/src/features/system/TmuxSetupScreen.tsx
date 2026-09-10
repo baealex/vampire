@@ -1,5 +1,5 @@
-import { RefreshCw } from 'lucide-react';
 import type { TmuxStatus } from '@vampire/lib/shared/contracts/tmux-status.ts';
+import { RefreshCw } from 'lucide-react';
 import { Button } from '~/shared/ui/index.ts';
 import './tmux-setup-screen.css';
 

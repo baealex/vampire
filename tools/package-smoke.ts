@@ -1,8 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
 import type { ChildProcess } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { request as requestHttp, type IncomingHttpHeaders } from 'node:http';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { type IncomingHttpHeaders, request as requestHttp } from 'node:http';
 import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,13 +12,16 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const packageSource = process.argv[2];
 const expectedVersionArgument = process.argv[3];
+const upgradeFrom = process.argv[4];
 
 if (!packageSource) {
-  console.error('Usage: node tools/package-smoke.ts <package.tgz|package-directory|package-spec> [expected-version]');
+  console.error(
+    'Usage: node tools/package-smoke.ts <package.tgz|package-directory|package-spec> [expected-version] [upgrade-from-package-spec]',
+  );
   process.exit(1);
 }
 
-const temporaryDirectory = await mkdtemp(join(tmpdir(), 'vampire-package-smoke-'));
+const temporaryDirectory = await realpath(await mkdtemp(join(tmpdir(), 'vampire-package-smoke-')));
 const installDirectory = join(temporaryDirectory, 'install');
 const workspaceDirectory = join(temporaryDirectory, 'workspace');
 const stateDirectory = join(temporaryDirectory, 'state');
@@ -25,6 +29,7 @@ const tokenFile = join(temporaryDirectory, 'token');
 const resolvedPackageSource = await resolvePackageSource(packageSource);
 const expectedVersion = expectedVersionArgument || (await packageVersionFromRepository());
 const smokeToken = 'vampire-package-smoke-token';
+const smokeTmuxSocket = `vampire-package-smoke-${process.pid}`;
 
 try {
   await mkdir(workspaceDirectory, { recursive: true });
@@ -39,6 +44,76 @@ try {
     throw new Error(`Installed vampire@${manifest.version}; expected vampire@${expectedVersion}.`);
   }
 
+  if (upgradeFrom) {
+    const previousInstall = join(temporaryDirectory, 'previous-install');
+    await installPackage(upgradeFrom, previousInstall);
+    let savedWorkspaceId = '';
+    const expectedReads = new Map<string, unknown>();
+    const readJson = async (base: string, path: string, method = 'GET', data?: unknown) => {
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers: { origin: base, 'content-type': 'application/json' },
+        body: data === undefined ? undefined : JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
+      return response.json();
+    };
+    await verifyInstalledServer(
+      join(previousInstall, 'node_modules', 'vampire'),
+      workspaceDirectory,
+      stateDirectory,
+      undefined,
+      undefined,
+      undefined,
+      async (base) => {
+        const created = await readJson(base, '/api/workspaces', 'POST', { cwd: workspaceDirectory });
+        savedWorkspaceId = created.workspace.id;
+        await readJson(base, `/api/workspaces/${savedWorkspaceId}/note`, 'PUT', {
+          note: 'Preserve this note during upgrade.\n한글 메모',
+        });
+        await readJson(base, `/api/workspaces/${savedWorkspaceId}/composer-prompts`, 'POST', {
+          prompt: 'Preserve composer history',
+        });
+        await readJson(base, '/api/launch-profiles', 'PUT', {
+          launchProfiles: [{ id: 'upgrade-profile', name: 'Upgrade profile', command: 'printf upgrade' }],
+        });
+        await readJson(base, '/api/workspace-preferences', 'PUT', {
+          workspaceOrderMode: 'manual',
+          manualWorkspaceOrder: [savedWorkspaceId],
+        });
+        for (const path of [
+          `/api/workspaces/${savedWorkspaceId}/note`,
+          `/api/workspaces/${savedWorkspaceId}/composer-prompts`,
+          '/api/launch-profiles',
+          '/api/workspace-preferences',
+        ]) {
+          expectedReads.set(path, await readJson(base, path));
+        }
+      },
+    );
+    await verifyInstalledServer(
+      installedPackageDirectory,
+      workspaceDirectory,
+      stateDirectory,
+      undefined,
+      undefined,
+      undefined,
+      async (base) => {
+        const restored = await readJson(base, '/api/workspaces');
+        assert.ok(
+          restored.workspaces.some(
+            (workspace: { id: string; cwd: string }) =>
+              workspace.id === savedWorkspaceId && workspace.cwd === workspaceDirectory,
+          ),
+          'The upgraded server must restore the existing workspace',
+        );
+        for (const [path, expected] of expectedReads)
+          assert.deepEqual(await readJson(base, path), expected, `Upgrade changed ${path}`);
+      },
+    );
+    console.log(`Verified upgrade from ${upgradeFrom} to vampire@${expectedVersion}.`);
+  }
+
   await verifyInstalledServer(
     installedPackageDirectory,
     workspaceDirectory,
@@ -46,7 +121,7 @@ try {
     undefined,
     undefined,
     undefined,
-    verifyLocalAccess
+    verifyLocalAccess,
   );
   await verifyInstalledServer(
     installedPackageDirectory,
@@ -55,7 +130,7 @@ try {
     smokeToken,
     tokenFile,
     undefined,
-    verifyAuthentication
+    verifyAuthentication,
   );
   await verifyInstalledServer(
     installedPackageDirectory,
@@ -64,11 +139,12 @@ try {
     smokeToken,
     tokenFile,
     'https://vampire.example.com:8443',
-    verifyPublicOrigin
+    verifyPublicOrigin,
   );
 
   console.log(`Verified installed vampire@${expectedVersion} from ${packageSource}.`);
 } finally {
+  if (upgradeFrom) await execFileAsync('tmux', ['-L', smokeTmuxSocket, 'kill-server']).catch(() => undefined);
   await rm(temporaryDirectory, { recursive: true, force: true });
 }
 
@@ -79,7 +155,7 @@ async function verifyInstalledServer(
   token: string | undefined,
   tokenFile: string | undefined,
   publicOrigin: string | undefined,
-  verify: (baseUrl: string, token?: string, publicOrigin?: string) => Promise<void>
+  verify: (baseUrl: string, token?: string, publicOrigin?: string) => Promise<void>,
 ): Promise<void> {
   const port = await availablePort();
   const options = [
@@ -128,7 +204,7 @@ async function installPackage(source: string, directory: string): Promise<void> 
       await execFileAsync(
         npmCommand(),
         ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--prefix', directory, source],
-        { timeout: 120_000 }
+        { timeout: 120_000 },
       );
       return;
     } catch (error) {
@@ -182,6 +258,10 @@ async function availablePort(): Promise<number> {
 
 function runtimeEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
+  environment.VAMPIRE_TMUX_SOCKET_NAME = smokeTmuxSocket;
+  delete environment.VAMPIRE_SAFE_DEVELOPMENT;
+  delete environment.VAMPIRE_CLIENT_DIR;
+  delete environment.VAMPIRE_BUILD_DIR;
   delete environment.VAMPIRE_TOKEN;
   delete environment.VAMPIRE_PUBLIC_ORIGIN;
   delete environment.VAMPIRE_ADAPTER_ORIGIN;
@@ -193,6 +273,17 @@ function runtimeEnvironment(): NodeJS.ProcessEnv {
 }
 
 async function verifyLocalAccess(baseUrl: string): Promise<void> {
+  const html = await (await fetch(baseUrl)).text();
+  const script = /<script\b[^>]*\bsrc="([^"]+\.js)"/.exec(html)?.[1];
+  assert.ok(script, 'The installed client must reference its built entry script');
+  const assetUrl = new URL(script, baseUrl);
+  assert.equal(assetUrl.origin, baseUrl);
+  const compressed = await fetch(assetUrl, { headers: { 'accept-encoding': 'gzip' } });
+  assert.equal(compressed.status, 200);
+  assert.equal(compressed.headers.get('content-encoding'), 'gzip');
+  const identity = await fetch(assetUrl, { headers: { 'accept-encoding': 'identity' } });
+  assert.equal(identity.status, 200);
+  assert.equal(await compressed.text(), await identity.text(), 'Compression must preserve the client script');
   const status = await fetch(`${baseUrl}/api/status`);
   if (!status.ok) throw new Error(`Packaged CLI rejected local status access with status ${status.status}.`);
   const body = (await status.json()) as { authenticated?: boolean; authenticationRequired?: boolean };
@@ -260,7 +351,7 @@ async function expectUpgradeStatus(
   baseUrl: string,
   path: string,
   expectedStatus: number,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): Promise<void> {
   const url = new URL(baseUrl);
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -310,7 +401,7 @@ async function expectUpgradeStatus(
       finish(
         actualStatus === expectedStatus
           ? undefined
-          : new Error(`WebSocket upgrade ${path} returned ${actualStatus || 'no status'}; expected ${expectedStatus}.`)
+          : new Error(`WebSocket upgrade ${path} returned ${actualStatus || 'no status'}; expected ${expectedStatus}.`),
       );
     });
   });
@@ -320,7 +411,7 @@ async function expectStreamStatus(
   baseUrl: string,
   path: string,
   expectedStatus: number,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): Promise<void> {
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const request = requestHttp(
@@ -331,7 +422,7 @@ async function expectStreamStatus(
         response.destroy();
         if (status === expectedStatus) resolvePromise();
         else rejectPromise(new Error(`Event stream ${path} returned ${status}; expected ${expectedStatus}.`));
-      }
+      },
     );
     request.setTimeout(3_000, () => request.destroy(new Error(`Event stream timed out: ${path}`)));
     request.once('error', rejectPromise);
@@ -364,7 +455,7 @@ async function verifyPublicOrigin(baseUrl: string, token?: string, publicOrigin?
   }
   const setCookieHeader = login.headers['set-cookie'];
   const setCookie = (Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader]).find((value) =>
-    /^__Host-vampire_session=[^;]/u.test(value ?? '')
+    /^__Host-vampire_session=[^;]/u.test(value ?? ''),
   );
   if (!setCookie || !/(?:^|;\s*)Secure(?:;|$)/i.test(setCookie)) {
     throw new Error('Packaged CLI did not mark its public HTTPS authentication cookie as Secure.');
@@ -388,7 +479,7 @@ async function waitForHttpServer(
   child: ChildProcess,
   url: string,
   output: () => string,
-  publicOrigin?: string
+  publicOrigin?: string,
 ): Promise<void> {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
@@ -425,7 +516,7 @@ function rawHttpRequest(
     headers?: Record<string, string>;
     method?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): Promise<RawHttpResponse> {
   return new Promise((resolvePromise, rejectPromise) => {
     const request = requestHttp(
@@ -444,7 +535,7 @@ function rawHttpRequest(
             status: response.statusCode ?? 0,
           });
         });
-      }
+      },
     );
     request.setTimeout(options.timeout ?? 3_000, () => request.destroy(new Error(`HTTP request timed out: ${url}`)));
     request.once('error', rejectPromise);

@@ -10,17 +10,17 @@ import {
 } from '~/lib/server/workspace-state-files.ts';
 import {
   parseWorkspaceStore,
-  WORKSPACE_STATE_VERSION,
   type StoredWorkspace,
+  WORKSPACE_STATE_VERSION,
   type WorkspaceStore,
 } from '~/lib/shared/contracts/workspace-store.ts';
 
+export type { StoredWorkspace, WorkspaceStore } from '~/lib/shared/contracts/workspace-store.ts';
 export {
   BACKGROUND_COMMAND_MAX_LENGTH,
   MAX_FAVORITE_COMMANDS,
   WORKSPACE_STATE_VERSION,
 } from '~/lib/shared/contracts/workspace-store.ts';
-export type { StoredWorkspace, WorkspaceStore } from '~/lib/shared/contracts/workspace-store.ts';
 
 export interface WorkspaceConnection {
   tmuxSession: string;
@@ -32,9 +32,10 @@ type WorkspaceStoreGlobal = typeof globalThis & {
 };
 
 const storeGlobal = globalThis as WorkspaceStoreGlobal;
-const mutationState = (storeGlobal.__vampireWorkspaceStoreMutationState ??= {
+const mutationState = storeGlobal.__vampireWorkspaceStoreMutationState ?? {
   queue: Promise.resolve(),
-});
+};
+storeGlobal.__vampireWorkspaceStoreMutationState = mutationState;
 
 export async function withWorkspaceStoreMutation<T>(operation: () => Promise<T>): Promise<T> {
   const previous = mutationState.queue;

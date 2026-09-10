@@ -1,7 +1,7 @@
-import { delimiter, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import type { IncomingHttpHeaders } from 'node:http';
 import { isIP } from 'node:net';
+import { homedir } from 'node:os';
+import { delimiter, join, resolve } from 'node:path';
 import { vampireStateDirectory } from './state-path.ts';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -27,7 +27,7 @@ export interface AdapterRequestOriginPolicy {
 
 export function applyVampireEnvironmentDefaults(
   defaults: Record<string, string>,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): void {
   for (const [name, value] of Object.entries(defaults)) {
     if (name.startsWith('VAMPIRE_') && env[name] === undefined) env[name] = value;
@@ -74,7 +74,7 @@ export function configuredPublicOrigin(env: NodeJS.ProcessEnv = process.env): st
 export function parseWorkspaceRootPaths(
   value: string | undefined,
   baseDirectory = process.cwd(),
-  homeDirectory = homedir()
+  homeDirectory = homedir(),
 ): string[] {
   const configuredPaths =
     typeof value === 'string' && value.trim().length > 0
@@ -111,7 +111,7 @@ export function runtimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConf
   }
   if (externalAccess && !token && !allowInsecureNoAuth) {
     throw new Error(
-      'Refusing external access without VAMPIRE_TOKEN. Configure --token-file or VAMPIRE_TOKEN. Use --allow-insecure-no-auth only for isolated testing.'
+      'Refusing external access without VAMPIRE_TOKEN. Configure --token-file or VAMPIRE_TOKEN. Use --allow-insecure-no-auth only for isolated testing.',
     );
   }
   if (token && [...token].length < MINIMUM_TOKEN_CHARACTERS) {
@@ -140,17 +140,17 @@ export function developmentRuntimeConfig(args: string[], env: NodeJS.ProcessEnv 
   const options = args[0] === '--' ? args.slice(1) : args;
   if (
     options.some(
-      (argument) => !['--allow-network', '--use-existing-state', '--allow-status-widgets'].includes(argument)
+      (argument) => !['--allow-network', '--use-existing-state', '--allow-status-widgets'].includes(argument),
     )
   ) {
     throw new Error(
-      'Unknown development option. Supported options: --allow-network, --use-existing-state, --allow-status-widgets.'
+      'Unknown development option. Supported options: --allow-network, --use-existing-state, --allow-status-widgets.',
     );
   }
   const config = runtimeConfig(env);
   if (config.externalAccess && !options.includes('--allow-network')) {
     throw new Error(
-      'Development network access requires pnpm dev --allow-network. For local-only development, unset VAMPIRE_HOST and VAMPIRE_PUBLIC_ORIGIN / VAMPIRE_ADAPTER_ORIGIN or configure loopback addresses.'
+      'Development network access requires pnpm dev --allow-network. For local-only development, unset VAMPIRE_HOST and VAMPIRE_PUBLIC_ORIGIN / VAMPIRE_ADAPTER_ORIGIN or configure loopback addresses.',
     );
   }
   return config;
@@ -195,7 +195,7 @@ export function requestHostAllowed(headers: IncomingHttpHeaders, env: NodeJS.Pro
 
 export function expectedRequestOrigin(
   headers: IncomingHttpHeaders,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   if (!requestHostAllowed(headers, env)) return undefined;
   const configuredOrigin = configuredPublicOrigin(env);
@@ -218,7 +218,7 @@ export function expectedRequestOrigin(
 
 export function configureAdapterRequestOrigin(
   config: RuntimeConfig,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): AdapterRequestOriginPolicy {
   if (config.publicOrigin) {
     env.VAMPIRE_ADAPTER_ORIGIN = config.publicOrigin;

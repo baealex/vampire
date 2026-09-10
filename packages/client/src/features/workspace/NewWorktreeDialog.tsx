@@ -1,7 +1,7 @@
+import { workspaceName, workspaceRepositoryName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
+import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
 import { GitBranchPlus } from 'lucide-react';
 import { useState } from 'react';
-import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
-import { workspaceName, workspaceRepositoryName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import { Button, Dialog, Field, Input } from '~/shared/ui/index.ts';
 import type { WorkspaceState } from './model/workspace-state.ts';
 
@@ -18,7 +18,7 @@ export function NewWorktreeDialog({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const create = async () => {
-    if (!name.trim()) return;
+    if (creating || !name.trim()) return;
     setCreating(true);
     const result = await state.createIsolatedWorkspace(source.id, name.trim());
     setCreating(false);
@@ -29,6 +29,7 @@ export function NewWorktreeDialog({
     <Dialog
       open
       title="New isolated workspace"
+      busy={creating}
       onClose={onClose}
       footer={
         <>

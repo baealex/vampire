@@ -1,10 +1,10 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   appendManagedWorkspaceComposerPrompt,
   listManagedWorkspaceComposerPrompts,
   WorkspaceComposerHistoryError,
 } from '~/lib/features/workspace/server/workspace-composer-history.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 function composerHistoryError(cause: WorkspaceComposerHistoryError): never {
   throw error(cause.reason === 'not-found' ? 404 : 400, cause.message);
@@ -17,7 +17,7 @@ export const GET: RequestHandler = async (event) => {
   try {
     return json(
       { prompts: await listManagedWorkspaceComposerPrompts(id) },
-      { headers: { 'cache-control': 'no-store' } }
+      { headers: { 'cache-control': 'no-store' } },
     );
   } catch (cause) {
     if (cause instanceof WorkspaceComposerHistoryError) composerHistoryError(cause);

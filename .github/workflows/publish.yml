@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       package_version: ${{ steps.version.outputs.package_version }}
+      previous_version: ${{ steps.notes.outputs.previous_version }}
 
     steps:
       - name: Check out exact tag commit
@@ -70,6 +71,7 @@ jobs:
           cache: pnpm
 
       - name: Validate release notes
+        id: notes
         env:
           PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
         run: |
@@ -81,15 +83,22 @@ jobs:
           fi
           PREVIOUS_TAG="$(git tag --list 'v*' --sort=-version:refname | grep -Fxv "$GITHUB_REF_NAME" | head -n 1 || true)"
           node tools/check-release-notes.ts "$RELEASE_NOTES_FILE" "$PACKAGE_VERSION" "${PREVIOUS_TAG#v}"
+          echo "previous_version=${PREVIOUS_TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type and Svelte checks
+      - name: Type and architecture checks
         run: pnpm check
+
+      - name: Production dependency audit
+        run: pnpm audit --prod
 
       - name: Unit tests
         run: pnpm test:node
+
+      - name: Client unit tests
+        run: pnpm test:react
 
       - name: Build
         run: pnpm build
@@ -125,9 +134,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes tmux
           pnpm exec playwright install --with-deps chromium firefox webkit
-
-      - name: Prepare Playwright TypeScript config
-        run: pnpm exec svelte-kit sync
 
       - name: Run browser flows
         run: pnpm test:e2e
@@ -182,7 +188,15 @@ jobs:
       - name: Smoke test exact release artifact
         env:
           PACKAGE_VERSION: ${{ needs.ci.outputs.package_version }}
-        run: node tools/package-smoke.ts package-artifact "$PACKAGE_VERSION"
+          PREVIOUS_VERSION: ${{ needs.ci.outputs.previous_version }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux
+          if [[ -n "$PREVIOUS_VERSION" ]]; then
+            node tools/package-smoke.ts package-artifact "$PACKAGE_VERSION" "vampire@$PREVIOUS_VERSION"
+          else
+            node tools/package-smoke.ts package-artifact "$PACKAGE_VERSION"
+          fi
 
       - name: Publish verified artifact
         env:

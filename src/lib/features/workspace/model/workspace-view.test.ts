@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { WorkspaceActivityState } from '~/lib/features/workspace/model/workspace-view.ts';
 import * as view from '~/lib/features/workspace/model/workspace-view.ts';
 import type { ManagedWorkspace, WorkspaceTerminal } from '~/lib/shared/contracts/workspace.ts';
-import type { WorkspaceActivityState } from '~/lib/features/workspace/model/workspace-view.ts';
 
 function workspace(
   lastOutputAt: number | null,
   id = 'workspace-1',
-  state: ManagedWorkspace['state'] = 'running'
+  state: ManagedWorkspace['state'] = 'running',
 ): ManagedWorkspace {
   return {
     id,
@@ -38,7 +38,7 @@ function terminal(
   index: number,
   name: string,
   lastOutputAt: number,
-  foregroundProcess: WorkspaceTerminal['foregroundProcess']
+  foregroundProcess: WorkspaceTerminal['foregroundProcess'],
 ): WorkspaceTerminal {
   return {
     id,
@@ -71,7 +71,7 @@ test('uses an explicit agent working signal across silent output gaps', () => {
   assert.equal(view.workspaceActivityState(current, activity(current.id, 0, 0), 60_000), 'active');
   assert.equal(
     view.workspaceActivityState({ ...current, agentState: 'waiting' }, activity(current.id, 0, 0), 60_000),
-    'review'
+    'review',
   );
 });
 
@@ -79,7 +79,7 @@ test('places active workspaces above review workspaces', () => {
   const states: WorkspaceActivityState[] = ['active', 'review', 'idle', 'ended'];
   assert.deepEqual(
     states.sort((left, right) => view.workspaceActivityPriority(left) - view.workspaceActivityPriority(right)),
-    ['active', 'review', 'idle', 'ended']
+    ['active', 'review', 'idle', 'ended'],
   );
 });
 
@@ -88,7 +88,7 @@ test('does not mark output covered by the observation watermark for review', () 
   assert.equal(view.workspaceActivityState(current, activity(current.id, 0, 2_500), 3_000), 'idle');
   assert.equal(
     view.workspaceActivityState({ ...current, lastOutputAt: 3_000 }, activity(current.id, 0, 2_500), 3_500),
-    'review'
+    'review',
   );
 });
 
@@ -128,7 +128,7 @@ test('keeps manual workspace order stable while activity changes', () => {
     view
       .sortWorkspaces(workspaces, 'manual', ['workspace-c', 'workspace-a', 'workspace-b'])
       .map((current) => current.id),
-    ['workspace-c', 'workspace-a', 'workspace-b']
+    ['workspace-c', 'workspace-a', 'workspace-b'],
   );
 });
 

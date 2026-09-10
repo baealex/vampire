@@ -1,31 +1,31 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-import test from 'node:test';
 import type { TestContext } from 'node:test';
+import test from 'node:test';
+import { promisify } from 'node:util';
 import {
-  deleteRepositoryBranch,
-  readRepositoryDiff,
-  readRepositoryCommitDiff,
-  readRepositoryCommits,
-  readRepositoryDirectory,
-  readRepositorySummary,
-  readRepositorySnapshot,
-  readWorkspaceDirectory,
-  readWorkspaceImage,
-  readWorkspaceImageMetadata,
-  readWorkspaceFile,
-  createWorkspaceDirectory,
   copyWorkspaceEntry,
+  createWorkspaceDirectory,
+  deleteRepositoryBranch,
   deleteWorkspaceEntry,
   discardRepositoryChange,
   moveWorkspaceEntry,
+  RepositoryReadError,
+  readRepositoryCommitDiff,
+  readRepositoryCommits,
+  readRepositoryDiff,
+  readRepositoryDirectory,
+  readRepositorySnapshot,
+  readRepositorySummary,
+  readWorkspaceDirectory,
+  readWorkspaceFile,
+  readWorkspaceImage,
+  readWorkspaceImageMetadata,
   uploadWorkspaceFile,
   writeWorkspaceFile,
-  RepositoryReadError,
 } from '~/lib/features/repository/server/repository.server.ts';
 
 const run = promisify(execFile);
@@ -80,7 +80,7 @@ test('lists workspace files including Git-ignored entries and reflects structure
     [
       { path: 'notes.md', status: '??' },
       { path: 'src/app.js', status: ' M' },
-    ]
+    ],
   );
 
   await writeFile(join(directory, 'src', 'new.js'), 'export {};\n');
@@ -93,7 +93,7 @@ test('lists workspace files including Git-ignored entries and reflects structure
     [
       { path: 'src/app.js', status: ' M' },
       { path: 'src/new.js', status: '??' },
-    ]
+    ],
   );
 });
 
@@ -122,7 +122,7 @@ test('reports local branches, recent commits, upstream distance, and linked work
   assert.deepEqual(snapshot.git?.upstream, { name: `origin/${branch}`, ahead: 1, behind: 0 });
   assert.deepEqual(
     snapshot.git?.commits.map(({ subject }) => subject),
-    ['second commit', 'initial']
+    ['second commit', 'initial'],
   );
   assert.equal(snapshot.git?.commits[0]?.authorName, 'Vampire Test');
   assert.deepEqual(snapshot.git?.commits[0]?.stats, { filesChanged: 1, additions: 1, deletions: 0 });
@@ -137,7 +137,7 @@ test('reports local branches, recent commits, upstream distance, and linked work
     [
       { name: branch, current: true, worktreePath: canonicalDirectory },
       { name: 'review-auth', current: false, worktreePath: canonicalLinkedWorktree },
-    ]
+    ],
   );
   assert.equal(snapshot.git?.worktrees.length, 2);
   assert.deepEqual(
@@ -149,7 +149,7 @@ test('reports local branches, recent commits, upstream distance, and linked work
     [
       { name: directory.split('/').pop(), branch, current: true },
       { name: 'review-auth', branch: 'review-auth', current: false },
-    ]
+    ],
   );
 });
 
@@ -218,7 +218,7 @@ test('returns staged, working tree, and untracked diff sections', async (t) => {
   const tracked = await readRepositoryDiff(directory, 'src/app.js');
   assert.deepEqual(
     tracked.sections.map((section) => section.kind),
-    ['staged', 'working']
+    ['staged', 'working'],
   );
   assert.match(tracked.sections[0].patch, /\+const value = 2;/);
   assert.match(tracked.sections[1].patch, /-const value = 2;/);
@@ -228,7 +228,7 @@ test('returns staged, working tree, and untracked diff sections', async (t) => {
   const untracked = await readRepositoryDiff(directory, 'notes.md');
   assert.deepEqual(
     untracked.sections.map((section) => section.kind),
-    ['untracked']
+    ['untracked'],
   );
   assert.match(untracked.sections[0].patch, /\+# New note/);
 });
@@ -246,7 +246,7 @@ test('returns the file patch for a selected commit', async (t) => {
   assert.match(commit.patch, /\+const value = 2;/);
   await assert.rejects(
     () => readRepositoryCommitDiff(directory, '--all'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
 });
 
@@ -259,7 +259,7 @@ test('force deletes local branches that are not checked out', async (t) => {
   assert.equal((await git(directory, 'branch', '--list', 'merged-cleanup')).trim(), '');
   await assert.rejects(
     () => deleteRepositoryBranch(directory, mainBranch),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
 
   await git(directory, 'checkout', '--quiet', '-b', 'unmerged-work');
@@ -312,7 +312,7 @@ test('discards tracked, staged, renamed, and untracked Git changes', async (t) =
   });
   await assert.rejects(
     () => stat(join(directory, 'notes.md')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
 
   await git(directory, 'mv', 'src/app.js', 'src/main.js');
@@ -324,7 +324,7 @@ test('discards tracked, staged, renamed, and untracked Git changes', async (t) =
   assert.equal(await readFile(join(directory, 'src', 'app.js'), 'utf8'), 'const value = 1;\n');
   await assert.rejects(
     () => stat(join(directory, 'src', 'main.js')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
 
   await writeFile(join(directory, 'src', 'new.js'), 'export {};\n');
@@ -335,7 +335,7 @@ test('discards tracked, staged, renamed, and untracked Git changes', async (t) =
   await discardRepositoryChange(directory, added.path, added);
   await assert.rejects(
     () => stat(join(directory, 'src', 'new.js')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
   assert.deepEqual((await readRepositorySnapshot(directory)).changes, []);
 });
@@ -349,12 +349,12 @@ test('refuses stale or non-change discard requests', async (t) => {
 
   await assert.rejects(
     () => discardRepositoryChange(directory, working.path, working),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   assert.equal(await readFile(join(directory, '.gitignore'), 'utf8'), 'changed\n');
   await assert.rejects(
     () => discardRepositoryChange(directory, 'src/app.js'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+    (error) => error instanceof RepositoryReadError && error.reason === 'not-found',
   );
 });
 
@@ -370,7 +370,7 @@ test('discards a staged file before the repository has its first commit', async 
   await discardRepositoryChange(directory, change.path, change);
   await assert.rejects(
     () => stat(join(directory, 'first.txt')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
   assert.deepEqual((await readRepositorySnapshot(directory)).changes, []);
 });
@@ -390,19 +390,19 @@ test('reads UTF-8 files but rejects traversal, binary data, and escaping symlink
 
   await assert.rejects(
     () => readWorkspaceFile(directory, '../secret.txt'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
   await assert.rejects(
     () => readWorkspaceFile(directory, 'outside-link'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
   await assert.rejects(
     () => deleteWorkspaceEntry(directory, 'outside-link', 'file'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
   await assert.rejects(
     () => readWorkspaceFile(directory, 'binary.dat'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file'
+    (error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file',
   );
 });
 
@@ -412,7 +412,7 @@ test('creates and updates text files without overwriting newer changes', async (
   assert.equal(createdDirectory.path, 'logs');
   await assert.rejects(
     () => createWorkspaceDirectory(directory, 'logs'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   const created = await writeWorkspaceFile(directory, 'logs/company.log', 'first line\n', { createOnly: true });
   assert.equal(created.path, 'logs/company.log');
@@ -446,11 +446,11 @@ test('creates and updates text files without overwriting newer changes', async (
 
   await assert.rejects(
     () => writeWorkspaceFile(directory, 'logs/company.log', 'stale\n', { expectedVersion: created.version }),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   await assert.rejects(
     () => writeWorkspaceFile(directory, 'logs/company.log', 'duplicate\n', { createOnly: true }),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
 
   const snapshot = await readRepositorySnapshot(directory);
@@ -467,7 +467,7 @@ test('uploads binary files without replacing existing entries by default', async
 
   await assert.rejects(
     () => uploadWorkspaceFile(directory, 'assets/archive.bin', Buffer.from('replacement')),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   assert.deepEqual(await readFile(join(directory, created.path)), firstBytes);
 });
@@ -507,7 +507,7 @@ test('uploads keep staged content private and preserve existing file permissions
           controller.close();
         },
       },
-      { highWaterMark: 0 }
+      { highWaterMark: 0 },
     );
     await uploadWorkspaceFile(directory, 'protected-file', content, { conflict: 'overwrite' });
     assert.equal((await stat(path)).mode & 0o777, mode);
@@ -526,7 +526,7 @@ test('keeps uploads inside the workspace and protects git metadata', async (t) =
   for (const path of ['../secret.bin', '.git/config', '.GIT/config', 'nested/.git/index', 'outside-link/secret.bin']) {
     await assert.rejects(
       () => uploadWorkspaceFile(directory, path, Buffer.from('secret')),
-      (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+      (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
     );
   }
 
@@ -539,7 +539,7 @@ test('keeps uploads inside the workspace and protects git metadata', async (t) =
         if (remainingChunks-- > 0) controller.enqueue(Buffer.alloc(1024 * 1024, remainingChunks));
         else controller.close();
       },
-    })
+    }),
   );
   assert.equal(streamed.size, 12 * 1024 * 1024);
   assert.equal((await stat(join(directory, streamed.path))).size, streamed.size);
@@ -559,17 +559,17 @@ test('keeps uploads inside the workspace and protects git metadata', async (t) =
             }
             controller.error(new Error('stream interrupted'));
           },
-        })
+        }),
       ),
-    (error) => error instanceof RepositoryReadError && error.reason === 'command-failed'
+    (error) => error instanceof RepositoryReadError && error.reason === 'command-failed',
   );
   await assert.rejects(
     () => stat(join(directory, 'interrupted.bin')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
   assert.equal(
     (await readdir(directory)).some((name) => name.startsWith('.vampire-upload-')),
-    false
+    false,
   );
 });
 
@@ -580,7 +580,7 @@ test('moves workspace files and folders without overwriting existing entries', a
 
   await assert.rejects(
     () => moveWorkspaceEntry(directory, 'move-me.txt', 'file', 'src'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   assert.equal(await readFile(join(directory, 'move-me.txt'), 'utf8'), 'source file\n');
   assert.equal(await readFile(join(directory, 'src', 'move-me.txt'), 'utf8'), 'existing file\n');
@@ -595,7 +595,7 @@ test('moves workspace files and folders without overwriting existing entries', a
   assert.equal(await readFile(join(directory, renamed.path), 'utf8'), 'source file\n');
   await assert.rejects(
     () => stat(join(directory, 'move-me.txt')),
-    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException).code === 'ENOENT',
   );
 
   await mkdir(join(directory, 'docs', 'guides'), { recursive: true });
@@ -620,7 +620,7 @@ test('renames workspace entries in place without accepting nested target names',
 
   await assert.rejects(
     () => moveWorkspaceEntry(directory, 'journal.md', 'file', '', { targetName: '../outside.md' }),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
 });
 
@@ -641,7 +641,7 @@ test('copies files and folders without changing the source or overwriting confli
 
   await assert.rejects(
     () => copyWorkspaceEntry(directory, 'src/app.js', 'file', 'docs'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'conflict'
+    (error) => error instanceof RepositoryReadError && error.reason === 'conflict',
   );
   const keptBoth = await copyWorkspaceEntry(directory, 'src/app.js', 'file', 'docs', { conflict: 'rename' });
   assert.equal(keptBoth.path, 'docs/app (1).js');
@@ -678,20 +678,20 @@ test('does not create directories through linked parents outside the workspace',
 
   await assert.rejects(
     () => writeWorkspaceFile(directory, 'outside-link/file-parent/note.txt', 'secret\n', { createOnly: true }),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
   await assert.rejects(
     () => stat(join(outsideDirectory, 'file-parent')),
-    (error) => (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException)?.code === 'ENOENT',
   );
 
   await assert.rejects(
     () => createWorkspaceDirectory(directory, 'outside-link/folder-parent/new-folder'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
   await assert.rejects(
     () => stat(join(outsideDirectory, 'folder-parent')),
-    (error) => (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+    (error) => (error as NodeJS.ErrnoException)?.code === 'ENOENT',
   );
 });
 
@@ -705,18 +705,18 @@ test('deletes files and folders without leaving the workspace', async (t) => {
   assert.equal(deletedFile.path, 'logs/company.log');
   await assert.rejects(
     () => readWorkspaceFile(directory, 'logs/company.log'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+    (error) => error instanceof RepositoryReadError && error.reason === 'not-found',
   );
 
   const deletedDirectory = await deleteWorkspaceEntry(directory, 'logs', 'directory');
   assert.equal(deletedDirectory.path, 'logs');
   await assert.rejects(
     () => readWorkspaceFile(directory, 'logs/today.log'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'not-found'
+    (error) => error instanceof RepositoryReadError && error.reason === 'not-found',
   );
   await assert.rejects(
     () => deleteWorkspaceEntry(directory, '.', 'directory'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path'
+    (error) => error instanceof RepositoryReadError && error.reason === 'invalid-path',
   );
 });
 
@@ -724,7 +724,7 @@ test('serves supported workspace images by detected content type', async (t) => 
   const directory = await createRepository(t);
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64'
+    'base64',
   );
   await writeFile(join(directory, 'preview.png'), png);
   await writeFile(join(directory, 'fake.png'), 'not an image');
@@ -740,7 +740,7 @@ test('serves supported workspace images by detected content type', async (t) => 
 
   await assert.rejects(
     () => readWorkspaceImage(directory, 'fake.png'),
-    (error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file'
+    (error) => error instanceof RepositoryReadError && error.reason === 'unsupported-file',
   );
 });
 

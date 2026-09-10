@@ -93,7 +93,7 @@ export function initializeTheme(): () => void {
   return () => mediaQuery.removeEventListener('change', followSystem);
 }
 
-function cssToken(name: string): string {
+export function cssToken(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 

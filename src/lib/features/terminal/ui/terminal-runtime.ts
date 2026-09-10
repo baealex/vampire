@@ -1,12 +1,10 @@
-import type { ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import { TerminalConnection, type TerminalConnectionContext } from '../api/connection.ts';
+import type { ITheme, Terminal } from '@xterm/xterm';
 import {
   parseTerminalColorReports,
-  terminalThemeColor,
   type TerminalColorSlot,
+  terminalThemeColor,
 } from '~/lib/shared/contracts/terminal-color.ts';
-import { fitTerminalToVisibleArea, terminalSizeForVisibleArea, type TerminalSize } from './fit.ts';
 import {
   TERMINAL_HISTORY_CHUNK_LINES,
   TERMINAL_PROTOCOL_VERSION,
@@ -15,17 +13,18 @@ import {
   type TerminalServerMessage,
   type TerminalSubmissionResult,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
-import { installTerminalTouchScroll } from './touch-scroll.ts';
-import { TerminalOutputSequence } from './output-sequence.ts';
 import { hasFinePointer } from '~/lib/shared/ui/layout.ts';
+import { TerminalConnection, type TerminalConnectionContext } from '../api/connection.ts';
 import {
   isInputSurfaceToggleShortcut,
+  type TerminalControlKey,
   terminalControlData,
   terminalScrollCommand,
-  type TerminalControlKey,
 } from '../model/terminal-control.ts';
-
 import { loadTerminalFontSize, TERMINAL_FONT_SIZE_KEY } from '../model/terminal-display-preference.ts';
+import { fitTerminalToVisibleArea, type TerminalSize, terminalSizeForVisibleArea } from './fit.ts';
+import { TerminalOutputSequence } from './output-sequence.ts';
+import { installTerminalTouchScroll } from './touch-scroll.ts';
 
 const OPENING_DELAY_MS = 160;
 const OUTPUT_ACTIVE_MS = 2_500;
@@ -93,7 +92,7 @@ type ActiveTerminalWrite = { kind: 'output' } | { generation: number; kind: 'sna
 export class TerminalRuntime {
   #entryClaimPending = true;
   #clientId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join(
-    ''
+    '',
   );
   #connectionAttempt = 0;
   #controlRefreshPending = false;
@@ -524,7 +523,7 @@ export class TerminalRuntime {
           });
         },
         onProtocolError: () => this.#updateState({ error: 'The terminal sent an unreadable response.' }),
-      }
+      },
     );
     this.#connection.setRetryEnabled(document.visibilityState === 'visible');
     this.#connection.start();
@@ -605,7 +604,7 @@ export class TerminalRuntime {
 
   #acceptOutputSequence(
     message: Extract<TerminalServerMessage, { type: 'output' }>,
-    context: TerminalConnectionContext
+    context: TerminalConnectionContext,
   ): boolean {
     if (this.#outputSequence.accept(context.id, message)) return true;
     this.#handleOutputSequenceGap(context);
@@ -633,7 +632,7 @@ export class TerminalRuntime {
     data: string,
     context: TerminalConnectionContext,
     history?: TerminalHistoryState,
-    snapshotId?: number
+    snapshotId?: number,
   ): void {
     if (!context.isCurrent()) return;
     // Same-sized history snapshots may contain newer output; apply their contents and fence together.
@@ -926,7 +925,7 @@ export class TerminalRuntime {
         deltaMode: WheelEvent.DOM_DELTA_PIXEL,
         deltaY: lines * rowHeight,
         view: window,
-      })
+      }),
     );
     return true;
   }

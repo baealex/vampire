@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type WebSocket from 'ws';
 import type { WebSocketServer } from 'ws';
-
+import { expectedRequestOrigin } from '~/lib/server/runtime-config.ts';
 import {
   authorizeSession,
   onSessionRevoked,
@@ -10,7 +10,6 @@ import {
   SECURE_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
 } from '~/lib/server/session-cookie.ts';
-import { expectedRequestOrigin } from '~/lib/server/runtime-config.ts';
 
 const AUTHENTICATION_CLOSE_GRACE_MS = 1_000;
 const WEBSOCKET_CLOSED = 3;
@@ -42,7 +41,7 @@ export function webSocketRequestUrl(request: IncomingMessage): URL | undefined {
 
 export function authorizeWebSocketUpgrade(
   request: IncomingMessage,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): AuthorizedUpgrade | RejectedUpgrade {
   const origin = request.headers.origin;
   try {
@@ -75,7 +74,7 @@ export function rejectWebSocketUpgrade(socket: Duplex, status: number, reason: s
 export function scheduleAuthenticationExpiry(
   socket: WebSocket,
   expiresAt: number | undefined,
-  sessionId?: string
+  sessionId?: string,
 ): WebSocketAuthenticationLifetime {
   let authorized = true;
   let forcedCloseTimer: ReturnType<typeof setTimeout> | undefined;

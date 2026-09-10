@@ -27,6 +27,6 @@ test('maps Composer-only keyboard commands without consuming repeats or IME inpu
   assert.equal(command({ code: 'KeyP', metaKey: true, shiftKey: true }), undefined);
   assert.equal(
     command({ altKey: true, code: 'KeyH', ctrlKey: true, getModifierState: (key) => key === 'AltGraph' }),
-    undefined
+    undefined,
   );
 });

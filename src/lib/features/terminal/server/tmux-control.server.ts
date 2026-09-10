@@ -7,7 +7,7 @@ export function decodeTmuxControlValue(value: TmuxControlValue, decoder = new Te
 export function parseTmuxControlOutput(
   line: string | Buffer,
   paneId: string,
-  decoder = new TextDecoder()
+  decoder = new TextDecoder(),
 ): string | undefined {
   const prefix = `%output ${paneId} `;
   if (Buffer.isBuffer(line)) {

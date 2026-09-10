@@ -1,6 +1,6 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { ListeningPortError, terminateListeningProcess } from '~/lib/features/system/server/listening-ports.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 function terminationErrorStatus(reason: ListeningPortError['reason']): number {
   if (reason === 'invalid-request') return 400;

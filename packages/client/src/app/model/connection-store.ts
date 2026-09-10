@@ -1,13 +1,13 @@
-import { create } from 'zustand';
-import type { LaunchProfile, ManagedWorkspace, WorkspacePreferences } from '@vampire/lib/shared/contracts/workspace.ts';
 import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
 import type { TmuxStatus } from '@vampire/lib/shared/contracts/tmux-status.ts';
+import type { LaunchProfile, ManagedWorkspace, WorkspacePreferences } from '@vampire/lib/shared/contracts/workspace.ts';
 import {
   decodeWorkspaceServerMessage,
   type WorkspaceChanges,
 } from '@vampire/lib/shared/contracts/workspace-protocol.ts';
-import { isUnauthorized, requestJson } from '~/shared/api/request.ts';
+import { create } from 'zustand';
 import { queryClient } from '~/shared/api/query-client.ts';
+import { isUnauthorized, requestJson } from '~/shared/api/request.ts';
 
 export type WorkspaceEvent =
   | {
@@ -153,7 +153,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   loginError: '',
   statusPlugins: [],
   token: '',
-  setToken: (token) => set({ token }),
+  setToken: (token) => set({ token, loginError: '' }),
   markUnauthenticated() {
     authenticationVersion += 1;
     stopWorkspaceStream();
@@ -177,7 +177,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     } catch (error) {
       set({
         loginError: isUnauthorized(error)
-          ? 'That VAMPIRE_TOKEN did not work.'
+          ? 'That access token did not work. Check it and try again.'
           : error instanceof Error
             ? error.message
             : 'Unable to connect',

@@ -24,7 +24,7 @@ test('parses, expands, resolves, and deduplicates configured workspace roots', (
   const baseDirectory = '/tmp/vampire-project';
   const homeDirectory = '/tmp/home';
   const configured = ['~/Code', join(baseDirectory, 'Projects'), join(homeDirectory, 'Code'), './Projects'].join(
-    delimiter
+    delimiter,
   );
 
   assert.deepEqual(parseWorkspaceRootPaths(configured, baseDirectory, homeDirectory), [
@@ -67,7 +67,7 @@ test('requires TOKEN authentication for external binds and public origins', () =
         VAMPIRE_HOST: '127.0.0.1',
         VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com',
       }),
-    /external access without VAMPIRE_TOKEN/
+    /external access without VAMPIRE_TOKEN/,
   );
 
   const directConfig = runtimeConfig({
@@ -114,15 +114,15 @@ test('identifies only explicit loopback hosts for development binds', () => {
 test('validates and shares one public origin across runtime consumers', () => {
   assert.equal(
     configuredPublicOrigin({ VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' }),
-    'https://vampire.example.com'
+    'https://vampire.example.com',
   );
   assert.equal(
     configuredPublicOrigin({ VAMPIRE_ADAPTER_ORIGIN: 'https://legacy.example.com/' }),
-    'https://legacy.example.com'
+    'https://legacy.example.com',
   );
   assert.throws(
     () => configuredPublicOrigin({ VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com/path' }),
-    /without a path/
+    /without a path/,
   );
   assert.throws(
     () =>
@@ -130,7 +130,7 @@ test('validates and shares one public origin across runtime consumers', () => {
         VAMPIRE_PUBLIC_ORIGIN: 'https://one.example.com',
         VAMPIRE_ADAPTER_ORIGIN: 'https://two.example.com',
       }),
-    /must describe the same origin/
+    /must describe the same origin/,
   );
 });
 
@@ -144,9 +144,9 @@ test('uses an internal overwritten protocol header for direct HTTP', () => {
   assert.equal(
     expectedRequestOrigin(
       { host: 'localhost:7677', 'x-vampire-internal-protocol': 'http', 'x-forwarded-proto': 'https' },
-      env
+      env,
     ),
-    'http://localhost:7677'
+    'http://localhost:7677',
   );
 });
 
@@ -162,7 +162,7 @@ test('uses a fixed public origin instead of forwarded request headers', () => {
   assert.equal(env.VAMPIRE_ADAPTER_ORIGIN, 'https://vampire.example.com');
   assert.equal(
     expectedRequestOrigin({ host: 'vampire.example.com', 'x-forwarded-proto': 'http' }, env),
-    'https://vampire.example.com'
+    'https://vampire.example.com',
   );
 });
 
@@ -174,7 +174,7 @@ test('rejects unconfigured hostnames that can be used for DNS rebinding', () => 
   assert.equal(requestHostAllowed({ host: '127.0.0.1:7677/path' }, { VAMPIRE_HOST: '127.0.0.1' }), false);
   assert.equal(
     requestHostAllowed({ host: 'vampire.example.com' }, { VAMPIRE_PUBLIC_ORIGIN: 'https://vampire.example.com' }),
-    true
+    true,
   );
 });
 
@@ -182,7 +182,7 @@ test('loads development env files as defaults without overriding the shell', () 
   const env: NodeJS.ProcessEnv = { VAMPIRE_PORT: '9000' };
   applyVampireEnvironmentDefaults(
     { VAMPIRE_PORT: '8000', VAMPIRE_TOKEN: 'file-token', UNRELATED_SECRET: 'ignored' },
-    env
+    env,
   );
 
   assert.equal(env.VAMPIRE_PORT, '9000');
@@ -204,7 +204,7 @@ test('development stays local unless network access is explicitly enabled', () =
         VAMPIRE_HOST: '0.0.0.0',
         VAMPIRE_TOKEN: 'test development token',
       }),
-    /--allow-network/
+    /--allow-network/,
   );
   assert.equal(developmentRuntimeConfig([], {}).host, '127.0.0.1');
   for (const host of ['127.0.0.1', 'localhost', '::1']) {
@@ -225,11 +225,11 @@ test('development network opt-in also covers remote proxy origins and preserves 
   }
   assert.throws(
     () => developmentRuntimeConfig(['--allow-network'], { VAMPIRE_HOST: '192.168.1.10' }),
-    /without VAMPIRE_TOKEN/
+    /without VAMPIRE_TOKEN/,
   );
   assert.throws(
     () => developmentRuntimeConfig([], { VAMPIRE_HOST: '192.168.1.10', VAMPIRE_ALLOW_INSECURE_NO_AUTH: '1' }),
-    /--allow-network/
+    /--allow-network/,
   );
   assert.equal(developmentRuntimeConfig(['--allow-network'], {}).host, '127.0.0.1');
   assert.throws(() => developmentRuntimeConfig(['--allow-netwrok'], {}), /Unknown development option/);

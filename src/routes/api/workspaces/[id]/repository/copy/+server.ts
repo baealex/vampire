@@ -1,7 +1,7 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { copyWorkspaceEntry, RepositoryReadError } from '~/lib/features/repository/server/repository.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import type { WorkspaceEntryKind, WorkspaceMoveConflict } from '~/lib/shared/contracts/repository.ts';
 
 function repositoryErrorStatus(reason: string): number {
@@ -37,7 +37,7 @@ export const POST: RequestHandler = async (event) => {
     return json(
       await copyWorkspaceEntry(workspace.cwd, value.path, value.kind as WorkspaceEntryKind, value.targetDirectory, {
         conflict: conflict as WorkspaceMoveConflict,
-      })
+      }),
     );
   } catch (cause) {
     if (cause instanceof RepositoryReadError) throw error(repositoryErrorStatus(cause.reason), cause.message);

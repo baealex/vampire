@@ -4,9 +4,9 @@ import {
   WorkspaceActivityController,
   type WorkspaceActivityScheduler,
 } from '~/lib/features/workspace/model/workspace-activity-controller.ts';
+import type { WorkspaceActivityRecord } from '~/lib/features/workspace/model/workspace-view.ts';
 import * as view from '~/lib/features/workspace/model/workspace-view.ts';
 import type { ManagedWorkspace, WorkspaceTerminal } from '~/lib/shared/contracts/workspace.ts';
-import type { WorkspaceActivityRecord } from '~/lib/features/workspace/model/workspace-view.ts';
 
 let now = 1_000_000;
 let nextTimerId = 0;
@@ -118,11 +118,11 @@ function createHarness({ initialLastOutputAt = null, storage }: HarnessOptions =
       },
       updateWorkspaceOutput: (workspaceId, timestamp) => {
         workspaces = workspaces.map((item) =>
-          item.id === workspaceId ? { ...item, lastOutputAt: Math.max(item.lastOutputAt ?? 0, timestamp) } : item
+          item.id === workspaceId ? { ...item, lastOutputAt: Math.max(item.lastOutputAt ?? 0, timestamp) } : item,
         );
       },
     },
-    scheduler
+    scheduler,
   );
   if (storage) controller.restoreBrowserPreferences(storage);
   controller.applyWorkspaces([], workspaces, false);

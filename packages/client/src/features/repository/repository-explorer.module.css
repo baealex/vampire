@@ -1,0 +1,144 @@
+.list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.root {
+  flex-shrink: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  min-height: 2rem;
+  border-bottom: 1px solid transparent;
+}
+
+.row > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0 0.2rem 0 0.65rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row > button:first-child > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row > button:first-child > svg,
+.disclosureSpacer {
+  flex: 0 0 auto;
+}
+
+.disclosureSpacer {
+  width: 0.875rem;
+}
+
+.row.selected {
+  background: var(--color-surface-active);
+}
+
+.row.selected > button:first-child {
+  color: var(--color-text);
+}
+
+.row.ignored > button:first-child {
+  opacity: 0.48;
+}
+
+.row[data-change-kind="modified"] > button:first-child,
+.row[data-change-kind="modified"] > button:first-child > svg {
+  color: var(--color-warning);
+}
+
+.row[data-change-kind="added"] > button:first-child,
+.row[data-change-kind="added"] > button:first-child > svg {
+  color: var(--color-info);
+}
+
+.actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-right: 0.35rem;
+  opacity: 0;
+}
+
+.rootActions,
+.row:focus-within > .actions {
+  opacity: 1;
+}
+
+.menuTrigger {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+
+.dropTarget {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  background: var(--color-surface-active);
+}
+
+.row > button.rootButton {
+  font-weight: var(--weight-medium);
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background: var(--color-surface-raised);
+  }
+
+  .row:hover > button:first-child {
+    color: var(--color-text);
+  }
+
+  .row:hover > .actions {
+    opacity: 1;
+  }
+
+  .row.ignored:hover > button:first-child {
+    opacity: 0.68;
+  }
+}
+
+@media (hover: none) {
+  .actions {
+    opacity: 1;
+  }
+  .row,
+  .row > button:first-child,
+  .menuTrigger {
+    min-height: 2.75rem;
+  }
+  .row > button:first-child {
+    font-size: var(--text-label);
+  }
+  .menuTrigger {
+    width: 2.75rem;
+  }
+}

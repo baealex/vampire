@@ -1,4 +1,5 @@
-import type { FormEvent } from 'react';
+import { ArrowRight, Eye, EyeOff, LockKeyhole } from 'lucide-react';
+import { type FormEvent, useState } from 'react';
 import { Button, Field, Input, ThemeToggle } from '~/shared/ui/index.ts';
 import './login-screen.css';
 
@@ -9,17 +10,25 @@ export function LoginScreen({
   token,
 }: {
   error: string;
-  onSubmit: () => void;
+  onSubmit: () => Promise<void>;
   onTokenChange: (token: string) => void;
   token: string;
 }) {
-  const submit = (event: FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
-    onSubmit();
+    if (submitting || !token.trim()) return;
+    setSubmitting(true);
+    try {
+      await onSubmit();
+    } finally {
+      setSubmitting(false);
+    }
   };
   return (
     <section className="login-screen" aria-label="Vampire access">
-      <form className="login-panel" onSubmit={submit}>
+      <form className="login-panel" onSubmit={(event) => void submit(event)} aria-busy={submitting}>
         <header className="login-heading">
           <div className="login-brand">
             <img className="login-mark" src="/icon.svg" alt="" />
@@ -27,26 +36,52 @@ export function LoginScreen({
           </div>
           <ThemeToggle />
         </header>
-        <Field label="VAMPIRE_TOKEN" htmlFor="token">
-          <Input
-            id="token"
-            type="password"
-            value={token}
-            onChange={(event) => onTokenChange(event.currentTarget.value)}
-            autoComplete="current-password"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? 'login-error' : undefined}
-            required
-          />
+        <div className="login-intro">
+          <h1>Connect to your workspace</h1>
+          <p>Enter the access token configured on your Vampire server.</p>
+        </div>
+        <Field label="Access token" htmlFor="token">
+          <span className="login-token-field">
+            <Input
+              id="token"
+              type={visible ? 'text' : 'password'}
+              name="token"
+              value={token}
+              onChange={(event) => onTokenChange(event.currentTarget.value)}
+              autoComplete="current-password"
+              autoCapitalize="none"
+              spellCheck={false}
+              disabled={submitting}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'login-error login-token-hint' : 'login-token-hint'}
+              required
+            />
+            <Button
+              variant="icon"
+              className="login-token-toggle"
+              aria-label={visible ? 'Hide token' : 'Show token'}
+              aria-pressed={visible}
+              onClick={() => setVisible((current) => !current)}
+            >
+              {visible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+            </Button>
+          </span>
         </Field>
-        <Button variant="primary" size="lg" block type="submit">
-          Continue
+        <div className="login-feedback">
+          {error ? (
+            <p id="login-error" className="login-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <Button variant="primary" size="lg" block type="submit" disabled={submitting || !token.trim()}>
+          {submitting ? 'Connecting…' : 'Continue'}
+          <ArrowRight size={16} aria-hidden="true" />
         </Button>
-        {error ? (
-          <p id="login-error" className="login-error" role="alert">
-            {error}
-          </p>
-        ) : null}
+        <p id="login-token-hint" className="login-token-hint">
+          <LockKeyhole size={14} aria-hidden="true" />
+          Use the token from your server configuration, not your system password.
+        </p>
       </form>
     </section>
   );

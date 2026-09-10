@@ -1,12 +1,20 @@
-import { ArrowLeft, Play, Plus, RotateCcw, Sparkles, Square, Star, Trash2, X } from 'lucide-react';
-import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ManagedWorkspace, WorkspaceTerminal } from '@vampire/lib/shared/contracts/workspace.ts';
 import {
   loadWorkspaceAgentAction,
   submitWorkspaceAgentAction,
 } from '@vampire/lib/shared/api/workspace-agent-actions.ts';
-import { AskAgentPanel, Button, Input, Spinner, ToolbarButton } from '~/shared/ui/index.ts';
+import type { ManagedWorkspace, WorkspaceTerminal } from '@vampire/lib/shared/contracts/workspace.ts';
+import { Play, Plus, RotateCcw, Sparkles, Square, Star, Trash2 } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AskAgentPanel,
+  Button,
+  Input,
+  PanelState,
+  ToolbarButton,
+  WorkspacePanelHeader,
+  WorkspaceSidePanel,
+} from '~/shared/ui/index.ts';
 import './background-dialog.css';
 
 type View = 'list' | 'runner' | 'output' | 'agent';
@@ -37,16 +45,18 @@ export const BackgroundDialog = observer(function BackgroundDialog({
   open,
   state,
   workspaceId,
+  workspaceLabel,
 }: {
   onClose: () => void;
   open: boolean;
   state: BackgroundController;
   workspaceId: string;
+  workspaceLabel: string;
 }) {
   const workspace = state.workspaces.find((item) => item.id === workspaceId);
   const processes = useMemo(
     () => [...(workspace?.terminals.slice(1) ?? [])].sort((a, b) => a.index - b.index),
-    [workspace?.terminals]
+    [workspace?.terminals],
   );
   const favorites = workspace?.favoriteCommands ?? [];
   const runningCommands = new Set(processes.filter((process) => process.state === 'running').map(processCommand));
@@ -60,11 +70,11 @@ export const BackgroundDialog = observer(function BackgroundDialog({
   const selected = processes.find((process) => process.id === selectedId);
 
   useEffect(() => {
-    if (view !== 'output' || !selectedId) return;
+    if (!open || view !== 'output' || !selectedId) return;
     let active = true;
     let refreshing = false;
     const refresh = async (initial = false) => {
-      if (refreshing) return;
+      if (refreshing || document.hidden) return;
       refreshing = true;
       if (initial) setLoadingOutput(true);
       try {
@@ -82,11 +92,16 @@ export const BackgroundDialog = observer(function BackgroundDialog({
     };
     void refresh(true);
     const timer = window.setInterval(() => void refresh(), 1_500);
+    const refreshWhenVisible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [selectedId, state, view, workspaceId]);
+  }, [open, selectedId, state, view, workspaceId]);
   useEffect(() => {
     if (selectedId && !processes.some((process) => process.id === selectedId)) showList();
   }, [processes, selectedId]);
@@ -149,11 +164,10 @@ export const BackgroundDialog = observer(function BackgroundDialog({
   ) : null;
 
   return (
-    <aside
-      className={`background-panel${open ? ' open' : ''}`}
+    <WorkspaceSidePanel
+      open={open}
+      className="background-panel"
       aria-label={view === 'agent' ? 'Manage Background commands with an agent' : title}
-      aria-hidden={!open}
-      inert={!open ? true : undefined}
     >
       {view === 'agent' ? (
         <div className="background-agent-view">
@@ -165,45 +179,46 @@ export const BackgroundDialog = observer(function BackgroundDialog({
         </div>
       ) : (
         <>
-          <header className="background-header">
-            {view !== 'list' ? (
-              <ToolbarButton label="Back to background processes" onClick={showList}>
-                <ArrowLeft size={17} />
-              </ToolbarButton>
-            ) : null}
-            <span className="workspace-panel-title">
-              <strong>{title}</strong>
-              {view === 'output' && selected ? <span>{processCommand(selected)}</span> : null}
-            </span>
-            {view === 'list' ? (
-              <>
-                <Button
-                  id="background-ask-agent-trigger"
-                  size="sm"
-                  aria-label="Ask agent to manage saved commands"
-                  onClick={() => setView('agent')}
-                >
-                  <Sparkles size={15} />
-                  Ask agent…
-                </Button>
-                <ToolbarButton
-                  label="Run background command"
-                  onClick={() => {
-                    setView('runner');
-                    window.setTimeout(() => commandInput.current?.focus());
-                  }}
-                >
-                  <Plus size={18} />
-                </ToolbarButton>
-              </>
-            ) : null}
-            <ToolbarButton label="Close background manager" onClick={close}>
-              <X size={17} />
-            </ToolbarButton>
-          </header>
+          <WorkspacePanelHeader
+            title={title}
+            subtitle={workspaceLabel}
+            subtitleTitle={workspace?.cwd}
+            onBack={view !== 'list' ? showList : undefined}
+            backLabel="Back to background processes"
+            close={close}
+            closeLabel="Close background manager"
+            actions={
+              view === 'list' ? (
+                <>
+                  <Button
+                    id="background-ask-agent-trigger"
+                    size="sm"
+                    aria-label="Ask agent to manage saved commands"
+                    onClick={() => setView('agent')}
+                  >
+                    <Sparkles size={15} />
+                    Ask agent…
+                  </Button>
+                  <ToolbarButton
+                    label="Run background command"
+                    onClick={() => {
+                      setView('runner');
+                      window.setTimeout(() => commandInput.current?.focus());
+                    }}
+                  >
+                    <Plus size={18} />
+                  </ToolbarButton>
+                </>
+              ) : null
+            }
+          />
           <div className={`background-view${view === 'output' ? ' output-view' : ''}`}>
             {view === 'runner' ? (
               <>
+                <div className="background-location">
+                  <span>Runs in</span>
+                  <code>{workspace?.cwd}</code>
+                </div>
                 <form
                   className="background-runner"
                   onSubmit={(event) => {
@@ -234,6 +249,10 @@ export const BackgroundDialog = observer(function BackgroundDialog({
               </>
             ) : view === 'output' && selected ? (
               <>
+                <div className="background-location">
+                  <span>Command</span>
+                  <code>{processCommand(selected)}</code>
+                </div>
                 <div className="background-detail-bar">
                   <span>{processStatus(selected)}</span>
                   <Button
@@ -276,11 +295,9 @@ export const BackgroundDialog = observer(function BackgroundDialog({
                 </div>
                 <section className="process-output" aria-label={`Output for ${processCommand(selected)}`}>
                   {outputError ? (
-                    <p role="alert">{outputError}</p>
+                    <PanelState error>{outputError}</PanelState>
                   ) : loadingOutput ? (
-                    <p className="output-placeholder">
-                      <Spinner /> Loading output…
-                    </p>
+                    <PanelState loading>Loading output…</PanelState>
                   ) : (
                     <pre>
                       {output || (selected.state === 'running' ? 'Waiting for output…' : 'No output captured.')}
@@ -353,6 +370,6 @@ export const BackgroundDialog = observer(function BackgroundDialog({
           </div>
         </>
       )}
-    </aside>
+    </WorkspaceSidePanel>
   );
 });

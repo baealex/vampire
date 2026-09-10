@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import test from 'node:test';
 import { promisify } from 'node:util';
 import {
   inferAgentState,
@@ -22,9 +22,9 @@ test('keeps an agent working while its interrupt status is visible', () => {
 ◦ Working (25s • esc to interrupt)
 
 › Explain this codebase
-`
+`,
     ),
-    'working'
+    'working',
   );
 });
 
@@ -38,9 +38,9 @@ The change is complete.
 ─ Worked for 1m 12s ─────────
 
 › Explain this codebase
-`
+`,
     ),
-    'waiting'
+    'waiting',
   );
 });
 
@@ -78,7 +78,7 @@ test('batches captures and preserves other agent states when a window disappears
       '-P',
       '-F',
       '#{window_id}',
-      "printf '> ready\\n'; sleep 30"
+      "printf '> ready\\n'; sleep 30",
     )
   ).stdout.trim();
   const working = (
@@ -94,7 +94,7 @@ test('batches captures and preserves other agent states when a window disappears
       '-P',
       '-F',
       '#{window_id}',
-      "printf 'esc to interrupt\\n'; sleep 30"
+      "printf 'esc to interrupt\\n'; sleep 30",
     )
   ).stdout.trim();
   for (const [id, expected] of [

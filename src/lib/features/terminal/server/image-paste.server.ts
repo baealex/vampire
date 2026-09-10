@@ -90,7 +90,7 @@ async function writeMacClipboard(sourcePath: string, mimeType: string, directory
     await execFile(
       'osascript',
       ['-e', `set the clipboard to (read POSIX file ${appleScriptString(pngPath)} as «class PNGf»)`],
-      { timeout: CLIPBOARD_TIMEOUT_MS, maxBuffer: 32 * 1024 }
+      { timeout: CLIPBOARD_TIMEOUT_MS, maxBuffer: 32 * 1024 },
     );
   } catch {
     throw new ImagePasteError('clipboard-unavailable', 'macOS could not access the host clipboard.');

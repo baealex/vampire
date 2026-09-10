@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   fitTerminalToVisibleArea,
-  terminalSizeForVisibleArea,
   type TerminalFitDimensions,
+  terminalSizeForVisibleArea,
 } from '~/lib/features/terminal/ui/fit.ts';
 
 function createFitAddon(dimensions: TerminalFitDimensions | undefined) {
@@ -42,7 +42,7 @@ test('caps an oversized terminal before it reaches the wire protocol', () => {
     fitTerminalToVisibleArea(harness.addon, (cols, rows) => {
       resized = { cols, rows };
     }),
-    { columns: 512, rows: 256 }
+    { columns: 512, rows: 256 },
   );
   assert.equal(harness.fits, 0);
   assert.deepEqual(resized, { cols: 512, rows: 256 });

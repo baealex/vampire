@@ -17,11 +17,11 @@ test('normalizes valid prompt history and keeps the newest bounded entries', () 
 
   assert.deepEqual(
     normalizeWorkspaceComposerPromptHistory([null, ...history]).map((prompt) => prompt.id),
-    history.slice(-DEFAULT_WORKSPACE_COMPOSER_PROMPTS).map((prompt) => prompt.id)
+    history.slice(-DEFAULT_WORKSPACE_COMPOSER_PROMPTS).map((prompt) => prompt.id),
   );
   assert.deepEqual(
     normalizeWorkspaceComposerPromptHistory(history, 3).map((prompt) => prompt.id),
-    history.slice(-3).map((prompt) => prompt.id)
+    history.slice(-3).map((prompt) => prompt.id),
   );
 });
 
@@ -44,6 +44,6 @@ test('creates a single-line preview from the most recent exact prompt', () => {
       { id: 'first', text: 'Earlier prompt', submittedAt: 1 },
       { id: 'last', text: '  Review the queue.\nThen run the tests.  ', submittedAt: 2 },
     ]),
-    { text: 'Review the queue. Then run the tests.', submittedAt: 2 }
+    { text: 'Review the queue. Then run the tests.', submittedAt: 2 },
   );
 });

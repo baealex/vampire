@@ -1,56 +1,56 @@
 @layer settings, generic, elements;
 
 @layer generic {
-	*,
-	*::before,
-	*::after {
-		box-sizing: border-box;
-	}
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 }
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
-	animation-duration: 160ms;
-	animation-timing-function: ease-out;
+  animation-duration: 160ms;
+  animation-timing-function: ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	::view-transition-old(root),
-	::view-transition-new(root) {
-		animation-duration: 0s;
-	}
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
 }
 
 @layer elements {
-	html {
-		min-width: 0;
-		background: var(--color-canvas);
-	}
+  html {
+    min-width: 0;
+    background: var(--color-canvas);
+  }
 
-	body {
-		min-width: 0;
-		min-height: 100dvh;
-		margin: 0;
-		background: var(--color-canvas);
-		color: var(--color-text);
-		font-size: var(--text-body);
-		line-height: var(--leading-ui);
-	}
+  body {
+    min-width: 0;
+    min-height: 100dvh;
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-text);
+    font-size: var(--text-body);
+    line-height: var(--leading-ui);
+  }
 
-	button,
-	input,
-	textarea {
-		font: inherit;
-	}
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 
-	button {
-		-webkit-tap-highlight-color: transparent;
-	}
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
 
-	button:focus-visible,
-	input:focus-visible,
-	textarea:focus-visible {
-		outline: 2px solid var(--color-accent);
-		outline-offset: 2px;
-	}
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
 }

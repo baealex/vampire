@@ -1,5 +1,8 @@
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useRef, type PropsWithChildren, type ReactNode } from 'react';
+import { type PropsWithChildren, type ReactNode, useEffect, useRef, useState } from 'react';
+import { registerNavigationGuard } from '../lib/navigation-guard.ts';
+import { Button } from './Button.tsx';
+import { Dialog } from './Dialog.tsx';
 import './management-surface.css';
 
 export function ManagementSurface({
@@ -9,6 +12,7 @@ export function ManagementSurface({
   children,
   close,
   closeLabel = 'Close',
+  dirty = false,
   eyebrow,
   footer,
   title,
@@ -19,13 +23,43 @@ export function ManagementSurface({
   busy?: boolean;
   close: () => void;
   closeLabel?: string;
+  dirty?: boolean;
   eyebrow?: string;
   footer?: ReactNode;
   title: string;
   titleId: string;
 }>) {
   const heading = useRef<HTMLHeadingElement>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const pendingNavigation = useRef<((discard: boolean) => void) | undefined>(undefined);
   useEffect(() => heading.current?.focus({ preventScroll: true }), []);
+  useEffect(() => {
+    if (!dirty) return;
+    const unregister = registerNavigationGuard(() => {
+      if (busy) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        pendingNavigation.current?.(false);
+        pendingNavigation.current = resolve;
+        setDiscardOpen(true);
+      });
+    });
+    const preventUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', preventUnload);
+    return () => {
+      unregister();
+      window.removeEventListener('beforeunload', preventUnload);
+      pendingNavigation.current?.(false);
+      pendingNavigation.current = undefined;
+    };
+  }, [busy, dirty]);
+  const resolveDiscard = (discard: boolean) => {
+    setDiscardOpen(false);
+    pendingNavigation.current?.(discard);
+    pendingNavigation.current = undefined;
+  };
   return (
     <section className="management-surface" aria-labelledby={titleId}>
       <header className="management-header">
@@ -53,6 +87,24 @@ export function ManagementSurface({
           {footer ? <footer>{footer}</footer> : null}
         </div>
       </div>
+      <Dialog
+        open={discardOpen}
+        role="alertdialog"
+        title="Discard unsaved changes?"
+        onClose={() => resolveDiscard(false)}
+        footer={
+          <>
+            <Button data-autofocus onClick={() => resolveDiscard(false)}>
+              Keep editing
+            </Button>
+            <Button variant="danger" onClick={() => resolveDiscard(true)}>
+              Discard changes
+            </Button>
+          </>
+        }
+      >
+        <p>Your changes on this page have not been saved.</p>
+      </Dialog>
     </section>
   );
 }

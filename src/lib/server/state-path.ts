@@ -50,7 +50,7 @@ export function vampireWorkspaceStateDirectory(workspaceId: string, env: NodeJS.
 export function vampireWorkspaceStatePath(
   workspaceId: string,
   name: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   return join(vampireWorkspaceStateDirectory(workspaceId, env), name);
 }

@@ -1,12 +1,12 @@
-import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
+import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   createWorkspaceDirectory,
   deleteWorkspaceEntry,
-  readRepositoryDirectory,
   RepositoryReadError,
+  readRepositoryDirectory,
 } from '~/lib/features/repository/server/repository.server.ts';
-import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 
 function repositoryErrorStatus(reason: string): number {
   if (reason === 'conflict') return 409;

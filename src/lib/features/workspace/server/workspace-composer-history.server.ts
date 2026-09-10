@@ -15,10 +15,10 @@ import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
   normalizeWorkspaceComposerPromptHistory,
   WORKSPACE_COMPOSER_PROMPT_MAX_LENGTH,
-  workspaceComposerPromptPreview,
   type WorkspaceComposerHistorySettings,
   type WorkspaceComposerPrompt,
   type WorkspaceComposerPromptPreview,
+  workspaceComposerPromptPreview,
 } from '~/lib/shared/contracts/workspace-composer-history.ts';
 import {
   readWorkspaceStateFile,
@@ -136,7 +136,7 @@ function normalizeComposerPrompt(value: unknown): string {
   ) {
     throw new WorkspaceComposerHistoryError(
       'invalid-prompt',
-      `Composer prompts must be between 1 and ${WORKSPACE_COMPOSER_PROMPT_MAX_LENGTH.toLocaleString('en-US')} characters.`
+      `Composer prompts must be between 1 and ${WORKSPACE_COMPOSER_PROMPT_MAX_LENGTH.toLocaleString('en-US')} characters.`,
     );
   }
   return value;
@@ -181,12 +181,12 @@ async function writeManagedWorkspaceComposerHistorySettings(settings: WorkspaceC
 }
 
 export async function updateManagedWorkspaceComposerHistorySettings(
-  value: unknown
+  value: unknown,
 ): Promise<WorkspaceComposerHistorySettings> {
   if (!isWorkspaceComposerHistorySettings(value)) {
     throw new WorkspaceComposerHistoryError(
       'invalid-settings',
-      `Composer history must keep between 1 and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`
+      `Composer history must keep between 1 and ${MAX_WORKSPACE_COMPOSER_PROMPTS} prompts per workspace.`,
     );
   }
   const settings = { enabled: value.enabled, limit: value.limit };
@@ -199,7 +199,7 @@ export async function updateManagedWorkspaceComposerHistorySettings(
         if (prompts && prompts.length > settings.limit) {
           await writeHistoryFile(workspace.id, prompts.slice(-settings.limit));
         }
-      })
+      }),
     );
     return settings;
   });
@@ -213,7 +213,7 @@ export async function listManagedWorkspaceComposerPrompts(workspaceId: string): 
 }
 
 export async function readManagedWorkspaceComposerPromptPreview(
-  workspaceId: string
+  workspaceId: string,
 ): Promise<WorkspaceComposerPromptPreview | null> {
   const settings = await readManagedWorkspaceComposerHistorySettings();
   if (!settings.enabled) return null;
@@ -224,7 +224,7 @@ export async function readManagedWorkspaceComposerPromptPreview(
 export async function appendManagedWorkspaceComposerPrompt(
   workspaceId: string,
   value: unknown,
-  submittedAt = Date.now()
+  submittedAt = Date.now(),
 ): Promise<
   { saved: false } | { saved: true; prompt: WorkspaceComposerPrompt; preview: WorkspaceComposerPromptPreview }
 > {
@@ -256,7 +256,7 @@ export async function prepareManagedWorkspaceComposerHistoryRemoval(workspaceId:
 
 function mergedPromptHistory(
   legacy: WorkspaceComposerPrompt[],
-  current: WorkspaceComposerPrompt[]
+  current: WorkspaceComposerPrompt[],
 ): WorkspaceComposerPrompt[] {
   const byId = new Map<string, WorkspaceComposerPrompt>();
   for (const prompt of [...legacy, ...current]) byId.set(prompt.id, prompt);
@@ -288,7 +288,7 @@ export async function migrateManagedWorkspaceComposerHistories(): Promise<number
       compatibilityCount += 1;
       legacyById.set(
         workspace.id,
-        normalizeWorkspaceComposerPromptHistory(workspace.composerPromptHistory, MAX_WORKSPACE_COMPOSER_PROMPTS)
+        normalizeWorkspaceComposerPromptHistory(workspace.composerPromptHistory, MAX_WORKSPACE_COMPOSER_PROMPTS),
       );
     }
     if (compatibilityCount === 0) return 0;
@@ -299,7 +299,7 @@ export async function migrateManagedWorkspaceComposerHistories(): Promise<number
         if (!legacy?.length) return;
         const current = (await readHistoryFile(workspace.id, MAX_WORKSPACE_COMPOSER_PROMPTS)) ?? [];
         await writeHistoryFile(workspace.id, mergedPromptHistory(legacy, current));
-      })
+      }),
     );
     await writeWorkspaceStore(state);
     return compatibilityCount;

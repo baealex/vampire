@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   createWorkspaceNotePreview,
   normalizeWorkspaceNote,
-  workspaceNoteByteLength,
   WORKSPACE_NOTE_PREVIEW_MAX_LENGTH,
+  workspaceNoteByteLength,
 } from '~/lib/features/workspace/server/workspace-note.server.ts';
 
 test('uses the first non-empty line as the workspace note preview', () => {
@@ -21,11 +21,11 @@ test('truncates long previews without splitting a unicode character', () => {
 test('uses the first plain line for the workspace preview', () => {
   assert.equal(
     createWorkspaceNotePreview('## 완료\n\n- Verify the updated prompt\n\n## 다음\n\n- Run the tests'),
-    'Verify the updated prompt'
+    'Verify the updated prompt',
   );
   assert.equal(
     createWorkspaceNotePreview('Current state and the immediate next action'),
-    'Current state and the immediate next action'
+    'Current state and the immediate next action',
   );
 });
 

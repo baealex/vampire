@@ -34,12 +34,12 @@ export function createTerminalAttachmentState<T extends ManagedTerminalAttachmen
 
 export function runTerminalOperation<T extends ManagedTerminalAttachment, R>(
   state: TerminalAttachmentState<T>,
-  operation: () => Promise<R>
+  operation: () => Promise<R>,
 ): Promise<R> {
   const result = state.operationQueue.catch(() => undefined).then(operation);
   state.operationQueue = result.then(
     () => undefined,
-    () => undefined
+    () => undefined,
   );
   return result;
 }
@@ -47,7 +47,7 @@ export function runTerminalOperation<T extends ManagedTerminalAttachment, R>(
 export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
   attachment: T,
-  options: { onlyIfUnclaimed?: boolean; replaces?: T } = {}
+  options: { onlyIfUnclaimed?: boolean; replaces?: T } = {},
 ): Promise<boolean> {
   const activation = state.activationQueue
     .catch(() => undefined)
@@ -93,14 +93,14 @@ export function activateTerminalAttachment<T extends ManagedTerminalAttachment>(
     });
   state.activationQueue = activation.then(
     () => undefined,
-    () => undefined
+    () => undefined,
   );
   return activation;
 }
 
 export function releaseTerminalAttachment<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
-  attachment: T
+  attachment: T,
 ): T | undefined {
   if (attachment.released) return undefined;
   const wasActive = state.activeAttachment === attachment;
@@ -113,7 +113,7 @@ export function releaseTerminalAttachment<T extends ManagedTerminalAttachment>(
 }
 
 export function fallbackTerminalAttachment<T extends ManagedTerminalAttachment>(
-  state: TerminalAttachmentState<T>
+  state: TerminalAttachmentState<T>,
 ): T | undefined {
   // Prefer the most recent previous controller, but never leave a live terminal
   // without a size-owning client. A viewer already has its latest requested size,
@@ -127,7 +127,7 @@ export function fallbackTerminalAttachment<T extends ManagedTerminalAttachment>(
 export function updateTerminalGeometry<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
   attachment: T,
-  geometry: TerminalGeometry
+  geometry: TerminalGeometry,
 ): boolean {
   if (state.activeAttachment && state.activeAttachment !== attachment) return false;
   if (state.geometry?.columns === geometry.columns && state.geometry.rows === geometry.rows) return false;
@@ -141,7 +141,7 @@ export function terminalAttachmentKey(workspaceId: string, terminalId?: string):
 
 export function previousTerminalConnection<T extends ManagedTerminalAttachment>(
   state: TerminalAttachmentState<T>,
-  incoming: T
+  incoming: T,
 ): T | undefined {
   if (!incoming.clientId) return undefined;
   return [...state.attachments]
@@ -150,7 +150,7 @@ export function previousTerminalConnection<T extends ManagedTerminalAttachment>(
         candidate !== incoming &&
         !candidate.released &&
         candidate.clientId === incoming.clientId &&
-        candidate.sessionId === incoming.sessionId
+        candidate.sessionId === incoming.sessionId,
     )
     .sort((left, right) => (right.connectionAttempt ?? 0) - (left.connectionAttempt ?? 0))[0];
 }

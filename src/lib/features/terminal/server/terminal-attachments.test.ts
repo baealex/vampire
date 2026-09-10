@@ -3,12 +3,12 @@ import test from 'node:test';
 import {
   activateTerminalAttachment,
   createTerminalAttachmentState,
+  type ManagedTerminalAttachment,
+  previousTerminalConnection,
   releaseTerminalAttachment,
   runTerminalOperation,
   terminalAttachmentKey,
   updateTerminalGeometry,
-  previousTerminalConnection,
-  type ManagedTerminalAttachment,
 } from '~/lib/features/terminal/server/terminal-attachments.server.ts';
 
 test('reconnect identity is scoped to one authentication session and chooses the newest attempt', () => {
@@ -184,13 +184,13 @@ test('a reconnect inherits its previous connection control but cannot displace a
   await activateTerminalAttachment(state, oldConnection);
   assert.equal(
     await activateTerminalAttachment(state, reconnected, { onlyIfUnclaimed: true, replaces: oldConnection }),
-    true
+    true,
   );
   assert.equal(state.activeAttachment, reconnected);
   await activateTerminalAttachment(state, phone);
   assert.equal(
     await activateTerminalAttachment(state, oldConnection, { onlyIfUnclaimed: true, replaces: reconnected }),
-    false
+    false,
   );
   assert.equal(state.activeAttachment, phone);
 });

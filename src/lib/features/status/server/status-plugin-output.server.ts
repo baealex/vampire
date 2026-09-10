@@ -14,10 +14,13 @@ const STATUS_MENU_BADGE_MAX_LENGTH = 80;
 const STATUS_HREF_MAX_LENGTH = 2_048;
 
 function cleanText(value: string): string {
-  return stripVTControlCharacters(value)
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
-    .trim();
+  return (
+    stripVTControlCharacters(value)
+      .replace(/\r\n?/g, '\n')
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: Status output must strip unsafe terminal controls.
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+      .trim()
+  );
 }
 
 function truncate(value: string, maximum: number): string {
@@ -254,7 +257,7 @@ function plainMenuItem(line: string): StatusPluginMenuEntry | undefined {
     value: structuredLine(parsed.parameters.get('value'), STATUS_MENU_VALUE_MAX_LENGTH),
     detail: structuredLine(
       parsed.parameters.get('detail') ?? parsed.parameters.get('tooltip'),
-      STATUS_MENU_TEXT_MAX_LENGTH
+      STATUS_MENU_TEXT_MAX_LENGTH,
     ),
     badge: structuredLine(parsed.parameters.get('badge'), STATUS_MENU_BADGE_MAX_LENGTH),
     checked: booleanParameter(parsed.parameters.get('checked')),
