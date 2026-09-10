@@ -2449,7 +2449,6 @@ test('measures sustained tmux output delivery and keeps the final screen and inp
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
   const initialConnections = connections;
-  const workloadStarted = Date.now();
   await page.evaluate(() => {
     const probe = {
       frame: 0,
@@ -2498,10 +2497,14 @@ test('measures sustained tmux output delivery and keeps the final screen and inp
   expect(wireSamples.size).toBe(100);
   expect(errors).toEqual([]);
   expect(connections).toBe(initialConnections);
-  expect(deliveries.filter((delivery) => delivery.at >= workloadStarted && delivery.screenSync)).toEqual([]);
-  expect(deliveries.filter((delivery) => delivery.at >= workloadStarted && delivery.type === 'client-resize')).toEqual(
-    []
-  );
+  const firstProbeDelivery = deliveries.find((delivery) => delivery.markers > 0)?.at;
+  expect(firstProbeDelivery).toBeDefined();
+  // Terminal readiness can precede the final font/layout fit by one animation frame.
+  // Measure churn from the first real workload frame instead of counting that mount-time resize.
+  expect(deliveries.filter((delivery) => delivery.at >= firstProbeDelivery! && delivery.screenSync)).toEqual([]);
+  expect(
+    deliveries.filter((delivery) => delivery.at >= firstProbeDelivery! && delivery.type === 'client-resize')
+  ).toEqual([]);
   await composer.fill("printf 'VAMP_INPUT_%s\\n' OK");
   const inputStarted = Date.now();
   await composer.press('Enter');
