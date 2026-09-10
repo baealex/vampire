@@ -432,19 +432,27 @@ test('gives repository loading and errors breathing room without resizing the te
 test('keeps terminal geometry fixed while floating image feedback appears and clears', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
-  await page.route('**/api/workspaces/*/image', (route) => route.fulfill({ json: { ok: true } }));
+  let imageUploads = 0;
+  // Terminal-specific uploads include a query string; keep this layout test independent of OS clipboard tools.
+  await page.route((url) => url.pathname === `/api/workspaces/${workspace.id}/image`, (route) => {
+    expect(route.request().method()).toBe('POST');
+    imageUploads += 1;
+    return route.fulfill({ json: { ok: true } });
+  });
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/workspaces/${workspace.id}`);
     await expectTerminalReady(page);
     const frame = page.locator('.terminal-frame');
     const before = await frame.boundingBox();
+    const previousUploads = imageUploads;
     await page.locator('input[type="file"]').first().setInputFiles({
       name: 'feedback.png',
       mimeType: 'image/png',
       buffer: Buffer.from('mocked image upload'),
     });
     const notice = page.getByText('Image pasted into the shell.', { exact: true });
+    await expect.poll(() => imageUploads).toBe(previousUploads + 1);
     await expect(notice).toBeVisible();
     expect(await frame.boundingBox()).toEqual(before);
     await expect(notice).not.toBeVisible({ timeout: 7_000 });
