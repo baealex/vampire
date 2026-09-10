@@ -2376,8 +2376,10 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
 
   await expect(terminalRows).toContainText('VAMP_STRESS_DONE', { timeout: 15_000 });
   await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-  const renderedText = (await renderedTerminalRows(page)).join('\n');
-  expect(renderedText.match(/VAMP_STRESS_DONE/gu)).toHaveLength(1);
+  // A committed resize may reflow the completion row out of the current pane.
+  // Verify its single emission in tmux history while the assertion above keeps the visible pane coherent.
+  const { stdout: terminalHistory } = await runTmux(['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession]);
+  expect(terminalHistory.match(/VAMP_STRESS_DONE/gu) ?? []).toHaveLength(1);
   await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
 });
 
