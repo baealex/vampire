@@ -254,7 +254,6 @@ onMount(() => {
     onSubmissionUncertain: (requestId) => recovery.markUncertain(requestId),
   });
   runtime = terminalRuntime;
-  recovery.resumePending(terminalRuntime.pendingSubmissionIds);
   terminalRuntime.start();
   void tick().then(() => {
     requestAnimationFrame(() => {
@@ -401,6 +400,8 @@ onMount(() => {
   position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -422,15 +423,17 @@ onMount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0.35rem max(0.35rem, env(safe-area-inset-right)) 0.35rem max(0.35rem, env(safe-area-inset-left));
   touch-action: none;
 }
 .terminal.path-drop-target {
   box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 .terminal :global(.xterm) {
+  width: 100%;
   height: 100%;
-  padding: 0.25rem;
+  /* FitAddon parses padding as whole CSS pixels. Keep these values integral so
+     repeated fits cannot gain or lose a row/column through truncation. */
+  padding: 10px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left));
   opacity: 0;
   touch-action: none;
 }

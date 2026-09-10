@@ -48,18 +48,13 @@ test('submits on HTTP origins without crypto.randomUUID', () => {
   unavailable.mockRestore();
 });
 
-test('unconfirmed drafts survive remount and a warm runtime restores their pending status', () => {
+test('unconfirmed drafts survive remount as uncertain without being retried', () => {
   const saved = storage();
   const recovery = new SubmissionRecovery('recovery-remount', 'terminal-2', saved);
   const send = vi.fn(() => true);
   recovery.submit('template text', 'draft', send);
-  const requestId = recovery.entries[0].requestId;
   const restored = new SubmissionRecovery('recovery-remount', 'terminal-2', saved);
   expect(restored.entries[0]).toMatchObject({ status: 'uncertain', draft: 'draft' });
-  restored.resumePending([requestId]);
-  expect(restored.entries[0].status).toBe('pending');
-  restored.markUncertain(requestId);
-  expect(restored.entries[0].status).toBe('uncertain');
   expect(send).toHaveBeenCalledOnce();
 });
 

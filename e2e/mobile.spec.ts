@@ -383,7 +383,10 @@ test('keeps mobile composition visible while terminal output and viewport geomet
   await expect(composer).toBeFocused();
 });
 
-test('resizes terminal geometry to keep the mobile keyboard from hiding active content', async ({ context, page }) => {
+test('resizes terminal geometry with the browser viewport while keeping active content visible', async ({
+  context,
+  page,
+}) => {
   test.setTimeout(60_000);
   const sentTerminalMessages: Array<string | Buffer> = [];
   let delayServerMessages = false;
@@ -427,18 +430,6 @@ test('resizes terminal geometry to keep the mobile keyboard from hiding active c
     .locator('.xterm-screen')
     .evaluate((screen) => screen.getBoundingClientRect().height);
 
-  // Android Firefox can leave VisualViewport at its previous height while
-  // innerHeight is the only value that reflects the software keyboard.
-  await page.evaluate(() => {
-    const visualViewport = window.visualViewport;
-    if (!visualViewport) return;
-    const staleHeight = visualViewport.height;
-    Object.defineProperty(visualViewport, 'height', {
-      configurable: true,
-      get: () => staleHeight,
-    });
-  });
-
   delayServerMessages = true;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height - 320 });
   await page.waitForTimeout(250);
@@ -457,9 +448,7 @@ test('resizes terminal geometry to keep the mobile keyboard from hiding active c
         const screenBounds = frame.querySelector<HTMLElement>('.xterm-screen')?.getBoundingClientRect();
         const cursorBounds = frame.querySelector<HTMLElement>('.xterm-helper-textarea')?.getBoundingClientRect();
         const composerBounds = document.querySelector('.composer')?.getBoundingClientRect();
-        const visualViewport = window.visualViewport;
-        const viewportBottom =
-          (visualViewport?.offsetTop ?? 0) + Math.min(visualViewport?.height ?? window.innerHeight, window.innerHeight);
+        const viewportBottom = window.innerHeight;
         return {
           composerFits: Boolean(composerBounds && composerBounds.bottom <= viewportBottom + 1),
           frameFitsScreen: Boolean(
@@ -513,13 +502,12 @@ test('keeps a usable terminal and composer in an extreme keyboard-height viewpor
         const screen = document.querySelector<HTMLElement>('.xterm-screen');
         const rows = document.querySelector<HTMLElement>('.xterm-rows');
         const composerElement = document.querySelector<HTMLElement>('.composer');
-        const viewport = window.visualViewport;
         if (!frame || !screen || !rows || !composerElement) return undefined;
         const frameBounds = frame.getBoundingClientRect();
         const screenBounds = screen.getBoundingClientRect();
         const composerBounds = composerElement.getBoundingClientRect();
-        const viewportTop = viewport?.offsetTop ?? 0;
-        const viewportBottom = viewportTop + (viewport?.height ?? innerHeight);
+        const viewportTop = 0;
+        const viewportBottom = innerHeight;
         return {
           composerFits: composerBounds.top >= viewportTop && composerBounds.bottom <= viewportBottom + 1,
           frameFits: screenBounds.bottom <= frameBounds.bottom + 1,

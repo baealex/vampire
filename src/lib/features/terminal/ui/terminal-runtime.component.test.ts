@@ -1,14 +1,9 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { TerminalConnectionCallbacks } from '../api/connection.ts';
 import { SubmissionRecovery } from '../model/submission-recovery.svelte.ts';
-import {
-  acquireTerminalRuntime,
-  clearRecentTerminalRuntimes,
-  releaseTerminalRuntime,
-  type TerminalRuntimeOptions,
-} from './terminal-runtime.ts';
+import { acquireTerminalRuntime, releaseTerminalRuntime, type TerminalRuntimeOptions } from './terminal-runtime.ts';
 
-const doubles = vi.hoisted(() => ({ connections: [] as any[], terminals: [] as any[] }));
+const doubles = vi.hoisted(() => ({ connections: [] as any[], fitAddons: [] as any[], terminals: [] as any[] }));
 
 vi.mock('../api/connection.ts', () => ({
   TerminalConnection: class {
@@ -90,6 +85,9 @@ vi.mock('@xterm/xterm', () => ({
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
     fit = vi.fn();
+    constructor() {
+      doubles.fitAddons.push(this);
+    }
     proposeDimensions() {
       return { cols: 80, rows: 24 };
     }
@@ -147,12 +145,12 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 1));
   vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
   doubles.connections.length = 0;
+  doubles.fitAddons.length = 0;
   doubles.terminals.length = 0;
   localStorage.clear();
 });
 
 afterEach(() => {
-  clearRecentTerminalRuntimes();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -160,43 +158,24 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-test('returning to a workspace reuses its connection, terminal and reading position', async () => {
-  const { initial, runtime, connection, terminal } = await ready();
-  expect(runtime.canSuspend).toBe(true);
-  releaseTerminalRuntime(runtime);
-  expect(runtime.send('hidden input')).toBe(false);
-  expect(connection.stop).not.toHaveBeenCalled();
-  const resumedOptions = options();
-  const resumed = acquireTerminalRuntime(resumedOptions);
-  expect(resumed).toBe(runtime);
-  expect(doubles.connections).toHaveLength(1);
-  expect(doubles.terminals).toHaveLength(1);
-  expect(resumedOptions.element.contains(terminal.element)).toBe(true);
-  expect(initial.element.contains(terminal.element)).toBe(false);
-  expect(resumedOptions.element.lang).toBe(navigator.language || 'und');
-  expect(terminal.buffer.active.viewportY).toBe(75);
-  expect(resumedOptions.onStateChange).toHaveBeenCalledWith(expect.objectContaining({ screenReady: true }));
-  expect(terminal.element.style.opacity).toBe('0');
-  await vi.advanceTimersByTimeAsync(3);
-  expect(terminal.element.style.opacity).toBe('');
-  expect(terminal.clearTextureAtlas).toHaveBeenCalledOnce();
-  expect(terminal.refresh).toHaveBeenCalled();
-  resumed.dispose();
-});
-
-test('buffers output while a cached terminal is detached and writes it after layout settles', async () => {
+test('leaving a workspace disposes its connection and terminal', async () => {
   const { runtime, connection, terminal } = await ready();
   releaseTerminalRuntime(runtime);
-  terminal.write.mockClear();
+  expect(runtime.send('hidden input')).toBe(false);
+  expect(connection.stop).toHaveBeenCalledOnce();
+  expect(terminal.dispose).toHaveBeenCalledOnce();
+});
 
-  connection.receive({ type: 'output', data: 'detached output', sequence: 1 });
-  await vi.advanceTimersByTimeAsync(10);
-  expect(terminal.write).not.toHaveBeenCalled();
-
-  const resumed = acquireTerminalRuntime(options());
-  await vi.advanceTimersByTimeAsync(4);
-  expect(terminal.write).toHaveBeenCalledWith('detached output', expect.any(Function));
-  resumed.dispose();
+test('returning to a workspace creates a fresh authoritative terminal connection', async () => {
+  const { runtime } = await ready();
+  releaseTerminalRuntime(runtime);
+  const next = acquireTerminalRuntime(options());
+  next.start();
+  await vi.dynamicImportSettled();
+  expect(next).not.toBe(runtime);
+  expect(doubles.connections).toHaveLength(2);
+  expect(doubles.terminals).toHaveLength(2);
+  next.dispose();
 });
 
 test('reconnect does not steal focus and disconnected input reports failure', async () => {
@@ -207,7 +186,6 @@ test('reconnect does not steal focus and disconnected input reports failure', as
   expect(terminal.element.style.opacity).toBe('0');
   expect(initial.onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ screenReady: false }));
   connection.callbacks.onOpen(connection.context);
-  expect(runtime.canSuspend).toBe(false);
   await vi.advanceTimersByTimeAsync(100);
   expect(terminal.focus).not.toHaveBeenCalled();
   runtime.dispose();
@@ -269,6 +247,32 @@ test('delegates geometry changes to xterm without requesting retained history', 
   expect(terminal.resize).toHaveBeenCalledWith(79, 24);
   expect(connection.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'load-history' }));
   expect(terminal.buffer.active.viewportY).toBe(75);
+  runtime.dispose();
+});
+
+test('keeps an active xterm fitted to its local container when an old geometry arrives', async () => {
+  const { runtime, connection, terminal } = await ready();
+  const fitAddon = doubles.fitAddons[0];
+  terminal.resize.mockClear();
+  fitAddon.fit.mockClear();
+
+  connection.receive({ type: 'geometry', columns: 70, rows: 20, active: true });
+
+  expect(fitAddon.fit).toHaveBeenCalledOnce();
+  expect(terminal.resize).not.toHaveBeenCalledWith(70, 20);
+  runtime.dispose();
+});
+
+test('renders a passive xterm with the authoritative tmux geometry', async () => {
+  const { runtime, connection, terminal } = await ready();
+  const fitAddon = doubles.fitAddons[0];
+  terminal.resize.mockClear();
+  fitAddon.fit.mockClear();
+
+  connection.receive({ type: 'geometry', columns: 70, rows: 20, active: false });
+
+  expect(terminal.resize).toHaveBeenCalledExactlyOnceWith(70, 20);
+  expect(fitAddon.fit).not.toHaveBeenCalled();
   runtime.dispose();
 });
 
@@ -410,19 +414,15 @@ test('a new terminal does not take keyboard focus until input can be accepted', 
   runtime.dispose();
 });
 
-test('pending submissions survive a quick switch, acknowledge once and time out without retry', async () => {
-  const { runtime, connection } = await ready();
+test('leaving marks pending submissions uncertain without retrying them', async () => {
+  const initial = options();
+  const { runtime, connection } = await ready(initial);
   expect(runtime.submit('first', 'submit-1')).toBe(true);
   releaseTerminalRuntime(runtime);
-  const resumedOptions = options();
-  const resumed = acquireTerminalRuntime(resumedOptions);
+  expect(initial.onSubmissionUncertain).toHaveBeenLastCalledWith();
   connection.receive({ type: 'submission-result', requestId: 'submit-1', status: 'completed' });
-  expect(resumedOptions.onSubmissionResult).toHaveBeenCalledOnce();
-  expect(resumed.submit('second', 'submit-2')).toBe(true);
-  await vi.advanceTimersByTimeAsync(30_000);
-  expect(resumedOptions.onSubmissionUncertain).toHaveBeenCalledExactlyOnceWith('submit-2');
-  expect(connection.send.mock.calls.filter(([message]: any[]) => message.type === 'submit')).toHaveLength(2);
-  resumed.dispose();
+  expect(initial.onSubmissionResult).not.toHaveBeenCalled();
+  expect(connection.send.mock.calls.filter(([message]: any[]) => message.type === 'submit')).toHaveLength(1);
 });
 
 test('IME composition is left to xterm instead of sending a Shift+Enter control', async () => {
@@ -434,7 +434,7 @@ test('IME composition is left to xterm instead of sending a Shift+Enter control'
   runtime.dispose();
 });
 
-test('a confirmation while the workspace is unmounted updates its recovery journal', async () => {
+test('leaving preserves an unconfirmed message as uncertain', async () => {
   const initial = options();
   initial.workspaceId = 'warm-confirmation';
   const recovery = new SubmissionRecovery(initial.workspaceId);
@@ -442,34 +442,10 @@ test('a confirmation while the workspace is unmounted updates its recovery journ
   initial.onSubmissionUncertain = (id) => recovery.markUncertain(id);
   const { runtime, connection } = await ready(initial);
   recovery.submit('wrapped', 'original', (data, id) => runtime.submit(data, id));
-  const requestId = recovery.entries[0].requestId;
   releaseTerminalRuntime(runtime);
-  connection.receive({ type: 'submission-result', requestId, status: 'completed' });
-  expect(new SubmissionRecovery(initial.workspaceId).entries).toEqual([]);
-});
-
-test('an idle terminal expiry preserves its unconfirmed message without resending', async () => {
-  const initial = options();
-  initial.workspaceId = 'warm-timeout';
-  const recovery = new SubmissionRecovery(initial.workspaceId);
-  initial.onSubmissionResult = (result) => recovery.applyResult(result);
-  initial.onSubmissionUncertain = (id) => recovery.markUncertain(id);
-  const { runtime, connection } = await ready(initial);
-  recovery.submit('wrapped', 'original', (data, id) => runtime.submit(data, id));
-  releaseTerminalRuntime(runtime);
-  await vi.advanceTimersByTimeAsync(30_001);
   expect(new SubmissionRecovery(initial.workspaceId).entries[0]).toMatchObject({
     draft: 'original',
     status: 'uncertain',
   });
   expect(connection.send.mock.calls.filter(([message]: any[]) => message.type === 'submit')).toHaveLength(1);
-});
-
-test('a busy hidden terminal is evicted instead of continually parsing background output', async () => {
-  const { runtime, connection, terminal } = await ready();
-  releaseTerminalRuntime(runtime);
-  connection.receive({ type: 'output', data: 'x'.repeat(1024 * 1024), activity: false, activityAt: null, sequence: 1 });
-  expect(terminal.dispose).toHaveBeenCalledOnce();
-  expect(connection.stop).toHaveBeenCalledOnce();
-  expect(runtime.canSuspend).toBe(false);
 });

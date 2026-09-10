@@ -4,12 +4,15 @@ import {
   TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES,
   type TerminalSubmissionResult,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
-import { terminalSessionKey } from './recent-terminal-cache.ts';
 import { TerminalSubmissionTracker, type TerminalTrackedSubmission } from './submission-tracker.ts';
 
 const memoryRecovery = new Map<string, TerminalTrackedSubmission[]>();
 const MAXIMUM_RETAINED_MESSAGES = 32;
 type RecoveryStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+function terminalSessionKey(workspaceId: string, terminalId?: string): string {
+  return JSON.stringify([workspaceId, terminalId ?? null]);
+}
 
 /** Browser recovery only. Recording an attempt never retries terminal input. */
 export class SubmissionRecovery {
@@ -33,17 +36,6 @@ export class SubmissionRecovery {
       this.persistenceFailed = true;
     }
     this.#tracker = new TerminalSubmissionTracker({ initialEntries: saved });
-    this.#publish();
-  }
-
-  /** The warm runtime still owns these deadlines and can receive their results. */
-  resumePending(requestIds: readonly string[]): void {
-    const pending = new Set(requestIds);
-    for (const entry of this.#tracker.entries) {
-      if (!pending.has(entry.requestId)) continue;
-      this.#tracker.dismiss(entry.requestId);
-      this.#tracker.track(entry, entry.submittedAt);
-    }
     this.#publish();
   }
 

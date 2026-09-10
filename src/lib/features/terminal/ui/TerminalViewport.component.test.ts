@@ -14,7 +14,6 @@ vi.mock('./terminal-runtime.ts', () => ({
     const runtime = {
       claimControl: vi.fn(),
       focus: vi.fn(),
-      pendingSubmissionIds: [],
       reconnect: vi.fn(),
       scrollPageDown: vi.fn(),
       scrollPageUp: vi.fn(),

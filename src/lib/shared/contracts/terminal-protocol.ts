@@ -65,12 +65,10 @@ export const TERMINAL_GEOMETRY_LIMITS = {
 };
 
 export const TERMINAL_SCROLLBACK_LINES = {
-  reduced: 4_000,
   standard: 10_000,
 } as const;
 
 export const TERMINAL_HISTORY_CHUNK_LINES = {
-  reduced: 250,
   standard: 500,
 } as const;
 

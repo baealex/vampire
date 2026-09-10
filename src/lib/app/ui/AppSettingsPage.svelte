@@ -12,7 +12,6 @@ import {
   MINIMUM_TERMINAL_FONT_SIZE,
   MAXIMUM_TERMINAL_FONT_SIZE,
 } from '~/lib/features/terminal/model/terminal-display-preference.ts';
-import { COMPACT_MEDIA_QUERY } from '~/lib/shared/ui/layout.ts';
 import { MAX_LAUNCH_PROFILES } from '~/lib/shared/contracts/launch-profiles.ts';
 import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
@@ -65,7 +64,7 @@ let {
 let terminalFontSize = $state(14);
 let terminalFontSaveFailed = $state(false);
 onMount(() => {
-  terminalFontSize = loadTerminalFontSize(window.matchMedia(COMPACT_MEDIA_QUERY).matches ? 12 : 14);
+  terminalFontSize = loadTerminalFontSize(14);
 });
 function changeTerminalFontSize(event: Event) {
   const size = Number((event.currentTarget as HTMLSelectElement).value);

@@ -27,7 +27,6 @@ import type { ManagedWorkspace, MobilePanel } from '~/lib/shared/contracts/works
 import { isWorktreeWorkspace, workspaceName } from '~/lib/features/workspace/model/workspace-view';
 import { REPOSITORY_SPLIT_MEDIA_QUERY } from '~/lib/shared/ui/layout';
 import TerminalHeader from '~/lib/features/terminal/ui/TerminalHeader.svelte';
-import { clearRecentTerminalRuntimes } from '~/lib/features/terminal/ui/terminal-runtime.ts';
 import ListeningPortsDialog from '~/lib/features/system/ui/ListeningPortsDialog.svelte';
 
 type ManagementView = 'automations' | 'workspace-settings' | 'server-automations' | 'settings' | 'widgets';
@@ -165,7 +164,6 @@ async function logout() {
   mobilePanel = 'workspaces';
   pushApplicationState('/');
   await tick();
-  clearRecentTerminalRuntimes();
 }
 
 function guardManagementTransition(action: () => void | Promise<void>): boolean {
@@ -599,7 +597,6 @@ onMount(() => {
   return () => {
     stopConnection();
     workspaceState.dispose();
-    queueMicrotask(clearRecentTerminalRuntimes);
     window.removeEventListener('popstate', handlePopState);
     window.removeEventListener('keydown', handleWorkspaceShortcut, { capture: true });
     window.removeEventListener('keydown', handleOverlayKeydown, { capture: true });
@@ -988,6 +985,12 @@ main {
   min-width: 0;
   min-height: 100dvh;
   padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+}
+.dashboard.terminal-open {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
 }
 @media (max-width: 63.999rem) {
   .dashboard.management-open {

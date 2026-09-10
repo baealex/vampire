@@ -2219,7 +2219,7 @@ test('keeps keyboard terminal input available on a wide touch display', async ({
     const page = await context.newPage();
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
-    await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
+    await expect(page.locator('.terminal-sheet')).not.toHaveClass(/visual-viewport-constrained/);
     await expect(page.getByRole('group', { name: 'Terminal input method' })).toHaveCount(0);
     await expect(page.getByRole('group', { name: 'Terminal controls' })).toBeVisible();
     await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
@@ -2661,8 +2661,8 @@ test('hands terminal layout between entered devices and restores it on disconnec
     const phoneHandoff = phonePage.getByText('Sized for another device');
     await expect(desktopHandoff).toBeVisible();
     await expect(phoneHandoff).toBeHidden();
-    // A viewer still measures its own container, but that optimistic local fit
-    // must roll back to the controller's shared geometry when resize is denied.
+    // A viewer measures its own preferred size without changing xterm. The
+    // controller's shared geometry remains authoritative until takeover.
     await desktopPage.setViewportSize({ width: 2_200, height: 1_200 });
     await expect.poll(() => renderedTerminalGeometry(desktopPage)).toMatchObject({ rows: phoneGeometry.rows });
     await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
@@ -3721,7 +3721,7 @@ test('network reliability: four devices isolate a slow subscriber during an outp
   }
 });
 
-test('network reliability: repeated workspace switches preserve drafts after cache expiry', async ({
+test('network reliability: repeated fresh terminal attachments preserve drafts', async ({
   context,
   page,
 }, testInfo) => {
@@ -3744,12 +3744,11 @@ test('network reliability: repeated workspace switches preserve drafts after cac
       await expectTerminalReady(page);
       await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
       timings.push(Date.now() - startedAt);
-      if (i === 0) await new Promise((resolve) => setTimeout(resolve, 31_000));
     }
     await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(first.id)}`);
     await expect(page.getByPlaceholder('Compose a message…')).toHaveValue('Keep this draft across repeated switches');
   } finally {
-    await saveReliabilityReport(testInfo, 'workspace-switch-timings', { switches: timings, expiryWaitMs: 31_000 });
+    await saveReliabilityReport(testInfo, 'workspace-switch-timings', { switches: timings });
     await removeWorkspace(context, second.id);
   }
 });
