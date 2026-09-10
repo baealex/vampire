@@ -1,0 +1,101 @@
+.ask-agent-embedded,
+.ask-agent {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+.ask-agent-embedded > header {
+  display: grid;
+  gap: 0.18rem;
+}
+.ask-agent-embedded > header > span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+}
+.ask-agent-embedded h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-title);
+}
+.ask-agent-embedded > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.ask-agent__target {
+  display: flex;
+  align-items: baseline;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+}
+.ask-agent__target span,
+.ask-agent__target small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.ask-agent__target strong {
+  color: var(--color-text);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.ask-agent__target small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ask-agent__description,
+.ask-agent__loading,
+.ask-agent__error {
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: var(--leading-body);
+}
+.ask-agent__description,
+.ask-agent__loading {
+  color: var(--color-text-secondary);
+}
+.ask-agent__error {
+  color: var(--color-danger-text);
+}
+.ask-agent__context {
+  display: grid;
+  gap: 0.48rem;
+  margin: 0;
+}
+.ask-agent__context > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+  padding: 0.55rem 0.65rem;
+  border-left: 2px solid var(--color-command);
+  background: var(--color-surface-raised);
+}
+.ask-agent__context dt {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-medium);
+}
+.ask-agent__context dd {
+  min-width: 0;
+  margin: 0;
+}
+.ask-agent__context code {
+  display: block;
+  overflow-x: auto;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.ask-agent__context small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: var(--leading-ui);
+}

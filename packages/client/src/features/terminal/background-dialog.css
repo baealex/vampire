@@ -1,0 +1,218 @@
+.background-panel {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--workspace-panel-width, min(22rem, calc(100% - 3rem)));
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transform: translateX(100%);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-repository-panel);
+  color: var(--color-text);
+  pointer-events: none;
+  visibility: hidden;
+}
+.background-panel.open {
+  transform: translateX(0);
+  pointer-events: auto;
+  visibility: visible;
+}
+.background-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 3.2rem;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.background-header > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.background-header > span > span {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-nano);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.background-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.background-agent-view {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+.background-runner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.5rem;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.background-runner label {
+  display: grid;
+  gap: 0.35rem;
+}
+.favorite-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.favorite-heading {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.favorite-list {
+  display: flex;
+  max-width: 100%;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+.favorite-command {
+  display: flex;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.favorite-command button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.favorite-run {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem;
+}
+.favorite-run code {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favorite-remove {
+  padding: 0.35rem;
+}
+.process-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.process-section > header {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+.process-list {
+  min-height: 0;
+  overflow: auto;
+}
+.process-list > p {
+  padding: 1rem;
+  color: var(--color-text-tertiary);
+}
+.process-row {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.process-summary {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.process-summary code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.process-summary span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.background-detail-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.background-detail-bar > span {
+  flex: 1;
+  color: var(--color-text-secondary);
+}
+.process-output {
+  flex: 1;
+  min-height: 0;
+  background: var(--color-terminal-background);
+  color: var(--color-terminal-foreground);
+}
+.process-output pre {
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  font: var(--text-caption) / 1.5 var(--font-mono);
+  white-space: pre-wrap;
+}
+.output-placeholder {
+  padding: 1rem;
+}
+.background-error {
+  margin: 0;
+  padding: 0.6rem;
+  color: var(--color-danger-text);
+  background: var(--color-danger-surface);
+}
+@media (max-width: 79.999rem) {
+  .background-panel {
+    position: fixed;
+    width: var(--workspace-panel-width, min(23rem, calc(100% - 2.75rem)));
+    height: 100dvh;
+    transition:
+      transform 0.18s ease,
+      visibility 0s linear 0.18s;
+  }
+  .background-panel.open {
+    transition-delay: 0s;
+  }
+}
+@media (max-width: 48rem) {
+  .background-panel {
+    width: 100%;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-left: 0;
+    box-shadow: none;
+  }
+}

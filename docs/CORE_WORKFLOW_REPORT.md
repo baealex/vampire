@@ -117,7 +117,7 @@ pnpm exec vitest run --config vitest.config.ts src/lib/features/terminal
 - 터미널 컴포넌트 테스트 73개 통과.
 - 데스크톱·모바일 핵심 흐름 34개 E2E 통과. 작은 화면의 메뉴를 보강한 뒤 해당 변경과 데스크톱 입력창을 대상으로 8개 E2E를 추가 검증했고 모두 통과했다.
 - 모바일 메뉴의 미리보기·템플릿 변경·기록 검색·이미지 선택, 팝업 닫기와 편집 복귀를 Chromium·Firefox·WebKit에서 확인했다.
-- `pnpm check` 통과. 아키텍처·디자인 시스템 검사와 Svelte·TypeScript 검사를 포함한다.
+- `pnpm check` 통과. 아키텍처·디자인 시스템 검사와 React·TypeScript 검사를 포함한다.
 - `pnpm format:check`, `git diff --check` 통과.
 
 후속 사용성 조정에서는 관련 컴포넌트 66개와 데스크톱·모바일 E2E 9개가 통과했다. 고정 높이 및 기본 줄바꿈으로 변경한 뒤에는 입력 컴포넌트 33개와 관련 E2E 7개를 추가 확인했다. 당시 E2E에는 설정에서 글자 크기를 변경한 뒤 캐시된 터미널로 복귀·새로고침하는 흐름, 줄바꿈 뒤 커서 스크롤, 모바일 IME·메뉴 흐름이 포함됐다. 현재는 warm cache를 제거해 복귀 시 새 권위 스냅샷을 사용한다.

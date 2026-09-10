@@ -37,7 +37,7 @@ import {
   TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
 import { closeRepositoryStatusObservers, observeRepositoryStatus } from './repository-status.server.ts';
-import { recordWorkspaceOutput } from './workspace-websocket.server.ts';
+import { recordWorkspaceOutput } from './workspace-status-hub.server.ts';
 
 const MAX_CONNECTIONS = 32;
 const HEARTBEAT_INTERVAL_MS = 30_000;

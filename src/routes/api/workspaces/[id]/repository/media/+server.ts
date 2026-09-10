@@ -1,4 +1,4 @@
-import { error, type RequestHandler } from '@sveltejs/kit';
+import { error, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   readWorkspaceImage,

@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit';
+import { json } from '~/lib/server/http-handler.server.ts';
 
 export function GET() {
-	return json({ status: 'ok' });
+  return json({ status: 'ok' });
 }

@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const sourceRoot = join(root, 'src');
+const clientSourceRoot = join(root, 'packages', 'client', 'src');
 const tokenFile = join(sourceRoot, 'lib', 'shared', 'theme', 'tokens.css');
 const colorLiteral = /#[0-9a-fA-F]{3,8}(?![0-9A-Za-z_-])|(?:rgb|rgba|hsl|hsla)\(/;
 const namedColorDeclaration =
@@ -16,7 +17,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await sourceFiles(path)));
     else if (
-      ['.css', '.svelte', '.ts'].includes(extname(entry.name)) &&
+      ['.css', '.ts', '.tsx'].includes(extname(entry.name)) &&
       !entry.name.endsWith('.test.ts') &&
       !entry.name.endsWith('.spec.ts')
     ) {
@@ -51,7 +52,7 @@ function rootTokenValue(source: string, name: string): string {
 
 test('keeps component colors behind shared theme tokens', async () => {
   const violations: string[] = [];
-  for (const file of await sourceFiles(sourceRoot)) {
+  for (const file of [...(await sourceFiles(sourceRoot)), ...(await sourceFiles(clientSourceRoot))]) {
     if (file === tokenFile) continue;
     const source = await readFile(file, 'utf8');
     if (colorLiteral.test(source) || namedColorDeclaration.test(source)) {
@@ -71,7 +72,7 @@ test('defines the same token surface for dark and light themes', async () => {
 test('defines every theme token consumed by the UI', async () => {
   const tokens = tokenNames(await readFile(tokenFile, 'utf8'));
   const missing = new Set<string>();
-  for (const file of await sourceFiles(sourceRoot)) {
+  for (const file of [...(await sourceFiles(sourceRoot)), ...(await sourceFiles(clientSourceRoot))]) {
     if (file === tokenFile) continue;
     const source = await readFile(file, 'utf8');
     for (const match of source.matchAll(/(?:var\(|cssToken\(['"])(--[a-z0-9-]+)/g)) {
@@ -88,17 +89,17 @@ test('defines every theme token consumed by the UI', async () => {
 
 test('uses the same persisted theme key before and after hydration', async () => {
   const initializer = await readFile(join(root, 'static', 'theme-init.js'), 'utf8');
-  const state = await readFile(join(sourceRoot, 'lib', 'shared', 'theme', 'theme.svelte.ts'), 'utf8');
+  const state = await readFile(join(clientSourceRoot, 'shared', 'theme', 'theme.ts'), 'utf8');
   assert.match(initializer, /vampire:theme/);
   assert.match(state, /vampire:theme/);
 });
 
 test('overrides xterm viewport defaults with the active terminal theme', async () => {
   const terminalViewport = await readFile(
-    join(sourceRoot, 'lib', 'features', 'terminal', 'ui', 'TerminalViewport.svelte'),
+    join(clientSourceRoot, 'features', 'terminal', 'terminal-viewport.css'),
     'utf8'
   );
-  assert.match(terminalViewport, /\.xterm-viewport\)[^{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s);
+  assert.match(terminalViewport, /\.xterm-viewport[^\{]*\{[^}]*background:\s*var\(--color-terminal-background\)/s);
 });
 
 test('uses native mono faces with multilingual system fallbacks', async () => {
@@ -122,7 +123,7 @@ test('keeps component mono fonts behind the shared token', async () => {
   const violations: string[] = [];
   const hardcodedMono =
     /(?:font-family|fontFamily)\s*:\s*[^;\n}]*\b(?:ui-monospace|SFMono-Regular|Menlo|Monaco|Consolas|monospace)\b/i;
-  for (const file of await sourceFiles(sourceRoot)) {
+  for (const file of [...(await sourceFiles(sourceRoot)), ...(await sourceFiles(clientSourceRoot))]) {
     if (file === tokenFile) continue;
     if (hardcodedMono.test(await readFile(file, 'utf8'))) violations.push(relative(root, file));
   }
@@ -131,7 +132,7 @@ test('keeps component mono fonts behind the shared token', async () => {
 
 test('gives xterm the resolved shared font stack and the browser language', async () => {
   const terminalViewport = await readFile(
-    join(sourceRoot, 'lib', 'features', 'terminal', 'ui', 'TerminalViewport.svelte'),
+    join(clientSourceRoot, 'features', 'terminal', 'TerminalViewport.tsx'),
     'utf8'
   );
   const terminalRuntime = await readFile(

@@ -20,8 +20,8 @@ export interface ArchitectureViolation {
   target: string;
 }
 
-const SOURCE_EXTENSIONS = new Set(['.cjs', '.js', '.jsx', '.mjs', '.svelte', '.ts', '.tsx']);
-const RESOLUTION_EXTENSIONS = ['', '.cjs', '.css', '.js', '.jsx', '.md', '.mjs', '.svelte', '.ts', '.tsx'];
+const SOURCE_EXTENSIONS = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx']);
+const RESOLUTION_EXTENSIONS = ['', '.cjs', '.css', '.js', '.jsx', '.md', '.mjs', '.ts', '.tsx'];
 
 function posixPath(path: string): string {
   return path.split(sep).join('/');
@@ -32,7 +32,7 @@ function relativePath(repositoryRoot: string, path: string): string {
 }
 
 function isTestFile(path: string): boolean {
-  return path.endsWith('.test.ts') || path.endsWith('.component.test.ts');
+  return /\.(?:component\.)?test\.tsx?$/.test(path);
 }
 
 function isServerOnlyModule(repositoryRoot: string, path: string): boolean {
@@ -58,7 +58,11 @@ function requiresServerOnlyFilename(repositoryRoot: string, path: string): boole
 
 async function collectFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === 'ENOENT') return [];
+    throw cause;
+  });
+  for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await collectFiles(path)));
@@ -71,15 +75,20 @@ async function collectFiles(directory: string): Promise<string[]> {
 
 function layerFor(repositoryRoot: string, path: string): Layer | undefined {
   const pathFromRoot = relativePath(repositoryRoot, path);
-  const segments = pathFromRoot.split('/');
-  if (segments[0] !== 'src' || segments[1] !== 'lib') return undefined;
+  const rawSegments = pathFromRoot.split('/');
+  const segments =
+    rawSegments[0] === 'src' && rawSegments[1] === 'lib'
+      ? rawSegments.slice(2)
+      : rawSegments[0] === 'packages' && rawSegments[1] === 'client' && rawSegments[2] === 'src'
+        ? rawSegments.slice(3)
+        : [];
 
-  if (segments[2] === 'shared') return { kind: 'shared' };
-  if (segments[2] === 'app') return { kind: 'app' };
-  if (segments[2] === 'features' && segments[3]) {
-    return { kind: 'feature', name: segments[3], segment: segments[4] };
+  if (segments[0] === 'shared') return { kind: 'shared' };
+  if (segments[0] === 'app') return { kind: 'app' };
+  if (segments[0] === 'features' && segments[1]) {
+    return { kind: 'feature', name: segments[1], segment: segments[2] };
   }
-  if (segments[2] === 'widgets' && segments[3]) return { kind: 'widget', name: segments[3] };
+  if (segments[0] === 'widgets' && segments[1]) return { kind: 'widget', name: segments[1] };
   return undefined;
 }
 
@@ -111,7 +120,14 @@ function resolveImport(
   const cleanSpecifier = specifier.split(/[?#]/, 1)[0];
   let basePath: string;
   if (cleanSpecifier.startsWith('~/')) {
-    basePath = resolve(repositoryRoot, 'src', cleanSpecifier.slice(2));
+    const clientSource = relativePath(repositoryRoot, sourcePath).startsWith('packages/client/src/');
+    basePath = clientSource
+      ? cleanSpecifier.startsWith('~/lib/')
+        ? resolve(repositoryRoot, 'src', 'lib', cleanSpecifier.slice('~/lib/'.length))
+        : resolve(repositoryRoot, 'packages', 'client', 'src', cleanSpecifier.slice(2))
+      : resolve(repositoryRoot, 'src', cleanSpecifier.slice(2));
+  } else if (cleanSpecifier.startsWith('@vampire/')) {
+    basePath = resolve(repositoryRoot, 'src', cleanSpecifier.slice('@vampire/'.length));
   } else if (cleanSpecifier.startsWith('$lib/')) {
     basePath = resolve(repositoryRoot, 'src', 'lib', cleanSpecifier.slice('$lib/'.length));
   } else if (cleanSpecifier.startsWith('.')) {
@@ -157,8 +173,8 @@ function violationReason(source: Layer, target: Layer): string | undefined {
 export async function findArchitectureViolations(
   repositoryRoot = resolve(import.meta.dirname, '..')
 ): Promise<ArchitectureViolation[]> {
-  const sourceRoot = resolve(repositoryRoot, 'src');
-  const allFiles = await collectFiles(sourceRoot);
+  const sourceRoots = [resolve(repositoryRoot, 'src'), resolve(repositoryRoot, 'packages', 'client', 'src')];
+  const allFiles = (await Promise.all(sourceRoots.map((sourceRoot) => collectFiles(sourceRoot)))).flat();
   const knownFiles = new Set(allFiles);
   const sourceFiles = allFiles.filter((path) => SOURCE_EXTENSIONS.has(extname(path)) && !isTestFile(path));
   const violations: ArchitectureViolation[] = [];
@@ -177,10 +193,10 @@ export async function findArchitectureViolations(
     const sourceLayer = layerFor(repositoryRoot, sourcePath);
     const source = await readFile(sourcePath, 'utf8');
     for (const reference of importedModules(source)) {
-      if (reference.specifier === 'bits-ui' && sourceLayer?.kind !== 'shared') {
+      if (reference.specifier === '@baejino/react-ui' && sourceLayer?.kind !== 'shared') {
         violations.push({
           line: reference.line,
-          reason: 'bits-ui must be accessed through shared/ui primitives',
+          reason: '@baejino/react-ui must be accessed through shared/ui primitives',
           source: relativePath(repositoryRoot, sourcePath),
           specifier: reference.specifier,
           target: 'external package',

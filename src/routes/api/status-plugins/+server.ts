@@ -1,10 +1,10 @@
-import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import {
   readStatusPluginStore,
   replaceStatusPlugins,
 } from '~/lib/features/status/server/status-plugin-store.server.ts';
-import { isStatusPluginList, STATUS_PLUGIN_PRESETS } from '~/lib/shared/contracts/status-plugin';
+import { isStatusPluginList, STATUS_PLUGIN_PRESETS } from '~/lib/shared/contracts/status-plugin.ts';
 
 export const GET: RequestHandler = async (event) => {
   requireAuthentication(event);

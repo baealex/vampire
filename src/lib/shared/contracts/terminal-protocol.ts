@@ -11,6 +11,7 @@ export type TerminalSubmissionResult =
 
 export type TerminalClientMessage =
   | { type: 'activate' }
+  | { type: 'refresh-screen' }
   | { type: 'snapshot-ready'; snapshotId?: number }
   | { type: 'load-history'; lines: number }
   | { type: 'input'; data: string }
@@ -43,7 +44,8 @@ export const TERMINAL_GEOMETRY_PROTOCOL_VERSION = 2;
 export const TERMINAL_SNAPSHOT_ID_PROTOCOL_VERSION = 4;
 export const TERMINAL_OUTPUT_SEQUENCE_PROTOCOL_VERSION = 5;
 export const TERMINAL_SUBMISSION_RESULT_PROTOCOL_VERSION = 6;
-export const TERMINAL_PROTOCOL_VERSION = 6;
+export const TERMINAL_SCREEN_REFRESH_PROTOCOL_VERSION = 7;
+export const TERMINAL_PROTOCOL_VERSION = 7;
 export const TERMINAL_INPUT_LIMIT_BYTES = 64 * 1024;
 export const TERMINAL_CLIENT_MESSAGE_LIMIT_BYTES = 72 * 1024;
 
@@ -91,6 +93,7 @@ export function isTerminalSubmissionRequestId(value: unknown): value is string {
 export function parseTerminalClientMessage(value: unknown): TerminalClientMessage | undefined {
   if (!isRecord(value)) return undefined;
   if (value.type === 'activate') return { type: value.type };
+  if (value.type === 'refresh-screen') return { type: value.type };
   if (
     value.type === 'snapshot-ready' &&
     (value.snapshotId === undefined || isIntegerBetween(value.snapshotId, 1, Number.MAX_SAFE_INTEGER))

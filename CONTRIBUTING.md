@@ -62,19 +62,19 @@ See [docs/STATE_STORAGE.md](docs/STATE_STORAGE.md) for state ownership, forward-
 
 ## Project layout
 
-Vampire uses a SvelteKit-first domain layout rather than strict Feature-Sliced Design. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding or moving modules; it defines the placement decision tree, server-only rules, dependency direction, and allowed exceptions.
+Vampire uses a React + Fastify domain layout rather than strict Feature-Sliced Design. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding or moving modules; it defines the placement decision tree, server-only rules, dependency direction, and allowed exceptions.
 
-- `src/routes` contains SvelteKit page and API route entrypoints.
-- `src/lib/app` contains application composition and bootstrap state.
-- `src/lib/server` contains domain-independent Node-only configuration, authentication support, path policy, and persistence helpers. SvelteKit enforces this directory as server-only.
-- `src/lib/features/<feature>` contains feature-owned code. Keep Svelte components and browser-facing UI behavior in `ui`, external calls and client adapters in `api`, feature state and transformations in `model`, and Node-only implementation in `server`. Production modules in feature `server` directories use the `*.server.ts` suffix so SvelteKit enforces the boundary.
-- `src/lib/shared` contains domain-independent API helpers, contracts, theme, UI primitives, and utility code shared by features.
-- `src/lib/app/server` contains the custom Node runtime entrypoints, also named `*.server.ts`; feature server behavior stays with its owning feature.
+- `packages/client/src` contains React application composition, feature UI, browser state, shared UI primitives, and browser API helpers.
+- `src/routes` contains runtime-neutral REST adapters imported by Fastify through an explicit manifest.
+- `src/lib/server` contains domain-independent Node-only configuration, authentication support, path policy, and persistence helpers.
+- `src/lib/features/<feature>` contains feature-owned runtime-neutral APIs/models and Node-only server behavior. Production modules in feature `server` directories use the `*.server.ts` suffix.
+- `src/lib/shared` contains runtime-neutral contracts, theme tokens, and utilities shared across runtimes.
+- `src/lib/app/server` contains Fastify composition and cross-domain Node orchestration, also named `*.server.ts`; feature server behavior stays with its owning feature.
 - `src/lib` imports use the `~/lib/...` alias; same-feature leaf components may use relative imports.
-- The dependency direction is `app → features → shared`; `shared` must not depend on a feature, and SvelteKit routes should remain thin adapters.
+- The dependency direction is `app → features → shared`; `shared` must not depend on a feature, and REST adapters should remain thin.
 - `tools` contains development, build, release, and package smoke-test scripts; `bin` contains the npm executable entrypoint.
 - Tests live beside the code they own; repository-level checks stay in `tools`, while `e2e` contains browser-server fixtures and Playwright tests.
-- Source tests use `.test.ts`, Svelte component tests use `.component.test.ts`, and `.spec.ts` is reserved for Playwright E2E.
+- Source tests use `.test.ts` or `.test.tsx`, retained framework-neutral component tests use `.component.test.ts`, and `.spec.ts` is reserved for Playwright E2E.
 - `static` and `docs` contain shipped static assets and contributor-facing documentation.
 
 Run the local verification before squashing a working branch into main:

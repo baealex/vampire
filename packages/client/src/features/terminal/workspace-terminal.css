@@ -1,0 +1,260 @@
+.workspace-terminal-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-terminal-layout.repository-open {
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 38%);
+}
+.terminal-sheet {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-terminal-background);
+  color: var(--color-terminal-foreground);
+}
+.terminal-topbar {
+  position: relative;
+  z-index: 7;
+  min-width: 0;
+}
+.terminal-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: max(0.65rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0.65rem
+    max(0.75rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel);
+}
+.terminal-header .back-button {
+  width: var(--control-size-icon);
+  min-width: var(--control-size-icon);
+  height: var(--control-size-icon);
+  min-height: var(--control-size-icon);
+  border: 1px solid var(--color-border);
+  border-radius: 0.55rem;
+  background: var(--color-control-background);
+  color: var(--color-text);
+}
+.terminal-identity {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 0.34rem;
+}
+.terminal-identity-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.terminal-identity-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-identity > span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: var(--leading-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  line-height: 1.25;
+}
+.branch-label > span {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.working-copy-missing {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.3rem;
+  border: 1px solid var(--color-warning-accent);
+  border-radius: var(--radius-pill);
+  color: var(--color-warning-accent);
+  font-size: var(--text-nano);
+  line-height: 1.25;
+}
+.terminal-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: max-content;
+}
+.terminal-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.terminal-tools .note-button,
+.terminal-tools .background-button,
+.terminal-tools .repository-button {
+  position: relative;
+  width: 2.35rem;
+  min-width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-text-tertiary);
+}
+.terminal-tools .note-button:focus-visible,
+.terminal-tools .background-button:focus-visible,
+.terminal-tools .repository-button:focus-visible,
+.terminal-tools .vampire-toolbar-button--active {
+  border-color: var(--color-border-strong);
+  background: transparent;
+  color: var(--color-text);
+}
+.terminal-tools .background-button > span,
+.terminal-tools .repository-button > span {
+  position: absolute;
+  z-index: 1;
+  top: -0.18rem;
+  right: -0.28rem;
+  display: grid;
+  place-items: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.24rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-panel);
+  color: var(--color-accent-ink);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.terminal-tools .note-button.has-note {
+  color: var(--color-command);
+}
+.terminal-tools .note-button.has-note::after {
+  position: absolute;
+  top: 0.38rem;
+  right: 0.38rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  content: "";
+}
+@media (hover: hover) {
+  .terminal-header .back-button:hover {
+    background: var(--color-surface-hover);
+  }
+  .terminal-tools .note-button:hover,
+  .terminal-tools .background-button:hover,
+  .terminal-tools .repository-button:hover {
+    border-color: var(--color-border-strong);
+    background: transparent;
+    color: var(--color-text);
+  }
+}
+.main-workspace-terminal {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (max-height: 360px) {
+  .status-plugin-bar {
+    display: none;
+  }
+  .terminal-header {
+    padding-block: max(0.15rem, env(safe-area-inset-top)) 0.15rem;
+  }
+  .main-workspace-terminal .xterm {
+    padding-block: 4px;
+  }
+}
+@media (min-width: 64rem) {
+  .terminal-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-block: 0.8rem;
+  }
+  .terminal-header .back-button {
+    display: none;
+  }
+  .terminal-identity {
+    justify-items: start;
+  }
+}
+@media (max-width: 63.999rem) {
+  .terminal-header {
+    gap: 0.5rem;
+  }
+  .terminal-identity {
+    justify-items: start;
+  }
+  .terminal-identity > span {
+    display: none;
+  }
+  .workspace-terminal-layout.repository-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-terminal-layout.repository-open > .terminal-sheet {
+    display: none;
+  }
+}
+@media (max-width: 32rem) {
+  .terminal-header {
+    grid-template-columns: var(--control-size-icon) minmax(0, 1fr) auto;
+    gap: 0.35rem;
+    padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right));
+  }
+  .terminal-identity-title {
+    gap: 0.3rem;
+  }
+  .branch-label {
+    display: none;
+  }
+  .terminal-controls,
+  .terminal-tools {
+    gap: 0;
+  }
+  .terminal-tools .note-button,
+  .terminal-tools .background-button,
+  .terminal-tools .repository-button {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+  }
+}
+@media (max-width: 22rem) {
+  .terminal-identity-title strong,
+  .working-copy-missing {
+    display: none;
+  }
+}

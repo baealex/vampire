@@ -3,14 +3,10 @@ import { join } from 'node:path';
 
 const binSuffix = process.platform === 'win32' ? '.cmd' : '';
 const bin = (name: string) => join(process.cwd(), 'node_modules', '.bin', `${name}${binSuffix}`);
-const environment = {
-  ...process.env,
-  VAMPIRE_SVELTEKIT_OUT_DIR: '.svelte-kit-check',
-};
 
 function run(command: string, args: string[]): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { env: environment, stdio: 'inherit' });
+    const child = spawn(command, args, { env: process.env, stdio: 'inherit' });
     child.once('error', () => resolve(1));
     child.once('exit', (code) => resolve(code ?? 1));
   });
@@ -19,10 +15,9 @@ function run(command: string, args: string[]): Promise<number> {
 const checks: Array<[string, string[]]> = [
   [process.execPath, ['tools/check-architecture.ts']],
   [process.execPath, ['tools/check-design-system.ts']],
-  ['svelte-kit', ['sync']],
-  ['svelte-check', ['--tsconfig', './tsconfig.check.json']],
   ['tsc', ['--project', 'tsconfig.node.json']],
   ['tsc', ['--project', 'tsconfig.test.json']],
+  [process.execPath, ['node_modules/typescript/bin/tsc', '--project', 'packages/client/tsconfig.json']],
 ];
 
 for (const [command, args] of checks) {

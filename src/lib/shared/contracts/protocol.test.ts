@@ -52,6 +52,9 @@ test('round-trips valid terminal client messages and rejects invalid sizes', () 
   assert.deepEqual(decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'activate' })), {
     type: 'activate',
   });
+  assert.deepEqual(decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'refresh-screen' })), {
+    type: 'refresh-screen',
+  });
   assert.deepEqual(decodeTerminalClientMessage(encodeTerminalClientMessage({ type: 'input', data: 'hello\n' })), {
     type: 'input',
     data: 'hello\n',

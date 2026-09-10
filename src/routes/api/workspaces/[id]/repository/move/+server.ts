@@ -1,8 +1,8 @@
-import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { moveWorkspaceEntry, RepositoryReadError } from '~/lib/features/repository/server/repository.server.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
-import type { WorkspaceEntryKind, WorkspaceMoveConflict } from '~/lib/shared/contracts/repository';
+import type { WorkspaceEntryKind, WorkspaceMoveConflict } from '~/lib/shared/contracts/repository.ts';
 
 function repositoryErrorStatus(reason: string): number {
   if (reason === 'conflict') return 409;

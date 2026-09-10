@@ -18,14 +18,17 @@ test('the architecture checker rejects upward and peer dependencies', async () =
     await mkdir(join(root, 'src/lib/app'), { recursive: true });
     await writeFile(
       join(root, 'src/lib/shared/index.ts'),
-      "import Terminal from '~/lib/features/terminal/ui/Terminal.svelte';\n"
+      "import Terminal from '~/lib/features/terminal/ui/Terminal.tsx';\n"
     );
     await writeFile(
       join(root, 'src/lib/features/terminal/ui/Terminal.ts'),
-      "import Workspace from '~/lib/features/workspace/ui/Workspace.svelte';\n"
+      "import Workspace from '~/lib/features/workspace/ui/Workspace.tsx';\n"
     );
-    await writeFile(join(root, 'src/lib/features/workspace/ui/Workspace.svelte'), '<div />\n');
-    await writeFile(join(root, 'src/lib/features/terminal/ui/Terminal.svelte'), '<div />\n');
+    await writeFile(
+      join(root, 'src/lib/features/workspace/ui/Workspace.tsx'),
+      'export default function Workspace() {}\n'
+    );
+    await writeFile(join(root, 'src/lib/features/terminal/ui/Terminal.tsx'), 'export default function Terminal() {}\n');
     await writeFile(join(root, 'src/lib/app/index.ts'), '<div />\n');
 
     const violations = await findArchitectureViolations(root);
@@ -54,8 +57,8 @@ test('the architecture checker rejects server-only imports from browser-capable 
       'export interface ServerTerminal { id: string }\n'
     );
     await writeFile(
-      join(root, 'src/lib/features/terminal/ui/Terminal.svelte'),
-      "<script>import { terminal } from '../server/terminal.server.ts';</script>\n"
+      join(root, 'src/lib/features/terminal/ui/Terminal.tsx'),
+      "import { terminal } from '../server/terminal.server.ts';\nexport default terminal;\n"
     );
     await writeFile(
       join(root, 'src/routes/+page.ts'),
@@ -69,7 +72,7 @@ test('the architecture checker rejects server-only imports from browser-capable 
     const violations = await findArchitectureViolations(root);
     assert.equal(violations.length, 3);
     assert.ok(violations.every(({ reason }) => reason.includes('server-only')));
-    assert.ok(violations.some(({ source }) => source.endsWith('/ui/Terminal.svelte')));
+    assert.ok(violations.some(({ source }) => source.endsWith('/ui/Terminal.tsx')));
     assert.ok(violations.some(({ source }) => source === 'src/routes/+page.ts'));
   } finally {
     await rm(root, { recursive: true, force: true });

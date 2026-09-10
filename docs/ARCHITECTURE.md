@@ -1,127 +1,106 @@
 # Architecture
 
-Vampire uses a SvelteKit-first, domain-oriented module layout. It borrows dependency direction and ownership ideas from Feature-Sliced Design, but it is not a strict FSD implementation.
+Vampire is a React + Vite client served by a Fastify application. It uses a small pnpm workspace, follows Ocean Brain's client/server package split where that split improves runtime clarity, and keeps Vampire's existing domain-oriented modules rather than copying unrelated GraphQL or persistence choices.
 
 When two conventions compete, use this priority:
 
-1. Preserve SvelteKit's browser/server boundary.
+1. Preserve the browser/server runtime boundary.
 2. Keep behavior with the domain that owns it.
 3. Preserve the `app → features → shared` dependency direction.
-4. Prefer the simplest placement over directory symmetry.
+4. Keep HTTP and realtime adapters thin.
+5. Prefer the simplest placement over directory symmetry.
 
-Do not add FSD layers such as `pages` or `entities`, public barrel files, or matching folders in every feature only to make the tree look uniform.
+Do not introduce GraphQL, Prisma, or a second server process only to mirror Ocean Brain. Vampire's existing REST contract and filesystem/tmux domain services remain the appropriate fit.
 
 ## Module map
 
 ```text
+packages/client/                    Browser application
+├── index.html
+└── src/
+    ├── app/                        React composition, routing, connection state
+    ├── features/<domain>/          Domain-owned React UI and browser state
+    └── shared/                     Browser-neutral UI primitives, API helpers, theme
+
 src/
-├── routes/                       SvelteKit pages and HTTP entrypoints
+├── routes/                         Runtime-neutral REST adapter modules
 └── lib/
-    ├── app/                      Application composition and runtime bootstrap
-    │   ├── model/
-    │   ├── server/*.server.ts
-    │   └── ui/
-    ├── features/<domain>/        Domain-owned vertical modules
-    │   ├── api/
-    │   ├── model/
-    │   ├── server/*.server.ts
-    │   └── ui/
-    ├── server/                   Cross-domain Node-only infrastructure
-    ├── shared/                   Runtime-neutral primitives and contracts
-    │   ├── api/
-    │   ├── contracts/
-    │   ├── lib/
-    │   ├── theme/
-    │   └── ui/
-    └── widgets/                  Page-sized composition of features
+    ├── app/server/*.server.ts      Fastify composition and cross-domain orchestration
+    ├── features/<domain>/
+    │   ├── api/                    Runtime-neutral browser/server clients
+    │   ├── model/                  Runtime-neutral domain transformations
+    │   └── server/*.server.ts      Domain-owned Node behavior
+    ├── server/                     Cross-domain Node-only infrastructure
+    └── shared/                     Runtime-neutral contracts, utilities, and tokens
 ```
 
-Folders are created when a domain needs them. A feature does not need empty `api`, `model`, `server`, or `ui` directories.
+Folders are created only when a domain needs them. Ownership matters more than reuse count.
+
+## Runtime boundaries
+
+The production deployment is one Fastify process and one browser origin:
+
+- Vite builds `packages/client` into `build/client`.
+- esbuild bundles the Fastify entry into `build/vampire-server.js`.
+- Fastify serves REST routes, event streams, terminal WebSockets, and the client SPA.
+- Development runs Fastify and Vite together; Vite proxies `/api`, `/events`, and `/ws`.
+
+Browser modules live in `packages/client/src`. They may import runtime-neutral modules from `src/lib`, but never a `*.server.*` module or `src/lib/server`.
+
+Node-only production modules under `src/lib/app/server` and `src/lib/features/*/server` must use a `*.server.ts`-style suffix. Colocated test files are the exception.
 
 ## Placement decision
 
 | Question | Placement |
 | --- | --- |
-| Is it a SvelteKit page, page load, or HTTP endpoint? | `src/routes` |
+| Does it compose Fastify, realtime transports, or multiple server domains? | `src/lib/app/server/*.server.ts` |
 | Is it Node-only infrastructure shared by multiple domains? | `src/lib/server` |
 | Is it Node-only behavior owned by one domain? | `src/lib/features/<domain>/server/*.server.ts` |
-| Does it assemble runtimes, WebSockets, or multiple features? | `src/lib/app/server/*.server.ts` |
-| Is it browser state or a domain transformation? | The owning feature's `model` |
-| Is it a domain-owned component? | The owning feature's `ui` |
-| Is it a domain-independent UI primitive or utility? | `src/lib/shared/ui` or `src/lib/shared/lib` |
-| Is it a runtime-neutral wire format or validation contract? | `src/lib/shared/contracts` |
-| Does it compose several features into a screen region? | `src/lib/widgets` or `src/lib/app` |
+| Is it an HTTP compatibility adapter? | `src/routes/**/+server.ts` and the Fastify route manifest |
+| Is it browser state or domain UI? | `packages/client/src/features/<domain>` |
+| Does it compose the whole browser application? | `packages/client/src/app` |
+| Is it a reusable browser primitive? | `packages/client/src/shared` |
+| Is it a runtime-neutral wire format or transformation? | `src/lib/shared` or the owning `src/lib/features/<domain>` module |
 
-Ownership matters more than reuse count. Code used by two places does not automatically belong in `shared`; move it only when it is genuinely domain-independent.
-
-## Server boundary
-
-The server boundary is a security and bundling property, not just a folder name.
-
-- `src/lib/server/**` is protected by SvelteKit's `$lib/server` rule.
-- Production files under `src/lib/app/server` and `src/lib/features/*/server` must use a `*.server.ts`-style filename.
-- Colocated `*.test.ts` and `*.component.test.ts` files are test-only exceptions to the filename rule.
-- Browser-capable modules must not import server-only modules, including through type-only imports. Put shared types in a runtime-neutral contract module instead.
-- `+server.*`, `+page.server.*`, `+layout.server.*`, and `hooks.server.*` may import server-only modules.
-- `.svelte`, `+page.ts`, `+layout.ts`, feature `ui`, feature `model`, feature `api`, `widgets`, and `shared` are treated as browser-capable unless SvelteKit marks the file server-only.
-
-Do not create an unsuffixed production file such as `features/terminal/server/process.ts`. The directory name alone does not make it server-only to SvelteKit.
+The `+server.ts` filenames are retained as stable REST adapters during and after the framework migration. Fastify imports them through an explicit manifest; they are not SvelteKit routes and must not depend on SvelteKit.
 
 ## Dependency direction
 
-The intended direction is:
-
 ```text
-routes/app → widgets/features → shared
-              app server → lib/server
-          feature server → lib/server
+client app → client features → client shared
+     │              │
+     └──────→ runtime-neutral contracts/models
+
+Fastify app → feature servers → shared/server infrastructure
+     │
+     └──────→ REST route adapters
 ```
 
-- `shared` does not import `features`, `widgets`, or `app`.
-- A feature does not import a peer feature, `widgets`, or `app`.
-- A widget does not import `app` or a peer widget.
-- Feature server code does not import feature UI.
-- `app` owns orchestration across multiple features.
+- Shared code does not import features or app code.
+- A feature does not import a peer feature or app code.
+- Cross-feature behavior is orchestrated by app code or expressed through a genuinely neutral contract.
+- `@baejino/react-ui` is wrapped by `packages/client/src/shared/ui`; feature and app code consume those local primitives.
+- Routes authenticate, validate, delegate, and translate responses. Persistence, tmux, Git, and process behavior remain in domain server modules.
 
-When two features need to collaborate, prefer one of these approaches:
+## Realtime transport
 
-1. Let `app` orchestrate both features.
-2. Extract only a genuinely neutral data contract or utility into `shared`.
-3. Re-evaluate domain ownership if the behavior actually belongs to one feature.
+Vampire deliberately uses both transports:
 
-Do not move domain behavior into `shared` merely to bypass the peer-feature rule.
+- `GET /events/workspaces` uses Server-Sent Events for server-to-browser workspace snapshots and updates. Reconnection and event ordering are handled by the browser connection store.
+- `/ws/terminal` uses WebSocket because terminal input, output, resize, acknowledgement, and recovery are bidirectional and latency-sensitive.
 
-## Routes and contracts
-
-Routes are adapters. They should authenticate, parse and validate request data, call an owning server module, and translate its result into an HTTP response. Persistent state, process management, Git behavior, and other domain logic stay outside route files.
-
-Contract modules must be safe to import in browser and server builds. They may define types, constants, parsers, validators, and inert command text, but must not read environment variables, access the filesystem, start processes, or perform work at module import time.
-
-## Examples
-
-```ts
-// Allowed: an HTTP endpoint delegates to its owning server module.
-import { readRepositorySnapshot } from '~/lib/features/repository/server/repository.server.ts';
-
-// Allowed: feature UI imports a runtime-neutral contract.
-import type { RepositorySnapshot } from '~/lib/shared/contracts/repository.ts';
-
-// Rejected: browser-capable UI imports a server implementation.
-import { readRepositorySnapshot } from '../server/repository.server.ts';
-
-// Rejected: a production server file lacks a protected suffix.
-// src/lib/features/repository/server/repository.ts
-```
+Do not move workspace state back to WebSocket unless the client needs bidirectional messages on that same channel. Do not move terminal traffic to SSE because client-to-server terminal messages would require a second transport and weaken delivery semantics.
 
 ## Change checklist
 
 Before adding or moving a module:
 
-1. Identify the runtime: browser-capable, server-only, or runtime-neutral.
+1. Identify the runtime: browser, Node-only, or runtime-neutral.
 2. Identify the owning domain before considering reuse.
-3. Use `$lib/server` or `*.server.*` for every server-only production module.
-4. Keep routes and application composition thin.
-5. Add an architecture fixture when introducing a new allowed exception.
-6. Run `pnpm check:architecture`, then the relevant tests and `pnpm check`.
+3. Keep React application code in `packages/client/src`.
+4. Use `*.server.*` for Node-only production modules in app/feature server directories.
+5. Keep REST and realtime entrypoints thin.
+6. Add an architecture fixture for every new allowed exception.
+7. Run `pnpm check:architecture`, then the relevant tests and `pnpm check`.
 
-An architecture exception should be documented here and encoded in `tools/architecture.ts`; a comment or folder name alone is not an enforceable boundary.
+An architecture exception must be documented here and encoded in `tools/architecture.ts`; a comment or folder name alone is not enforceable.

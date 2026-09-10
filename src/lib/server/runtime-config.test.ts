@@ -197,6 +197,7 @@ test('formats usable wildcard and IPv6 listening URLs', () => {
 
 test('development stays local unless network access is explicitly enabled', () => {
   assert.equal(developmentRuntimeConfig(['--', '--use-existing-state'], {}).host, '127.0.0.1');
+  assert.equal(developmentRuntimeConfig(['--allow-status-widgets'], {}).host, '127.0.0.1');
   assert.throws(
     () =>
       developmentRuntimeConfig(['--use-existing-state'], {

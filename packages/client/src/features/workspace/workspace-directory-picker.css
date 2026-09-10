@@ -1,0 +1,102 @@
+.directory-picker {
+  display: grid;
+  gap: 1rem;
+  min-width: min(42rem, 80vw);
+}
+.directory-picker form {
+  display: grid;
+  gap: 0.6rem;
+}
+.directory-picker form label {
+  display: grid;
+  gap: 0.2rem;
+  font-weight: var(--weight-medium);
+}
+.directory-picker form label span,
+.directory-picker section header p,
+.directory-current small,
+.directory-list small,
+.directory-picker section > p {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.directory-picker form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+.directory-picker form > p {
+  color: var(--color-danger);
+}
+.directory-picker section {
+  display: grid;
+  gap: 0.65rem;
+}
+.directory-picker section h3,
+.directory-picker section p {
+  margin: 0;
+}
+.directory-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem;
+}
+.directory-current {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+.directory-current span,
+.directory-list span {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+.directory-current small,
+.directory-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.directory-list {
+  display: grid;
+  max-height: 35dvh;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.directory-list > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+.hidden-toggle {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+}
+.directory-list button:hover {
+  background: var(--color-surface-hover);
+}
+@media (max-width: 48rem) {
+  .directory-picker {
+    min-width: 0;
+  }
+}
+@media (max-width: 32rem) {
+  .directory-list {
+    max-height: none;
+    overflow: visible;
+  }
+}

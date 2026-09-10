@@ -1,96 +1,63 @@
-import { createServer, type IncomingMessage } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { pathToFileURL } from 'node:url';
-import {
-  configureAdapterRequestOrigin,
-  listeningUrl,
-  requestHostAllowed,
-  runtimeConfig,
-} from '~/lib/server/runtime-config.ts';
+import { configureAdapterRequestOrigin, listeningUrl, runtimeConfig } from '~/lib/server/runtime-config.ts';
 import { initializeAuthentication } from '~/lib/server/token-authentication.ts';
 import { runStateMigrations } from '~/lib/server/state-migrations.ts';
 import { rejectWebSocketUpgrade, webSocketRequestUrl } from '~/lib/server/websocket-support.ts';
-import { resolveAdapterHandlerPath } from './adapter-handler-path.server.ts';
+import { createFastifyApp } from './fastify-app.server.ts';
 import { installTerminalWebSocket } from './terminal-websocket.server.ts';
-import { installWorkspaceWebSocket } from './workspace-websocket.server.ts';
 import { installWorkspaceAutomationRunner } from './workspace-automation-runner.server.ts';
-
-// Image uploads allow files up to 10 MB; the adapter otherwise defaults to 512 KB.
-if (!process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT?.trim()) {
-  process.env.VAMPIRE_ADAPTER_BODY_SIZE_LIMIT = '11M';
-}
 
 const config = runtimeConfig();
 const stateMigration = await runStateMigrations({ stateDirectory: config.stateDirectory });
 await initializeAuthentication();
 const originPolicy = configureAdapterRequestOrigin(config);
-const injectedProtocolHeader = originPolicy.injectedProtocolHeader;
-const adapterOutputDirectory = process.env.VAMPIRE_BUILD_DIR?.trim() || 'build';
-const handlerPath = resolveAdapterHandlerPath(import.meta.dirname, adapterOutputDirectory);
-const handlerUrl = pathToFileURL(handlerPath);
-const { handler } = await import(handlerUrl.href);
-const server = createServer((request, response) => {
-  if (!requestHostAllowed(request.headers)) {
-    response.writeHead(421, { 'content-type': 'text/plain; charset=utf-8', connection: 'close' });
-    response.end('Misdirected Request');
-    return;
-  }
-  if (injectedProtocolHeader) request.headers[injectedProtocolHeader] = 'http';
-  void handler(request, response);
+
+const clientDirectory = process.env.VAMPIRE_CLIENT_DIR?.trim() || resolve(import.meta.dirname, 'client');
+const app = createFastifyApp({
+  clientDirectory,
+  injectedProtocolHeader: originPolicy.injectedProtocolHeader,
 });
-if (injectedProtocolHeader) {
-  server.on('upgrade', (request) => {
-    request.headers[injectedProtocolHeader] = 'http';
+if (originPolicy.injectedProtocolHeader) {
+  app.server.on('upgrade', (request) => {
+    request.headers[originPolicy.injectedProtocolHeader!] = 'http';
   });
 }
+const closeTerminalSockets = installTerminalWebSocket(app.server);
+const rejectUnsupportedUpgrade = (request: IncomingMessage, socket: Duplex) => {
+  const url = webSocketRequestUrl(request);
+  if (!url) {
+    rejectWebSocketUpgrade(socket, 400, 'Bad Request');
+    return;
+  }
+  if (url.pathname === '/ws/terminal') return;
+  rejectWebSocketUpgrade(socket, 404, 'Not Found');
+};
+app.server.on('upgrade', rejectUnsupportedUpgrade);
 
-await new Promise<void>((resolve, reject) => {
-  const handleError = (error: Error) => reject(error);
-  server.once('error', handleError);
-  server.listen(config.port, config.host, () => {
-    server.off('error', handleError);
-    resolve();
-  });
-});
-
-let closeTerminalSockets: () => void = () => undefined;
-let closeWorkspaceSockets: () => void = () => undefined;
-let closeUnsupportedUpgradeRejection: () => void = () => undefined;
 let closeAutomationRunner: () => void = () => undefined;
 try {
-  closeTerminalSockets = installTerminalWebSocket(server);
-  closeWorkspaceSockets = installWorkspaceWebSocket(server);
-  const rejectUnsupportedUpgrade = (request: IncomingMessage, socket: Duplex) => {
-    const url = webSocketRequestUrl(request);
-    if (!url) {
-      rejectWebSocketUpgrade(socket, 400, 'Bad Request');
-      return;
-    }
-    if (url.pathname === '/ws/terminal' || url.pathname === '/ws/workspace') return;
-    rejectWebSocketUpgrade(socket, 404, 'Not Found');
-  };
-  server.on('upgrade', rejectUnsupportedUpgrade);
-  closeUnsupportedUpgradeRejection = () => server.off('upgrade', rejectUnsupportedUpgrade);
   closeAutomationRunner = await installWorkspaceAutomationRunner();
+  await app.listen({ host: config.host, port: config.port });
 } catch (error) {
-  closeUnsupportedUpgradeRejection();
+  app.server.off('upgrade', rejectUnsupportedUpgrade);
   closeTerminalSockets();
-  closeWorkspaceSockets();
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  closeAutomationRunner();
+  await app.close();
   throw error;
 }
 
 console.log(`Vampire listening at ${config.publicOrigin ?? listeningUrl(config)}`);
-if (config.host === '0.0.0.0' || config.host === '::') {
+if (config.host === '0.0.0.0' || config.host === '::')
   console.log(`Bound to all interfaces (${config.host}:${config.port}).`);
-}
-if (config.tokenConfigured) {
-  console.log('TOKEN authentication is enabled.');
-} else if (config.externalAccess) {
-  console.log('Warning: external access is running without TOKEN authentication.');
-} else {
-  console.log('Local access does not require TOKEN authentication.');
-}
+console.log(
+  config.tokenConfigured
+    ? 'TOKEN authentication is enabled.'
+    : config.externalAccess
+      ? 'Warning: external access is running without TOKEN authentication.'
+      : 'Local access does not require TOKEN authentication.'
+);
 console.log(`Workspace roots: ${config.workspaceRoots.join(', ')}`);
 console.log(`State directory: ${config.stateDirectory}`);
 console.log(`State layout version: ${stateMigration.layoutVersion}`);
@@ -100,19 +67,22 @@ const shutdown = () => {
   if (closing) return;
   closing = true;
   closeAutomationRunner();
-  closeUnsupportedUpgradeRejection();
+  app.server.off('upgrade', rejectUnsupportedUpgrade);
   closeTerminalSockets();
-  closeWorkspaceSockets();
-  const forceCloseTimer = setTimeout(() => server.closeAllConnections(), 5_000);
+  const forceCloseTimer = setTimeout(() => app.server.closeAllConnections(), 5_000);
   forceCloseTimer.unref();
-  server.close((error) => {
-    clearTimeout(forceCloseTimer);
-    if (error) {
+  void app.close().then(
+    () => {
+      clearTimeout(forceCloseTimer);
+      process.exit();
+    },
+    (error) => {
+      clearTimeout(forceCloseTimer);
       console.error(error);
       process.exitCode = 1;
+      process.exit();
     }
-    process.exit();
-  });
+  );
 };
 
 process.once('SIGINT', shutdown);

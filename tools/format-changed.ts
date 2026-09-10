@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const write = process.argv.includes('--write');
-const supportedFile = /\.(?:css|gql|graphql|html|js|jsx|json|jsonc|svelte|ts|tsx)$/;
+const supportedFile = /\.(?:css|gql|graphql|html|js|jsx|json|jsonc|ts|tsx)$/;
 
 function gitFiles(args: string[]): string[] {
   return execFileSync('git', args, { encoding: 'utf8' })

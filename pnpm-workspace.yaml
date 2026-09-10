@@ -1,3 +1,2 @@
-# SvelteKit still requests cookie 0.6; 0.7 adds validation for serialized cookie attributes.
-overrides:
-  '@sveltejs/kit>cookie': 0.7.2
+packages:
+  - packages/*

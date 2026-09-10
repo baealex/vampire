@@ -96,6 +96,7 @@ export class TerminalRuntime {
     ''
   );
   #connectionAttempt = 0;
+  #controlRefreshPending = false;
   #connection: TerminalConnection | undefined;
   #destroyed = false;
   #fit: FitAddon | undefined;
@@ -123,6 +124,7 @@ export class TerminalRuntime {
   #requestedSize: TerminalSize | undefined;
   #resizeFrame: number | undefined;
   #resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  #screenRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   #outputFrame: number | undefined;
   #outputSequence = new TerminalOutputSequence();
   #activeTerminalWrite: ActiveTerminalWrite | undefined;
@@ -203,7 +205,9 @@ export class TerminalRuntime {
   }
 
   claimControl(): void {
-    this.#sendSize();
+    const preferred = this.#requestedSize;
+    if (preferred) this.#connection?.send({ type: 'resize', ...preferred });
+    else this.#sendSize();
     this.#connection?.send({ type: 'activate' });
   }
 
@@ -310,6 +314,7 @@ export class TerminalRuntime {
     this.#cancelScheduledResize();
     this.#cancelScheduledOutput();
     if (this.#openingDelay) clearTimeout(this.#openingDelay);
+    if (this.#screenRefreshTimer) clearTimeout(this.#screenRefreshTimer);
     this.#setOutputActive(false);
     this.#resizeObserver?.disconnect();
     this.#inputDisposable?.dispose();
@@ -431,8 +436,14 @@ export class TerminalRuntime {
           if (this.#destroyed) return;
           if (message.type === 'geometry') {
             this.#geometryConnectionId = context.id;
+            const controlChanged =
+              this.#state.controlsTerminal !== undefined &&
+              message.active !== undefined &&
+              this.#state.controlsTerminal !== message.active;
             if (message.active !== undefined) this.#updateState({ controlsTerminal: message.active });
             this.#applyGeometry({ columns: message.columns, rows: message.rows }, message.active);
+            if (controlChanged) this.#controlRefreshPending = true;
+            if (this.#controlRefreshPending) this.#scheduleControlRefresh();
           } else if (message.type === 'snapshot') {
             this.#outputSequence.establish(context.id, message.throughSequence);
             if (!this.#initialSnapshotReceived) {
@@ -805,6 +816,16 @@ export class TerminalRuntime {
     this.#updateControlSizeMismatch();
     if (!terminal || (terminal.cols === geometry.columns && terminal.rows === geometry.rows)) return;
     terminal.resize(geometry.columns, geometry.rows);
+  }
+
+  #scheduleControlRefresh(): void {
+    if (this.#screenRefreshTimer) clearTimeout(this.#screenRefreshTimer);
+    this.#screenRefreshTimer = setTimeout(() => {
+      this.#screenRefreshTimer = undefined;
+      if (this.#destroyed || !this.#controlRefreshPending) return;
+      this.#controlRefreshPending = false;
+      this.#connection?.send({ type: 'refresh-screen' });
+    }, 160);
   }
 
   #sendSize(): void {

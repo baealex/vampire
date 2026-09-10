@@ -1,0 +1,61 @@
+.unavailable-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-terminal-background);
+  color: var(--color-text);
+}
+.unavailable-workspace > header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 3rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel);
+}
+.unavailable-workspace > header code {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unavailable-workspace > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  width: min(100%, 32rem);
+  margin: auto;
+  padding: 2rem 1.25rem;
+}
+.unavailable-workspace > div > span {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.8rem;
+  color: var(--color-accent);
+}
+.unavailable-workspace h2 {
+  margin: 0.3rem 0 0;
+}
+.unavailable-workspace > div > p {
+  color: var(--color-text-secondary);
+}
+.unavailable-workspace > div > code {
+  width: 100%;
+  padding: 0.6rem;
+  overflow: auto;
+  background: var(--color-code-background);
+}
+.unavailable-workspace > div > div {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.unavailable-workspace .vampire-select {
+  width: auto;
+}

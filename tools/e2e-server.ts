@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { resolve } from 'node:path';
 
 const corepackCommand = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
 const environment = {
   ...process.env,
-  VAMPIRE_SVELTEKIT_OUT_DIR: '.svelte-kit-e2e',
   VAMPIRE_BUILD_DIR: 'build-e2e',
+  VAMPIRE_CLIENT_DIR: resolve(process.cwd(), 'build-e2e/client'),
   VAMPIRE_VITE_CACHE_DIR: 'node_modules/.vite-e2e',
 };
 

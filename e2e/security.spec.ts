@@ -34,6 +34,7 @@ test('security: every protected HTTP handler rejects requests without a session'
   }
   const status = await request.get('/api/status');
   expect(await status.json()).toEqual({ authenticationRequired: true, authenticated: false, tmux: null });
+  expect((await request.get('/events/workspaces')).status()).toBe(401);
 });
 
 test('security: hostile hosts, origins, and unauthenticated websocket upgrades are rejected', async ({ request }) => {
@@ -48,7 +49,7 @@ test('security: hostile hosts, origins, and unauthenticated websocket upgrades a
     data: { token: E2E_TOKEN },
   });
   expect(spoofedForwarding.status()).toBe(403);
-  for (const path of ['/ws/workspace', `/ws/terminal?workspace=${workspaceId}`]) {
+  for (const path of [`/ws/terminal?workspace=${workspaceId}`]) {
     for (const origin of [undefined, 'null', 'https://attacker.example', E2E_BASE_URL]) {
       const response = await request.get(path, {
         headers: {

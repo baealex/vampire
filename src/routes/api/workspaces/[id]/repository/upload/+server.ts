@@ -1,8 +1,8 @@
-import { error, json, type RequestHandler } from '@sveltejs/kit';
+import { error, json, type RequestHandler } from '~/lib/server/http-handler.server.ts';
 import { requireAuthentication } from '~/lib/features/auth/server/auth.server.ts';
 import { RepositoryReadError, uploadWorkspaceFile } from '~/lib/features/repository/server/repository.server.ts';
 import { findWorkspaceDirectory } from '~/lib/app/server/workspace-registry.server.ts';
-import type { WorkspaceUploadConflict } from '~/lib/shared/contracts/repository';
+import type { WorkspaceUploadConflict } from '~/lib/shared/contracts/repository.ts';
 
 const UPLOAD_CONFLICT_POLICIES = new Set<WorkspaceUploadConflict>(['reject', 'overwrite', 'rename']);
 

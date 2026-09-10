@@ -64,7 +64,7 @@ Widget 화면은 대상 선택과 Ask Agent를 비활성화하고 실행 중인 
 
 ## 검증과 리뷰
 
-- `pnpm check`: 아키텍처, 디자인 시스템, Svelte/TypeScript 진단 통과.
+- `pnpm check`: 아키텍처, 디자인 시스템, React/TypeScript 진단 통과.
 - `pnpm test:node`: 293개 통과.
 - `pnpm test:component`: 73개 통과.
 - `pnpm build`: 프로덕션 빌드 통과.

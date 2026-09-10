@@ -204,6 +204,7 @@ async function verifyLocalAccess(baseUrl: string): Promise<void> {
   if (!workspaces.ok) {
     throw new Error(`Packaged CLI rejected unauthenticated loopback access with status ${workspaces.status}.`);
   }
+  await expectStreamStatus(baseUrl, '/events/workspaces', 200);
 }
 
 async function verifyAuthentication(baseUrl: string, token?: string): Promise<void> {
@@ -213,10 +214,7 @@ async function verifyAuthentication(baseUrl: string, token?: string): Promise<vo
     throw new Error(`Packaged CLI accepted an unexpected Host header with status ${wrongHost.status}.`);
   }
 
-  await expectUpgradeStatus(baseUrl, '/ws/workspace', 401, {
-    Authorization: `Bearer ${token}`,
-    Origin: baseUrl,
-  });
+  await expectStreamStatus(baseUrl, '/events/workspaces', 401, { Authorization: `Bearer ${token}` });
   await expectUpgradeStatus(baseUrl, '/ws/unsupported', 404);
 
   const bearerOnly = await fetch(`${baseUrl}/api/workspaces`, {
@@ -248,6 +246,7 @@ async function verifyAuthentication(baseUrl: string, token?: string): Promise<vo
   if (!workspaces.ok) {
     throw new Error(`Packaged CLI did not accept its authentication cookie; status ${workspaces.status}.`);
   }
+  await expectStreamStatus(baseUrl, '/events/workspaces', 200, { Cookie: cookie });
 
   const logout = await fetch(`${baseUrl}/api/login`, { method: 'DELETE', headers: { cookie } });
   if (!logout.ok) throw new Error(`Packaged CLI could not revoke its authentication session; status ${logout.status}.`);
@@ -317,6 +316,29 @@ async function expectUpgradeStatus(
   });
 }
 
+async function expectStreamStatus(
+  baseUrl: string,
+  path: string,
+  expectedStatus: number,
+  headers: Record<string, string> = {}
+): Promise<void> {
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const request = requestHttp(
+      `${baseUrl}${path}`,
+      { headers: { Accept: 'text/event-stream', ...headers } },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        response.destroy();
+        if (status === expectedStatus) resolvePromise();
+        else rejectPromise(new Error(`Event stream ${path} returned ${status}; expected ${expectedStatus}.`));
+      }
+    );
+    request.setTimeout(3_000, () => request.destroy(new Error(`Event stream timed out: ${path}`)));
+    request.once('error', rejectPromise);
+    request.end();
+  });
+}
+
 async function verifyPublicOrigin(baseUrl: string, token?: string, publicOrigin?: string): Promise<void> {
   if (!token) throw new Error('A TOKEN is required for the reverse-proxy smoke test.');
   if (!publicOrigin) throw new Error('A public origin is required for the reverse-proxy smoke test.');
@@ -342,7 +364,7 @@ async function verifyPublicOrigin(baseUrl: string, token?: string, publicOrigin?
   }
   const setCookieHeader = login.headers['set-cookie'];
   const setCookie = (Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader]).find((value) =>
-    value?.startsWith('__Host-vampire_session=')
+    /^__Host-vampire_session=[^;]/u.test(value ?? '')
   );
   if (!setCookie || !/(?:^|;\s*)Secure(?:;|$)/i.test(setCookie)) {
     throw new Error('Packaged CLI did not mark its public HTTPS authentication cookie as Secure.');
@@ -356,9 +378,8 @@ async function verifyPublicOrigin(baseUrl: string, token?: string, publicOrigin?
     throw new Error(`Packaged CLI did not accept its public-origin session; status ${workspaces.status}.`);
   }
 
-  await expectUpgradeStatus(baseUrl, '/ws/workspace', 101, {
+  await expectStreamStatus(baseUrl, '/events/workspaces', 200, {
     Host: publicHost,
-    Origin: publicOrigin,
     Cookie: cookie,
   });
 }

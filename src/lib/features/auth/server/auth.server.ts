@@ -1,4 +1,4 @@
-import { error, type RequestEvent } from '@sveltejs/kit';
+import { error, type ServerRequestEvent } from '~/lib/server/http-handler.server.ts';
 import {
   authenticationSessionRequired,
   authorizeSession,
@@ -21,12 +21,12 @@ const MAX_LOGIN_BODY_BYTES = MAXIMUM_TOKEN_BYTES * 6 + 1_024;
 const LOGIN_BODY_TIMEOUT_MS = 5_000;
 const GLOBAL_LOGIN_KEY = 'account:shared-token';
 
-function authorizeEventSession(event: RequestEvent) {
+export function authorizeEventSession(event: ServerRequestEvent) {
   const secureSession = authorizeSession(event.cookies.get(SECURE_SESSION_COOKIE_NAME));
   return secureSession.authorized ? secureSession : authorizeSession(event.cookies.get(SESSION_COOKIE_NAME));
 }
 
-function loginClientKey(event: RequestEvent): string | undefined {
+function loginClientKey(event: ServerRequestEvent): string | undefined {
   if (configuredPublicOrigin() && !process.env.VAMPIRE_ADAPTER_ADDRESS_HEADER?.trim()) return undefined;
   try {
     return `client:${event.getClientAddress()}`;
@@ -95,15 +95,15 @@ export function authenticationRequired(): boolean {
   return authenticationSessionRequired();
 }
 
-export function isAuthenticated(event: RequestEvent): boolean {
+export function isAuthenticated(event: ServerRequestEvent): boolean {
   return authorizeEventSession(event).authorized;
 }
 
-export function requireAuthentication(event: RequestEvent): void {
+export function requireAuthentication(event: ServerRequestEvent): void {
   if (!isAuthenticated(event)) throw error(401, 'Unauthorized');
 }
 
-export async function authenticate(event: RequestEvent): Promise<void> {
+export async function authenticate(event: ServerRequestEvent): Promise<void> {
   const clientKey = loginClientKey(event);
   let retryAfter = loginRetryDelay(clientKey);
   if (retryAfter > 0) throw error(429, `Too many login attempts. Try again in ${retryAfter} seconds.`);
@@ -153,7 +153,7 @@ export async function authenticate(event: RequestEvent): Promise<void> {
   }
 }
 
-export function clearAuthentication(event: RequestEvent): void {
+export function clearAuthentication(event: ServerRequestEvent): void {
   revokeSession(event.cookies.get(SECURE_SESSION_COOKIE_NAME));
   revokeSession(event.cookies.get(SESSION_COOKIE_NAME));
   event.cookies.delete(SECURE_SESSION_COOKIE_NAME, {

@@ -1,0 +1,89 @@
+.ports-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+.ports-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.ports-toolbar span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.ports-status {
+  color: var(--color-success);
+}
+.ports-error {
+  color: var(--color-danger);
+}
+.ports-empty {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  color: var(--color-text-tertiary);
+}
+.ports-list {
+  display: grid;
+  max-height: min(30rem, 60dvh);
+  margin: 1rem 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.ports-list li {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.ports-list li:last-child {
+  border: 0;
+}
+.port-endpoint,
+.port-process {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.port-endpoint > span,
+.port-process span,
+.port-process code,
+.port-protected {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.port-endpoint > span[data-network="true"] {
+  color: var(--color-warning);
+}
+.port-process code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.port-protected {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+@media (max-width: 40rem) {
+  .ports-list li {
+    grid-template-columns: 5rem minmax(0, 1fr);
+  }
+  .ports-list li > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.listening-port-list {
+  max-height: none;
+  overflow: visible;
+}

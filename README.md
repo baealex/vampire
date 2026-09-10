@@ -83,7 +83,7 @@ Loopback access through `127.0.0.1`, `localhost`, or `::1` works without a token
 
 When configured, `VAMPIRE_TOKEN` is the only authentication value you provide. Vampire derives a slow scrypt verifier at startup. Before starting user commands, it deletes `VAMPIRE_TOKEN` from Node's `process.env` so later child processes do not inherit it. This cannot erase shell history, parent-process environments, operating-system startup environment snapshots, memory, or the original secret source, which all remain sensitive.
 
-A successful login exchanges the TOKEN for an opaque, revocable server session used by HTTP APIs and WebSockets; the raw TOKEN is not accepted as an API or WebSocket bearer credential. Sessions are memory-only and end on logout, expiry, or server restart.
+A successful login exchanges the TOKEN for an opaque, revocable server session used by HTTP APIs, Server-Sent Events, and WebSockets; the raw TOKEN is not accepted as an API or WebSocket bearer credential. Sessions are memory-only and end on logout, expiry, or server restart.
 
 An ordinary passphrase is supported, but longer and unique is safer; a random value remains the strongest choice. Prefer `--token-file` over putting a real password in an inline environment assignment, which can leave it in shell history and process metadata. Restrict the token file to the server user.
 
@@ -102,7 +102,7 @@ VAMPIRE_PUBLIC_ORIGIN=https://vampire.example.com \
 npx vampire --token-file ~/.config/vampire/token
 ```
 
-Configure the proxy separately to serve `https://vampire.example.com`, forward HTTP and WebSocket upgrades to `127.0.0.1:7677`, and prevent direct backend access. Do not use `--allow-insecure-no-auth` for a network-reachable deployment.
+Configure the proxy separately to serve `https://vampire.example.com`, forward HTTP (including unbuffered Server-Sent Events) and WebSocket upgrades to `127.0.0.1:7677`, and prevent direct backend access. Do not use `--allow-insecure-no-auth` for a network-reachable deployment.
 
 The proxy must preserve or overwrite `Host` to exactly match the authority in `VAMPIRE_PUBLIC_ORIGIN`, including a non-default port, and must forward WebSocket `Upgrade` requests. Unexpected Host headers are rejected. See [SECURITY.md](SECURITY.md) for deployment guidance.
 

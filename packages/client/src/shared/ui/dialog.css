@@ -1,0 +1,75 @@
+.vampire-dialog-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  background: var(--color-backdrop);
+}
+.vampire-dialog-content {
+  position: fixed;
+  z-index: 61;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(44rem, calc(100dvh - 2rem));
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  outline: none;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+  color: var(--color-text);
+}
+.vampire-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.4rem;
+  padding: 0.6rem 0.65rem 0.6rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.vampire-dialog-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-strong);
+}
+.vampire-dialog-close {
+  display: grid;
+  place-items: center;
+  width: var(--control-size-icon);
+  height: var(--control-size-icon);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.vampire-dialog-body {
+  min-width: 0;
+  min-height: 0;
+  padding: 1rem;
+  overflow: auto;
+}
+.vampire-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+}
+@media (max-width: 32rem) {
+  .vampire-dialog-content {
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    transform: none;
+    border: 0;
+    border-radius: 0;
+  }
+}

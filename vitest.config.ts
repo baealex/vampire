@@ -1,13 +1,15 @@
-import { svelteTesting } from '@testing-library/svelte/vite';
-import { sveltekit } from '@sveltejs/kit/vite';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [sveltekit(), svelteTesting()],
+  resolve: {
+    alias: {
+      '~': resolve(import.meta.dirname, 'src'),
+    },
+  },
   test: {
     environment: 'jsdom',
+    setupFiles: './vitest.setup.ts',
     include: ['src/**/*.component.test.ts'],
-    restoreMocks: true,
-    setupFiles: ['./vitest.setup.ts'],
   },
 });

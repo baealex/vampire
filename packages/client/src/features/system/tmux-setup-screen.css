@@ -1,0 +1,104 @@
+.tmux-setup-screen {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 1rem;
+  background: radial-gradient(circle at 50% 42%, var(--color-accent-soft) 0, transparent 34rem), var(--color-canvas);
+  color: var(--color-text);
+}
+.tmux-setup-content {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(22rem, 1.1fr);
+  align-items: center;
+  gap: clamp(3rem, 8vw, 7rem);
+  width: min(100%, 60rem);
+}
+.tmux-setup-intro p {
+  margin: 0 0 0.55rem;
+  color: var(--color-accent-soft-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tmux-setup-intro h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.1rem);
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+.tmux-setup-intro > span {
+  display: block;
+  margin-top: 1rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-title);
+  line-height: var(--leading-body);
+}
+.tmux-install-panel {
+  padding: 1.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+}
+.tmux-install-panel > header {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 1rem;
+}
+.tmux-install-panel > header span,
+.tmux-install-panel > p {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.tmux-install-panel > p {
+  line-height: var(--leading-body);
+}
+.tmux-command-panel {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-code-background);
+  color: var(--color-code-text);
+}
+.tmux-command-panel > div {
+  display: flex;
+  gap: 0.32rem;
+  height: 2rem;
+  align-items: center;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+}
+.tmux-command-panel i {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--color-border-strong);
+}
+.tmux-command-panel p {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+.tmux-command-panel p span {
+  color: var(--color-accent);
+}
+.tmux-command-panel code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 48rem) {
+  .tmux-setup-content {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    width: min(100%, 34rem);
+  }
+  .tmux-setup-intro h1 {
+    max-width: none;
+  }
+}

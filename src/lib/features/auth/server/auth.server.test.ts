@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { ServerRequestEvent } from '~/lib/server/http-handler.server.ts';
 import { authenticate, authenticationRequired, clearAuthentication, isAuthenticated } from './auth.server.ts';
 import { loginRateLimit } from './login-rate-limit.server.ts';
 import { initializeAuthentication, verifyConfiguredToken } from '~/lib/server/token-authentication.ts';
 
-function loginEvent(token: string, values = new Map<string, string>()): RequestEvent {
+function loginEvent(token: string, values = new Map<string, string>()): ServerRequestEvent {
   const url = new URL('http://localhost:7677/api/login');
   return {
     cookies: {
@@ -14,16 +14,17 @@ function loginEvent(token: string, values = new Map<string, string>()): RequestE
       set: (name: string, value: string) => values.set(name, value),
     },
     getClientAddress: () => 'test-client',
+    params: {},
     request: new Request(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token }),
     }),
     url,
-  } as unknown as RequestEvent;
+  };
 }
 
-function rawLoginEvent(body: string, client = 'test-client'): RequestEvent {
+function rawLoginEvent(body: string, client = 'test-client'): ServerRequestEvent {
   const url = new URL('http://localhost:7677/api/login');
   return {
     cookies: {
@@ -32,16 +33,17 @@ function rawLoginEvent(body: string, client = 'test-client'): RequestEvent {
       set: () => undefined,
     },
     getClientAddress: () => client,
+    params: {},
     request: new Request(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body,
     }),
     url,
-  } as unknown as RequestEvent;
+  };
 }
 
-function stalledLoginEvent(client = 'stalled-client'): RequestEvent {
+function stalledLoginEvent(client = 'stalled-client'): ServerRequestEvent {
   const url = new URL('http://localhost:7677/api/login');
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -55,6 +57,7 @@ function stalledLoginEvent(client = 'stalled-client'): RequestEvent {
       set: () => undefined,
     },
     getClientAddress: () => client,
+    params: {},
     request: new Request(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -62,7 +65,7 @@ function stalledLoginEvent(client = 'stalled-client'): RequestEvent {
       duplex: 'half',
     } as RequestInit & { duplex: 'half' }),
     url,
-  } as unknown as RequestEvent;
+  };
 }
 
 test('hashes the configured TOKEN and removes the plaintext environment value', async () => {

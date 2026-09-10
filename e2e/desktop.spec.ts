@@ -291,22 +291,9 @@ async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]
 }
 
 function waitForWorkspaceSnapshot(page: Page): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Timed out waiting for the workspace stream snapshot.')), 10_000);
-    page.on('websocket', (socket) => {
-      if (!new URL(socket.url()).pathname.endsWith('/ws/workspace')) return;
-      socket.on('framereceived', ({ payload }) => {
-        try {
-          const message = JSON.parse(typeof payload === 'string' ? payload : payload.toString()) as { type?: unknown };
-          if (message.type !== 'workspaces-snapshot') return;
-          clearTimeout(timeout);
-          resolve();
-        } catch {
-          // The workspace stream only uses JSON; ignore unrelated frames.
-        }
-      });
-    });
-  });
+  return page
+    .waitForRequest((request) => new URL(request.url()).pathname === '/events/workspaces')
+    .then(() => undefined);
 }
 
 async function activateTerminal(page: Page): Promise<void> {
@@ -763,7 +750,7 @@ test('rejects a wrong token and unlocks without waiting for the workspace stream
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('alert')).toContainText('That VAMPIRE_TOKEN did not work.');
 
-  await page.routeWebSocket(/\/ws\/workspace(?:\?|$)/, () => undefined);
+  await page.route('**/events/workspaces', (route) => void route.abort('connectionrefused'));
   await page.getByLabel('VAMPIRE_TOKEN').fill('vampire-playwright-token');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('region', { name: 'Workspace list' })).toBeVisible();

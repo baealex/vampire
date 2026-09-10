@@ -846,6 +846,17 @@ export async function attachTerminal(
           },
           false
         );
+      } else if (input.type === 'refresh-screen') {
+        if (terminalDelivery.acknowledged && !historyCapturePending) {
+          historyCapturePending = true;
+          queueTerminalInput('', async () => {
+            try {
+              await loadTerminalHistory(0);
+            } finally {
+              historyCapturePending = false;
+            }
+          });
+        }
       } else if (input.type === 'snapshot-ready') {
         acknowledgeSnapshot(input.snapshotId);
       } else if (input.type === 'load-history') {

@@ -1,0 +1,117 @@
+.status-plugin-bar {
+  position: relative;
+  z-index: 30;
+  min-width: 0;
+  min-height: 2.15rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-divider-subtle);
+  background: var(--color-panel);
+  color: var(--color-text-secondary);
+  scrollbar-width: none;
+}
+.status-plugin-bar > div {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+.status-plugin {
+  position: relative;
+}
+.status-plugin > button,
+.status-manage {
+  display: flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-height: 2.15rem;
+  padding: 0 0.58rem;
+  border: 0;
+  border-right: 1px solid var(--color-divider-subtle);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+.status-plugin > button > span {
+  color: var(--color-text-tertiary);
+}
+.status-plugin-popover {
+  z-index: 80;
+  width: max-content;
+  min-width: min(13rem, var(--radix-popover-content-available-width));
+  max-width: min(24rem, var(--radix-popover-content-available-width));
+  max-height: min(32rem, var(--radix-popover-content-available-height));
+  padding: 0.8rem;
+  overflow: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+.status-plugin-popover header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.status-plugin-popover > p {
+  color: var(--color-danger);
+}
+.status-plugin-popover > time {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.status-menu-item {
+  position: relative;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.55rem 0;
+  color: inherit;
+  text-decoration: none;
+}
+.status-menu-item > div {
+  display: grid;
+  gap: 0.18rem;
+}
+.status-menu-item small {
+  display: block;
+  color: var(--color-text-tertiary);
+  font-weight: normal;
+}
+.status-menu-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+.status-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0.15rem;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: var(--color-surface-sunken);
+}
+.status-progress i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+.status-manage {
+  margin-left: auto;
+}
+@media (hover: hover) {
+  .status-plugin > button:hover,
+  .status-manage:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+}
