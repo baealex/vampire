@@ -22,8 +22,11 @@
   color: var(--color-text-tertiary);
 }
 .background-location code {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .background-runner {
   display: grid;
@@ -46,8 +49,20 @@
   border-bottom: 1px solid var(--color-border);
 }
 .favorite-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
+}
+.favorite-heading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.favorite-heading small {
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
 }
 .favorite-list {
   display: flex;
@@ -99,13 +114,28 @@
   min-height: 0;
   overflow: auto;
 }
-.process-list > p {
-  margin: 0;
-  padding: 2rem 1.25rem;
+.background-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  padding: 2.5rem 1.5rem;
   color: var(--color-text-tertiary);
-  font-size: var(--text-label);
-  line-height: 1.6;
   text-align: center;
+}
+.background-empty > svg {
+  margin-bottom: 0.2rem;
+  color: var(--color-text-disabled);
+}
+.background-empty > strong {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.background-empty > p {
+  max-width: 26rem;
+  margin: 0 0 0.45rem;
+  font-size: var(--text-caption);
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .process-row {
@@ -129,9 +159,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.process-summary span {
+.process-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
+}
+.process-row-meta i,
+.background-process-state > i {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--color-text-disabled);
+}
+.process-row-meta i[data-state="running"],
+.background-process-state[data-state="running"] > i {
+  background: var(--color-success);
+}
+.process-row-meta time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 .background-detail-bar {
   display: flex;
@@ -140,9 +190,18 @@
   padding: 0.6rem;
   border-bottom: 1px solid var(--color-border);
 }
-.background-detail-bar > span {
+.background-process-state {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   flex: 1;
   color: var(--color-text-secondary);
+  font-size: var(--text-label);
+}
+.background-process-state time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 .process-output {
   flex: 1;

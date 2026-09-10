@@ -1,4 +1,5 @@
-import { DragDropProvider } from '@dnd-kit/react';
+import { RestrictToVerticalAxis } from '@dnd-kit/abstract/modifiers';
+import { DragDropProvider, KeyboardSensor, PointerSensor } from '@dnd-kit/react';
 import { isSortable, useSortable } from '@dnd-kit/react/sortable';
 import {
   formatWorkspaceTimestamp,
@@ -40,6 +41,19 @@ import '../features/workspace/workspace-navigator.css';
 
 const SHOW_NOTES_KEY = 'vampire:sidebar-show-notes';
 const SHOW_LAST_MESSAGE_KEY = 'vampire:sidebar-show-last-message';
+const DEFAULT_POINTER_ACTIVATION = PointerSensor.defaults.activationConstraints;
+const WORKSPACE_SENSORS = [
+  PointerSensor.configure({
+    activationConstraints: (event, source) => {
+      if (event.pointerType === 'touch') return undefined;
+      return typeof DEFAULT_POINTER_ACTIVATION === 'function'
+        ? DEFAULT_POINTER_ACTIVATION(event, source)
+        : DEFAULT_POINTER_ACTIVATION;
+    },
+  }),
+  KeyboardSensor,
+];
+const WORKSPACE_MODIFIERS = [RestrictToVerticalAxis];
 
 export const WorkspaceNavigator = observer(function WorkspaceNavigator({
   onAutomations,
@@ -301,6 +315,8 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
           <Empty state={state} />
         ) : (
           <DragDropProvider
+            sensors={WORKSPACE_SENSORS}
+            modifiers={WORKSPACE_MODIFIERS}
             onDragEnd={(event) => {
               if (event.canceled || state.workspaceOrderMode !== 'manual') return;
               const { source } = event.operation;

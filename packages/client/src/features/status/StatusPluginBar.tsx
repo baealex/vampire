@@ -1,7 +1,7 @@
 import * as Popover from '@radix-ui/react-popover';
 import type { StatusPluginMenuEntry, StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
 import { AlertTriangle, ExternalLink, Settings2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import './status-plugin-bar.css';
 
 function timestamp(at: number) {
@@ -71,7 +71,29 @@ function MenuEntry({ entry }: { entry: StatusPluginMenuEntry }) {
 
 export function StatusPluginBar({ onManage, plugins }: { onManage: () => void; plugins: StatusPluginSnapshot[] }) {
   const [openId, setOpenId] = useState<string>();
+  const pointerGesture = useRef({ id: -1, moved: false, x: 0, y: 0 });
   const openPlugin = plugins.find((plugin) => plugin.id === openId);
+  const startPointerGesture = (event: React.PointerEvent) => {
+    pointerGesture.current = { id: event.pointerId, moved: false, x: event.clientX, y: event.clientY };
+  };
+  const movePointerGesture = (event: React.PointerEvent) => {
+    const gesture = pointerGesture.current;
+    if (gesture.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) >= 8) gesture.moved = true;
+  };
+  const consumedScrollGesture = (event: React.MouseEvent) => {
+    const wasScrollGesture = event.detail !== 0 && pointerGesture.current.moved;
+    pointerGesture.current.moved = false;
+    if (wasScrollGesture) {
+      event.preventDefault();
+      return true;
+    }
+    return false;
+  };
+  const togglePlugin = (event: React.MouseEvent, pluginId: string) => {
+    if (consumedScrollGesture(event)) return;
+    setOpenId((current) => (current === pluginId ? undefined : pluginId));
+  };
   return (
     <Popover.Root open={Boolean(openPlugin)} onOpenChange={(open) => !open && setOpenId(undefined)}>
       <section className="status-plugin-bar" aria-label="Server status plugins">
@@ -83,12 +105,12 @@ export function StatusPluginBar({ onManage, plugins }: { onManage: () => void; p
                 aria-expanded={openId === plugin.id}
                 aria-label={`${plugin.name}${plugin.text ? `: ${plugin.text}` : ''}`}
                 title={plugin.tooltip}
-                onPointerDown={(event) => {
-                  if (event.button === 0) setOpenId((current) => (current === plugin.id ? undefined : plugin.id));
+                onPointerDown={startPointerGesture}
+                onPointerMove={movePointerGesture}
+                onPointerCancel={() => {
+                  pointerGesture.current.moved = true;
                 }}
-                onClick={(event) => {
-                  if (event.detail === 0) setOpenId((current) => (current === plugin.id ? undefined : plugin.id));
-                }}
+                onClick={(event) => togglePlugin(event, plugin.id)}
               >
                 <span>{plugin.name}</span>
                 <output>{plugin.state === 'loading' ? '…' : (plugin.text ?? '—')}</output>
@@ -108,7 +130,14 @@ export function StatusPluginBar({ onManage, plugins }: { onManage: () => void; p
             className="status-manage"
             aria-label="Manage status widgets"
             title="Manage status widgets"
-            onClick={onManage}
+            onPointerDown={startPointerGesture}
+            onPointerMove={movePointerGesture}
+            onPointerCancel={() => {
+              pointerGesture.current.moved = true;
+            }}
+            onClick={(event) => {
+              if (!consumedScrollGesture(event)) onManage();
+            }}
           >
             <Settings2 size={14} strokeWidth={1.9} aria-hidden="true" />
           </button>

@@ -81,6 +81,9 @@ importers:
       '@baejino/react-ui':
         specifier: ^0.2.0
         version: 0.2.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@dnd-kit/abstract':
+        specifier: 0.5.0
+        version: 0.5.0
       '@dnd-kit/react':
         specifier: 0.5.0
         version: 0.5.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

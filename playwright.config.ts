@@ -28,7 +28,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: '**/mobile.spec.ts',
+      testMatch: ['**/mobile.spec.ts', '**/touch.spec.ts'],
       use: { ...devices['Pixel 7'] },
     },
     {

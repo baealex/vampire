@@ -3,7 +3,7 @@ import {
   submitWorkspaceAgentAction,
 } from '@vampire/lib/shared/api/workspace-agent-actions.ts';
 import type { ManagedWorkspace, WorkspaceTerminal } from '@vampire/lib/shared/contracts/workspace.ts';
-import { Play, Plus, RotateCcw, Sparkles, Square, Star, Trash2 } from 'lucide-react';
+import { Play, Plus, RotateCcw, Sparkles, Square, SquareTerminal, Star, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -39,6 +39,9 @@ const processStatus = (process: WorkspaceTerminal) =>
       : process.exitCode === null
         ? 'Exited'
         : `Failed (${process.exitCode})`;
+const BACKGROUND_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const processStartedAt = (process: WorkspaceTerminal) =>
+  process.startedAt ? BACKGROUND_TIME_FORMATTER.format(process.startedAt) : undefined;
 
 export const BackgroundDialog = observer(function BackgroundDialog({
   onClose,
@@ -134,7 +137,10 @@ export const BackgroundDialog = observer(function BackgroundDialog({
   const favoriteStrip = favorites.length ? (
     <section className="favorite-strip" aria-label="Saved background commands">
       <span className="favorite-heading">
-        <Star size={12} /> Saved
+        <span>
+          <Star size={12} /> Saved commands
+        </span>
+        <small>{favorites.length}</small>
       </span>
       <div className="favorite-list">
         {favorites.map((favorite) => (
@@ -216,8 +222,8 @@ export const BackgroundDialog = observer(function BackgroundDialog({
             {view === 'runner' ? (
               <>
                 <div className="background-location">
-                  <span>Runs in</span>
-                  <code>{workspace?.cwd}</code>
+                  <span>Working directory</span>
+                  <code title={workspace?.cwd}>{workspace?.cwd}</code>
                 </div>
                 <form
                   className="background-runner"
@@ -254,7 +260,18 @@ export const BackgroundDialog = observer(function BackgroundDialog({
                   <code>{processCommand(selected)}</code>
                 </div>
                 <div className="background-detail-bar">
-                  <span>{processStatus(selected)}</span>
+                  <span className="background-process-state" data-state={selected.state}>
+                    <i aria-hidden="true" />
+                    {processStatus(selected)}
+                    {processStartedAt(selected) ? (
+                      <time
+                        dateTime={new Date(selected.startedAt!).toISOString()}
+                        title={new Date(selected.startedAt!).toLocaleString()}
+                      >
+                        since {processStartedAt(selected)}
+                      </time>
+                    ) : null}
+                  </span>
                   <Button
                     variant="icon"
                     aria-pressed={favorites.includes(processCommand(selected))}
@@ -331,7 +348,18 @@ export const BackgroundDialog = observer(function BackgroundDialog({
                             }}
                           >
                             <code>{processCommand(process)}</code>
-                            <span>{processStatus(process)}</span>
+                            <span className="process-row-meta">
+                              <i data-state={process.state} aria-hidden="true" />
+                              <span>{processStatus(process)}</span>
+                              {processStartedAt(process) ? (
+                                <time
+                                  dateTime={new Date(process.startedAt!).toISOString()}
+                                  title={new Date(process.startedAt!).toLocaleString()}
+                                >
+                                  {processStartedAt(process)}
+                                </time>
+                              ) : null}
+                            </span>
                           </button>
                           {process.state === 'exited' ? (
                             <Button
@@ -356,7 +384,21 @@ export const BackgroundDialog = observer(function BackgroundDialog({
                         </div>
                       ))
                     ) : (
-                      <p>No background processes</p>
+                      <div className="background-empty">
+                        <SquareTerminal size={22} strokeWidth={1.6} aria-hidden="true" />
+                        <strong>No background processes</strong>
+                        <p>Run a dev server, watcher, or other long-lived command without leaving this workspace.</p>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setView('runner');
+                            window.setTimeout(() => commandInput.current?.focus());
+                          }}
+                        >
+                          <Plus size={15} />
+                          Run a command
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </section>

@@ -40,6 +40,9 @@
   -webkit-overflow-scrolling: touch;
   touch-action: none;
 }
+.terminal .xterm-screen {
+  margin-inline: auto;
+}
 .terminal .xterm-viewport::-webkit-scrollbar {
   width: 0;
   height: 0;

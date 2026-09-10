@@ -8,6 +8,9 @@
   background: var(--color-panel);
   color: var(--color-text-secondary);
   scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
 }
 .status-plugin-bar > div {
   display: flex;

@@ -162,25 +162,34 @@ export function WorkspaceNoteDialog({
             {loading ? (
               <PanelState loading>Loading note…</PanelState>
             ) : (
-              <Textarea
-                className="note-textarea"
-                size="fill"
-                value={draft}
-                onChange={(event) => {
-                  setError('');
-                  setDraft(event.currentTarget.value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') close();
-                }}
-                placeholder="What is this workspace for? What changed? What comes next?"
-                autoFocus={open}
-                aria-label="Workspace note"
-              />
+              <div className="note-writing-area">
+                <div className="note-writing-heading">
+                  <span>Workspace context</span>
+                  <small>Capture decisions, blockers, and the next useful step.</small>
+                </div>
+                <Textarea
+                  className="note-textarea"
+                  size="fill"
+                  value={draft}
+                  onChange={(event) => {
+                    setError('');
+                    setDraft(event.currentTarget.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') close();
+                  }}
+                  placeholder="What is this workspace for? What changed? What comes next?"
+                  autoFocus={open}
+                  aria-label="Workspace note"
+                />
+              </div>
             )}
             <footer>
               <span role={error ? 'alert' : 'status'}>
                 {saving ? 'Saving…' : error ? error : draft === saved ? 'Saved' : 'Saving soon…'}
+              </span>
+              <span aria-hidden="true">
+                {draft.length ? `${draft.length.toLocaleString()} characters` : 'Empty note'}
               </span>
             </footer>
           </>

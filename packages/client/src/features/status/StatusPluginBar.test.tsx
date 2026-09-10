@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -62,5 +62,16 @@ describe('StatusPluginBar', () => {
     await user.click(screen.getByRole('button', { name: 'RAM: 20%' }));
     expect(screen.queryByText('CPU detail')).not.toBeInTheDocument();
     expect(screen.getByText('RAM detail')).toBeInTheDocument();
+  });
+  it('does not open a widget after horizontally swiping the status bar', () => {
+    render(<StatusPluginBar plugins={plugins} onManage={() => undefined} />);
+    const cpu = screen.getByRole('button', { name: 'CPU: 10%' });
+
+    fireEvent.pointerDown(cpu, { button: 0, clientX: 120, clientY: 20, pointerId: 7, pointerType: 'touch' });
+    fireEvent.pointerMove(cpu, { buttons: 1, clientX: 40, clientY: 22, pointerId: 7, pointerType: 'touch' });
+    fireEvent.pointerUp(cpu, { button: 0, clientX: 40, clientY: 22, pointerId: 7, pointerType: 'touch' });
+    fireEvent.click(cpu, { detail: 1 });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

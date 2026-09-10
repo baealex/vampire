@@ -445,6 +445,16 @@ test('keeps terminal geometry fixed while floating image feedback appears and cl
     await expectTerminalReady(page);
     const frame = page.locator('.terminal-frame');
     const before = await frame.boundingBox();
+    const terminalInsets = await frame.evaluate((element) => {
+      const xterm = element.querySelector<HTMLElement>('.xterm');
+      const screen = element.querySelector<HTMLElement>('.xterm-screen');
+      if (!xterm || !screen) return undefined;
+      const outer = xterm.getBoundingClientRect();
+      const inner = screen.getBoundingClientRect();
+      return { left: inner.left - outer.left, right: outer.right - inner.right };
+    });
+    expect(terminalInsets).toBeDefined();
+    expect(Math.abs(terminalInsets!.left - terminalInsets!.right)).toBeLessThanOrEqual(1);
     const previousUploads = imageUploads;
     await page.locator('input[type="file"]').first().setInputFiles({
       name: 'feedback.png',
