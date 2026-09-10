@@ -623,7 +623,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   await settingsPage.locator('.monaco-editor .view-lines').click();
   // Monaco follows the emulated Windows user agent, not the test runner's macOS host.
   await templateEditor.press('Control+a');
-  await page.keyboard.type(template);
+  await page.keyboard.insertText(template);
   await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
   await settingsPage.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
@@ -1293,8 +1293,11 @@ test('manages server-wide status plugins and shares their ordered output across 
   const custom = settings;
   await custom.getByLabel('Name').fill('Build');
   await custom.locator('.monaco-editor .view-lines').click();
-  await custom.getByRole('textbox', { name: 'Command', exact: true }).press('Control+a');
-  await page.keyboard.type("printf 'ready\\nShared result\\n'");
+  const commandEditor = custom.getByRole('textbox', { name: 'Command', exact: true });
+  const command = "printf 'ready\\nShared result\\n'";
+  await commandEditor.press('Control+a');
+  await page.keyboard.insertText(command);
+  await expect(custom.locator('.monaco-editor .view-lines')).toContainText("printf 'ready\\n");
   await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
   await page.evaluate(() => history.forward());
   const discardPrompt = page.getByRole('heading', { name: 'Discard unsaved widget changes?' });
