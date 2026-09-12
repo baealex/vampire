@@ -3,41 +3,12 @@
   gap: 0.8rem;
   min-width: 0;
 }
-.automation-workspace {
-  display: grid;
-  gap: 0.3rem;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-}
-.automation-cwd {
-  margin: -0.45rem 0 0;
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .automation-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-end;
+  gap: 0.5rem;
   flex-wrap: wrap;
-}
-.automation-toolbar > .vampire-select {
-  flex: 1;
-  min-width: 0;
-}
-.automation-summary {
-  margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
-}
-.automation-toolbar > span {
-  margin-right: auto;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-caption);
 }
 .automation-editor {
   display: grid;

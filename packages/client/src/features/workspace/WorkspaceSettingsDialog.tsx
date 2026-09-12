@@ -197,9 +197,7 @@ export function WorkspaceSettingsDialog({
           <header>
             <div>
               <h2 id="workspace-automations-section-title">Automations</h2>
-              <p>Schedule prompts for this workspace’s main terminal.</p>
             </div>
-            <span>Workspace</span>
           </header>
           <AutomationManagerDialog
             active={section === 'automations'}

@@ -1,4 +1,3 @@
-import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import {
   loadWorkspaceAgentAction,
   submitWorkspaceAgentAction,
@@ -12,7 +11,7 @@ import {
   type WorkspaceAutomationWeekday,
 } from '@vampire/lib/shared/contracts/workspace-automations.ts';
 import { Clock3, Pause, Pencil, Play, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { requestJson } from '~/shared/api/request.ts';
 import { navigationGuard, registerNavigationGuard } from '~/shared/lib/navigation-guard.ts';
@@ -102,10 +101,6 @@ export function AutomationManagerDialog({
       : [runAt, scheduleType === 'interval' ? intervalMinutes : ''],
   ]);
   const dirty = Boolean(editing) && draft !== baseline;
-  const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === workspaceId),
-    [workspaceId, workspaces],
-  );
   const begin = useCallback((automation?: WorkspaceAutomation) => {
     const schedule = automation?.schedule;
     const initialRunAt = dateTime(
@@ -321,20 +316,8 @@ export function AutomationManagerDialog({
           Back to automations
         </Button>
       ) : null}
-      {selectedWorkspace ? (
-        <div className="automation-workspace">
-          <span>Workspace</span>
-          <strong>{workspaceName(selectedWorkspace)}</strong>
-        </div>
-      ) : null}
-      {selectedWorkspace ? (
-        <p className="automation-cwd" title={selectedWorkspace.cwd}>
-          {selectedWorkspace.cwd}
-        </p>
-      ) : null}
       {!editing ? (
         <div className="automation-toolbar">
-          <span>Scheduled prompts run in the main terminal.</span>
           <Button size="sm" onClick={() => setAskingAgent(true)}>
             <Sparkles size={15} />
             Ask agent…
