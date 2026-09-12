@@ -2426,8 +2426,15 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
   await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
   // A committed resize may reflow the completion row out of the current pane.
   // Verify its single emission in tmux history while the assertion above keeps the visible pane coherent.
-  const { stdout: terminalHistory } = await runTmux(['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession]);
-  expect(terminalHistory.match(/VAMP_STRESS_DONE/gu) ?? []).toHaveLength(1);
+  await expect
+    .poll(
+      async () => {
+        const { stdout: terminalHistory } = await runTmux(['capture-pane', '-p', '-S', '-', '-t', workspace.tmuxSession]);
+        return terminalHistory.match(/VAMP_STRESS_DONE/gu)?.length ?? 0;
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(1);
   await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
 });
 
