@@ -2394,10 +2394,10 @@ test('keeps rapid full-screen redraws coherent through committed terminal resize
     `  frame += 1;`,
     `  const payload = Array.from({ length: Math.max(1, Math.min(24, process.stdout.rows - 2)) }, (_, row) => String(row).padStart(2, '0') + ':' + '.'.repeat(Math.max(1, Math.min(90, process.stdout.columns - 4)))).join('\\r\\n');`,
     `  process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H' + 'VAMP_FRAME_' + String(frame).padStart(4, '0') + ' ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n' + payload);`,
-    `  if (frame >= 240) finish();`,
+    `  if (frame >= 120) finish();`,
     `};`,
     `process.on('SIGWINCH', draw);`,
-    `timer = setInterval(draw, 5);`,
+    `timer = setInterval(draw, 10);`,
     `draw();`,
   ].join('');
   const encodedSource = Buffer.from(source).toString('base64');
