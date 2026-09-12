@@ -27,7 +27,7 @@ test('organizes settings and manages automations across workspaces', async ({ co
     if (!sidebar || !surface) throw new Error('Expected the workspace sidebar and management surface.');
     return { sidebarRight: sidebar.getBoundingClientRect().right, surfaceLeft: surface.getBoundingClientRect().left };
   });
-  expect(managementLayout.surfaceLeft).toBeGreaterThanOrEqual(managementLayout.sidebarRight - 1);
+  expect(managementLayout.surfaceLeft).toBe(0);
   const sections = page.getByRole('navigation', { name: 'Workspace settings sections' });
   await expect(page.getByRole('heading', { name: 'Identity', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();

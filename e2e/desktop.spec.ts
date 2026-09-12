@@ -495,6 +495,10 @@ test('persists terminal text size from settings and keeps shortcuts readable', a
   await expect(page.getByRole('button', { name: 'Terminal display settings' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   await page.getByRole('combobox', { name: 'Terminal text size' }).selectOption('18');
+  await page
+    .getByRole('navigation', { name: 'App settings sections' })
+    .getByRole('button', { name: 'Terminal', exact: true })
+    .click();
   const shortcuts = page.locator('.shortcut-list');
   await shortcuts.screenshot({ path: testInfo.outputPath('keyboard-shortcuts-desktop.png') });
   await page.setViewportSize({ width: 320, height: 700 });
@@ -1454,6 +1458,10 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   await endedActions.click();
   await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
   await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Workspace settings sections' })
+    .getByRole('button', { name: 'Terminal', exact: true })
+    .click();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Close workspace settings' }).click();
@@ -1468,6 +1476,10 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await page
+    .getByRole('navigation', { name: 'Workspace settings sections' })
+    .getByRole('button', { name: 'Terminal', exact: true })
+    .click();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await page.getByRole('button', { name: 'Close workspace settings' }).click();
 });
