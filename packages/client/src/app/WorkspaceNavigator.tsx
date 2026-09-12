@@ -56,7 +56,6 @@ const WORKSPACE_SENSORS = [
 const WORKSPACE_MODIFIERS = [RestrictToVerticalAxis];
 
 export const WorkspaceNavigator = observer(function WorkspaceNavigator({
-  onAutomations,
   onNewWorktree,
   onClose,
   onPorts,
@@ -65,7 +64,6 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
   mobileOpen,
   state,
 }: {
-  onAutomations: (workspaceId: string) => void;
   onNewWorktree: (workspaceId: string) => void;
   onClose: () => void;
   onPorts: () => void;
@@ -220,10 +218,6 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
               onOpenChange={(open) => setActionMenuId(open ? workspace.id : undefined)}
               state={state}
               workspace={workspace}
-              onAutomations={() => {
-                onClose();
-                onAutomations(workspace.id);
-              }}
               onNewWorktree={() => {
                 onClose();
                 onNewWorktree(workspace.id);

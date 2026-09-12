@@ -73,6 +73,15 @@ export const BackgroundDialog = observer(function BackgroundDialog({
   const selected = processes.find((process) => process.id === selectedId);
 
   useEffect(() => {
+    if (open) return;
+    setView('list');
+    setCommand('');
+    setSelectedId(undefined);
+    setOutput('');
+    setOutputError('');
+    setLoadingOutput(false);
+  }, [open]);
+  useEffect(() => {
     if (!open || view !== 'output' || !selectedId) return;
     let active = true;
     let refreshing = false;
@@ -173,12 +182,15 @@ export const BackgroundDialog = observer(function BackgroundDialog({
     <WorkspaceSidePanel
       open={open}
       className="background-panel"
-      aria-label={view === 'agent' ? 'Manage Background commands with an agent' : title}
+      aria-label={view === 'agent' ? 'Ask agent: manage background commands' : title}
     >
       {view === 'agent' ? (
-        <div className="background-agent-view">
+        <div className="ask-agent-host">
           <AskAgentPanel
+            backLabel="Back to background processes"
             close={showList}
+            onClose={close}
+            closeLabel="Close background manager"
             load={() => loadWorkspaceAgentAction(workspaceId, 'background')}
             submit={(request) => submitWorkspaceAgentAction(workspaceId, 'background', request)}
           />

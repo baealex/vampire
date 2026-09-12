@@ -3,23 +3,29 @@ import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.t
 import { DEFAULT_WORKSPACE_COMPOSER_TEMPLATE } from '@vampire/lib/shared/contracts/workspace-composer-template.ts';
 import { renderComposerTemplate, validateComposerTemplate } from '@vampire/lib/shared/lib/composer-template.ts';
 import { Eye, Save, Settings2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '~/shared/ui/CodeEditor.tsx';
 import { Button, Input, ManagementSurface } from '~/shared/ui/index.ts';
+import { SettingsNavigation } from '~/shared/ui/SettingsNavigation.tsx';
+import { AutomationManagerDialog } from './AutomationManagerDialog.tsx';
 import type { WorkspaceState } from './model/workspace-state.ts';
 import './workspace-settings.css';
 
 export function WorkspaceSettingsDialog({
   onClose,
   onManageProfiles,
+  initialSection = 'general',
   state,
   workspace,
 }: {
   onClose: () => void;
   onManageProfiles?: () => void;
+  initialSection?: 'general' | 'terminal' | 'automations';
   state: WorkspaceState;
   workspace: ManagedWorkspace;
 }) {
+  const [section, setSection] = useState(initialSection);
+  useEffect(() => setSection(initialSection), [initialSection]);
   const initialLabel = workspace.workspaceLabel?.trim() ?? '';
   const initialProfile = workspace.startupProfileId ?? '';
   const initialTemplate = workspace.composerTemplate ?? DEFAULT_WORKSPACE_COMPOSER_TEMPLATE;
@@ -65,27 +71,27 @@ export function WorkspaceSettingsDialog({
       closeLabel="Close workspace settings"
       busy={saving}
       dirty={dirty}
-      footer={
-        <div className="settings-actions">
-          <Button variant="primary" disabled={saving || !dirty || Boolean(validation)} onClick={() => void save()}>
-            <Save size={15} />
-            {saving ? 'Saving…' : 'Save workspace settings'}
-          </Button>
-        </div>
-      }
     >
       <div className="workspace-settings-page">
-        <section className="workspace-setting-group" aria-labelledby="workspace-identity-title">
-          <header>
-            <div>
-              <h2 id="workspace-identity-title">Identity</h2>
-              <p>Choose the name Vampire shows without changing the project folder.</p>
-            </div>
-            <span>Workspace</span>
-          </header>
+        <SettingsNavigation
+          label="Workspace settings sections"
+          value={section}
+          onChange={setSection}
+          items={[
+            { id: 'general', label: 'General' },
+            { id: 'terminal', label: 'Terminal' },
+            { id: 'automations', label: 'Automations' },
+          ]}
+        />
+        <section
+          hidden={section !== 'general'}
+          className="workspace-setting-group workspace-identity"
+          aria-labelledby="workspace-name-label"
+        >
           <label>
-            Alias
+            <span id="workspace-name-label">Workspace name</span>
             <Input
+              aria-describedby="workspace-name-hint"
               value={label}
               onChange={(event) => {
                 setLabel(event.currentTarget.value);
@@ -94,13 +100,17 @@ export function WorkspaceSettingsDialog({
               placeholder="Use folder name"
             />
           </label>
-          <small>Leave empty to use the folder name. Each worktree keeps its own workspace name.</small>
+          <small id="workspace-name-hint">Leave empty to use the folder name.</small>
           <div className="workspace-path">
             <span>Directory</span>
             <code>{workspace.cwd}</code>
           </div>
         </section>
-        <section className="workspace-setting-group" aria-labelledby="composer-template-title">
+        <section
+          hidden={section !== 'terminal'}
+          className="workspace-setting-group"
+          aria-labelledby="composer-template-title"
+        >
           <header>
             <div>
               <h2 id="composer-template-title">Compose template</h2>
@@ -138,7 +148,11 @@ export function WorkspaceSettingsDialog({
             </div>
           ) : null}
         </section>
-        <section className="workspace-setting-group" aria-labelledby="startup-profile-title">
+        <section
+          hidden={section !== 'terminal'}
+          className="workspace-setting-group"
+          aria-labelledby="startup-profile-title"
+        >
           <header>
             <div>
               <h2 id="startup-profile-title">Startup profile</h2>
@@ -147,7 +161,7 @@ export function WorkspaceSettingsDialog({
             {onManageProfiles ? (
               <Button size="sm" onClick={onManageProfiles} disabled={dirty}>
                 <Settings2 size={15} />
-                Manage
+                Manage shared profiles
               </Button>
             ) : null}
           </header>
@@ -175,6 +189,32 @@ export function WorkspaceSettingsDialog({
             ))}
           </div>
         </section>
+        <section
+          hidden={section !== 'automations'}
+          className="workspace-setting-group"
+          aria-labelledby="workspace-automations-section-title"
+        >
+          <header>
+            <div>
+              <h2 id="workspace-automations-section-title">Automations</h2>
+              <p>Schedule prompts for this workspace’s main terminal.</p>
+            </div>
+            <span>Workspace</span>
+          </header>
+          <AutomationManagerDialog
+            active={section === 'automations'}
+            embedded
+            initialWorkspaceId={workspace.id}
+            onClose={onClose}
+            workspaces={state.workspaces}
+          />
+        </section>
+        <div className="workspace-settings-save" hidden={section === 'automations'}>
+          <Button variant="primary" disabled={saving || !dirty || Boolean(validation)} onClick={() => void save()}>
+            <Save size={15} aria-hidden="true" />
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
         {error ? (
           <p role="alert" className="repository-error">
             {error}

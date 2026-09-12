@@ -1,14 +1,11 @@
 .workspace-terminal-layout {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 0;
+  grid-template-columns: minmax(0, 1fr);
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-.workspace-terminal-layout.side-panel-open {
-  grid-template-columns: minmax(0, 1fr) min(22rem, 45%);
 }
 .terminal-sheet {
   position: relative;
@@ -22,6 +19,13 @@
   overflow: hidden;
   background: var(--color-terminal-background);
   color: var(--color-terminal-foreground);
+}
+.terminal-sheet.visual-viewport-constrained {
+  position: fixed;
+  z-index: 20;
+  top: var(--terminal-viewport-top, 0);
+  left: 0;
+  height: var(--terminal-viewport-height, 100dvh);
 }
 .terminal-topbar {
   position: relative;
@@ -206,9 +210,18 @@
   .terminal-header {
     padding-block: max(0.15rem, env(safe-area-inset-top)) 0.15rem;
   }
-  .main-workspace-terminal .xterm {
-    padding-block: 4px;
-  }
+}
+.terminal-sheet.compact-viewport .status-plugin-bar {
+  display: none;
+}
+.terminal-sheet.compact-viewport .terminal-header {
+  padding-block: max(0.15rem, env(safe-area-inset-top)) 0.15rem;
+}
+.terminal-sheet.compact-viewport .main-workspace-terminal .terminal {
+  padding-block: 0.1rem;
+}
+.terminal-sheet.compact-viewport .main-workspace-terminal .xterm {
+  padding-block: 0.1rem;
 }
 @media (min-width: 64rem) {
   .terminal-header {
@@ -223,9 +236,6 @@
   }
 }
 @media (max-width: 63.999rem) {
-  .workspace-terminal-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .terminal-header {
     gap: 0.5rem;
   }
@@ -235,12 +245,14 @@
   .terminal-identity > span {
     display: none;
   }
-  .workspace-terminal-layout.side-panel-open,
-  .workspace-terminal-layout.repository-open {
-    grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 80rem) {
+  .workspace-terminal-layout {
+    grid-template-columns: minmax(0, 1fr) 0;
   }
-  .workspace-terminal-layout.repository-open > .terminal-sheet {
-    display: none;
+  .workspace-terminal-layout.side-panel-open {
+    grid-template-columns: minmax(0, 1fr) min(22rem, 45%);
   }
 }
 @media (max-width: 32rem) {
@@ -265,6 +277,12 @@
     width: 2.75rem;
     min-width: 2.75rem;
     height: 2.75rem;
+  }
+}
+
+@media (max-width: 31.999rem) {
+  .workspace-terminal-layout.repository-open > .terminal-sheet {
+    display: none;
   }
 }
 @media (max-width: 22rem) {

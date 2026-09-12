@@ -1,8 +1,9 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { type PropsWithChildren, type ReactNode, useEffect, useRef, useState } from 'react';
 import { registerNavigationGuard } from '../lib/navigation-guard.ts';
 import { Button } from './Button.tsx';
 import { Dialog } from './Dialog.tsx';
+import { ToolbarButton } from './ToolbarButton.tsx';
 import './management-surface.css';
 
 export function ManagementSurface({
@@ -61,24 +62,23 @@ export function ManagementSurface({
     pendingNavigation.current = undefined;
   };
   return (
-    <section className="management-surface" aria-labelledby={titleId}>
+    <section className={`management-surface${back ? ' has-back' : ''}`} aria-labelledby={titleId}>
       <header className="management-header">
-        <div className="management-header-inner">
-          <button
-            type="button"
-            className="management-back"
-            onClick={back ?? close}
-            disabled={busy}
-            aria-label={back ? (backLabel ?? 'Back') : closeLabel}
-          >
-            <ArrowLeft size={19} strokeWidth={1.8} aria-hidden="true" />
-          </button>
+        <div className={`management-header-inner${back ? ' has-back' : ''}`}>
+          {back ? (
+            <ToolbarButton className="management-back" label={backLabel ?? 'Back'} onClick={back} disabled={busy}>
+              <ArrowLeft size={19} strokeWidth={1.8} aria-hidden="true" />
+            </ToolbarButton>
+          ) : null}
           <div className="management-heading">
             {eyebrow ? <p>{eyebrow}</p> : null}
             <h1 ref={heading} id={titleId} tabIndex={-1}>
               {title}
             </h1>
           </div>
+          <ToolbarButton className="management-close" label={closeLabel} onClick={close} disabled={busy}>
+            <X size={19} strokeWidth={1.8} aria-hidden="true" />
+          </ToolbarButton>
         </div>
       </header>
       <div className="management-body">

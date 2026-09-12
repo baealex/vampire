@@ -4,29 +4,65 @@
   gap: 0.85rem;
   min-width: 0;
 }
+.ask-agent-host {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-4);
+}
+.ask-agent-host > .ask-agent-embedded {
+  min-height: 0;
+}
+.ask-agent-embedded {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
 .ask-agent-embedded > header {
   display: grid;
-  gap: 0.18rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  min-width: 0;
+  gap: 0.7rem;
 }
-.ask-agent-embedded > header > span {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
+.ask-agent-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.7rem;
 }
 .ask-agent-embedded h2 {
+  overflow: hidden;
   margin: 0;
   color: var(--color-text);
   font-size: var(--text-title);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ask-agent-back,
+.ask-agent-close {
+  color: var(--color-text-secondary);
 }
 .ask-agent-embedded > footer {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.ask-agent-embedded > .ask-agent {
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-block: 0.25rem;
 }
 .ask-agent__target {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.42rem;
   min-width: 0;
   padding: 0.58rem 0.68rem;
@@ -45,6 +81,7 @@
   font-weight: var(--weight-medium);
 }
 .ask-agent__target small {
+  flex-basis: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -63,6 +100,23 @@
 }
 .ask-agent__error {
   color: var(--color-danger-text);
+}
+.ask-agent__context-details {
+  display: grid;
+  gap: 0.55rem;
+}
+.ask-agent__context-details > summary {
+  width: fit-content;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.ask-agent__context-details > summary::marker {
+  color: var(--color-text-disabled);
+}
+.ask-agent__context-details > summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 .ask-agent__context {
   display: grid;

@@ -12,13 +12,14 @@ import {
   type WorkspaceAutomationWeekday,
 } from '@vampire/lib/shared/contracts/workspace-automations.ts';
 import { Clock3, Pause, Pencil, Play, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { requestJson } from '~/shared/api/request.ts';
-import { navigationGuard } from '~/shared/lib/navigation-guard.ts';
+import { navigationGuard, registerNavigationGuard } from '~/shared/lib/navigation-guard.ts';
 import {
   AskAgentPanel,
   Button,
+  Dialog,
   Field,
   Input,
   ManagementSurface,
@@ -54,25 +55,33 @@ function scheduleLabel(schedule: WorkspaceAutomationSchedule) {
 }
 
 export function AutomationManagerDialog({
+  active = true,
+  embedded = false,
+  onBack,
   initialAutomationId,
   initialWorkspaceId,
   onClose,
   onNavigate,
   workspaces,
 }: {
+  active?: boolean;
+  embedded?: boolean;
+  onBack?: () => void;
   initialAutomationId?: string;
   initialWorkspaceId?: string;
   onClose: () => void;
   onNavigate?: (path: string) => void;
   workspaces: ManagedWorkspace[];
 }) {
-  const [workspaceId, setWorkspaceId] = useState(initialWorkspaceId ?? workspaces[0]?.id ?? '');
+  const workspaceId = initialWorkspaceId ?? workspaces[0]?.id ?? '';
   const [automations, setAutomations] = useState<WorkspaceAutomation[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<WorkspaceAutomation | 'new'>();
   const [askingAgent, setAskingAgent] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const discardResolver = useRef<((discard: boolean) => void) | null>(null);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [scheduleType, setScheduleType] = useState<ScheduleType>('once');
@@ -82,6 +91,8 @@ export function AutomationManagerDialog({
   const [weeklyTime, setWeeklyTime] = useState('09:00');
   const [timeZone, setTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [baseline, setBaseline] = useState('');
+  const openRequestedRef = useRef(true);
+  const loadContextRef = useRef({ initialAutomationId, workspaceId });
   const draft = JSON.stringify([
     name,
     prompt,
@@ -147,7 +158,11 @@ export function AutomationManagerDialog({
         setAutomations(loaded);
         setError('');
         const requested = initialAutomationId && loaded.find((item) => item.id === initialAutomationId);
-        if (requested && !background) begin(requested);
+        if (!background && openRequestedRef.current) {
+          if (requested) begin(requested);
+          else if (initialAutomationId === 'new') begin();
+          openRequestedRef.current = false;
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Unable to load automations');
       } finally {
@@ -157,15 +172,35 @@ export function AutomationManagerDialog({
     [begin, initialAutomationId, workspaceId],
   );
   useEffect(() => {
-    setEditing(undefined);
+    if (!active) return;
+    const contextChanged =
+      loadContextRef.current.initialAutomationId !== initialAutomationId ||
+      loadContextRef.current.workspaceId !== workspaceId;
+    loadContextRef.current = { initialAutomationId, workspaceId };
+    if (contextChanged) {
+      openRequestedRef.current = true;
+      setEditing(undefined);
+    }
     void load();
-  }, [load]);
+  }, [active, initialAutomationId, load, workspaceId]);
   useEffect(() => {
+    if (!active) return;
     const timer = window.setInterval(() => {
       if (!editing && !askingAgent) void load(true);
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [askingAgent, editing, load]);
+  }, [active, askingAgent, editing, load]);
+  useEffect(() => {
+    if (!embedded || !dirty) return;
+    return registerNavigationGuard(() => {
+      if (busyId) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        discardResolver.current?.(false);
+        discardResolver.current = resolve;
+        setDiscardOpen(true);
+      });
+    });
+  }, [busyId, dirty, embedded]);
   const buildSchedule = (): WorkspaceAutomationSchedule | undefined => {
     if (scheduleType === 'weekly') {
       const [hour, minute] = weeklyTime.split(':').map(Number);
@@ -250,198 +285,225 @@ export function AutomationManagerDialog({
   const leaveEditor = async () => {
     if (busyId || (dirty && !(await navigationGuard()?.()))) return;
     flushSync(() => setEditing(undefined));
-    if (editing && editing !== 'new') {
-      const returning = new URLSearchParams(location.search).get('return') === 'all';
-      onNavigate?.(`/workspaces/${encodeURIComponent(workspaceId)}/automations${returning ? '?return=all' : ''}`);
+    if (editing && initialAutomationId) {
+      const returning = new URLSearchParams(location.search).get('return');
+      const path =
+        returning === 'all'
+          ? `/settings?workspace=${encodeURIComponent(workspaceId)}&section=automations`
+          : returning === 'settings'
+            ? `/workspaces/${encodeURIComponent(workspaceId)}/settings?section=automations`
+            : `/workspaces/${encodeURIComponent(workspaceId)}/automations`;
+      onNavigate?.(path);
     }
   };
-  return (
-    <ManagementSurface
-      title={title}
-      titleId="workspace-automations-title"
-      dirty={dirty}
-      busy={Boolean(busyId)}
-      back={askingAgent ? () => setAskingAgent(false) : editing ? () => void leaveEditor() : undefined}
-      backLabel="Back to automations"
-      close={onClose}
-      closeLabel="Close agent automations"
-    >
-      {askingAgent ? (
-        <AskAgentPanel
-          close={() => setAskingAgent(false)}
-          load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
-          submit={(request) => submitWorkspaceAgentAction(workspaceId, 'automation', request)}
-          onSubmitted={() => void load()}
-        />
-      ) : (
-        <div className="automation-manager">
-          <label className="automation-workspace">
-            Workspace
-            <Select
-              disabled={Boolean(editing) || Boolean(busyId)}
-              value={workspaceId}
-              onChange={(event) => setWorkspaceId(event.currentTarget.value)}
-            >
-              {workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspaceName(workspace)}
-                </option>
-              ))}
-            </Select>
-          </label>
-          {selectedWorkspace ? (
-            <p className="automation-cwd" title={selectedWorkspace.cwd}>
-              {selectedWorkspace.cwd}
-            </p>
-          ) : null}
-          {!editing ? (
-            <div className="automation-toolbar">
-              <span>Scheduled prompts run in the main terminal.</span>
-              <Button size="sm" onClick={() => setAskingAgent(true)}>
-                <Sparkles size={15} />
-                Ask agent…
-              </Button>
-              <Button size="sm" onClick={() => begin()}>
-                <Plus size={15} />
-                New automation
-              </Button>
-            </div>
-          ) : null}
-          {editing ? (
-            <section className="automation-editor">
-              <h3>{editing === 'new' ? 'New automation' : `Edit ${editing.name}`}</h3>
-              <Field label="Name">
-                <Input value={name} maxLength={80} onChange={(event) => setName(event.currentTarget.value)} autoFocus />
-              </Field>
-              <Field label="Prompt">
-                <Textarea value={prompt} maxLength={8000} onChange={(event) => setPrompt(event.currentTarget.value)} />
-              </Field>
-              <Field label="Schedule">
-                <Select
-                  value={scheduleType}
-                  onChange={(event) => setScheduleType(event.currentTarget.value as ScheduleType)}
-                >
-                  <option value="once">Once</option>
-                  <option value="interval">Interval</option>
-                  <option value="weekly">Weekly</option>
-                </Select>
-              </Field>
-              {scheduleType === 'once' ? (
-                <Field label="Run at">
-                  <Input
-                    type="datetime-local"
-                    value={runAt}
-                    onChange={(event) => setRunAt(event.currentTarget.value)}
-                  />
-                </Field>
-              ) : scheduleType === 'interval' ? (
-                <>
-                  <Field label="Start at">
-                    <Input
-                      type="datetime-local"
-                      value={runAt}
-                      onChange={(event) => setRunAt(event.currentTarget.value)}
-                    />
-                  </Field>
-                  <Field label="Every (minutes)">
-                    <Input
-                      type="number"
-                      value={intervalMinutes}
-                      onChange={(event) => setIntervalMinutes(event.currentTarget.value)}
-                    />
-                  </Field>
-                </>
-              ) : (
-                <>
-                  <Field label="Days">
-                    <div className="weekday-picker">
-                      {WEEKDAYS.map(([day, label]) => (
-                        <button
-                          type="button"
-                          key={day}
-                          className={weekdays.includes(day) ? 'active' : ''}
-                          onClick={() =>
-                            setWeekdays((current) =>
-                              current.includes(day) ? current.filter((item) => item !== day) : [...current, day],
-                            )
-                          }
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                  <Field label="Time">
-                    <Input
-                      type="time"
-                      value={weeklyTime}
-                      onChange={(event) => setWeeklyTime(event.currentTarget.value)}
-                    />
-                  </Field>
-                  <Field label="Time zone">
-                    <Input value={timeZone} onChange={(event) => setTimeZone(event.currentTarget.value)} />
-                  </Field>
-                </>
-              )}
-              <div className="automation-editor-actions">
-                <Button variant="ghost" disabled={Boolean(busyId)} onClick={() => void leaveEditor()}>
-                  Cancel
-                </Button>
-                <Button variant="primary" disabled={Boolean(busyId)} onClick={() => void save()}>
-                  {busyId ? 'Saving…' : editing === 'new' ? 'Add automation' : 'Save changes'}
-                </Button>
-              </div>
-            </section>
-          ) : null}
-          {loading ? (
-            <div className="automation-loading">
-              <Spinner />
-              Loading automations…
-            </div>
-          ) : !editing && automations.length === 0 ? (
-            <div className="automation-empty">
-              <Clock3 size={22} />
-              No automations for this workspace.
-            </div>
-          ) : !editing ? (
-            <div className="automation-list">
-              {automations.map((automation) => (
-                <article key={automation.id}>
-                  <div>
-                    <strong>{automation.name}</strong>
-                    <span>{scheduleLabel(automation.schedule)}</span>
-                    <p>{automation.prompt}</p>
-                  </div>
-                  <span>
-                    <Button
-                      variant="icon"
-                      aria-label={`${automation.enabled ? 'Pause' : 'Resume'} ${automation.name}`}
-                      onClick={() => void setEnabled(automation, !automation.enabled)}
-                    >
-                      {automation.enabled ? <Pause size={15} /> : <Play size={15} />}
-                    </Button>
-                    <Button variant="icon" aria-label={`Edit ${automation.name}`} onClick={() => begin(automation)}>
-                      <Pencil size={15} />
-                    </Button>
-                    <Button
-                      variant="icon"
-                      aria-label={`Delete ${automation.name}`}
-                      onClick={() => void remove(automation)}
-                    >
-                      <Trash2 size={15} />
-                    </Button>
-                  </span>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          {error ? (
-            <p className="automation-error" role="alert">
-              {error}
-            </p>
-          ) : null}
+  const resolveDiscard = (discard: boolean) => {
+    setDiscardOpen(false);
+    const resolve = discardResolver.current;
+    discardResolver.current = null;
+    resolve?.(discard);
+  };
+  const leaveEmbedded = async () => {
+    if (busyId || (dirty && !(await navigationGuard()?.()))) return;
+    onBack?.();
+  };
+  const content = askingAgent ? (
+    <AskAgentPanel
+      showBack={embedded}
+      close={() => setAskingAgent(false)}
+      load={() => loadWorkspaceAgentAction(workspaceId, 'automation')}
+      submit={(request) => submitWorkspaceAgentAction(workspaceId, 'automation', request)}
+      onSubmitted={() => void load()}
+    />
+  ) : (
+    <div className="automation-manager">
+      {embedded && onBack && !askingAgent ? (
+        <Button variant="ghost" size="sm" onClick={() => void leaveEmbedded()}>
+          Back to automations
+        </Button>
+      ) : null}
+      {selectedWorkspace ? (
+        <div className="automation-workspace">
+          <span>Workspace</span>
+          <strong>{workspaceName(selectedWorkspace)}</strong>
         </div>
+      ) : null}
+      {selectedWorkspace ? (
+        <p className="automation-cwd" title={selectedWorkspace.cwd}>
+          {selectedWorkspace.cwd}
+        </p>
+      ) : null}
+      {!editing ? (
+        <div className="automation-toolbar">
+          <span>Scheduled prompts run in the main terminal.</span>
+          <Button size="sm" onClick={() => setAskingAgent(true)}>
+            <Sparkles size={15} />
+            Ask agent…
+          </Button>
+          <Button size="sm" onClick={() => begin()}>
+            <Plus size={15} />
+            New automation
+          </Button>
+        </div>
+      ) : null}
+      {editing ? (
+        <section className="automation-editor">
+          <h3>{editing === 'new' ? 'New automation' : `Edit ${editing.name}`}</h3>
+          <Field label="Name">
+            <Input value={name} maxLength={80} onChange={(event) => setName(event.currentTarget.value)} autoFocus />
+          </Field>
+          <Field label="Prompt">
+            <Textarea value={prompt} maxLength={8000} onChange={(event) => setPrompt(event.currentTarget.value)} />
+          </Field>
+          <Field label="Schedule">
+            <Select
+              value={scheduleType}
+              onChange={(event) => setScheduleType(event.currentTarget.value as ScheduleType)}
+            >
+              <option value="once">Once</option>
+              <option value="interval">Interval</option>
+              <option value="weekly">Weekly</option>
+            </Select>
+          </Field>
+          {scheduleType === 'once' ? (
+            <Field label="Run at">
+              <Input type="datetime-local" value={runAt} onChange={(event) => setRunAt(event.currentTarget.value)} />
+            </Field>
+          ) : scheduleType === 'interval' ? (
+            <>
+              <Field label="Start at">
+                <Input type="datetime-local" value={runAt} onChange={(event) => setRunAt(event.currentTarget.value)} />
+              </Field>
+              <Field label="Every (minutes)">
+                <Input
+                  type="number"
+                  value={intervalMinutes}
+                  onChange={(event) => setIntervalMinutes(event.currentTarget.value)}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="Days">
+                <div className="weekday-picker">
+                  {WEEKDAYS.map(([day, label]) => (
+                    <button
+                      type="button"
+                      key={day}
+                      className={weekdays.includes(day) ? 'active' : ''}
+                      aria-label={label}
+                      aria-pressed={weekdays.includes(day)}
+                      onClick={() =>
+                        setWeekdays((current) =>
+                          current.includes(day) ? current.filter((item) => item !== day) : [...current, day],
+                        )
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="Time">
+                <Input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.currentTarget.value)} />
+              </Field>
+              <Field label="Time zone">
+                <Input value={timeZone} onChange={(event) => setTimeZone(event.currentTarget.value)} />
+              </Field>
+            </>
+          )}
+          <div className="automation-editor-actions">
+            <Button variant="ghost" disabled={Boolean(busyId)} onClick={() => void leaveEditor()}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={Boolean(busyId)} onClick={() => void save()}>
+              {busyId ? 'Saving…' : editing === 'new' ? 'Add automation' : 'Save changes'}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+      {loading ? (
+        <div className="automation-loading">
+          <Spinner />
+          Loading automations…
+        </div>
+      ) : !editing && automations.length === 0 ? (
+        <div className="automation-empty">
+          <Clock3 size={22} />
+          No automations for this workspace.
+        </div>
+      ) : !editing ? (
+        <div className="automation-list">
+          {automations.map((automation) => (
+            <article key={automation.id}>
+              <div>
+                <strong>{automation.name}</strong>
+                <span>{scheduleLabel(automation.schedule)}</span>
+                <p>{automation.prompt}</p>
+              </div>
+              <span>
+                <Button
+                  variant="icon"
+                  aria-label={`${automation.enabled ? 'Pause' : 'Resume'} ${automation.name}`}
+                  onClick={() => void setEnabled(automation, !automation.enabled)}
+                >
+                  {automation.enabled ? <Pause size={15} /> : <Play size={15} />}
+                </Button>
+                <Button variant="icon" aria-label={`Edit ${automation.name}`} onClick={() => begin(automation)}>
+                  <Pencil size={15} />
+                </Button>
+                <Button variant="icon" aria-label={`Delete ${automation.name}`} onClick={() => void remove(automation)}>
+                  <Trash2 size={15} />
+                </Button>
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : null}
+      {error ? (
+        <p className="automation-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+  return (
+    <>
+      {embedded ? (
+        content
+      ) : (
+        <ManagementSurface
+          title={title}
+          titleId="workspace-automations-title"
+          dirty={dirty}
+          busy={Boolean(busyId)}
+          back={askingAgent ? () => setAskingAgent(false) : editing ? () => void leaveEditor() : onBack}
+          backLabel={askingAgent || editing ? 'Back to automations' : 'Back to overview'}
+          close={onClose}
+          closeLabel="Close agent automations"
+        >
+          {content}
+        </ManagementSurface>
       )}
-    </ManagementSurface>
+      {embedded ? (
+        <Dialog
+          open={discardOpen}
+          role="alertdialog"
+          title="Discard unsaved changes?"
+          onClose={() => resolveDiscard(false)}
+          footer={
+            <>
+              <Button data-autofocus onClick={() => resolveDiscard(false)}>
+                Keep editing
+              </Button>
+              <Button variant="danger" onClick={() => resolveDiscard(true)}>
+                Discard changes
+              </Button>
+            </>
+          }
+        >
+          <p>Your automation changes have not been saved.</p>
+        </Dialog>
+      ) : null}
+    </>
   );
 }

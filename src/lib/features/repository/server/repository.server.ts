@@ -91,6 +91,27 @@ const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 const IGNORED_WORKSPACE_DIRECTORIES = new Set(['.git']);
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,64}$/iu;
 
+function isRecoverableGitReadError(error: unknown): error is RepositoryReadError {
+  return error instanceof RepositoryReadError && (error.reason === 'command-failed' || error.reason === 'too-large');
+}
+
+function gitUnavailableMessage(error: RepositoryReadError): string {
+  return `Git information is unavailable; showing workspace files only. ${error.message}`;
+}
+
+function filesystemSnapshot(directory: RepositoryDirectoryListing, gitError?: string): RepositorySnapshot {
+  return {
+    isGitRepository: false,
+    ...(gitError ? { gitError } : {}),
+    files: directory.files,
+    directories: directory.directories,
+    ignored: [],
+    changes: [],
+    changeStats: { additions: 0, deletions: 0 },
+    truncated: directory.truncated,
+  };
+}
+
 function normalizeRelativePath(value: string): string {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || isAbsolute(value)) {
     throw repositoryError('invalid-path', 'File path must stay inside the workspace.');
@@ -265,10 +286,15 @@ async function buildRepositoryDirectory(cwd: string, path: string): Promise<Repo
   const root = await workspaceRoot(cwd);
   const directory = await readWorkspaceDirectory(root, path);
   if (!(await isGitRepository(root))) return directory;
-  return {
-    ...directory,
-    ignored: await readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
-  };
+  try {
+    return {
+      ...directory,
+      ignored: await readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
+    };
+  } catch (error) {
+    if (!isRecoverableGitReadError(error)) throw error;
+    return { ...directory, gitError: gitUnavailableMessage(error) };
+  }
 }
 
 const pendingRepositorySnapshots = new Map<string, Promise<RepositorySnapshot>>();
@@ -296,32 +322,33 @@ async function buildRepositorySnapshot(
   const gitRepository = await isGitRepository(root);
   const directory = await readWorkspaceDirectory(root);
   if (!gitRepository) {
-    return {
-      isGitRepository: false,
-      files: directory.files,
-      directories: directory.directories,
-      ignored: [],
-      changes: [],
-      changeStats: { additions: 0, deletions: 0 },
-      truncated: directory.truncated,
-    };
+    return filesystemSnapshot(directory);
   }
 
-  const [changes, ignored, git] = await Promise.all([
-    readGitChanges(root),
-    readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
-    readGitSnapshot(root, root, normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE)),
-  ]);
-  return {
-    isGitRepository: true,
-    git,
-    files: directory.files,
-    directories: directory.directories,
-    ignored,
-    changes,
-    changeStats: await readRepositoryChangeStats(root, changes),
-    truncated: directory.truncated,
-  };
+  try {
+    const [changes, ignored, git] = await Promise.all([
+      readGitChanges(root),
+      readGitIgnoredPaths(root, [...directory.directories, ...directory.files]),
+      readGitSnapshot(
+        root,
+        root,
+        normalizeCommitPageValue(commitLimit, DEFAULT_COMMIT_PAGE_SIZE, MAX_COMMIT_PAGE_SIZE),
+      ),
+    ]);
+    return {
+      isGitRepository: true,
+      git,
+      files: directory.files,
+      directories: directory.directories,
+      ignored,
+      changes,
+      changeStats: await readRepositoryChangeStats(root, changes),
+      truncated: directory.truncated,
+    };
+  } catch (error) {
+    if (!isRecoverableGitReadError(error)) throw error;
+    return filesystemSnapshot(directory, gitUnavailableMessage(error));
+  }
 }
 
 export async function readRepositorySummary(cwd: string): Promise<RepositorySummary> {

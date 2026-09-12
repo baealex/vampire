@@ -33,6 +33,10 @@
 }
 .workspace-navigator-heading > button {
   flex-shrink: 0;
+  width: var(--control-size-icon);
+  min-width: var(--control-size-icon);
+  height: var(--control-size-icon);
+  min-height: var(--control-size-icon);
 }
 .close-workspace-navigator {
   display: none;

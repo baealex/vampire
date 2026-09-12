@@ -572,9 +572,6 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
               spellCheck={false}
               aria-label="Send text to the shell"
             />
-            <span className="composer-line-count" hidden={draft.split('\n').length <= 1}>
-              + {Math.max(0, draft.split('\n').length - 1)} lines
-            </span>
             <div className="composer-secondary-actions">
               {composerHistoryEnabled ? (
                 <div>

@@ -91,6 +91,9 @@ export function WorkspaceNoteDialog({
   }, [flush, state, workspaceId]);
   useEffect(() => registerNavigationGuard(flush), [flush]);
   useEffect(() => {
+    if (!open) setAskingAgent(false);
+  }, [open]);
+  useEffect(() => {
     if (loading || draft === saved) return;
     if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => void flush(), 700);
@@ -122,22 +125,27 @@ export function WorkspaceNoteDialog({
   return (
     <WorkspaceSidePanel open={open} className="workspace-note-panel" aria-label="Workspace note panel">
       <section
-        className="note-editor panel"
+        className={`note-editor panel${askingAgent ? ' agent-mode' : ''}`}
         aria-label={askingAgent ? 'Ask agent about this note' : undefined}
         aria-labelledby={askingAgent ? undefined : 'workspace-note-title'}
       >
         {askingAgent ? (
-          <AskAgentPanel
-            close={() => {
-              setAskingAgent(false);
-              window.setTimeout(() => document.getElementById('workspace-note-ask-agent')?.focus());
-            }}
-            load={() => loadWorkspaceAgentAction(workspaceId, 'note')}
-            submit={async (request) => {
-              if (!(await flush())) throw new Error(error || 'Save the note before asking the agent.');
-              return submitWorkspaceAgentAction(workspaceId, 'note', request);
-            }}
-          />
+          <div className="ask-agent-host">
+            <AskAgentPanel
+              backLabel="Back to note"
+              close={() => {
+                setAskingAgent(false);
+                window.setTimeout(() => document.getElementById('workspace-note-ask-agent')?.focus());
+              }}
+              onClose={close}
+              closeLabel="Close workspace note"
+              load={() => loadWorkspaceAgentAction(workspaceId, 'note')}
+              submit={async (request) => {
+                if (!(await flush())) throw new Error(error || 'Save the note before asking the agent.');
+                return submitWorkspaceAgentAction(workspaceId, 'note', request);
+              }}
+            />
+          </div>
         ) : (
           <>
             <WorkspacePanelHeader

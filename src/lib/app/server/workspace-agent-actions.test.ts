@@ -142,8 +142,7 @@ test('supplies the current widget configuration, guide, and validator to the mai
 
 test('supplies an isolated automation management request, guide, and apply command to the main agent', async () => {
   const descriptor = await describeWorkspaceAgentAction('workspace-1', 'automation', dependencies());
-  assert.equal(descriptor.title, 'Manage automations with an agent');
-  assert.equal(descriptor.requestLabel, 'What should the agent create or change?');
+  assert.equal(descriptor.requestLabel, 'Automation request');
   assert.deepEqual(
     descriptor.context.map((item) => item.value),
     ['Prepared when sent'],
@@ -184,7 +183,6 @@ test('materializes automation support only when the request is submitted', async
 
 test('supplies an isolated Background favorites request without asking the agent to run commands', async () => {
   const descriptor = await describeWorkspaceAgentAction('workspace-1', 'background', dependencies());
-  assert.equal(descriptor.title, 'Manage Background commands with an agent');
   assert.deepEqual(
     descriptor.context.map((item) => item.value),
     ['Prepared when sent'],

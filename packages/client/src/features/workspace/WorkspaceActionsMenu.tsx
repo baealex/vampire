@@ -1,6 +1,6 @@
 import { workspaceName } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import type { ManagedWorkspace } from '@vampire/lib/shared/contracts/workspace.ts';
-import { Clock3, Ellipsis, GitBranchPlus, LogOut, Settings2, Trash2 } from 'lucide-react';
+import { Ellipsis, GitBranchPlus, LogOut, Settings2, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '~/shared/ui/index.ts';
@@ -8,7 +8,6 @@ import type { WorkspaceState } from './model/workspace-state.ts';
 import './workspace-actions-menu.css';
 
 export const WorkspaceActionsMenu = observer(function WorkspaceActionsMenu({
-  onAutomations,
   onNewWorktree,
   onOpenChange,
   onSettings,
@@ -16,7 +15,6 @@ export const WorkspaceActionsMenu = observer(function WorkspaceActionsMenu({
   state,
   workspace,
 }: {
-  onAutomations: () => void;
   onNewWorktree: () => void;
   onOpenChange: (open: boolean) => void;
   onSettings: () => void;
@@ -78,23 +76,13 @@ export const WorkspaceActionsMenu = observer(function WorkspaceActionsMenu({
             <Settings2 size={16} aria-hidden="true" />
             Workspace settings
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {workspace.isGitRepository && workspace.workspaceAvailable !== false ? (
             <DropdownMenuItem onSelect={onNewWorktree}>
               <GitBranchPlus size={16} aria-hidden="true" />
               New isolated workspace
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => {
-              onOpenChange(false);
-              onAutomations();
-            }}
-          >
-            <Clock3 size={16} aria-hidden="true" />
-            Agent automations
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
           {workspace.state === 'running' ? (
             <DropdownMenuItem
               onSelect={(event) => {

@@ -5,11 +5,6 @@
   min-height: 0;
   overflow: hidden;
 }
-.background-agent-view {
-  min-height: 0;
-  overflow: auto;
-  padding: var(--space-4);
-}
 .background-location {
   display: grid;
   flex: 0 0 auto;
@@ -69,10 +64,14 @@
   max-width: 100%;
   gap: 0.35rem;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 .favorite-command {
   display: flex;
+  flex: 0 0 auto;
   min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }

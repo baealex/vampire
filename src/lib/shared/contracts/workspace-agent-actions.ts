@@ -12,7 +12,6 @@ export type WorkspaceAgentActionContext = {
 
 export type WorkspaceAgentActionDescriptor = {
   id: WorkspaceAgentActionId;
-  title: string;
   description: string;
   target: {
     workspaceId: string;
@@ -22,7 +21,6 @@ export type WorkspaceAgentActionDescriptor = {
   context: WorkspaceAgentActionContext[];
   requestLabel: string;
   requestPlaceholder: string;
-  defaultRequest: string;
 };
 
 export type WorkspaceAgentActionSubmission = {

@@ -92,7 +92,7 @@ export const RepositoryPanel = observer(function RepositoryPanel({
     if (open) void state.refresh(true);
   }, [open, state]);
   useEffect(() => {
-    if (state.selection && window.matchMedia('(max-width: 63.999rem)').matches) onClose();
+    if (state.selection && window.matchMedia('(max-width: 31.999rem)').matches) onClose();
   }, [onClose, state.selection]);
   const toggleDirectory = async (path: string) => {
     if (expanded.has(path)) {
@@ -221,6 +221,11 @@ export const RepositoryPanel = observer(function RepositoryPanel({
           <PanelState error>{state.errorMessage}</PanelState>
         ) : snapshot ? (
           <div className="repository-content">
+            {snapshot.gitError ? (
+              <p className="repository-notice repository-error" role="status">
+                {snapshot.gitError}
+              </p>
+            ) : null}
             {state.uploadNotice ? (
               <p
                 className={`repository-notice${state.uploadNoticeKind === 'error' ? ' repository-error' : ''}`}

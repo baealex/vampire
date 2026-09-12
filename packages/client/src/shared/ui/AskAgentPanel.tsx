@@ -3,23 +3,32 @@ import {
   type WorkspaceAgentActionDescriptor,
   type WorkspaceAgentActionSubmission,
 } from '@vampire/lib/shared/contracts/workspace-agent-actions.ts';
-import { Send } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Send, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from './Button.tsx';
 import { Field } from './Field.tsx';
 import { Textarea } from './Textarea.tsx';
+import { ToolbarButton } from './ToolbarButton.tsx';
 import './ask-agent-panel.css';
 
 export function AskAgentPanel({
+  backLabel = 'Back',
   close,
+  closeLabel = 'Close panel',
   load,
+  onClose,
   onSubmitted,
+  showBack = true,
   showTarget = true,
   submit,
 }: {
+  backLabel?: string;
   close: () => void;
+  closeLabel?: string;
   load: () => Promise<WorkspaceAgentActionDescriptor>;
+  onClose?: () => void;
   onSubmitted?: (submission: WorkspaceAgentActionSubmission) => void;
+  showBack?: boolean;
   showTarget?: boolean;
   submit: (request: string) => Promise<WorkspaceAgentActionSubmission>;
 }) {
@@ -29,13 +38,14 @@ export function AskAgentPanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const requestRef = useRef<HTMLTextAreaElement>(null);
+  const headingId = useId();
   const loadDescriptor = async () => {
     setLoading(true);
     setError('');
     try {
       const value = await load();
       setDescriptor(value);
-      setRequest(value.defaultRequest);
+      setRequest('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The agent request could not be prepared.');
     } finally {
@@ -62,6 +72,7 @@ export function AskAgentPanel({
   return (
     <section
       className="ask-agent-embedded"
+      aria-labelledby={headingId}
       aria-busy={loading}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !submitting) {
@@ -72,8 +83,19 @@ export function AskAgentPanel({
       }}
     >
       <header>
-        <span>Ask agent</span>
-        <h2>{descriptor?.title ?? 'Prepare agent request'}</h2>
+        <div className="ask-agent-heading">
+          {showBack ? (
+            <ToolbarButton className="ask-agent-back" label={backLabel} onClick={close} disabled={submitting}>
+              <ArrowLeft size={18} strokeWidth={1.9} aria-hidden="true" />
+            </ToolbarButton>
+          ) : null}
+          <h2 id={headingId}>Ask agent</h2>
+        </div>
+        {onClose ? (
+          <ToolbarButton className="ask-agent-close" label={closeLabel} onClick={onClose} disabled={submitting}>
+            <X size={18} strokeWidth={1.9} aria-hidden="true" />
+          </ToolbarButton>
+        ) : null}
       </header>
       <div className="ask-agent">
         {descriptor ? (
@@ -86,26 +108,28 @@ export function AskAgentPanel({
               </div>
             ) : null}
             <p className="ask-agent__description">{descriptor.description}</p>
-            <dl className="ask-agent__context">
-              {descriptor.context.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>
-                    <code>{item.value}</code>
-                  </dd>
-                  {item.description ? <small>{item.description}</small> : null}
-                </div>
-              ))}
-            </dl>
-            <Field
-              label={descriptor.requestLabel}
-              description="Vampire prepares the required context and sends the request to the visible main session."
-            >
+            {descriptor.context.length ? (
+              <details className="ask-agent__context-details">
+                <summary>Show prepared context</summary>
+                <dl className="ask-agent__context">
+                  {descriptor.context.map((item) => (
+                    <div key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>
+                        <code>{item.value}</code>
+                      </dd>
+                      {item.description ? <small>{item.description}</small> : null}
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            ) : null}
+            <Field label={descriptor.requestLabel}>
               <Textarea
                 ref={requestRef}
                 autoFocus
                 value={request}
-                rows={6}
+                rows={4}
                 maxLength={WORKSPACE_AGENT_ACTION_REQUEST_MAX_LENGTH}
                 placeholder={descriptor.requestPlaceholder}
                 aria-label={descriptor.requestLabel}
@@ -126,9 +150,6 @@ export function AskAgentPanel({
         ) : null}
       </div>
       <footer>
-        <Button variant="ghost" onClick={close} disabled={submitting}>
-          Back
-        </Button>
         {!descriptor && !loading ? (
           <Button onClick={() => void loadDescriptor()}>Retry</Button>
         ) : (

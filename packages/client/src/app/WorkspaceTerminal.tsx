@@ -7,9 +7,10 @@ import {
 } from '@vampire/lib/features/workspace/model/workspace-view.ts';
 import type { StatusPluginSnapshot } from '@vampire/lib/shared/contracts/status-plugin.ts';
 import type { WorkspaceEntryDragData } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
+import { isDesktopViewport } from '@vampire/lib/shared/ui/layout.ts';
 import { Activity, GitBranch, ListTree, PanelLeft, StickyNote } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 import { RepositoryPanel } from '~/features/repository/RepositoryPanel.tsx';
 import { StatusPluginBar } from '~/features/status/StatusPluginBar.tsx';
 import { BackgroundDialog } from '~/features/terminal/BackgroundDialog.tsx';
@@ -18,6 +19,20 @@ import type { WorkspaceState } from '~/features/workspace/model/workspace-state.
 import { WorkspaceNoteDialog } from '~/features/workspace/WorkspaceNoteDialog.tsx';
 import { ToolbarButton } from '~/shared/ui/index.ts';
 import '../features/terminal/workspace-terminal.css';
+
+type TerminalViewportState = {
+  compact: boolean;
+  constrained: boolean;
+  height: number;
+  top: number;
+};
+
+const INITIAL_TERMINAL_VIEWPORT: TerminalViewportState = {
+  compact: false,
+  constrained: false,
+  height: 0,
+  top: 0,
+};
 
 export const WorkspaceTerminal = observer(function WorkspaceTerminal({
   onManageStatusWidgets,
@@ -40,6 +55,52 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
     worktreeCount: number;
   }>({ changeCount: 0, worktreeCount: 0 });
   const [pathInsertion, setPathInsertion] = useState<{ entry: WorkspaceEntryDragData; token: number }>();
+  const [terminalViewport, setTerminalViewport] = useState<TerminalViewportState>(INITIAL_TERMINAL_VIEWPORT);
+
+  useEffect(() => {
+    let viewportFrame: number | undefined;
+    const visualViewport = window.visualViewport;
+    const applyViewport = () => {
+      viewportFrame = undefined;
+      // Android Firefox can expose VisualViewport while only shrinking
+      // innerHeight for the software keyboard. Use the smaller visible area.
+      const height = Math.round(Math.min(visualViewport?.height ?? window.innerHeight, window.innerHeight));
+      const constrained = !isDesktopViewport() || height + 1 < window.innerHeight;
+      const next: TerminalViewportState = constrained
+        ? {
+            compact: height <= 360,
+            constrained: true,
+            height,
+            top: Math.round(visualViewport?.offsetTop ?? 0),
+          }
+        : INITIAL_TERMINAL_VIEWPORT;
+      setTerminalViewport((current) =>
+        current.compact === next.compact &&
+        current.constrained === next.constrained &&
+        current.height === next.height &&
+        current.top === next.top
+          ? current
+          : next,
+      );
+    };
+    const updateViewport = () => {
+      if (viewportFrame !== undefined) return;
+      viewportFrame = window.requestAnimationFrame(applyViewport);
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    visualViewport?.addEventListener('resize', updateViewport);
+    visualViewport?.addEventListener('scroll', updateViewport);
+
+    return () => {
+      if (viewportFrame !== undefined) window.cancelAnimationFrame(viewportFrame);
+      window.removeEventListener('resize', updateViewport);
+      visualViewport?.removeEventListener('resize', updateViewport);
+      visualViewport?.removeEventListener('scroll', updateViewport);
+    };
+  }, []);
+
   const workspace = state.activeWorkspace;
   if (!workspace)
     return (
@@ -51,11 +112,21 @@ export const WorkspaceTerminal = observer(function WorkspaceTerminal({
   const terminal = [...workspace.terminals].sort((left, right) => left.index - right.index)[0];
   const backgroundCount = Math.max(0, workspace.terminals.length - 1);
   const repositoryName = workspaceRepositoryName(workspace);
+  const terminalSheetStyle: CSSProperties | undefined = terminalViewport.constrained
+    ? ({
+        '--terminal-viewport-height': `${terminalViewport.height}px`,
+        '--terminal-viewport-top': `${terminalViewport.top}px`,
+      } as CSSProperties)
+    : undefined;
   return (
     <section
       className={`workspace-terminal-layout${sidePanel ? ' side-panel-open' : ''}${repositoryOpen ? ' repository-open' : ''}`}
     >
-      <div className="terminal-sheet workspace-primary" aria-label={`Terminal for ${workspaceName(workspace)}`}>
+      <div
+        className={`terminal-sheet workspace-primary${terminalViewport.constrained ? ' visual-viewport-constrained' : ''}${terminalViewport.compact ? ' compact-viewport' : ''}`}
+        style={terminalSheetStyle}
+        aria-label={`Terminal for ${workspaceName(workspace)}`}
+      >
         <div className="terminal-topbar">
           <StatusPluginBar plugins={statusPlugins} onManage={onManageStatusWidgets} />
           <header className="terminal-header">

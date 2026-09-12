@@ -7,6 +7,69 @@ test.beforeEach(async ({ request }) => {
   await resetWorkspaces(request);
 });
 
+test('organizes settings and manages automations across workspaces', async ({ context, page }, testInfo) => {
+  await authenticate(context);
+  const first = await createWorkspace(context);
+  const second = await createWorkspace(context);
+  for (const [workspace, name] of [[first, 'First review'], [second, 'Second review']] as const) {
+    const response = await context.request.post(`/api/workspaces/${workspace.id}/automations`, { data: {
+      name, prompt: `Review ${name}`, schedule: { type: 'once', runAt: Date.now() + 3600000 },
+    } });
+    expect(response.ok()).toBe(true);
+  }
+  await page.goto(`/workspaces/${first.id}/settings`);
+  const sections = page.getByRole('navigation', { name: 'Workspace settings sections' });
+  await expect(page.getByRole('textbox', { name: 'Workspace name', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Identity', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`workspace-settings-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await sections.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Startup profile', exact: true })).toBeVisible();
+  await expect(page.locator('.workspace-setting-group:visible').first()).toHaveCSS('border-top-width', '0px');
+  await sections.getByRole('button', { name: 'Automations', exact: true }).click();
+  await expect(page.getByText('First review', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Workspace' })).toHaveCount(0);
+  await expect(sections).toBeVisible();
+  await sections.getByRole('button', { name: 'General', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Workspace name', exact: true })).toBeVisible();
+  await page.goto(`/settings?workspace=${first.id}`);
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Shared profiles' }).click();
+  await expect(page.locator('.settings-section:visible').first()).toHaveCSS('border-top-width', '0px');
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
+  const overview = page.locator('.all-automations');
+  await expect(overview.getByRole('heading', { name: 'First review' })).toBeVisible();
+  await expect(overview.getByRole('heading', { name: 'Second review' })).toBeVisible();
+  await overview.getByRole('button', { name: 'Pause First review' }).click();
+  await expect(overview.getByRole('button', { name: 'Enable First review' })).toBeVisible();
+  await page.getByLabel('Filter by status').selectOption('paused');
+  await expect(overview.getByRole('heading', { name: 'Second review' })).toHaveCount(0);
+  await page.getByLabel('Filter by status').selectOption('all');
+  await page.getByLabel('Search automations').fill('Second');
+  await expect(overview.getByRole('heading', { name: 'First review' })).toHaveCount(0);
+  await page.getByLabel('Search automations').fill('');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(overview.getByRole('heading', { name: 'Second review' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`all-automations-${width}.png`) });
+  }
+  await overview.getByRole('button', { name: 'Edit Second review' }).click();
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Second review');
+  await expect(page.getByRole('heading', { name: 'Edit Second review', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'App settings sections' })).toBeVisible();
+  await overview.getByRole('button', { name: 'Back to automations' }).click();
+  await expect(overview).toBeVisible();
+  await overview.getByRole('button', { name: 'New automation' }).click();
+  await overview.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('');
+});
+
 test('virtualizes large repository lists while keeping menus and keyboard navigation usable', async ({ context, page }, testInfo) => {
   execFileSync('git', ['init', '-q'], { cwd: E2E_WORKSPACE_DIRECTORY });
   await authenticate(context);
@@ -154,18 +217,83 @@ test('protects automation drafts when cancelling or navigating back', async ({ c
   await expect(page.getByRole('button', { name: 'New automation', exact: true })).toBeVisible();
 });
 
+test('lets weekly automations choose individual weekdays', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  await page.goto(`/workspaces/${workspace.id}/automations`);
+  await page.getByRole('button', { name: 'New automation', exact: true }).click();
+  await page.locator('.automation-editor select').selectOption('weekly');
+
+  const weekdayPicker = page.locator('.weekday-picker');
+  await expect(weekdayPicker.getByRole('button')).toHaveCount(7);
+  await expect(weekdayPicker.getByRole('button', { name: 'Mon', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(weekdayPicker.getByRole('button', { name: 'Sun', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await weekdayPicker.getByRole('button', { name: 'Sun', exact: true }).click();
+  await weekdayPicker.getByRole('button', { name: 'Mon', exact: true }).click();
+  await expect(weekdayPicker.getByRole('button', { name: 'Sun', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(weekdayPicker.getByRole('button', { name: 'Mon', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+});
+
+test('resets nested side-panel views when switching between note and background', async ({ context, page }) => {
+  await authenticate(context);
+  const workspace = await createWorkspace(context);
+  await page.goto(`/workspaces/${workspace.id}`);
+  await expectTerminalReady(page);
+
+  const terminalTools = page.getByRole('group', { name: 'Terminal tools' });
+  const notePanel = page.locator('.workspace-note-panel');
+  const backgroundPanel = page.locator('.background-panel');
+
+  await terminalTools.getByRole('button', { name: /workspace note$/ }).click();
+  await notePanel.getByRole('button', { name: 'Ask agent…', exact: true }).click();
+  await expect(notePanel.getByRole('heading', { name: 'Ask agent', exact: true })).toBeVisible();
+
+  await terminalTools.getByRole('button', { name: 'Open background processes', exact: true }).click();
+  await expect(backgroundPanel).toHaveAccessibleName('Background');
+  await backgroundPanel.getByRole('button', { name: 'Ask agent to manage saved commands', exact: true }).click();
+  await expect(backgroundPanel.getByRole('heading', { name: 'Ask agent', exact: true })).toBeVisible();
+
+  await terminalTools.getByRole('button', { name: /workspace note$/ }).click();
+  await expect(notePanel.getByRole('textbox', { name: 'Workspace note', exact: true })).toBeVisible();
+  await expect(notePanel.getByRole('heading', { name: 'Ask agent', exact: true })).toHaveCount(0);
+
+  await terminalTools.getByRole('button', { name: 'Open background processes', exact: true }).click();
+  await expect(backgroundPanel).toHaveAccessibleName('Background');
+  await expect(backgroundPanel.getByRole('heading', { name: 'Ask agent', exact: true })).toHaveCount(0);
+});
+
 test('reviews side panels and project picker at narrow and wide sizes', async ({ context, page }, testInfo) => {
   execFileSync('git', ['init', '-q'], { cwd: E2E_WORKSPACE_DIRECTORY });
   await authenticate(context);
   const workspace = await createWorkspace(context);
   await context.request.put(`/api/workspaces/${workspace.id}/note`, { data: { note: 'Check retry behavior before changing the connection flow.\n\nNext: add regression coverage.' } });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const width of [1440, 390, 320]) {
+  for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/workspaces/${workspace.id}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository', exact: true }).click();
     await expect(page.locator('.repository-content')).toBeVisible();
+    if (width === 768) {
+      await expect
+        .poll(() => page.locator('.workspace-primary').evaluate((element) => element.getBoundingClientRect().width))
+        .toBeGreaterThan(700);
+      await expect
+        .poll(() => page.locator('.repository-panel').evaluate((element) => element.getBoundingClientRect().width))
+        .toBeLessThan(400);
+    }
     await page.screenshot({ path: testInfo.outputPath(`explorer-${width}.png`) });
     await page.getByRole('tab', { name: 'Git', exact: true }).click();
     await page.screenshot({ path: testInfo.outputPath(`git-${width}.png`) });
@@ -195,6 +323,7 @@ test('guides login through token visibility, errors and connection', async ({ pa
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Connect to your workspace' })).toBeVisible();
     const token = page.getByLabel('Access token', { exact: true });
+    await expect(token).toBeFocused();
     await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
     await token.fill('test-token');
     await page.getByRole('button', { name: 'Show token', exact: true }).click();
@@ -261,6 +390,13 @@ test('uses icon menus for ordering and persisted sidebar previews', async ({ con
     await page.goto(`/workspaces/${workspace.id}`);
     await expectTerminalReady(page);
     if (width < 1024) await page.getByRole('button', { name: 'Open workspaces', exact: true }).click();
+    const headerButtonSizes = await page.locator('.workspace-navigator-heading > button:visible').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const { width: buttonWidth, height: buttonHeight } = button.getBoundingClientRect();
+        return `${Math.round(buttonWidth)}x${Math.round(buttonHeight)}`;
+      }),
+    );
+    expect(new Set(headerButtonSizes).size).toBe(1);
     await page.getByRole('button', { name: 'Workspace view options' }).click();
     const notes = page.getByRole('menuitemcheckbox', { name: 'Show notes', exact: true });
     const last = page.getByRole('menuitemcheckbox', { name: 'Show last message', exact: true });
@@ -305,7 +441,13 @@ test('reviews settings navigation, dirty-state protection and modal layout', asy
     await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`settings-${width}.png`) });
+    const appSections = page.getByRole('navigation', { name: 'App settings sections' });
+    await appSections.getByRole('button', { name: 'Status widgets', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}$`));
+    await expect(page.getByRole('heading', { name: 'Status widgets', exact: true })).toBeVisible();
+    await expect(appSections).toBeVisible();
     const limit = page.getByRole('spinbutton', { name: 'Prompts saved per workspace' });
+    await appSections.getByRole('button', { name: 'Terminal', exact: true }).click();
     await limit.fill('25');
     await page.getByRole('button', { name: 'Close settings', exact: true }).click();
     const discard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });

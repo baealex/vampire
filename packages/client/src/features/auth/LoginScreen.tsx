@@ -48,6 +48,7 @@ export function LoginScreen({
               name="token"
               value={token}
               onChange={(event) => onTokenChange(event.currentTarget.value)}
+              autoFocus
               autoComplete="current-password"
               autoCapitalize="none"
               spellCheck={false}

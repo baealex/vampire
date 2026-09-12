@@ -1,6 +1,11 @@
-@media (min-width: 64rem) {
+@media (min-width: 80rem) {
   .workspace-terminal-layout.repository-open > .repository-viewer {
     right: min(22rem, 45%);
+  }
+}
+@media (min-width: 32rem) and (max-width: 79.999rem) {
+  .workspace-terminal-layout.repository-open > .repository-viewer {
+    right: min(23rem, calc(100% - 2.75rem));
   }
 }
 .repository-tabs {

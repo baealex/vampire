@@ -42,10 +42,16 @@ function command(): StatusPlugin {
 }
 
 export function StatusPluginSettingsDialog({
+  active = true,
+  embedded = false,
+  onBack,
   onClose,
   workspaceId,
   workspaces,
 }: {
+  active?: boolean;
+  embedded?: boolean;
+  onBack?: () => void;
   onClose: () => void;
   workspaceId?: string;
   workspaces: ManagedWorkspace[];
@@ -72,10 +78,11 @@ export function StatusPluginSettingsDialog({
   const dirty = useMemo(() => JSON.stringify(plugins) !== loaded, [loaded, plugins]);
   const selected = plugins.find((plugin) => plugin.id === selectedId);
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let mounted = true;
     void requestJson<Response>('/api/status-plugins', { cache: 'no-store' })
       .then((response) => {
-        if (active) {
+        if (mounted) {
           setPlugins(cloneStatusPlugins(response.plugins));
           setPresets(response.presets);
           setLoaded(JSON.stringify(response.plugins));
@@ -84,9 +91,9 @@ export function StatusPluginSettingsDialog({
       .catch((cause) => setError(cause instanceof Error ? cause.message : 'Unable to load status widgets.'))
       .finally(() => setLoading(false));
     return () => {
-      active = false;
+      mounted = false;
     };
-  }, []);
+  }, [active]);
   useEffect(() => {
     if (!dirty) return;
     return registerNavigationGuard(
@@ -148,210 +155,225 @@ export function StatusPluginSettingsDialog({
       setSaving(false);
     }
   };
-  return (
-    <>
-      <ManagementSurface
-        title={selected?.name || 'Status widgets'}
-        titleId="status-widget-settings-title"
-        eyebrow="Server settings"
-        close={onClose}
-        closeLabel="Close status widget settings"
-        back={askingAgent ? () => setAskingAgent(false) : selected ? () => setSelectedId(undefined) : undefined}
-        backLabel="Back to status widgets"
-        busy={saving}
-        footer={
-          dirty ? (
-            <div className={styles.footer}>
-              <span>Unsaved changes</span>
-              <Button variant="primary" onClick={() => void save()} disabled={saving}>
-                <Save size={15} />
-                {saving ? 'Saving…' : 'Save changes'}
-              </Button>
-            </div>
-          ) : undefined
-        }
-      >
-        <div className={styles.settings}>
-          {askingAgent ? (
-            <div className={styles.agentView}>
-              <label className={styles.agentTarget}>
-                <span>Send to</span>
-                <Select
-                  aria-label="Send to"
-                  value={targetWorkspaceId}
-                  onChange={(event) => setTargetWorkspaceId(event.currentTarget.value)}
-                >
-                  {agentTargets.map((target) => (
-                    <option key={target.workspace.id} value={target.workspace.id}>
-                      {target.workspace.workspaceLabel?.trim() || target.workspace.cwd} · {target.processLabel}
-                    </option>
-                  ))}
-                </Select>
-                <small>Widget files are global; choose the workspace agent that should update them.</small>
-              </label>
-              {targetWorkspaceId ? (
-                <AskAgentPanel
-                  key={targetWorkspaceId}
-                  showTarget={false}
-                  close={() => setAskingAgent(false)}
-                  load={() => loadWorkspaceAgentAction(targetWorkspaceId, 'status-widget')}
-                  submit={(request) => submitWorkspaceAgentAction(targetWorkspaceId, 'status-widget', request)}
-                />
-              ) : (
-                <p>Start a foreground process in a workspace’s main terminal to use Ask Agent.</p>
-              )}
-            </div>
-          ) : loading ? (
-            <div className={styles.loading}>
-              <Spinner />
-              Loading status widgets…
-            </div>
-          ) : selected ? (
-            <div className={styles.detail}>
-              <div className={styles.detailTop}>
-                <label>
-                  Name
-                  <Input
-                    value={selected.name}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      update(selected.id, (plugin) => ({ ...plugin, name: value }));
-                    }}
-                  />
-                </label>
-                <label>
-                  Every
-                  <Input
-                    type="number"
-                    value={selected.intervalMs / 1000}
-                    onChange={(event) => {
-                      const value = event.currentTarget.valueAsNumber;
-                      update(selected.id, (plugin) => ({ ...plugin, intervalMs: value * 1000 }));
-                    }}
-                  />
-                </label>
-              </div>
-              <label className={styles.enabledField}>
-                <input
-                  type="checkbox"
-                  checked={selected.enabled}
-                  onChange={(event) => {
-                    const checked = event.currentTarget.checked;
-                    update(selected.id, (plugin) => ({ ...plugin, enabled: checked }));
-                  }}
-                />
-                Enabled
-              </label>
-              <label className={styles.commandField}>
-                Command
-                <CodeEditor
-                  label="Command"
-                  language="shell"
-                  value={selected.source.command}
-                  onChange={(value) =>
-                    update(selected.id, (plugin) => ({ ...plugin, source: { type: 'command', command: value } }))
-                  }
-                />
-              </label>
-              <Button
-                variant="danger-outline"
-                aria-label={`Remove ${selected.name}`}
-                onClick={() => remove(selected.id)}
-              >
-                <Trash2 size={15} />
-                Remove widget
-              </Button>
-            </div>
+  const footer = dirty ? (
+    <div className={styles.footer}>
+      <span>Unsaved changes</span>
+      <Button variant="primary" onClick={() => void save()} disabled={saving}>
+        <Save size={15} />
+        {saving ? 'Saving…' : 'Save changes'}
+      </Button>
+    </div>
+  ) : undefined;
+  const content = (
+    <div className={styles.settings}>
+      {embedded && (askingAgent || selected) ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => (askingAgent ? setAskingAgent(false) : setSelectedId(undefined))}
+        >
+          Back to status widgets
+        </Button>
+      ) : null}
+      {askingAgent ? (
+        <div className={styles.agentView}>
+          <label className={styles.agentTarget}>
+            <span>Send to</span>
+            <Select
+              aria-label="Send to"
+              value={targetWorkspaceId}
+              onChange={(event) => setTargetWorkspaceId(event.currentTarget.value)}
+            >
+              {agentTargets.map((target) => (
+                <option key={target.workspace.id} value={target.workspace.id}>
+                  {target.workspace.workspaceLabel?.trim() || target.workspace.cwd} · {target.processLabel}
+                </option>
+              ))}
+            </Select>
+            <small>Widget files are global; choose the workspace agent that should update them.</small>
+          </label>
+          {targetWorkspaceId ? (
+            <AskAgentPanel
+              key={targetWorkspaceId}
+              showBack={false}
+              showTarget={false}
+              close={() => setAskingAgent(false)}
+              load={() => loadWorkspaceAgentAction(targetWorkspaceId, 'status-widget')}
+              submit={(request) => submitWorkspaceAgentAction(targetWorkspaceId, 'status-widget', request)}
+            />
           ) : (
-            <>
-              <div className={styles.toolbar}>
-                <span>
-                  {plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}
-                </span>
-                <Button size="sm" disabled={dirty || agentTargets.length === 0} onClick={() => setAskingAgent(true)}>
-                  <Sparkles size={14} />
-                  Ask agent…
-                </Button>
-                <DropdownMenu
-                  align="end"
-                  label="Add widget"
-                  triggerClassName={styles.addButton}
-                  trigger={
-                    <>
-                      <Plus size={14} />
-                      Add widget
-                    </>
-                  }
+            <p>Start a foreground process in a workspace’s main terminal to use Ask Agent.</p>
+          )}
+        </div>
+      ) : loading ? (
+        <div className={styles.loading}>
+          <Spinner />
+          Loading status widgets…
+        </div>
+      ) : selected ? (
+        <div className={styles.detail}>
+          <div className={styles.detailTop}>
+            <label>
+              Name
+              <Input
+                value={selected.name}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  update(selected.id, (plugin) => ({ ...plugin, name: value }));
+                }}
+              />
+            </label>
+            <label>
+              Every
+              <Input
+                type="number"
+                value={selected.intervalMs / 1000}
+                onChange={(event) => {
+                  const value = event.currentTarget.valueAsNumber;
+                  update(selected.id, (plugin) => ({ ...plugin, intervalMs: value * 1000 }));
+                }}
+              />
+            </label>
+          </div>
+          <label className={styles.enabledField}>
+            <input
+              type="checkbox"
+              checked={selected.enabled}
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
+                update(selected.id, (plugin) => ({ ...plugin, enabled: checked }));
+              }}
+            />
+            Enabled
+          </label>
+          <label className={styles.commandField}>
+            Command
+            <CodeEditor
+              label="Command"
+              language="shell"
+              value={selected.source.command}
+              onChange={(value) =>
+                update(selected.id, (plugin) => ({ ...plugin, source: { type: 'command', command: value } }))
+              }
+            />
+          </label>
+          <Button variant="danger-outline" aria-label={`Remove ${selected.name}`} onClick={() => remove(selected.id)}>
+            <Trash2 size={15} />
+            Remove widget
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className={styles.toolbar}>
+            <span>
+              {plugins.length} {plugins.length === 1 ? 'widget' : 'widgets'}
+            </span>
+            <Button size="sm" disabled={dirty || agentTargets.length === 0} onClick={() => setAskingAgent(true)}>
+              <Sparkles size={14} />
+              Ask agent…
+            </Button>
+            <DropdownMenu
+              align="end"
+              label="Add widget"
+              triggerClassName={styles.addButton}
+              trigger={
+                <>
+                  <Plus size={14} />
+                  Add widget
+                </>
+              }
+            >
+              {presets.map((preset) => (
+                <DropdownMenuItem
+                  key={preset.id}
+                  onSelect={() => add(createStatusPluginPreset(preset.id, crypto.randomUUID()))}
                 >
-                  {presets.map((preset) => (
-                    <DropdownMenuItem
-                      key={preset.id}
-                      onSelect={() => add(createStatusPluginPreset(preset.id, crypto.randomUUID()))}
-                    >
-                      <Plus size={14} />
-                      {preset.name}
-                    </DropdownMenuItem>
-                  ))}
+                  <Plus size={14} />
+                  {preset.name}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => add(command())}>
+                <Plus size={14} />
+                Command
+              </DropdownMenuItem>
+            </DropdownMenu>
+          </div>
+          <div className={styles.list}>
+            {plugins.map((plugin, index) => (
+              <article className={styles.row} key={plugin.id}>
+                <button
+                  className={styles.summary}
+                  type="button"
+                  aria-label={`Edit ${plugin.name}`}
+                  onClick={() => setSelectedId(plugin.id)}
+                >
+                  <span className={styles.order}>{index + 1}</span>
+                  <span className={styles.main}>
+                    <strong>{plugin.name}</strong>
+                    <small>
+                      {plugin.intervalMs / 1000}s · {plugin.enabled ? 'On' : 'Off'}
+                    </small>
+                  </span>
+                  <ChevronRight className={styles.chevron} size={16} />
+                </button>
+                <DropdownMenu align="end" label={`Actions for ${plugin.name}`} trigger={<Ellipsis size={17} />}>
+                  <DropdownMenuItem
+                    disabled={index === 0}
+                    aria-label={`Move ${plugin.name} up`}
+                    onSelect={() => move(index, -1)}
+                  >
+                    <ChevronUp size={15} />
+                    Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={index === plugins.length - 1}
+                    aria-label={`Move ${plugin.name} down`}
+                    onSelect={() => move(index, 1)}
+                  >
+                    <ChevronDown size={15} />
+                    Move down
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => add(command())}>
-                    <Plus size={14} />
-                    Command
+                  <DropdownMenuItem danger aria-label={`Remove ${plugin.name}`} onSelect={() => remove(plugin.id)}>
+                    <Trash2 size={15} />
+                    Remove
                   </DropdownMenuItem>
                 </DropdownMenu>
-              </div>
-              <div className={styles.list}>
-                {plugins.map((plugin, index) => (
-                  <article className={styles.row} key={plugin.id}>
-                    <button
-                      className={styles.summary}
-                      type="button"
-                      aria-label={`Edit ${plugin.name}`}
-                      onClick={() => setSelectedId(plugin.id)}
-                    >
-                      <span className={styles.order}>{index + 1}</span>
-                      <span className={styles.main}>
-                        <strong>{plugin.name}</strong>
-                        <small>
-                          {plugin.intervalMs / 1000}s · {plugin.enabled ? 'On' : 'Off'}
-                        </small>
-                      </span>
-                      <ChevronRight className={styles.chevron} size={16} />
-                    </button>
-                    <DropdownMenu align="end" label={`Actions for ${plugin.name}`} trigger={<Ellipsis size={17} />}>
-                      <DropdownMenuItem
-                        disabled={index === 0}
-                        aria-label={`Move ${plugin.name} up`}
-                        onSelect={() => move(index, -1)}
-                      >
-                        <ChevronUp size={15} />
-                        Move up
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={index === plugins.length - 1}
-                        aria-label={`Move ${plugin.name} down`}
-                        onSelect={() => move(index, 1)}
-                      >
-                        <ChevronDown size={15} />
-                        Move down
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem danger aria-label={`Remove ${plugin.name}`} onSelect={() => remove(plugin.id)}>
-                        <Trash2 size={15} />
-                        Remove
-                      </DropdownMenuItem>
-                    </DropdownMenu>
-                  </article>
-                ))}
-              </div>
-            </>
-          )}
-          {error ? (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          ) : null}
-        </div>
-      </ManagementSurface>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+      {error ? (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+  return (
+    <>
+      {embedded ? (
+        <>
+          {content}
+          {footer}
+        </>
+      ) : (
+        <ManagementSurface
+          title={selected?.name || 'Status widgets'}
+          titleId="status-widget-settings-title"
+          eyebrow="Server settings"
+          close={onClose}
+          closeLabel="Close status widget settings"
+          back={askingAgent ? () => setAskingAgent(false) : selected ? () => setSelectedId(undefined) : onBack}
+          backLabel={askingAgent || selected ? 'Back to status widgets' : 'Back to app settings'}
+          busy={saving}
+          footer={footer}
+        >
+          {content}
+        </ManagementSurface>
+      )}
       {discardOpen ? (
         <div className={styles.discardOverlay}>
           <section

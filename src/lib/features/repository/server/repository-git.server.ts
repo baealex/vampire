@@ -31,9 +31,35 @@ type GitCommandError = Error & {
 const execFile = promisify(execFileCallback);
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
+const MAX_GIT_ERROR_DETAIL_LENGTH = 240;
 export const DEFAULT_COMMIT_PAGE_SIZE = 20;
 export const MAX_COMMIT_PAGE_SIZE = 100;
 export const TEMPORARY_UPLOAD_PREFIX = '.vampire-upload-';
+
+function gitEnvironmentWithoutPathspecModes(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  delete environment.GIT_LITERAL_PATHSPECS;
+  delete environment.GIT_GLOB_PATHSPECS;
+  delete environment.GIT_NOGLOB_PATHSPECS;
+  return environment;
+}
+
+function gitErrorDetail(error: GitCommandError): string | undefined {
+  const detail = error.stderr
+    ?.split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!detail) return undefined;
+  return detail.length > MAX_GIT_ERROR_DETAIL_LENGTH ? `${detail.slice(0, MAX_GIT_ERROR_DETAIL_LENGTH - 1)}…` : detail;
+}
+
+function gitFailureMessage(error: GitCommandError): string {
+  const detail = gitErrorDetail(error);
+  if (detail) return `Git could not read this workspace: ${detail}`;
+  if (error.code === 'ENOENT') return 'Git could not read this workspace: Git is not available on the server.';
+  if (error.code === 'EACCES') return 'Git could not read this workspace: Git cannot be executed on the server.';
+  return 'Git could not read this workspace.';
+}
 
 /**
  */
@@ -73,7 +99,7 @@ export async function runGit(
       throw repositoryError('too-large', 'Repository output is too large to display safely.');
     }
     if (commandError.killed) throw repositoryError('command-failed', 'Git took too long to respond.');
-    throw repositoryError('command-failed', 'Git could not read this workspace.');
+    throw repositoryError('command-failed', gitFailureMessage(commandError));
   }
 }
 
@@ -83,7 +109,7 @@ export async function readGitIgnoredPaths(cwd: string, paths: string[]): Promise
     const child = spawn('git', ['-C', cwd, '-c', 'status.relativePaths=true', 'check-ignore', '--stdin', '-z'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
-        ...process.env,
+        ...gitEnvironmentWithoutPathspecModes(),
         GIT_OPTIONAL_LOCKS: '0',
         GIT_PAGER: 'cat',
         GIT_TERMINAL_PROMPT: '0',
@@ -116,12 +142,19 @@ export async function readGitIgnoredPaths(cwd: string, paths: string[]): Promise
       stdout.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.on('error', () => finish(repositoryError('command-failed', 'Git could not read this workspace.')));
+    child.on('error', (error) =>
+      finish(repositoryError('command-failed', gitFailureMessage(error as GitCommandError))),
+    );
     child.on('close', (code) => {
       if (settled) return;
       if (code !== 0 && code !== 1) {
         const message = Buffer.concat(stderr).toString('utf8').trim();
-        finish(repositoryError('command-failed', message || 'Git could not read this workspace.'));
+        finish(
+          repositoryError(
+            'command-failed',
+            gitFailureMessage({ name: 'GitCommandError', message, stderr: message, code: code ?? undefined }),
+          ),
+        );
         return;
       }
       finish(undefined, Buffer.concat(stdout).toString('utf8').split('\0').filter(Boolean));

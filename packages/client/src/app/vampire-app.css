@@ -2,6 +2,15 @@ main {
   width: 100%;
   min-height: 100dvh;
 }
+main.terminal-open {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+main.terminal-open .app-shell {
+  height: 100%;
+  min-height: 0;
+}
 .loading-state {
   display: flex;
   align-items: center;

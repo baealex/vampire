@@ -74,6 +74,7 @@ export type RepositoryDiscardResult = {
 export type RepositorySnapshot = {
   isGitRepository: boolean;
   git?: RepositoryGitSnapshot;
+  gitError?: string;
   files: string[];
   directories: string[];
   ignored: string[];
@@ -86,6 +87,7 @@ export type RepositoryDirectoryListing = {
   files: string[];
   directories: string[];
   ignored: string[];
+  gitError?: string;
   truncated: boolean;
 };
 

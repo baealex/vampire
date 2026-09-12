@@ -6,6 +6,25 @@ import { ManagementSurface } from './ManagementSurface.tsx';
 afterEach(cleanup);
 
 describe('unsaved management settings', () => {
+  it('keeps close available beside the title on nested screens', () => {
+    const close = vi.fn();
+    const back = vi.fn();
+    render(
+      <ManagementSurface
+        title="Agent automations"
+        titleId="automations-title"
+        close={close}
+        closeLabel="Close agent automations"
+        back={back}
+        backLabel="Back to automations"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close agent automations' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to automations' }));
+    expect(close).toHaveBeenCalledOnce();
+    expect(back).toHaveBeenCalledOnce();
+  });
+
   it('keeps edits when navigation is cancelled and allows an explicit discard', async () => {
     render(
       <ManagementSurface title="Settings" titleId="settings-title" close={vi.fn()} dirty>

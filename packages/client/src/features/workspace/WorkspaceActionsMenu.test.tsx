@@ -20,7 +20,6 @@ describe('Workspace actions menu', () => {
         open
         onOpenChange={vi.fn()}
         onSettings={vi.fn()}
-        onAutomations={vi.fn()}
         onNewWorktree={vi.fn()}
         state={{} as WorkspaceState}
         workspace={{ id: 'workspace', cwd: '/projects/example', state } as ManagedWorkspace}

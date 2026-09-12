@@ -35,6 +35,7 @@
   font-size: var(--text-caption);
 }
 .automation-toolbar > span {
+  margin-right: auto;
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
 }

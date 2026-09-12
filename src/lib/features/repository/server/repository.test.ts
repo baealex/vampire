@@ -97,6 +97,20 @@ test('lists workspace files including Git-ignored entries and reflects structure
   );
 });
 
+test('keeps the workspace file list available when Git metadata cannot be read', async (t) => {
+  const directory = await createRepository(t);
+  await writeFile(join(directory, 'notes.md'), '# Notes\n');
+  await writeFile(join(directory, '.git', 'index'), 'corrupt index\n', 'utf8');
+
+  const snapshot = await readRepositorySnapshot(directory);
+
+  assert.equal(snapshot.isGitRepository, false);
+  assert.deepEqual(snapshot.files, ['.gitignore', 'notes.md']);
+  assert.deepEqual(snapshot.directories, ['src']);
+  assert.deepEqual(snapshot.changes, []);
+  assert.match(snapshot.gitError ?? '', /^Git information is unavailable; showing workspace files only\./);
+});
+
 test('reports local branches, recent commits, upstream distance, and linked worktrees', async (t) => {
   const directory = await createRepository(t);
   const branch = (await git(directory, 'branch', '--show-current')).trim();

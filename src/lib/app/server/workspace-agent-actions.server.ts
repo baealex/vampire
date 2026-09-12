@@ -140,14 +140,11 @@ async function prepareNoteAction(
   return {
     descriptor: {
       id: 'note',
-      title: 'Ask agent about this note',
-      description: 'The note path is supplied as context. You decide how the agent should read or update it.',
+      description: 'Ask the agent to organize or update this note.',
       target: publicAgentTarget(target),
       context: [{ label: 'Workspace note', value: notePath }],
-      requestLabel: 'What should the agent do?',
-      requestPlaceholder: 'For example: organize the important context and next steps.',
-      defaultRequest:
-        'Review the current workspace state and organize this note with the important context and next steps.',
+      requestLabel: 'Request',
+      requestPlaceholder: 'e.g. organize the important context and next steps',
     },
     prompt: (request) => notePrompt(notePath, request),
   };
@@ -179,8 +176,7 @@ async function prepareStatusWidgetAction(
   return {
     descriptor: {
       id: 'status-widget',
-      title: 'Create a status widget with an agent',
-      description: 'Vampire supplies its live configuration, current widget contract, and validator.',
+      description: 'Ask the agent to create or update a status widget.',
       target: publicAgentTarget(target),
       context: [
         {
@@ -195,9 +191,8 @@ async function prepareStatusWidgetAction(
         },
         { label: 'Validation command', value: support.validationCommand },
       ],
-      requestLabel: 'What widget should the agent create?',
-      requestPlaceholder: 'For example: show unread GitHub notifications and link to the notifications page.',
-      defaultRequest: '',
+      requestLabel: 'Widget request',
+      requestPlaceholder: 'e.g. show unread GitHub notifications',
     },
     prompt: (request) => statusWidgetPrompt(support, request),
   };
@@ -231,9 +226,7 @@ async function prepareAutomationAction(
   return {
     descriptor: {
       id: 'automation',
-      title: 'Manage automations with an agent',
-      description:
-        'Vampire supplies the current automation snapshot, an isolated operation draft, and a safe apply command.',
+      description: 'Ask the agent to create or change one workspace automation.',
       target: publicAgentTarget(target),
       context: support
         ? [
@@ -249,9 +242,8 @@ async function prepareAutomationAction(
                 'Vampire snapshots the current automations and creates an isolated create-or-update request.',
             },
           ],
-      requestLabel: 'What should the agent create or change?',
-      requestPlaceholder: 'For example: change “Daily review” to weekdays at 9 AM, or create a weekly project check.',
-      defaultRequest: '',
+      requestLabel: 'Automation request',
+      requestPlaceholder: 'e.g. weekdays at 9 AM, review open work',
     },
     prompt: (request) => {
       if (!support) throw new Error('Automation agent support was not prepared.');
@@ -289,9 +281,7 @@ async function prepareBackgroundAction(
   return {
     descriptor: {
       id: 'background',
-      title: 'Manage Background commands with an agent',
-      description:
-        'Vampire supplies only the current saved commands, an isolated add-or-remove draft, and a safe apply command.',
+      description: 'Ask the agent to add or remove saved commands. Commands are not run.',
       target: publicAgentTarget(target),
       context: support
         ? [
@@ -306,10 +296,8 @@ async function prepareBackgroundAction(
               description: 'Vampire snapshots only this workspace’s saved Background commands.',
             },
           ],
-      requestLabel: 'Which commands should the agent manage?',
-      requestPlaceholder:
-        'For example: find and save the development server and test watch commands, without removing existing commands.',
-      defaultRequest: '',
+      requestLabel: 'Command request',
+      requestPlaceholder: 'e.g. save the dev server and test watcher',
     },
     prompt: (request) => {
       if (!support) throw new Error('Background agent support was not prepared.');

@@ -37,6 +37,13 @@
     line-height: var(--leading-ui);
   }
 
+  html:has(main.terminal-open),
+  body:has(main.terminal-open) {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   button,
   input,
   textarea {

@@ -419,6 +419,7 @@ test('resizes terminal geometry with the browser viewport while keeping active c
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
+  await expect(page.locator('.terminal-sheet')).toHaveClass(/visual-viewport-constrained/);
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
   const composer = page.getByPlaceholder('Compose a message…');
@@ -429,6 +430,18 @@ test('resizes terminal geometry with the browser viewport while keeping active c
   const initialScreenHeight = await page
     .locator('.xterm-screen')
     .evaluate((screen) => screen.getBoundingClientRect().height);
+
+  // Android Firefox can leave VisualViewport at its previous height while
+  // innerHeight is the only value that reflects the software keyboard.
+  await page.evaluate(() => {
+    const visualViewport = window.visualViewport;
+    if (!visualViewport) return;
+    const staleHeight = visualViewport.height;
+    Object.defineProperty(visualViewport, 'height', {
+      configurable: true,
+      get: () => staleHeight,
+    });
+  });
 
   delayServerMessages = true;
   await page.setViewportSize({ width: viewport!.width, height: viewport!.height - 320 });
@@ -448,7 +461,9 @@ test('resizes terminal geometry with the browser viewport while keeping active c
         const screenBounds = frame.querySelector<HTMLElement>('.xterm-screen')?.getBoundingClientRect();
         const cursorBounds = frame.querySelector<HTMLElement>('.xterm-helper-textarea')?.getBoundingClientRect();
         const composerBounds = document.querySelector('.composer')?.getBoundingClientRect();
-        const viewportBottom = window.innerHeight;
+        const visualViewport = window.visualViewport;
+        const viewportBottom =
+          (visualViewport?.offsetTop ?? 0) + Math.min(visualViewport?.height ?? window.innerHeight, window.innerHeight);
         return {
           composerFits: Boolean(composerBounds && composerBounds.bottom <= viewportBottom + 1),
           frameFitsScreen: Boolean(
@@ -460,6 +475,7 @@ test('resizes terminal geometry with the browser viewport while keeping active c
           activeCursorVisible: Boolean(
             cursorBounds && cursorBounds.top >= frameBounds.top - 1 && cursorBounds.bottom <= frameBounds.bottom + 1
           ),
+          documentScrollTop: window.scrollY,
         };
       })
     )
@@ -467,6 +483,7 @@ test('resizes terminal geometry with the browser viewport while keeping active c
       composerFits: true,
       frameFitsScreen: true,
       activeCursorVisible: true,
+      documentScrollTop: 0,
     });
 
   delayServerMessages = false;
@@ -513,10 +530,11 @@ test('keeps a usable terminal and composer in an extreme keyboard-height viewpor
           frameFits: screenBounds.bottom <= frameBounds.bottom + 1,
           usableRows: rows.childElementCount >= 5,
           scrollFits: document.documentElement.scrollWidth <= innerWidth,
+          documentScrollTop: scrollY,
         };
       })
     )
-    .toEqual({ composerFits: true, frameFits: true, usableRows: true, scrollFits: true });
+    .toEqual({ composerFits: true, frameFits: true, usableRows: true, scrollFits: true, documentScrollTop: 0 });
 });
 
 test('keeps a wide single-line composer and opens secondary actions on a narrow screen', async ({
@@ -731,8 +749,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await page.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('radio', { name: /System/ })).toBeVisible();
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
   await expect(page.getByText('Switch input', { exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'General', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expectTerminalReady(page);
@@ -915,8 +935,8 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await expect(automationPrompt).toBeFocused();
   await expect
     .poll(() =>
-      automationPage.evaluate((surface) => {
-        const element = surface as HTMLElement;
+      automationPage.locator('.management-body').evaluate((body) => {
+        const element = body as HTMLElement;
         element.scrollTop = element.scrollHeight;
         return element.scrollHeight > element.clientHeight && element.scrollTop > 0;
       })
@@ -932,10 +952,12 @@ test('keeps automation and widget management routable in a narrow viewport', asy
 
   await page.getByRole('button', { name: 'Open workspaces' }).click();
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Agent automations' }).click();
-  await expect(automationPage).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
+  const workspaceAutomationSettings = page.locator('section[aria-labelledby="workspace-automations-section-title"]');
+  await expect(workspaceAutomationSettings).toBeVisible();
   await expect(page.locator('.workspace-column')).not.toHaveClass(/mobile-open/);
-  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await page.getByRole('button', { name: 'Close workspace settings' }).click();
   await expectTerminalReady(page);
   await expect(page.getByRole('button', { name: 'Open workspaces' })).toBeFocused();
 

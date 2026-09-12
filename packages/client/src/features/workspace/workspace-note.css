@@ -9,6 +9,9 @@
   background: var(--color-panel);
   pointer-events: auto;
 }
+.note-editor.panel.agent-mode {
+  grid-template-rows: minmax(0, 1fr);
+}
 .note-writing-area {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

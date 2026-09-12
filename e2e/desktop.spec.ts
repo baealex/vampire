@@ -620,6 +620,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   await expect(page.getByRole('dialog', { name: 'Workspace settings' })).toHaveCount(0);
   const template = '# Read AGENTS.md before working.\n{{ prompts }}\n# Verify the result before replying.';
   const templateEditor = settingsPage.getByRole('textbox', { name: 'Template source' });
+  await settingsPage.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click();
   await settingsPage.locator('.monaco-editor .view-lines').click();
   // Monaco follows the emulated Windows user agent, not the test runner's macOS host.
   await templateEditor.press('Control+a');
@@ -630,7 +631,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   await expect(settingsPage.locator('.preview-output pre')).toHaveText(
     '# Read AGENTS.md before working.\n[Your message]\n# Verify the result before replying.'
   );
-  await settingsPage.getByRole('button', { name: 'Save workspace settings' }).click();
+  await settingsPage.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(settingsPage.getByRole('status')).toContainText('Workspace settings saved');
   await settingsPage.getByRole('button', { name: 'Close workspace settings' }).click();
   await expectTerminalReady(page);
@@ -673,9 +674,9 @@ test('keeps Composer fixed and follows the caret through line breaks and history
   const initialRenderedRows = await terminalRows.evaluate((rows) => rows.childElementCount);
   const composer = page.getByPlaceholder('Compose a message…');
 
-  await expect(page.locator('.composer-line-count')).toBeHidden();
+  await expect(page.locator('.composer-line-count')).toHaveCount(0);
   await composer.fill('First line\nSecond line\nThird line\nFourth line');
-  await expect(page.locator('.composer-line-count')).toHaveText('+ 3 lines');
+  await expect(page.locator('.composer-line-count')).toHaveCount(0);
   await expect(composer).toHaveCSS('scrollbar-width', 'none');
   await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
   for (let line = 0; line < 4; line += 1) {
@@ -706,7 +707,7 @@ test('keeps Composer fixed and follows the caret through line breaks and history
     )
     .toBeLessThan(2);
   await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
-  await expect(page.locator('.composer-line-count')).toHaveText('+ 8 lines');
+  await expect(page.locator('.composer-line-count')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('fixed-multiline-composer.png') });
   await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
   await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
@@ -924,9 +925,10 @@ test('immediately delivers workspace requests to the foreground process without 
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Agent automations' }).click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}/automations$`));
-  const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}/settings$`));
+  const automationPage = page.locator('section[aria-labelledby="workspace-automations-section-title"]');
   await expect(automationPage).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
   await automationPage.getByRole('button', { name: 'New automation' }).click();
@@ -947,26 +949,26 @@ test('immediately delivers workspace requests to the foreground process without 
   await automationPage.getByRole('button', { name: 'Save changes' }).click();
   const updatedAutomation = automationPage.locator('article', { hasText: 'Review project state later' });
   await expect(updatedAutomation).toContainText(`Mon, Tue, Wed, Thu, Fri at 2:30 PM (${browserTimeZone})`);
-  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await page.getByRole('button', { name: 'Close workspace settings' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expect(page.getByRole('button', { name: /Workspace actions for/ })).toBeFocused();
 
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   await page.getByRole('button', { name: 'Open settings' }).click();
-  await page.getByRole('button', { name: 'Manage all automations' }).click();
-  await expect(page).toHaveURL(new RegExp(`/settings/automations\\?workspace=${encodeURIComponent(workspace.id)}$`));
-  const allAutomationsPage = page.locator('section[aria-labelledby="application-automations-title"]');
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  const allAutomationsPage = page
+    .locator('.settings-section')
+    .filter({ has: page.getByRole('heading', { name: 'Automations', exact: true }) });
   await expect(allAutomationsPage.getByRole('heading', { name: 'Automations' })).toBeVisible();
   await expect(allAutomationsPage).toContainText('1 active · 1 of 1 workspace configured.');
   await allAutomationsPage.getByRole('button', { name: 'Edit Review project state later' }).click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}/automations\\?edit=`));
-  await expect(automationPage.locator('#workspace-automations-title')).toHaveText('Edit automation');
-  await expect(automationPage.getByLabel('Name')).toHaveValue('Review project state later');
-  await automationPage.getByRole('button', { name: 'Back to automations' }).click();
-  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await expect(allAutomationsPage.getByRole('heading', { name: 'Edit Review project state later', exact: true })).toBeVisible();
+  await expect(allAutomationsPage.getByLabel('Name')).toHaveValue('Review project state later');
+  await expect(page.getByRole('navigation', { name: 'App settings sections' })).toBeVisible();
+  await allAutomationsPage.getByRole('button', { name: 'Back to automations' }).click();
   await expect(allAutomationsPage).toBeVisible();
-  await allAutomationsPage.getByRole('button', { name: 'Close all automations' }).click();
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
 
@@ -985,10 +987,15 @@ test('immediately delivers workspace requests to the foreground process without 
   const noteAgentView = notePanel.getByRole('region', { name: 'Ask agent about this note' });
   await expect(noteAgentView).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Ask agent about this note' })).toHaveCount(0);
+  await noteAgentView.locator('.ask-agent__context-details > summary').click();
   await expect(noteAgentView.getByText(notePath, { exact: true })).toBeVisible();
   await expect(noteAgentView).toContainText('project-runner');
+  await noteAgentView.getByRole('button', { name: 'Back to note' }).click();
+  await expect(noteAgentView).toBeHidden();
+  await noteView.getByRole('button', { name: 'Ask agent…' }).click();
+  await expect(noteAgentView).toBeVisible();
   const noteRequest = 'Organize the current context and add the next release step.';
-  await noteAgentView.getByRole('textbox', { name: 'What should the agent do?' }).fill(noteRequest);
+  await noteAgentView.getByRole('textbox', { name: 'Request' }).fill(noteRequest);
   await noteAgentView.getByRole('button', { name: 'Send to agent' }).click();
   await expect(noteAgentView).toBeHidden();
 
@@ -1019,18 +1026,19 @@ test('immediately delivers workspace requests to the foreground process without 
   await expect(statusPage).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
   await statusPage.getByRole('button', { name: 'Ask agent…' }).click();
-  const widgetAgentView = statusPage.getByRole('heading', { name: 'Create a status widget with an agent' });
+  const widgetAgentView = statusPage.getByRole('heading', { name: 'Ask agent', exact: true });
   const widgetConfigurationPath = join(E2E_STATE_DIRECTORY, 'global', 'status-widgets.json');
   const widgetGuidePath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'status-widget.md');
   const widgetValidatorPath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'validate-status-widgets.mjs');
   await expect(widgetAgentView).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Create a status widget with an agent' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Ask agent' })).toHaveCount(0);
   await expect(statusPage.getByRole('combobox', { name: 'Send to' })).toHaveValue(workspace.id);
+  await statusPage.locator('.ask-agent__context-details > summary').click();
   await expect(statusPage.getByText(widgetConfigurationPath, { exact: true })).toBeVisible();
   await expect(statusPage.getByText(widgetGuidePath, { exact: true })).toBeVisible();
   await expect(statusPage).toContainText(widgetValidatorPath);
   const widgetRequest = 'Create a widget that shows unread pull-request reviews.';
-  await statusPage.getByRole('textbox', { name: 'What widget should the agent create?' }).fill(widgetRequest);
+  await statusPage.getByRole('textbox', { name: 'Widget request' }).fill(widgetRequest);
   await statusPage.getByRole('button', { name: 'Send to agent' }).click();
   await expect(widgetAgentView).toBeHidden();
 
@@ -1045,21 +1053,24 @@ test('immediately delivers workspace requests to the foreground process without 
   await statusPage.getByRole('button', { name: 'Close status widget settings' }).click();
 
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Agent automations' }).click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
   await automationPage.getByRole('button', { name: 'Ask agent…' }).click();
-  await expect(page.getByRole('dialog', { name: 'Manage automations with an agent' })).toHaveCount(0);
-  await expect(automationPage.getByRole('heading', { name: 'Manage automations with an agent' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Ask agent' })).toHaveCount(0);
+  await expect(automationPage.getByRole('heading', { name: 'Ask agent', exact: true })).toBeVisible();
+  await automationPage.locator('.ask-agent__context-details > summary').click();
   const automationGuidePath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'workspace-automation.md');
   const automationApplyPath = join(E2E_STATE_DIRECTORY, 'agent-support', 'guides', 'apply-workspace-automation.mjs');
   await expect(automationPage.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const automationRequest = 'Every weekday at 9 AM, review open work and continue the next useful task.';
   const automationRequestInput = automationPage.getByRole('textbox', {
-    name: 'What should the agent create or change?',
+    name: 'Automation request',
   });
+  await automationRequestInput.focus();
   await expect(automationRequestInput).toBeFocused();
   await automationRequestInput.fill(automationRequest);
   await automationPage.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(automationPage.getByRole('heading', { name: 'Manage automations with an agent' })).toBeHidden();
+  await expect(automationPage.getByRole('heading', { name: 'Ask agent', exact: true })).toBeHidden();
   await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(automationRequest);
   const deliveredAutomationRequest = await readFile(receivedPath, 'utf8');
   expect(deliveredAutomationRequest).toContain(automationGuidePath);
@@ -1111,22 +1122,24 @@ test('immediately delivers workspace requests to the foreground process without 
   await expect(agentManagedAutomation).toContainText('One time');
   await agentManagedAutomation.getByRole('button', { name: 'Delete' }).click();
   await expect(agentManagedAutomation).toBeHidden();
-  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await page.getByRole('button', { name: 'Close workspace settings' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await page.getByRole('button', { name: 'Open background processes' }).click();
   const backgroundPanel = page.locator('.background-panel');
   await expect(backgroundPanel).toBeVisible();
   await expect(backgroundPanel).toHaveAccessibleName('Background');
   await backgroundPanel.getByRole('button', { name: 'Ask agent to manage saved commands' }).click();
-  await expect(page.getByRole('dialog', { name: 'Manage Background commands with an agent' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Manage Background commands with an agent' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Ask agent' })).toHaveCount(0);
+  await expect(backgroundPanel.getByRole('heading', { name: 'Ask agent', exact: true })).toBeVisible();
+  await page.locator('.ask-agent__context-details > summary').click();
   await expect(page.getByText('Prepared when sent', { exact: true })).toBeVisible();
   const backgroundRequest = 'Save the test watcher as a reusable command without running it.';
-  const backgroundRequestInput = page.getByRole('textbox', { name: 'Which commands should the agent manage?' });
+  const backgroundRequestInput = page.getByRole('textbox', { name: 'Command request' });
+  await backgroundRequestInput.focus();
   await expect(backgroundRequestInput).toBeFocused();
   await backgroundRequestInput.fill(backgroundRequest);
   await page.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(page.getByRole('heading', { name: 'Manage Background commands with an agent' })).toBeHidden();
+  await expect(backgroundPanel.getByRole('heading', { name: 'Ask agent', exact: true })).toBeHidden();
 
   await expect.poll(async () => readFile(receivedPath, 'utf8')).toContain(backgroundRequest);
   const deliveredBackgroundRequest = await readFile(receivedPath, 'utf8');
@@ -1372,6 +1385,7 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   await page.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Shared profiles' }).click();
   await page.getByRole('button', { name: 'Add profile' }).click();
   const profileCard = page.locator('.profile-card').last();
   await profileCard.getByLabel('Name').fill('Codex');
@@ -1397,10 +1411,11 @@ test('manages a shared default launch profile and keeps workspace overrides avai
   const reuseActions = page.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger');
   await reuseActions.click();
   await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByRole('radio', { name: /Codex/ })).toBeChecked();
   await page.getByRole('radio', { name: /No startup profile/ }).click();
   const reuseSettingsPage = page.getByRole('region', { name: 'Workspace settings' });
-  await reuseSettingsPage.getByRole('button', { name: 'Save workspace settings' }).click();
+  await reuseSettingsPage.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(reuseSettingsPage.getByRole('status')).toContainText('Workspace settings saved');
   await reuseSettingsPage.getByRole('button', { name: 'Close workspace settings' }).click();
   const reuseWorkspacesResponse = await context.request.get('/api/workspaces');
@@ -1575,7 +1590,7 @@ test('creates, auto-starts, and safely removes an isolated Git workspace', async
     await expect(page.getByRole('heading', { name: 'New isolated workspace' })).toBeVisible();
     const taskName = page.getByLabel('Task name');
     await expect(taskName).toBeFocused();
-    expect(await taskName.getAttribute('placeholder')).toBeNull();
+    expect(await taskName.getAttribute('placeholder')).toBe('e.g. fix-login-flow');
     await taskName.fill('Parallel task');
     await page.getByRole('button', { name: 'Create workspace' }).click();
     await expect(page.locator('.terminal-identity-title strong')).toHaveText('Parallel task');
@@ -1665,8 +1680,8 @@ test('shares workspace aliases and manual order across devices', async ({ browse
     await expectTerminalReady(firstPage);
     await firstPage.locator('.workspace-row-shell.selected .workspace-actions-menu .vampire-menu-trigger').click();
     await firstPage.getByRole('menuitem', { name: 'Workspace settings' }).click();
-    await firstPage.getByRole('textbox', { name: 'Alias' }).fill('Alpha');
-    await firstPage.getByRole('button', { name: 'Save workspace settings' }).click();
+    await firstPage.getByRole('textbox', { name: 'Workspace name', exact: true }).fill('Alpha');
+    await firstPage.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(firstPage.getByRole('status')).toContainText('Workspace settings saved');
     await firstPage.getByRole('button', { name: 'Close workspace settings' }).click();
     await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Alpha');

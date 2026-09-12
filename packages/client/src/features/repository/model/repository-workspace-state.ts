@@ -130,6 +130,7 @@ export class RepositoryWorkspaceState {
       directories: [...current.directories.filter((entry) => !entry.startsWith(prefix)), ...listing.directories],
       ignored: [...current.ignored.filter((entry) => !entry.startsWith(prefix)), ...listing.ignored],
       truncated: path ? current.truncated || listing.truncated : listing.truncated,
+      ...(listing.gitError ? { gitError: listing.gitError } : {}),
     };
   }
 

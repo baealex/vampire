@@ -1,0 +1,103 @@
+.new-worktree-dialog {
+  display: grid;
+  gap: 1.15rem;
+  min-width: 0;
+}
+
+.new-worktree-source {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.new-worktree-source__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.new-worktree-source__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.new-worktree-source__eyebrow {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-nano);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  line-height: var(--leading-ui);
+  text-transform: uppercase;
+}
+
+.new-worktree-source__copy strong,
+.new-worktree-source__copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-worktree-source__copy strong {
+  font-size: var(--text-label);
+  font-weight: var(--weight-strong);
+}
+
+.new-worktree-source__copy small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+.new-worktree-lede,
+.new-worktree-note,
+.new-worktree-error {
+  margin: 0;
+}
+
+.new-worktree-lede {
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.new-worktree-note,
+.new-worktree-error {
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+  line-height: var(--leading-body);
+}
+
+.new-worktree-note {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-tertiary);
+}
+
+.new-worktree-error {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-surface);
+  color: var(--color-danger-text);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 32rem) {
+  .new-worktree-dialog {
+    gap: 1rem;
+  }
+
+  .new-worktree-source {
+    padding: 0.75rem;
+  }
+}

@@ -10,12 +10,15 @@ import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
   MIN_WORKSPACE_COMPOSER_PROMPTS,
 } from '@vampire/lib/shared/contracts/workspace-composer-history.ts';
-import { Clock3, LayoutDashboard, LogOut, Plus, Save, Trash2 } from 'lucide-react';
+import { LogOut, Plus, Save, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { StatusPluginSettingsDialog } from '~/features/status/StatusPluginSettingsDialog.tsx';
 import type { WorkspaceState } from '~/features/workspace/model/workspace-state.ts';
 import { type AppThemePreference, useTheme } from '~/shared/theme/theme.ts';
 import { Button, Input, ManagementSurface, Select } from '~/shared/ui/index.ts';
+import { SettingsNavigation } from '~/shared/ui/SettingsNavigation.tsx';
+import { AppAutomationsPage } from './AppAutomationsPage.tsx';
 import './app-settings-dialog.css';
 
 function copyProfiles(profiles: LaunchProfile[]) {
@@ -25,16 +28,18 @@ function copyProfiles(profiles: LaunchProfile[]) {
 export const AppSettingsDialog = observer(function AppSettingsDialog({
   onClose,
   onLogout,
-  onManageAutomations,
-  onManageWidgets,
+  navigate,
+  initialSection = 'general',
   state,
 }: {
   onClose: () => void;
   onLogout?: () => void;
-  onManageAutomations: () => void;
-  onManageWidgets: () => void;
+  navigate: (path: string) => void;
+  initialSection?: 'general' | 'terminal' | 'profiles' | 'automations' | 'widgets';
   state: WorkspaceState;
 }) {
+  const [section, setSection] = useState(initialSection);
+  useEffect(() => setSection(initialSection), [initialSection]);
   const theme = useTheme();
   const [fontSize, setFontSize] = useState(() => loadTerminalFontSize(14));
   const [profiles, setProfiles] = useState(() => copyProfiles(state.launchProfiles));
@@ -132,9 +137,27 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
       onClose={onClose}
       dirty={profileDirty || historyDirty}
       busy={savingProfiles || savingHistory}
+      showShortcuts={section === 'terminal'}
     >
       <>
-        <SettingsSection title="Appearance" scope="Browser" description="Saved in this browser.">
+        <SettingsNavigation
+          label="App settings sections"
+          value={section}
+          onChange={setSection}
+          items={[
+            { id: 'general', label: 'General' },
+            { id: 'terminal', label: 'Terminal' },
+            { id: 'profiles', label: 'Shared profiles' },
+            { id: 'automations', label: 'Automations' },
+            { id: 'widgets', label: 'Status widgets' },
+          ]}
+        />
+        <SettingsSection
+          hidden={section !== 'general'}
+          title="Appearance"
+          scope="Browser"
+          description="Saved in this browser."
+        >
           <div className="theme-options" role="radiogroup" aria-label="Theme">
             {(
               [
@@ -182,6 +205,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
           </label>
         </SettingsSection>
         <SettingsSection
+          hidden={section !== 'terminal'}
           title="Composer history"
           scope="Server"
           description="Only successfully sent Compose prompts are saved; direct terminal input is never recorded."
@@ -225,6 +249,7 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
           </ActionRow>
         </SettingsSection>
         <SettingsSection
+          hidden={section !== 'profiles'}
           title="Launch profiles"
           scope="Server"
           description="Profiles are shared by every workspace on this server."
@@ -294,30 +319,41 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
             </Button>
           </ActionRow>
         </SettingsSection>
-        <SettingsSection title="Server tools" scope="Server" description="Manage server-wide utilities from one place.">
-          <div className="setting-row">
-            <span>
-              <strong>Automations</strong>
-              <small>Review scheduled prompts across workspaces.</small>
-            </span>
-            <Button size="sm" onClick={onManageAutomations}>
-              <Clock3 size={15} aria-hidden="true" />
-              Manage all automations
-            </Button>
-          </div>
-          <div className="setting-row">
-            <span>
-              <strong>Status widgets</strong>
-              <small>Configure information shown above terminals.</small>
-            </span>
-            <Button size="sm" onClick={onManageWidgets}>
-              <LayoutDashboard size={15} aria-hidden="true" />
-              Manage status widgets
-            </Button>
-          </div>
+        <SettingsSection
+          hidden={section !== 'automations'}
+          title="Automations"
+          scope="Server"
+          description="Review scheduled prompts across workspaces."
+        >
+          <AppAutomationsPage
+            active={section === 'automations'}
+            close={onClose}
+            embedded
+            navigate={navigate}
+            workspaces={state.workspaces}
+          />
+        </SettingsSection>
+        <SettingsSection
+          hidden={section !== 'widgets'}
+          title="Status widgets"
+          scope="Server"
+          description="Configure the information shown above terminals."
+        >
+          <StatusPluginSettingsDialog
+            active={section === 'widgets'}
+            embedded
+            onClose={onClose}
+            workspaceId={state.requestedWorkspaceId}
+            workspaces={state.workspaces}
+          />
         </SettingsSection>
         {onLogout ? (
-          <SettingsSection title="Session" scope="Browser" description="End authentication for this browser.">
+          <SettingsSection
+            hidden={section !== 'general'}
+            title="Session"
+            scope="Browser"
+            description="End authentication for this browser."
+          >
             <Button variant="danger-outline" onClick={onLogout}>
               <LogOut size={16} aria-hidden="true" />
               Sign out
@@ -330,14 +366,21 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
 });
 
 function SettingsSection({
+  hidden,
   action,
   children,
   description,
   scope,
   title,
-}: React.PropsWithChildren<{ action?: React.ReactNode; description: string; scope: string; title: string }>) {
+}: React.PropsWithChildren<{
+  hidden?: boolean;
+  action?: React.ReactNode;
+  description: string;
+  scope: string;
+  title: string;
+}>) {
   return (
-    <section className="settings-section">
+    <section className="settings-section" hidden={hidden}>
       <header>
         <div>
           <div>
@@ -362,11 +405,19 @@ function ActionRow({ children, feedback }: React.PropsWithChildren<{ feedback: s
 }
 
 function Dialog({
+  showShortcuts,
   children,
   onClose,
   dirty,
   busy,
-}: React.PropsWithChildren<{ open: boolean; onClose: () => void; title: string; dirty: boolean; busy: boolean }>) {
+}: React.PropsWithChildren<{
+  showShortcuts: boolean;
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  dirty: boolean;
+  busy: boolean;
+}>) {
   const meta = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   return (
     <ManagementSurface
@@ -379,7 +430,7 @@ function Dialog({
     >
       <div className="app-settings">
         {children}
-        <section className="settings-section">
+        <section className="settings-section" hidden={!showShortcuts}>
           <header>
             <div>
               <div>

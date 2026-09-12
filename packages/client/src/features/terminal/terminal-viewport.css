@@ -25,7 +25,7 @@
 .terminal .xterm {
   width: 100%;
   height: 100%;
-  padding: 10px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left));
+  padding: 4px max(6px, env(safe-area-inset-right)) 4px max(6px, env(safe-area-inset-left));
   opacity: 0;
   touch-action: none;
 }
@@ -74,9 +74,37 @@
 .terminal-status-card {
   bottom: 0.75rem;
 }
+.terminal-status-card > svg {
+  flex: 0 0 auto;
+}
+.terminal-status-card > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+.terminal-connection-status {
+  right: 0.75rem;
+  left: 0.75rem;
+  max-width: none;
+  border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border-strong));
+  background: color-mix(in srgb, var(--color-surface-overlay) 94%, var(--color-accent) 6%);
+}
+.terminal-connection-status > svg {
+  color: var(--color-accent);
+  animation: terminal-connection-spin 1.2s linear infinite;
+}
+.terminal-connection-status .vampire-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .terminal-error {
   border-color: var(--color-danger-border);
   color: var(--color-danger-text);
+}
+@keyframes terminal-connection-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .terminal-opening {
   position: absolute;
@@ -280,17 +308,6 @@
   border: 0;
   border-radius: 0.58rem;
 }
-.composer-line-count {
-  position: absolute;
-  right: 6.75rem;
-  bottom: 0.38rem;
-  padding: 0.05rem 0.25rem;
-  border-radius: var(--radius-xs);
-  background: var(--color-panel);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-nano);
-  pointer-events: none;
-}
 @media (max-width: 32rem) {
   .terminal-composer {
     grid-template-columns: auto minmax(0, 1fr) repeat(2, 2.5rem);
@@ -317,9 +334,6 @@
   }
   .composer-secondary-actions > * {
     grid-area: 1 / 1;
-  }
-  .composer-line-count {
-    right: 5.55rem;
   }
 }
 .composer-feedback {
@@ -390,5 +404,8 @@
 @media (prefers-reduced-motion: reduce) {
   .terminal .xterm {
     transition: none;
+  }
+  .terminal-connection-status > svg {
+    animation: none;
   }
 }
