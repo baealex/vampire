@@ -1021,9 +1021,18 @@ test('immediately delivers workspace requests to the foreground process without 
 
   await noteView.getByRole('button', { name: 'Close workspace note' }).click();
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  await expect(page).toHaveURL(/\/settings\/widgets\?workspace=/);
-  const statusPage = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
+  const appSettings = page.locator('section[aria-labelledby="application-settings-title"]');
+  const statusPage = appSettings
+    .locator('.settings-section')
+    .filter({ hasText: 'Configure the information shown above terminals.' });
+  await expect(appSettings).toBeVisible();
   await expect(statusPage).toBeVisible();
+  await expect(
+    page
+      .getByRole('navigation', { name: 'App settings sections' })
+      .getByRole('button', { name: 'Status widgets', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
   await statusPage.getByRole('button', { name: 'Ask agent…' }).click();
   const widgetAgentView = statusPage.getByRole('heading', { name: 'Ask agent', exact: true });
@@ -1050,7 +1059,7 @@ test('immediately delivers workspace requests to the foreground process without 
   await expect.poll(() => pathExists(widgetGuidePath)).toBe(true);
   await expect.poll(() => pathExists(widgetValidatorPath)).toBe(true);
 
-  await statusPage.getByRole('button', { name: 'Close status widget settings' }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
 
   await page.getByRole('button', { name: /Workspace actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
@@ -1283,19 +1292,28 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expectTerminalReady(page);
 
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
-  const settings = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
+  const appSettings = page.locator('section[aria-labelledby="application-settings-title"]');
+  const settings = appSettings
+    .locator('.settings-section')
+    .filter({ hasText: 'Configure the information shown above terminals.' });
+  await expect(appSettings).toBeVisible();
   await expect(settings).toBeVisible();
+  await expect(
+    page
+      .getByRole('navigation', { name: 'App settings sections' })
+      .getByRole('button', { name: 'Status widgets', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
   await page.keyboard.press('Meta+1');
   await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await page.evaluate(() => history.back());
-  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
   await expect(settings).toBeVisible();
   await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Codex Limit', exact: true }).click();
-  const codexLimit = page.getByRole('region', { name: 'Codex Limit', exact: true });
-  const codexLimitCommand = codexLimit.locator('.monaco-editor .view-lines');
+  const codexLimit = settings;
+  const codexLimitCommand = settings.locator('.monaco-editor .view-lines');
   await expect(codexLimitCommand).toContainText('node');
   await expect(codexLimitCommand).toContainText('--input-type=module');
   expect(await codexLimitCommand.locator('.view-line').count()).toBeGreaterThan(1);
@@ -1316,9 +1334,9 @@ test('manages server-wide status plugins and shares their ordered output across 
   const discardPrompt = page.getByRole('heading', { name: 'Discard unsaved widget changes?' });
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
   await settings.getByRole('button', { name: 'Back to status widgets' }).click();
-  await settings.getByRole('button', { name: 'Close status widget settings' }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(settings).toBeVisible();
@@ -1329,7 +1347,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await page.evaluate(() => history.back());
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page).toHaveURL(new RegExp(`/settings/widgets\\?workspace=${encodeURIComponent(workspace.id)}$`));
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
   await settings.getByRole('button', { name: 'Actions for Build' }).click();
   await page.getByRole('menuitem', { name: 'Move Build up' }).click();
   await settings.getByRole('button', { name: 'Actions for Build' }).click();
@@ -1344,7 +1362,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await page.getByRole('menuitem', { name: 'Remove CPU' }).click();
   await settings.getByRole('button', { name: 'Save changes' }).click();
   await expect(settings.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Close status widget settings' }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(settings).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expect(page.getByRole('button', { name: 'Manage status widgets' })).toBeFocused();

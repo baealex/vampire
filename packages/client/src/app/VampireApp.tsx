@@ -243,7 +243,9 @@ const VampireApp = observer(function VampireApp() {
     );
   const openStatusWidgets = () => {
     const workspace = workspaceState.requestedWorkspaceId;
-    navigate(workspace ? `/settings/widgets?workspace=${encodeURIComponent(workspace)}` : '/settings/widgets');
+    navigate(
+      workspace ? `/settings?workspace=${encodeURIComponent(workspace)}&section=widgets` : '/settings?section=widgets',
+    );
   };
   const worktreeSource = workspaceState.workspaces.find((workspace) => workspace.id === worktreeSourceId);
   const settingsWorkspace = workspaceState.workspaces.find((workspace) => workspace.id === workspaceSettingsId);
@@ -286,12 +288,16 @@ const VampireApp = observer(function VampireApp() {
               state={workspaceState}
               navigate={navigate}
               onClose={() => {
+                const focusSelector =
+                  new URLSearchParams(location.search).get('section') === 'widgets'
+                    ? '[aria-label="Manage status widgets"]'
+                    : '.workspace-row-shell.selected [aria-label^="Workspace actions for"]';
                 navigate(
                   workspaceState.requestedWorkspaceId
                     ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
                     : '/',
                 );
-                focusSoon('.workspace-row-shell.selected [aria-label^="Workspace actions for"]');
+                focusSoon(focusSelector);
               }}
               onLogout={
                 connection.authenticationRequired

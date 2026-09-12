@@ -962,8 +962,18 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await expect(page.getByRole('button', { name: 'Open workspaces' })).toBeFocused();
 
   await page.getByRole('button', { name: 'Manage status widgets' }).click();
-  const statusPage = page.locator('section[aria-labelledby="status-widget-settings-title"]');
+  await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
+  const appSettings = page.locator('section[aria-labelledby="application-settings-title"]');
+  const statusPage = appSettings
+    .locator('.settings-section')
+    .filter({ hasText: 'Configure the information shown above terminals.' });
+  await expect(appSettings).toBeVisible();
   await expect(statusPage).toBeVisible();
+  await expect(
+    page
+      .getByRole('navigation', { name: 'App settings sections' })
+      .getByRole('button', { name: 'Status widgets', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const fitsViewport = await statusPage.evaluate((surface) => {
