@@ -26,7 +26,7 @@ Vampire keeps Codex, Claude Code, and other CLI coding agents running in persist
 
 ### Schedule work for the active agent
 
-<img src="docs/images/vampire-automations.png" alt="Vampire agent automations page" />
+<img src="docs/images/vampire-automations.png" alt="Vampire workspace automation creation form" />
 
 Automations deliver a saved prompt to the workspace's main agent session on a one-time or recurring schedule. They use the same persistent workspace instead of starting a separate hidden agent.
 
