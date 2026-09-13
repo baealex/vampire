@@ -21,6 +21,8 @@ export function AppAutomationsPage({
   back,
   close,
   embedded = false,
+  initialAutomationId,
+  initialWorkspaceId,
   navigate,
   workspaces,
 }: {
@@ -28,6 +30,8 @@ export function AppAutomationsPage({
   back?: () => void;
   close: () => void;
   embedded?: boolean;
+  initialAutomationId?: string;
+  initialWorkspaceId?: string;
   navigate: (path: string) => void;
   workspaces: ManagedWorkspace[];
 }) {
@@ -39,8 +43,12 @@ export function AppAutomationsPage({
   const [workspaceFilter, setWorkspaceFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [creating, setCreating] = useState(false);
-  const [editor, setEditor] = useState<{ automationId?: string; workspaceId: string }>();
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaces[0]?.id ?? '');
+  const [editor, setEditor] = useState<{ automationId?: string; workspaceId: string } | undefined>(() =>
+    initialAutomationId
+      ? { automationId: initialAutomationId, workspaceId: initialWorkspaceId ?? workspaces[0]?.id ?? '' }
+      : undefined,
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(initialWorkspaceId ?? workspaces[0]?.id ?? '');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const workspaceIds = JSON.stringify(workspaces.map((workspace) => workspace.id).sort());
@@ -163,7 +171,9 @@ export function AppAutomationsPage({
               onClick={() =>
                 embedded
                   ? openEditor(selectedWorkspaceId, 'new')
-                  : navigate(`/workspaces/${encodeURIComponent(selectedWorkspaceId)}/automations?edit=new&return=all`)
+                  : navigate(
+                      `/settings?workspace=${encodeURIComponent(selectedWorkspaceId)}&section=automations&edit=new`,
+                    )
               }
             >
               Continue
@@ -268,7 +278,7 @@ export function AppAutomationsPage({
                     embedded
                       ? openEditor(workspace.id, automation.id)
                       : navigate(
-                          `/workspaces/${encodeURIComponent(workspace.id)}/automations?edit=${encodeURIComponent(automation.id)}&return=all`,
+                          `/settings?workspace=${encodeURIComponent(workspace.id)}&section=automations&edit=${encodeURIComponent(automation.id)}`,
                         )
                   }
                 >

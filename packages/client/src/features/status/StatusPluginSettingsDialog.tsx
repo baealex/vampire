@@ -26,6 +26,7 @@ import {
   Input,
   ManagementSurface,
   Select,
+  SettingsBackButton,
   Spinner,
 } from '~/shared/ui/index.ts';
 import styles from './status-plugin-settings-dialog.module.css';
@@ -167,13 +168,10 @@ export function StatusPluginSettingsDialog({
   const content = (
     <div className={styles.settings}>
       {embedded && (askingAgent || selected) ? (
-        <Button
-          variant="ghost"
-          size="sm"
+        <SettingsBackButton
+          label="Back to status widgets"
           onClick={() => (askingAgent ? setAskingAgent(false) : setSelectedId(undefined))}
-        >
-          Back to status widgets
-        </Button>
+        />
       ) : null}
       {askingAgent ? (
         <div className={styles.agentView}>

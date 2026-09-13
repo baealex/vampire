@@ -918,15 +918,13 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
 
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}/automations`);
-  const automationPage = page.locator('section[aria-labelledby="workspace-automations-title"]');
+  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}/settings?section=automations`);
+  const automationPage = page.locator('section[aria-labelledby="workspace-automations-section-title"]');
   await expect(automationPage).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Agent automations' })).toHaveCount(0);
-  await expect(automationPage.getByRole('heading', { name: 'Agent automations' })).toBeFocused();
   await expect(automationPage.getByLabel('Name')).toHaveCount(0);
   await page.reload();
   await expect(automationPage).toBeVisible();
-  await expect(automationPage.getByRole('heading', { name: 'Agent automations' })).toBeFocused();
   await automationPage.getByRole('button', { name: 'New automation' }).click();
   await expect(automationPage.getByLabel('Name')).toBeFocused();
   const automationPrompt = automationPage.getByLabel('Prompt');
@@ -935,7 +933,7 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await expect(automationPrompt).toBeFocused();
   await expect
     .poll(() =>
-      automationPage.locator('.management-body').evaluate((body) => {
+      page.locator('.management-body').evaluate((body) => {
         const element = body as HTMLElement;
         element.scrollTop = element.scrollHeight;
         return element.scrollHeight > element.clientHeight && element.scrollTop > 0;
@@ -946,7 +944,7 @@ test('keeps automation and widget management routable in a narrow viewport', asy
   await page.setViewportSize({ width: 412, height: 915 });
   await automationPage.getByRole('button', { name: 'Back to automations' }).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await automationPage.getByRole('button', { name: 'Close agent automations' }).click();
+  await page.getByRole('button', { name: 'Close workspace settings' }).click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expectTerminalReady(page);
 

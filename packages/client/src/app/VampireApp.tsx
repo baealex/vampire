@@ -18,23 +18,10 @@ const AppSettingsDialog = lazy(() =>
 const ListeningPortsDialog = lazy(() =>
   import('~/features/system/ListeningPortsDialog.tsx').then((module) => ({ default: module.ListeningPortsDialog })),
 );
-const StatusPluginSettingsDialog = lazy(() =>
-  import('~/features/status/StatusPluginSettingsDialog.tsx').then((module) => ({
-    default: module.StatusPluginSettingsDialog,
-  })),
-);
-const AutomationManagerDialog = lazy(() =>
-  import('~/features/workspace/AutomationManagerDialog.tsx').then((module) => ({
-    default: module.AutomationManagerDialog,
-  })),
-);
 const WorkspaceSettingsDialog = lazy(() =>
   import('~/features/workspace/WorkspaceSettingsDialog.tsx').then((module) => ({
     default: module.WorkspaceSettingsDialog,
   })),
-);
-const AppAutomationsPage = lazy(() =>
-  import('./AppAutomationsPage.tsx').then((module) => ({ default: module.AppAutomationsPage })),
 );
 
 function navigate(path: string) {
@@ -42,6 +29,40 @@ function navigate(path: string) {
     typeof history.state?.vampireNavigationIndex === 'number' ? history.state.vampireNavigationIndex : 0;
   history.pushState({ ...history.state, vampireNavigationIndex: currentIndex + 1 }, '', path);
   window.dispatchEvent(new Event('vampire:navigation'));
+}
+
+function replaceNavigation(path: string) {
+  const currentIndex =
+    typeof history.state?.vampireNavigationIndex === 'number' ? history.state.vampireNavigationIndex : 0;
+  history.replaceState({ ...history.state, vampireNavigationIndex: currentIndex }, '', path);
+  window.dispatchEvent(new Event('vampire:navigation'));
+}
+
+function legacyManagementPath(pathname: string, search: string): string | undefined {
+  const params = new URLSearchParams(search);
+  const workspaceWidgets = /^\/settings\/widgets\/?$/.test(pathname);
+  const appAutomations = /^\/settings\/automations\/?$/.test(pathname);
+  if (workspaceWidgets || appAutomations) {
+    const canonical = new URLSearchParams();
+    const workspaceId = params.get('workspace');
+    if (workspaceId) canonical.set('workspace', workspaceId);
+    canonical.set('section', workspaceWidgets ? 'widgets' : 'automations');
+    const automationId = params.get('edit');
+    if (appAutomations && automationId) canonical.set('edit', automationId);
+    return `/settings?${canonical.toString()}`;
+  }
+  const workspaceAutomation = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(pathname);
+  if (!workspaceAutomation) return undefined;
+  const workspaceId = decodeURIComponent(workspaceAutomation[1]!);
+  const automationId = params.get('edit');
+  if (params.get('return') === 'all') {
+    const canonical = new URLSearchParams({ workspace: workspaceId, section: 'automations' });
+    if (automationId) canonical.set('edit', automationId);
+    return `/settings?${canonical.toString()}`;
+  }
+  const canonical = new URLSearchParams({ section: 'automations' });
+  if (automationId) canonical.set('edit', automationId);
+  return `/workspaces/${encodeURIComponent(workspaceId)}/settings?${canonical.toString()}`;
 }
 
 function focusSoon(selector: string) {
@@ -57,24 +78,10 @@ function focusSoon(selector: string) {
   }, 100);
 }
 
-function automationReturnPath(workspaceId: string | undefined, returning: string | null) {
-  if (returning === 'all') {
-    return workspaceId
-      ? `/settings?workspace=${encodeURIComponent(workspaceId)}&section=automations`
-      : '/settings?section=automations';
-  }
-  if (returning === 'settings' && workspaceId) {
-    return `/workspaces/${encodeURIComponent(workspaceId)}/settings?section=automations`;
-  }
-  return workspaceId ? `/workspaces/${encodeURIComponent(workspaceId)}` : '/';
-}
-
 const VampireApp = observer(function VampireApp() {
   const connection = useConnectionStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [portsOpen, setPortsOpen] = useState(false);
-  const [management, setManagement] = useState<'automations' | 'widgets'>();
-  const [managementWorkspaceId, setManagementWorkspaceId] = useState<string>();
   const [worktreeSourceId, setWorktreeSourceId] = useState<string>();
   const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string>();
   const [mobileNavigatorOpen, setMobileNavigatorOpen] = useState(false);
@@ -97,7 +104,6 @@ const VampireApp = observer(function VampireApp() {
   const terminalOpen = Boolean(
     workspaceState.requestedWorkspaceId &&
       !settingsOpen &&
-      !management &&
       !workspaceSettingsId &&
       workspaceState.activeWorkspace?.state !== 'missing',
   );
@@ -123,8 +129,8 @@ const VampireApp = observer(function VampireApp() {
           ? history.state.vampireNavigationIndex
           : acceptedNavigationIndexRef.current;
       const workspaceSettings = /^\/workspaces\/([^/]+)\/settings\/?$/.exec(location.pathname);
-      const workspaceAutomations = /^\/workspaces\/([^/]+)\/automations\/?$/.exec(location.pathname);
       const queryWorkspace = new URLSearchParams(location.search).get('workspace') ?? undefined;
+      const canonicalPath = legacyManagementPath(location.pathname, location.search);
       const activeGuard = navigationGuard();
       if (
         activeGuard &&
@@ -144,27 +150,22 @@ const VampireApp = observer(function VampireApp() {
         }
         return;
       }
+      if (canonicalPath && canonicalPath !== targetLocation) {
+        replaceNavigation(canonicalPath);
+        return;
+      }
       acceptedLocationRef.current = targetLocation;
       acceptedNavigationIndexRef.current = targetNavigationIndex;
       setSettingsOpen(/^\/settings\/?$/.test(location.pathname));
-      setManagement(
-        /^\/settings\/widgets\/?$/.test(location.pathname)
-          ? 'widgets'
-          : /^\/settings\/automations\/?$/.test(location.pathname) || workspaceAutomations
-            ? 'automations'
-            : undefined,
-      );
-      setManagementWorkspaceId(workspaceAutomations ? decodeURIComponent(workspaceAutomations[1]!) : queryWorkspace);
       setWorkspaceSettingsId(workspaceSettings ? decodeURIComponent(workspaceSettings[1]!) : undefined);
-      if (workspaceSettings || workspaceAutomations)
-        workspaceState.syncLocation(`/workspaces/${workspaceSettings?.[1] ?? workspaceAutomations?.[1]}`);
+      if (workspaceSettings) workspaceState.syncLocation(`/workspaces/${workspaceSettings[1]}`);
       else if (/^\/settings(?:\/|$)/.test(location.pathname))
         workspaceState.syncLocation(queryWorkspace ? `/workspaces/${encodeURIComponent(queryWorkspace)}` : '/');
       else workspaceState.syncLocation(location.pathname);
     };
-    void syncRoute();
     window.addEventListener('popstate', syncRoute);
     window.addEventListener('vampire:navigation', syncRoute);
+    void syncRoute();
     const shortcut = (event: KeyboardEvent) => {
       const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
       if (
@@ -274,6 +275,7 @@ const VampireApp = observer(function VampireApp() {
         {settingsOpen ? (
           <Suspense fallback={null}>
             <AppSettingsDialog
+              initialAutomationId={new URLSearchParams(location.search).get('edit') ?? undefined}
               initialSection={
                 new URLSearchParams(location.search).get('section') === 'profiles'
                   ? 'profiles'
@@ -322,6 +324,7 @@ const VampireApp = observer(function VampireApp() {
                   ? 'automations'
                   : 'general'
             }
+            initialAutomationId={new URLSearchParams(location.search).get('edit') ?? undefined}
             workspace={settingsWorkspace}
             state={workspaceState}
             onManageProfiles={() =>
@@ -336,74 +339,6 @@ const VampireApp = observer(function VampireApp() {
               );
             }}
           />
-        ) : management === 'widgets' ? (
-          <Suspense fallback={null}>
-            <StatusPluginSettingsDialog
-              onBack={() =>
-                navigate(`/settings?workspace=${encodeURIComponent(workspaceState.requestedWorkspaceId ?? '')}`)
-              }
-              workspaceId={managementWorkspaceId ?? workspaceState.requestedWorkspaceId}
-              workspaces={workspaceState.workspaces}
-              onClose={() => {
-                navigate(
-                  workspaceState.requestedWorkspaceId
-                    ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                    : '/',
-                );
-                focusSoon('[aria-label="Manage status widgets"]');
-              }}
-            />
-          </Suspense>
-        ) : management === 'automations' ? (
-          <Suspense fallback={null}>
-            {location.pathname.startsWith('/settings/automations') ? (
-              <AppAutomationsPage
-                workspaces={workspaceState.workspaces}
-                navigate={navigate}
-                back={() =>
-                  navigate(
-                    workspaceState.requestedWorkspaceId
-                      ? `/settings?workspace=${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                      : '/settings',
-                  )
-                }
-                close={() =>
-                  navigate(
-                    workspaceState.requestedWorkspaceId
-                      ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                      : '/',
-                  )
-                }
-              />
-            ) : (
-              <AutomationManagerDialog
-                onBack={() =>
-                  navigate(
-                    automationReturnPath(
-                      managementWorkspaceId ?? workspaceState.requestedWorkspaceId,
-                      new URLSearchParams(location.search).get('return'),
-                    ),
-                  )
-                }
-                workspaces={workspaceState.workspaces}
-                initialWorkspaceId={managementWorkspaceId ?? workspaceState.requestedWorkspaceId}
-                initialAutomationId={new URLSearchParams(location.search).get('edit') ?? undefined}
-                onNavigate={navigate}
-                onClose={() => {
-                  navigate(
-                    workspaceState.requestedWorkspaceId
-                      ? `/workspaces/${encodeURIComponent(workspaceState.requestedWorkspaceId)}`
-                      : '/',
-                  );
-                  focusSoon(
-                    window.matchMedia('(max-width: 63.999rem)').matches
-                      ? '[aria-label="Open workspaces"]'
-                      : '.workspace-row-shell.selected [aria-label^="Workspace actions for"]',
-                  );
-                }}
-              />
-            )}
-          </Suspense>
         ) : workspaceState.activeWorkspace?.state === 'missing' &&
           workspaceState.activeWorkspace.workspaceAvailable !== false ? (
           <UnavailableWorkspace state={workspaceState} workspace={workspaceState.activeWorkspace} />

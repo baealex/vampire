@@ -29,12 +29,14 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
   onClose,
   onLogout,
   navigate,
+  initialAutomationId,
   initialSection = 'general',
   state,
 }: {
   onClose: () => void;
   onLogout?: () => void;
   navigate: (path: string) => void;
+  initialAutomationId?: string;
   initialSection?: 'general' | 'terminal' | 'profiles' | 'automations' | 'widgets';
   state: WorkspaceState;
 }) {
@@ -329,6 +331,8 @@ export const AppSettingsDialog = observer(function AppSettingsDialog({
             active={section === 'automations'}
             close={onClose}
             embedded
+            initialAutomationId={initialAutomationId}
+            initialWorkspaceId={state.requestedWorkspaceId}
             navigate={navigate}
             workspaces={state.workspaces}
           />

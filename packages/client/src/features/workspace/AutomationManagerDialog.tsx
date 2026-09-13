@@ -23,6 +23,7 @@ import {
   Input,
   ManagementSurface,
   Select,
+  SettingsBackButton,
   Spinner,
   Textarea,
 } from '~/shared/ui/index.ts';
@@ -287,7 +288,7 @@ export function AutomationManagerDialog({
           ? `/settings?workspace=${encodeURIComponent(workspaceId)}&section=automations`
           : returning === 'settings'
             ? `/workspaces/${encodeURIComponent(workspaceId)}/settings?section=automations`
-            : `/workspaces/${encodeURIComponent(workspaceId)}/automations`;
+            : `/workspaces/${encodeURIComponent(workspaceId)}/settings?section=automations`;
       onNavigate?.(path);
     }
   };
@@ -299,6 +300,7 @@ export function AutomationManagerDialog({
   };
   const leaveEmbedded = async () => {
     if (busyId || (dirty && !(await navigationGuard()?.()))) return;
+    flushSync(() => setEditing(undefined));
     onBack?.();
   };
   const content = askingAgent ? (
@@ -311,10 +313,8 @@ export function AutomationManagerDialog({
     />
   ) : (
     <div className="automation-manager">
-      {embedded && onBack && !askingAgent ? (
-        <Button variant="ghost" size="sm" onClick={() => void leaveEmbedded()}>
-          Back to automations
-        </Button>
+      {embedded && !askingAgent && (onBack || editing) ? (
+        <SettingsBackButton label="Back to automations" onClick={() => void leaveEmbedded()} />
       ) : null}
       {!editing ? (
         <div className="automation-toolbar">

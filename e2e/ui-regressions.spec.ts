@@ -27,7 +27,7 @@ test('organizes settings and manages automations across workspaces', async ({ co
     if (!sidebar || !surface) throw new Error('Expected the workspace sidebar and management surface.');
     return { sidebarRight: sidebar.getBoundingClientRect().right, surfaceLeft: surface.getBoundingClientRect().left };
   });
-  expect(managementLayout.surfaceLeft).toBe(0);
+  expect(managementLayout.surfaceLeft).toBeGreaterThanOrEqual(managementLayout.sidebarRight - 1);
   const sections = page.getByRole('navigation', { name: 'Workspace settings sections' });
   await expect(page.getByRole('heading', { name: 'Identity', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
@@ -210,7 +210,7 @@ test('keeps commit line counts on a separate unclipped row', async ({ context, p
 test('protects automation drafts when cancelling or navigating back', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
-  await page.goto(`/workspaces/${workspace.id}/automations`);
+  await page.goto(`/workspaces/${workspace.id}/settings?section=automations`);
   await page.getByRole('button', { name: 'New automation', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
@@ -229,7 +229,7 @@ test('protects automation drafts when cancelling or navigating back', async ({ c
 test('lets weekly automations choose individual weekdays', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
-  await page.goto(`/workspaces/${workspace.id}/automations`);
+  await page.goto(`/workspaces/${workspace.id}/settings?section=automations`);
   await page.getByRole('button', { name: 'New automation', exact: true }).click();
   await page.locator('.automation-editor select').selectOption('weekly');
 
@@ -479,8 +479,8 @@ test('reviews settings navigation, dirty-state protection and modal layout', asy
     await expect(ports).not.toBeVisible();
     for (const [path, heading, filename] of [
       [`/workspaces/${workspace.id}/settings`, 'Workspace settings', 'workspace-settings'],
-      [`/settings/widgets?workspace=${workspace.id}`, 'Status widgets', 'widgets'],
-      [`/workspaces/${workspace.id}/automations`, 'Agent automations', 'automations'],
+      [`/settings?workspace=${workspace.id}&section=widgets`, 'Status widgets', 'widgets'],
+      [`/settings?workspace=${workspace.id}&section=automations`, 'Automations', 'app-automations'],
     ]) {
       await page.goto(path!);
       await expect(page.getByRole('heading', { name: heading!, exact: true })).toBeVisible();

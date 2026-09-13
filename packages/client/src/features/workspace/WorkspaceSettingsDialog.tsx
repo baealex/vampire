@@ -14,12 +14,14 @@ import './workspace-settings.css';
 export function WorkspaceSettingsDialog({
   onClose,
   onManageProfiles,
+  initialAutomationId,
   initialSection = 'general',
   state,
   workspace,
 }: {
   onClose: () => void;
   onManageProfiles?: () => void;
+  initialAutomationId?: string;
   initialSection?: 'general' | 'terminal' | 'automations';
   state: WorkspaceState;
   workspace: ManagedWorkspace;
@@ -202,6 +204,7 @@ export function WorkspaceSettingsDialog({
           <AutomationManagerDialog
             active={section === 'automations'}
             embedded
+            initialAutomationId={initialAutomationId}
             initialWorkspaceId={workspace.id}
             onClose={onClose}
             workspaces={state.workspaces}
