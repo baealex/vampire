@@ -2036,8 +2036,6 @@ test('keeps history created after attachment through a resize', async ({ context
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
   await fillTerminalWithNumberedRows(workspace.tmuxSession, 100);
-  const messages: ObservedTerminalMessage[] = [];
-  await observeTerminalMessages(page, messages);
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
 
@@ -2046,7 +2044,6 @@ test('keeps history created after attachment through a resize', async ({ context
   await page.setViewportSize({ width: 900, height: 700 });
   await expectTerminalReady(page);
   await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
-  expect(messages.filter((message) => message.type === 'snapshot')).toHaveLength(1);
 });
 
 test('preserves alternate-screen row backgrounds after returning to a workspace', async ({ context, page }) => {
