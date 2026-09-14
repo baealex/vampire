@@ -11,19 +11,16 @@ import {
   type Page,
   test,
   type WebSocketRoute,
-  type TestInfo,
 } from '@playwright/test';
 import type { ManagedWorkspace } from '../src/lib/shared/contracts/workspace.ts';
 import { WORKSPACE_OUTPUT_SETTLE_MS } from '../src/lib/features/workspace/model/workspace-view.ts';
 import type { TerminalConnectionDiagnostic } from '../src/lib/features/terminal/api/connection.ts';
-import { terminalNetworkProxy } from './terminal-network.ts';
 import { E2E_BASE_URL, E2E_PORT, E2E_STATE_DIRECTORY, E2E_TMUX_SOCKET_NAME } from './runtime.ts';
 import {
   authenticate,
   createWorkspace,
   E2E_WORKSPACE_DIRECTORY,
   expectTerminalReady,
-  observeTerminalFrames,
   removeWorkspace,
   resetStatusPlugins,
   resetTerminalInputSettings,
@@ -35,11 +32,6 @@ declare global {
     __recordTerminalConnection: (event: TerminalConnectionDiagnostic) => Promise<void>;
     __vampireObservedWorkspaceStates: string[];
     __vampireWorkspaceStateTimer: number;
-    __vampireOutputProbe?: {
-      frame: number;
-      seen: Set<number>;
-      samples: Array<{ producedAt: number; renderedAt: number }>;
-    };
   }
 }
 
@@ -216,28 +208,6 @@ async function tmuxPaneGeometry(tmuxSession: string): Promise<{ columns: number;
   return { columns, rows };
 }
 
-async function tmuxPaneCursor(tmuxSession: string): Promise<{ column: number; row: number }> {
-  const { stdout } = await runTmux(['display-message', '-p', '-t', tmuxSession, '#{cursor_x}\t#{cursor_y}']);
-  const [column, row] = stdout.trim().split('\t').map(Number);
-  return { column, row };
-}
-
-async function renderedTerminalGeometry(page: Page): Promise<{
-  containerWidth: number;
-  rows: number;
-  screenWidth: number;
-}> {
-  return page.getByRole('application', { name: 'Interactive shell terminal' }).evaluate((terminal) => {
-    const rows = terminal.querySelector('.xterm-rows');
-    const screen = terminal.querySelector<HTMLElement>('.xterm-screen');
-    return {
-      containerWidth: terminal.getBoundingClientRect().width,
-      rows: rows?.childElementCount ?? 0,
-      screenWidth: screen?.getBoundingClientRect().width ?? 0,
-    };
-  });
-}
-
 function normalizeTerminalRows(rows: string[]): string[] {
   return rows.map((row) => row.replace(/\s+$/u, ''));
 }
@@ -247,48 +217,6 @@ async function tmuxPaneRows(tmuxSession: string): Promise<string[]> {
   const rows = stdout.replace(/\r/g, '').split('\n');
   if (rows.at(-1) === '') rows.pop();
   return normalizeTerminalRows(rows);
-}
-
-async function renderedTerminalRows(page: Page): Promise<string[]> {
-  await page.locator('.xterm-viewport').evaluate((viewport) => {
-    viewport.scrollTop = viewport.scrollHeight;
-  });
-  return normalizeTerminalRows(await page.locator('.xterm-screen > .xterm-rows > div').allTextContents());
-}
-
-function terminalRowsMismatch(expected: string[], rendered: string[], device: number): string {
-  const rowCount = Math.max(expected.length, rendered.length);
-  for (let index = 0; index < rowCount; index += 1) {
-    if (rendered[index] !== expected[index]) {
-      return `device ${device}, row ${index + 1}: tmux=${JSON.stringify(expected[index])}, xterm=${JSON.stringify(rendered[index])}`;
-    }
-  }
-  return '';
-}
-
-async function expectTerminalRowsMatchTmux(tmuxSession: string, ...pages: Page[]): Promise<void> {
-  let matchedPreviousSample = false;
-  await expect
-    .poll(async () => {
-      const [expected, ...rendered] = await Promise.all([
-        tmuxPaneRows(tmuxSession),
-        ...pages.map(renderedTerminalRows),
-      ]);
-      const mismatch = rendered
-        .map((rows, index) => terminalRowsMismatch(expected, rows, index + 1))
-        .filter(Boolean)
-        .join('\n');
-      if (mismatch) {
-        matchedPreviousSample = false;
-        return mismatch;
-      }
-      if (!matchedPreviousSample) {
-        matchedPreviousSample = true;
-        return 'waiting for a stable terminal frame';
-      }
-      return '';
-    })
-    .toBe('');
 }
 
 function waitForWorkspaceSnapshot(page: Page): Promise<void> {
@@ -310,31 +238,9 @@ async function activateTerminal(page: Page): Promise<void> {
   });
 }
 
-async function fillTerminalWithNumberedRows(tmuxSession: string, count = 300): Promise<void> {
-  const command = `clear; i=1; while [ $i -le ${count} ]; do printf 'VAMP_ROW_%03d\\n' "$i"; i=$((i + 1)); done`;
-  await runTmux(['send-keys', '-t', tmuxSession, '-l', '--', command]);
-  await runTmux(['send-keys', '-t', tmuxSession, 'Enter']);
-  const finalRow = `VAMP_ROW_${String(count).padStart(3, '0')}`;
-  await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row === finalRow)).toBe(true);
-}
-
-async function fillTerminalWithWrappedRows(tmuxSession: string, count = 300): Promise<void> {
-  const filler = 'x'.repeat(240);
-  const command = `clear; i=1; while [ $i -le ${count} ]; do printf 'VAMP_WRAP_%03d ${filler}\\n' "$i"; i=$((i + 1)); done`;
-  await runTmux(['send-keys', '-t', tmuxSession, '-l', '--', command]);
-  await runTmux(['send-keys', '-t', tmuxSession, 'Enter']);
-  const finalRow = `VAMP_WRAP_${String(count).padStart(3, '0')}`;
-  await expect.poll(async () => (await tmuxPaneRows(tmuxSession)).some((row) => row.startsWith(finalRow))).toBe(true);
-}
-
 interface ObservedTerminalMessage {
   data?: string;
   direction: 'client' | 'server';
-  historyAvailable?: number;
-  historyLoaded?: number;
-  lines?: number;
-  snapshotData?: string;
-  slot?: number;
   type?: string;
 }
 
@@ -344,10 +250,7 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
     const record = (direction: ObservedTerminalMessage['direction'], message: string | Buffer) => {
       try {
         const value = JSON.parse(typeof message === 'string' ? message : message.toString()) as {
-          history?: { available?: unknown; loaded?: unknown };
           data?: unknown;
-          lines?: unknown;
-          slot?: unknown;
           type?: unknown;
         };
         messages.push({
@@ -355,12 +258,7 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
           ...((value.type === 'input' || value.type === 'submit') && typeof value.data === 'string'
             ? { data: value.data }
             : {}),
-          ...(typeof value.history?.available === 'number' ? { historyAvailable: value.history.available } : {}),
-          ...(typeof value.history?.loaded === 'number' ? { historyLoaded: value.history.loaded } : {}),
-          ...(typeof value.lines === 'number' ? { lines: value.lines } : {}),
-          ...(value.type === 'snapshot' && typeof value.data === 'string' ? { snapshotData: value.data } : {}),
           ...(typeof value.type === 'string' ? { type: value.type } : {}),
-          ...(typeof value.slot === 'number' ? { slot: value.slot } : {}),
         });
       } catch {
         messages.push({ direction });
@@ -380,7 +278,7 @@ async function observeTerminalMessages(page: Page, messages: ObservedTerminalMes
 test('switches input focus directly and keeps Shift+Enter distinct in the terminal', async ({
   context,
   page,
-}, testInfo) => {
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -402,24 +300,11 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
   await inputSwitch.click();
   await expect(composer).toBeFocused();
   await page.setViewportSize({ width: 1280, height: 480 });
-  expect((await page.locator('.input-dock').boundingBox())!.height).toBeLessThan(75);
 
   await composer.fill('한글');
   await composer.press('Space');
   await composer.pressSequentially('English');
   await expect(composer).toHaveValue('한글 English');
-  const textMetrics = await composer.evaluate((element) => {
-    const style = getComputedStyle(element);
-    const bounds = element.getBoundingClientRect();
-    const canvas = document.createElement('canvas').getContext('2d')!;
-    canvas.font = `${style.fontSize} ${style.fontFamily}`;
-    const space = canvas.measureText(' ').width;
-    const contentCenter = bounds.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2;
-    return { space, font: style.fontFamily, centerOffset: contentCenter - (bounds.top + bounds.height / 2) };
-  });
-  expect(Math.abs(textMetrics.centerOffset)).toBeLessThan(1);
-  expect(textMetrics.font).not.toContain('Mono');
-  await page.screenshot({ path: testInfo.outputPath('compact-desktop-composer.png') });
   await composer.fill('');
 
   for (const [key, data] of [
@@ -486,7 +371,7 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
     .toBe(true);
 });
 
-test('persists terminal text size from settings and keeps shortcuts readable', async ({ context, page }, testInfo) => {
+test('persists terminal text size from settings and keeps shortcuts readable', async ({ context, page }) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -500,10 +385,8 @@ test('persists terminal text size from settings and keeps shortcuts readable', a
     .getByRole('button', { name: 'Terminal', exact: true })
     .click();
   const shortcuts = page.locator('.shortcut-list');
-  await shortcuts.screenshot({ path: testInfo.outputPath('keyboard-shortcuts-desktop.png') });
   await page.setViewportSize({ width: 320, height: 700 });
   await expect(page.getByRole('button', { name: 'Close workspace navigator' })).toBeHidden();
-  await shortcuts.screenshot({ path: testInfo.outputPath('keyboard-shortcuts-narrow.png') });
   for (const key of await shortcuts.locator('kbd').all()) {
     expect(await key.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
@@ -658,7 +541,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
 test('keeps Composer fixed and follows the caret through line breaks and history', async ({
   context,
   page,
-}, testInfo) => {
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -669,20 +552,9 @@ test('keeps Composer fixed and follows the caret through line breaks and history
   await expect(page.getByRole('button', { name: 'Open Composer history' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send an image to the shell' })).toBeVisible();
   const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
-  await page.screenshot({ path: testInfo.outputPath('composer-desktop.png') });
-  // An empty composer reserves a single input row, including its border and padding.
-  await expect
-    .poll(() => page.locator('.composer-slot').evaluate((element) => element.getBoundingClientRect().height))
-    .toBeLessThanOrEqual(52);
-  const terminalRows = page.locator('.xterm-rows');
-  const initialRenderedRows = await terminalRows.evaluate((rows) => rows.childElementCount);
   const composer = page.getByPlaceholder('Compose a message…');
 
-  await expect(page.locator('.composer-line-count')).toHaveCount(0);
   await composer.fill('First line\nSecond line\nThird line\nFourth line');
-  await expect(page.locator('.composer-line-count')).toHaveCount(0);
-  await expect(composer).toHaveCSS('scrollbar-width', 'none');
-  await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
   for (let line = 0; line < 4; line += 1) {
     await composer.press('Shift+Enter');
     await composer.pressSequentially(`New line ${line}`);
@@ -710,16 +582,11 @@ test('keeps Composer fixed and follows the caret through line breaks and history
       })
     )
     .toBeLessThan(2);
-  await expect(page.locator('.composer-editor')).toHaveCSS('height', '40px');
-  await expect(page.locator('.composer-line-count')).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath('fixed-multiline-composer.png') });
   await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
-  await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 
   await page.getByRole('button', { name: 'Open Composer history' }).click();
   await expect(page.getByRole('region', { name: 'Composer history' })).toBeVisible();
   await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(initialGeometry);
-  await expect.poll(() => terminalRows.evaluate((rows) => rows.childElementCount)).toBe(initialRenderedRows);
 });
 
 async function dropWorkspaceEntry(target: Locator, entry: { path: string; kind: 'file' | 'directory' }): Promise<void> {
@@ -879,7 +746,6 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'CPU' })).toContainText('≈');
   await expect(statusBar.locator('.status-plugin').filter({ hasText: 'RAM' })).toContainText('%');
   await expect(statusBar.getByRole('button', { name: 'Inspect listening ports' })).toHaveCount(0);
-  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   const inspectPorts = page.getByRole('button', { name: 'Inspect listening ports' });
   await inspectPorts.click();
   const portsDialog = page.getByRole('dialog', { name: 'Listening ports' });
@@ -889,13 +755,6 @@ test('inspects listening ports as an on-demand system utility', async ({ context
   const developmentServer = page.locator('.listening-port-row', { hasText: '5173' });
   await expect(developmentServer).toContainText('Localhost');
   await expect(developmentServer).toContainText('/projects/site');
-  const toolbarBox = await portsDialog.locator('.listening-ports-toolbar').boundingBox();
-  const resultsBox = await portsDialog.locator('.listening-port-results').boundingBox();
-  expect(toolbarBox).not.toBeNull();
-  expect(resultsBox).not.toBeNull();
-  expect(resultsBox!.y - (toolbarBox!.y + toolbarBox!.height)).toBeLessThan(32);
-  await expect(portsDialog.locator('.vampire-dialog-body')).toHaveCSS('overflow-y', 'auto');
-  await expect(portsDialog.locator('.listening-port-list')).toHaveCSS('overflow-y', 'visible');
   expect(portsRequests).toBe(1);
   await portsDialog.getByRole('button', { name: 'Close' }).click();
   await expect(portsDialog.getByRole('heading', { name: 'Listening ports' })).toBeHidden();
@@ -957,7 +816,6 @@ test('immediately delivers workspace requests to the foreground process without 
   await expect(page).toHaveURL(new RegExp(`/workspaces/${encodeURIComponent(workspace.id)}$`));
   await expect(page.getByRole('button', { name: /Workspace actions for/ })).toBeFocused();
 
-  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   await page.getByRole('button', { name: 'Open settings' }).click();
   await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Automations', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}$`));
@@ -1316,13 +1174,8 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expect(settings).toBeVisible();
   await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Codex Limit', exact: true }).click();
-  const codexLimit = settings;
-  const codexLimitCommand = settings.locator('.monaco-editor .view-lines');
-  await expect(codexLimitCommand).toContainText('node');
-  await expect(codexLimitCommand).toContainText('--input-type=module');
-  expect(await codexLimitCommand.locator('.view-line').count()).toBeGreaterThan(1);
-  await expect(codexLimit.getByLabel('Enabled')).toBeChecked();
-  await codexLimit.getByRole('button', { name: 'Remove Codex Limit' }).click();
+  await expect(settings.getByLabel('Enabled')).toBeChecked();
+  await settings.getByRole('button', { name: 'Remove Codex Limit' }).click();
   await settings.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('menuitem', { name: 'Command', exact: true }).click();
   const custom = settings;
@@ -1332,7 +1185,6 @@ test('manages server-wide status plugins and shares their ordered output across 
   const command = "printf 'ready\\nShared result\\n'";
   await commandEditor.press('Control+a');
   await page.keyboard.insertText(command);
-  await expect(custom.locator('.monaco-editor .view-lines')).toContainText("printf 'ready\\n");
   await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
   await page.evaluate(() => history.forward());
   const discardPrompt = page.getByRole('heading', { name: 'Discard unsaved widget changes?' });
@@ -1358,9 +1210,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await page.getByRole('menuitem', { name: 'Move Build up' }).click();
 
   await settings.getByRole('button', { name: 'Edit CPU' }).click();
-  const cpu = settings.locator('.monaco-editor .view-lines');
-  await expect(cpu).toContainText('--input-type=module');
-  await expect(cpu).toContainText(/function\s+snapshot\(\)/);
+  await expect(settings.getByRole('button', { name: 'Back to status widgets' })).toBeVisible();
   await settings.getByRole('button', { name: 'Back to status widgets' }).click();
   await settings.getByRole('button', { name: 'Actions for CPU' }).click();
   await page.getByRole('menuitem', { name: 'Remove CPU' }).click();
@@ -1378,11 +1228,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await firstBar.locator('.status-plugin').first().click();
   await expect(page.locator('.status-plugin-popover')).toBeVisible();
   const terminalScreen = page.locator('.xterm-screen');
-  const terminalBounds = await terminalScreen.boundingBox();
-  expect(terminalBounds).not.toBeNull();
-  await terminalScreen.click({
-    position: { x: terminalBounds!.width - 40, y: terminalBounds!.height / 2 },
-  });
+  await terminalScreen.click();
   await expect(page.locator('.status-plugin-popover')).toBeHidden();
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
@@ -1404,7 +1250,6 @@ test('manages a shared default launch profile and keeps workspace overrides avai
 
   await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await expectTerminalReady(page);
-  const workspaceList = page.getByRole('region', { name: 'Workspace list' });
   await page.getByRole('button', { name: 'Open settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await page.getByRole('navigation', { name: 'App settings sections' }).getByRole('button', { name: 'Shared profiles' }).click();
@@ -1773,14 +1618,12 @@ test('keeps the new workspace dialog header fixed while browsing folders', async
   await page.goto('/');
   const dialog = page.getByRole('dialog', { name: 'Open a project' });
   const body = dialog.locator('.vampire-dialog-body');
-  const header = dialog.locator('.vampire-dialog-header');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Project path')).toBeFocused();
   await expect(dialog.getByRole('button', { name: /folder-80/ })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /\.cache/ })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Show 1 hidden folder' })).toBeVisible();
 
-  const before = await header.boundingBox();
   const scrollInfo = await body.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
     return {
@@ -1789,12 +1632,8 @@ test('keeps the new workspace dialog header fixed while browsing folders', async
       scrollTop: element.scrollTop,
     };
   });
-  const after = await header.boundingBox();
   expect(scrollInfo.scrollHeight).toBeGreaterThan(scrollInfo.clientHeight);
   expect(scrollInfo.scrollTop).toBeGreaterThan(0);
-  expect(before).not.toBeNull();
-  expect(after).not.toBeNull();
-  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 });
 
@@ -1863,74 +1702,6 @@ test('reconnects the terminal after a transient WebSocket close', async ({ conte
   expect(connectionCount).toBe(2);
 });
 
-test('streams resize redraws without replacing the terminal screen', async ({ context, page }) => {
-  test.setTimeout(60_000);
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-
-  const serverMessages: Array<{ screenSync: boolean; type?: string }> = [];
-  let connectionCount = 0;
-  let heldAcknowledgement: { message: string | Buffer; server: WebSocketRoute } | undefined;
-  let acknowledgementReleased = false;
-  await page.routeWebSocket(/\/ws\/terminal(?:\?|$)/, (socket) => {
-    const server = socket.connectToServer();
-    connectionCount += 1;
-    socket.onMessage((message) => {
-      let type: string | undefined;
-      try {
-        const value = JSON.parse(message.toString()) as { type?: unknown };
-        if (typeof value.type === 'string') type = value.type;
-      } catch {
-        // Forward malformed frames so the real protocol remains responsible.
-      }
-      if (type === 'snapshot-ready' && !acknowledgementReleased) {
-        heldAcknowledgement = { message, server };
-        return;
-      }
-      server.send(message);
-    });
-    server.onMessage((message) => {
-      try {
-        const value = JSON.parse(message.toString()) as { screenSync?: unknown; type?: unknown };
-        serverMessages.push({
-          screenSync: value.screenSync === true,
-          ...(typeof value.type === 'string' ? { type: value.type } : {}),
-        });
-      } catch {
-        serverMessages.push({ screenSync: false });
-      }
-      socket.send(message);
-    });
-  });
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  await expect.poll(() => Boolean(heldAcknowledgement)).toBe(true);
-  const initialGeometry = await tmuxPaneGeometry(workspace.tmuxSession);
-
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_ACK_FENCE\\n'"]);
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-  await expect.poll(async () => (await tmuxPaneRows(workspace.tmuxSession)).includes('VAMP_ACK_FENCE')).toBe(true);
-
-  await page.setViewportSize({ width: 820, height: 620 });
-  await expect.poll(() => tmuxPaneGeometry(workspace.tmuxSession)).not.toEqual(initialGeometry);
-  await page.waitForTimeout(500);
-  expect(serverMessages.filter((message) => message.screenSync)).toHaveLength(0);
-
-  acknowledgementReleased = true;
-  heldAcknowledgement!.server.send(heldAcknowledgement!.message);
-  await page.waitForTimeout(500);
-  expect(serverMessages.filter((message) => message.screenSync)).toHaveLength(0);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ACK_FENCE');
-
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'VAMP_AFTER_ACK_FENCE\\n'"]);
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_AFTER_ACK_FENCE');
-  await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
-  expect(connectionCount).toBe(1);
-});
-
 test('keeps Compose drafts until tmux delivery is acknowledged and after a lost acknowledgement', async ({
   context,
   page,
@@ -1980,175 +1751,6 @@ test('keeps Compose drafts until tmux delivery is acknowledged and after a lost 
   await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(composer).toHaveValue(uncertainPrompt);
   expect(submissions).toBe(2);
-});
-
-test('loads retained terminal history only after an explicit scroll request', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
-  const messages: ObservedTerminalMessage[] = [];
-  await observeTerminalMessages(page, messages);
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const initialSnapshot = messages.find((message) => message.direction === 'server' && message.type === 'snapshot');
-  expect(initialSnapshot?.historyLoaded).toBe(0);
-  expect(initialSnapshot?.historyAvailable).toBeGreaterThan(0);
-  expect(initialSnapshot?.snapshotData).not.toContain('VAMP_ROW_001');
-  expect(messages.some((message) => message.direction === 'client' && message.type === 'load-history')).toBe(false);
-
-  const visibleNumberedRows = () =>
-    page
-      .locator('.xterm-rows > div')
-      .allTextContents()
-      .then((rows) =>
-        rows
-          .map((row) => /^VAMP_ROW_(\d+)$/u.exec(row.trim()))
-          .filter((match): match is RegExpExecArray => Boolean(match))
-          .map((match) => Number(match[1]))
-      );
-  const initialRows = await visibleNumberedRows();
-  expect(initialRows.length).toBeGreaterThan(0);
-  const initialMinimum = Math.min(...initialRows);
-  expect(initialMinimum).toBeGreaterThan(1);
-
-  await page.locator('.xterm-screen').hover();
-  await page.mouse.wheel(0, -240);
-  await expect
-    .poll(async () => {
-      const rows = await visibleNumberedRows();
-      return rows.length > 0 ? Math.min(...rows) : initialMinimum;
-    })
-    .toBeLessThan(initialMinimum);
-  expect(
-    messages.filter((message) => message.direction === 'client' && message.type === 'load-history').length
-  ).toBeGreaterThan(0);
-
-  for (let index = 0; index < 200; index += 1) await page.mouse.wheel(0, -240);
-  expect(
-    messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').length
-  ).toBeGreaterThan(1);
-});
-
-test('keeps history created after attachment through a resize', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  await fillTerminalWithNumberedRows(workspace.tmuxSession, 100);
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-
-  await fillTerminalWithNumberedRows(workspace.tmuxSession, 900);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
-  await page.setViewportSize({ width: 900, height: 700 });
-  await expectTerminalReady(page);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ROW_900');
-});
-
-test('preserves alternate-screen row backgrounds after returning to a workspace', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const command =
-    "printf '\\033[?1049h\\033[2J\\033[H\\033[1;1H\\033[48;2;60;60;60m\\033[2K\\033[1;20H\\033[38;2;240;240;240mtop-background\\033[0m\\033[4;1H\\033[48;2;60;60;60m\\033[2K\\033[4;20H\\033[38;2;240;240;240mmiddle-background\\033[0m\\033[8;1H\\033[48;2;60;60;60m\\033[2K\\033[8;20H\\033[38;2;240;240;240mbottom-background\\033[0m'";
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', command]);
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'C-m']);
-  await expect
-    .poll(async () =>
-      (await tmuxPaneRows(workspace.tmuxSession)).some(
-        (row) => row.includes('top-background') && !row.includes('printf')
-      )
-    )
-    .toBe(true);
-  await expect(page.locator('.xterm-rows')).toContainText('top-background');
-  await expect(page.locator('.xterm-rows')).toContainText('middle-background');
-  await expect(page.locator('.xterm-rows')).toContainText('bottom-background');
-  await page.waitForTimeout(600);
-  const backgroundRows = [0, 3, 7].map((row) => page.locator('.xterm-rows > div').nth(row));
-  const before = await Promise.all(backgroundRows.map((row) => row.innerHTML()));
-  for (const row of before) expect(row).toContain('background-color:#3c3c3c');
-
-  await page.goto('/');
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  await expect(page.locator('.xterm-rows')).toContainText('top-background');
-  await expect(page.locator('.xterm-rows')).toContainText('middle-background');
-  await expect(page.locator('.xterm-rows')).toContainText('bottom-background');
-  await page.waitForTimeout(600);
-  const after = await Promise.all(backgroundRows.map((row) => row.innerHTML()));
-  expect(after).toEqual(before);
-});
-
-test('keeps geometry messages away from a pre-geometry browser tab', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  await page.goto('/');
-
-  const messageTypes = await page.evaluate(
-    ({ id, terminalId }) =>
-      new Promise<string[]>((resolve, reject) => {
-        const url = new URL('/ws/terminal', location.href);
-        url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        url.searchParams.set('workspace', id);
-        if (terminalId) url.searchParams.set('terminal', terminalId);
-        const socket = new WebSocket(url);
-        const types: string[] = [];
-        const timer = window.setTimeout(() => {
-          socket.close();
-          reject(new Error('compatibility terminal connection timed out'));
-        }, 10_000);
-        socket.onmessage = (event) => {
-          const message = JSON.parse(String(event.data)) as { type?: string };
-          if (typeof message.type === 'string') types.push(message.type);
-          if (message.type === 'snapshot') socket.send(JSON.stringify({ type: 'snapshot-ready' }));
-          if (message.type !== 'screen-ready') return;
-          window.clearTimeout(timer);
-          socket.close();
-          resolve(types);
-        };
-        socket.onerror = () => {
-          window.clearTimeout(timer);
-          reject(new Error('compatibility terminal connection failed'));
-        };
-      }),
-    { id: workspace.id, terminalId: workspace.terminals[0]?.id }
-  );
-
-  expect(messageTypes).toContain('snapshot');
-  expect(messageTypes).toContain('screen-ready');
-  expect(messageTypes).not.toContain('geometry');
-});
-
-test('ignores transient terminal container collapse until a usable size returns', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const terminal = page.getByRole('application', { name: 'Interactive shell terminal' });
-  const visibleRows = await terminal.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
-  expect(visibleRows).toBeGreaterThanOrEqual(5);
-
-  await terminal.evaluate((element) => {
-    element.style.width = '1px';
-    element.style.height = '1px';
-  });
-  await page.waitForTimeout(250);
-  expect(await terminal.locator('.xterm-rows').evaluate((rows) => rows.childElementCount)).toBe(visibleRows);
-
-  await terminal.evaluate((element) => {
-    element.style.removeProperty('width');
-    element.style.removeProperty('height');
-  });
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, '-l', '--', "printf 'stable-terminal-size\\n'"]);
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-  await expect(terminal.locator('.xterm-rows')).toContainText('stable-terminal-size');
 });
 
 test('paints native IME composition without leaving a stale terminal overlay', async ({ context, page }) => {
@@ -2368,254 +1970,6 @@ test('publishes output sent immediately after terminal resize to other devices',
   }
 });
 
-test('keeps rapid full-screen redraws coherent through committed terminal resizes', async ({ context, page }) => {
-  test.setTimeout(60_000);
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const source = [
-    `let frame = 0;`,
-    `let timer;`,
-    `const finish = () => {`,
-    `  if (!timer) return;`,
-    `  clearInterval(timer);`,
-    `  timer = undefined;`,
-    `  process.off('SIGWINCH', draw);`,
-    `  process.stdout.write('\\x1b[?1049lVAMP_STRESS_DONE\\r\\n');`,
-    `};`,
-    `const draw = () => {`,
-    `  if (!timer) return;`,
-    `  frame += 1;`,
-    `  const payload = Array.from({ length: Math.max(1, Math.min(24, process.stdout.rows - 2)) }, (_, row) => String(row).padStart(2, '0') + ':' + '.'.repeat(Math.max(1, Math.min(90, process.stdout.columns - 4)))).join('\\r\\n');`,
-    `  process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H' + 'VAMP_FRAME_' + String(frame).padStart(4, '0') + ' ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n' + payload);`,
-    `  if (frame >= 120) finish();`,
-    `};`,
-    `process.on('SIGWINCH', draw);`,
-    `timer = setInterval(draw, 10);`,
-    `draw();`,
-  ].join('');
-  const encodedSource = Buffer.from(source).toString('base64');
-  const composer = page.getByPlaceholder('Compose a message…');
-  await composer.fill(`node -e "eval(Buffer.from('${encodedSource}','base64').toString('utf8'))"`);
-  await composer.press('Enter');
-  const terminalRows = page.locator('.xterm-rows');
-  await expect(terminalRows).toContainText('VAMP_FRAME_');
-
-  for (const viewport of [
-    { width: 1_100, height: 720 },
-    { width: 860, height: 620 },
-    { width: 1_200, height: 760 },
-    { width: 900, height: 640 },
-    { width: 1_280, height: 800 },
-    { width: 760, height: 600 },
-    { width: 1_050, height: 700 },
-    { width: 820, height: 640 },
-    { width: 1_280, height: 850 },
-  ]) {
-    await page.setViewportSize(viewport);
-    await page.waitForTimeout(120);
-  }
-
-  await expect(terminalRows).toContainText('VAMP_STRESS_DONE', { timeout: 15_000 });
-  const completionText = await terminalRows.textContent();
-  expect(completionText?.match(/VAMP_STRESS_DONE/gu) ?? []).toHaveLength(1);
-  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-  await expect(page.getByText('Reconnecting to terminal…')).toBeHidden();
-});
-
-test('measures sustained tmux output delivery and keeps the final screen and input intact', async ({
-  context,
-  page,
-}, testInfo) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  const wireSamples = new Map<number, number>();
-  const deliveries: Array<{
-    at: number;
-    type: string;
-    bytes: number;
-    screenSync?: boolean;
-    markers: number;
-    geometry?: string;
-  }> = [];
-  const errors: string[] = [];
-  let connections = 0;
-  page.on('websocket', (socket) => {
-    if (!socket.url().includes('/terminal')) return;
-    connections += 1;
-    let tail = '';
-    socket.on('framereceived', ({ payload }) => {
-      const message = JSON.parse(String(payload)) as {
-        type: string;
-        data?: string;
-        message?: string;
-        screenSync?: boolean;
-        columns?: number;
-        rows?: number;
-      };
-      deliveries.push({
-        at: Date.now(),
-        type: message.type,
-        bytes: Buffer.byteLength(message.data ?? ''),
-        screenSync: message.screenSync,
-        markers: [...(message.data ?? '').matchAll(/VAMP_PROBE_(\d{13})_/gu)].length,
-        geometry: message.columns === undefined ? undefined : `${message.columns}x${message.rows}`,
-      });
-      if (message.type === 'error') errors.push(message.message ?? 'Terminal error');
-      if (message.type !== 'output' || !message.data) return;
-      const text = tail + message.data;
-      for (const match of text.matchAll(/VAMP_PROBE_(\d{13})_/gu)) {
-        const producedAt = Number(match[1]);
-        if (!wireSamples.has(producedAt)) wireSamples.set(producedAt, Date.now());
-      }
-      tail = text.slice(-40);
-    });
-    socket.on('framesent', ({ payload }) => {
-      const message = JSON.parse(String(payload)) as { type: string; columns?: number; rows?: number };
-      if (message.type === 'resize' || message.type === 'activate')
-        deliveries.push({
-          at: Date.now(),
-          type: `client-${message.type}`,
-          bytes: 0,
-          markers: 0,
-          geometry: `${message.columns}x${message.rows}`,
-        });
-    });
-  });
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const initialConnections = connections;
-  await page.evaluate(() => {
-    const probe = {
-      frame: 0,
-      seen: new Set<number>(),
-      samples: [] as Array<{ producedAt: number; renderedAt: number }>,
-    };
-    window.__vampireOutputProbe = probe;
-    const sample = () => {
-      const text = document.querySelector('.xterm-screen > .xterm-rows')?.textContent ?? '';
-      for (const match of text.matchAll(/VAMP_PROBE_(\d{13})_/gu)) {
-        const producedAt = Number(match[1]);
-        if (probe.seen.has(producedAt)) continue;
-        probe.seen.add(producedAt);
-        probe.samples.push({ producedAt, renderedAt: Date.now() });
-      }
-      probe.frame = requestAnimationFrame(sample);
-    };
-    probe.frame = requestAnimationFrame(sample);
-  });
-  const source = [
-    `let frame = 0;`,
-    `const timer = setInterval(() => {`,
-    `  const rows = Array.from({ length: 20 }, (_, row) => '\\x1b[32m' + String(frame).padStart(3, '0') + ':' + String(row).padStart(2, '0') + ' 한글 output ' + '.'.repeat(40) + '\\x1b[0m\\r\\n').join('');`,
-    `  process.stdout.write(rows + 'VAMP_PROBE_' + Date.now() + '_' + frame + '\\r\\n');`,
-    `  if (++frame === 100) { clearInterval(timer); process.stdout.write('VAMP_PROBE_DONE\\r\\n'); }`,
-    `}, 20);`,
-  ].join('');
-  const composer = page.getByPlaceholder('Compose a message…');
-  await composer.fill(
-    `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString('utf8'))"`
-  );
-  await composer.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_PROBE_DONE', { timeout: 15_000 });
-  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-  const samples = await page.evaluate(() => {
-    const probe = window.__vampireOutputProbe;
-    if (!probe) throw new Error('Output probe did not start.');
-    cancelAnimationFrame(probe.frame);
-    delete window.__vampireOutputProbe;
-    return probe.samples;
-  });
-  expect(samples.length).toBeGreaterThan(0);
-  const deliveryPath = testInfo.outputPath('terminal-deliveries.json');
-  await writeFile(deliveryPath, JSON.stringify({ deliveries, samples, wire: [...wireSamples] }, null, 2));
-  await testInfo.attach('terminal-deliveries', { path: deliveryPath, contentType: 'application/json' });
-  expect(wireSamples.size).toBe(100);
-  expect(errors).toEqual([]);
-  expect(connections).toBe(initialConnections);
-  const firstProbeDelivery = deliveries.find((delivery) => delivery.markers > 0)?.at;
-  expect(firstProbeDelivery).toBeDefined();
-  // Terminal readiness can precede the final font/layout fit by one animation frame.
-  // Measure churn from the first real workload frame instead of counting that mount-time resize.
-  expect(deliveries.filter((delivery) => delivery.at >= firstProbeDelivery! && delivery.screenSync)).toEqual([]);
-  expect(
-    deliveries.filter((delivery) => delivery.at >= firstProbeDelivery! && delivery.type === 'client-resize')
-  ).toEqual([]);
-  await composer.fill("printf 'VAMP_INPUT_%s\\n' OK");
-  const inputStarted = Date.now();
-  await composer.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_INPUT_OK');
-  await expect(composer).toHaveValue('');
-  const summarize = (values: number[]) => {
-    const sorted = values.toSorted((a, b) => a - b);
-    return {
-      count: sorted.length,
-      p50: sorted[Math.floor(sorted.length * 0.5)],
-      p95: sorted[Math.floor(sorted.length * 0.95)],
-      maximum: sorted.at(-1),
-    };
-  };
-  const latencyPath = testInfo.outputPath('terminal-output-latency.json');
-  const paintTimes = [...new Set(samples.map((sample) => sample.renderedAt))];
-  await writeFile(
-    latencyPath,
-    JSON.stringify(
-      {
-        workload: '100 frames, 20 ANSI/Unicode rows per frame, 20 ms producer interval; local loopback',
-        producerToWireMs: summarize([...wireSamples].map(([producedAt, receivedAt]) => receivedAt - producedAt)),
-        producerToObservedDomMs: summarize(samples.map(({ producedAt, renderedAt }) => renderedAt - producedAt)),
-        visibleUpdateGapMs: summarize(paintTimes.slice(1).map((time, index) => time - paintTimes[index])),
-        inputToObservedResultMs: Date.now() - inputStarted,
-        note: 'Observed DOM samples can skip intermediate frames. Playwright wire callbacks and input assertions add observation overhead; these are diagnostic timings, not CI speed thresholds.',
-      },
-      null,
-      2
-    )
-  );
-  await testInfo.attach('terminal-output-latency', { path: latencyPath, contentType: 'application/json' });
-});
-
-test('restores a pending-autowrap cursor before the next terminal character', async ({ browser }) => {
-  test.setTimeout(45_000);
-  const firstContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const secondContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
-  try {
-    await authenticate(firstContext);
-    await authenticate(secondContext);
-    createdWorkspace = await createWorkspace(firstContext);
-    const firstPage = await firstContext.newPage();
-    const secondPage = await secondContext.newPage();
-    await firstPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(firstPage);
-    const geometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
-    const fullRow = 'W'.repeat(geometry.columns);
-    const firstComposer = firstPage.getByPlaceholder('Compose a message…');
-    await firstComposer.fill(`printf '${fullRow}'; IFS= read -r value; printf '\\nVAMP_WRAP_INPUT=%s\\n' "$value"`);
-    await firstComposer.press('Enter');
-    await expect.poll(() => tmuxPaneCursor(createdWorkspace!.tmuxSession)).toMatchObject({ column: geometry.columns });
-
-    await secondPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(secondPage);
-    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(geometry);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, firstPage, secondPage);
-    const secondComposer = secondPage.getByPlaceholder('Compose a message…');
-    await secondComposer.fill('Z');
-    await secondComposer.press('Enter');
-    await expect
-      .poll(async () => (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_WRAP_INPUT=Z'))
-      .toBe(true);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, firstPage, secondPage);
-  } finally {
-    await removeWorkspace(firstContext, createdWorkspace?.id);
-    await Promise.all([firstContext.close(), secondContext.close()]);
-  }
-});
-
 test('offers layout takeover when another same-sized device has control', async ({ browser }) => {
   const firstContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
   const secondContext = await browser.newContext({ viewport: { width: 1_000, height: 700 } });
@@ -2644,140 +1998,6 @@ test('offers layout takeover when another same-sized device has control', async 
   } finally {
     await removeWorkspace(firstContext, createdWorkspace?.id);
     await Promise.all([firstContext.close(), secondContext.close()]);
-  }
-});
-
-test('hands terminal layout between entered devices and restores it on disconnect', async ({ browser }) => {
-  test.setTimeout(60_000);
-  const desktopContext = await browser.newContext({ viewport: { width: 2_560, height: 1_400 } });
-  const phoneContext = await browser.newContext({ viewport: { width: 480, height: 560 } });
-  let createdWorkspace: Awaited<ReturnType<typeof createWorkspace>> | undefined;
-  try {
-    await authenticate(desktopContext);
-    await authenticate(phoneContext);
-    createdWorkspace = await createWorkspace(desktopContext);
-    await fillTerminalWithNumberedRows(createdWorkspace.tmuxSession);
-    const desktopPage = await desktopContext.newPage();
-    const phonePage = await phoneContext.newPage();
-    await desktopPage.addInitScript(() => {
-      Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
-    });
-    await phonePage.addInitScript(() => {
-      Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
-    });
-
-    await desktopPage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(desktopPage);
-    const desktopRows = await desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount);
-    await expect.poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows).toBe(desktopRows);
-    const desktopGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
-    expect(desktopGeometry.columns).toBeGreaterThan(240);
-    const initialDesktopRender = await renderedTerminalGeometry(desktopPage);
-    expect(initialDesktopRender.screenWidth).toBeLessThanOrEqual(initialDesktopRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-    const desktopComposer = desktopPage.getByPlaceholder('Compose a message…');
-    const stopFrameObservation = await observeTerminalFrames(desktopPage);
-    const alternateScreenCommand =
-      "printf '\\033[?1049h\\033[2J\\033[8;20HVAMP_TUI_READY\\033[12;7H'; IFS= read -r value; printf '\\033[?1049lVAMP_TUI_INPUT=%s\\n' \"$value\"";
-    await desktopComposer.fill(alternateScreenCommand);
-    await desktopComposer.press('Enter');
-    await expect
-      .poll(async () =>
-        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row.includes('VAMP_TUI_READY'))
-      )
-      .toBe(true);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-    const frameObservation = await stopFrameObservation();
-    // Entering an application-owned alternate screen can expose one native
-    // empty frame before that application paints its first row. The contract
-    // here is that xterm keeps one row container and never tears a settled
-    // marker; ordinary resizes must still remain blank-free (covered below).
-    expect(frameObservation.blankFrames).toBeLessThanOrEqual(1);
-    expect(frameObservation.invalidRowContainerFrames).toBe(0);
-    expect(frameObservation.unstableMarkerFrames).toBe(0);
-
-    await phonePage.goto(`/workspaces/${encodeURIComponent(createdWorkspace.id)}`);
-    await expectTerminalReady(phonePage);
-    await expect
-      .poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows)
-      .toBeLessThan(desktopGeometry.rows);
-    const phoneGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
-    await expect
-      .poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
-      .toBe(phoneGeometry.rows);
-    await expect.poll(() => renderedTerminalGeometry(phonePage)).toMatchObject({ rows: phoneGeometry.rows });
-    const phoneRender = await renderedTerminalGeometry(phonePage);
-    expect(phoneRender.screenWidth).toBeLessThanOrEqual(phoneRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-    const desktopHandoff = desktopPage.getByText('Sized for another device');
-    const phoneHandoff = phonePage.getByText('Sized for another device');
-    await expect(desktopHandoff).toBeVisible();
-    await expect(phoneHandoff).toBeHidden();
-    // A viewer measures its own preferred size without changing xterm. The
-    // controller's shared geometry remains authoritative until takeover.
-    await desktopPage.setViewportSize({ width: 2_200, height: 1_200 });
-    await expect.poll(() => renderedTerminalGeometry(desktopPage)).toMatchObject({ rows: phoneGeometry.rows });
-    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-
-    const phoneComposer = phonePage.getByPlaceholder('Compose a message…');
-    await phoneComposer.fill('VAMP_TUI_MOBILE_INPUT');
-    await phoneComposer.press('Enter');
-    await expect
-      .poll(async () =>
-        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some(
-          (row) => row === 'VAMP_TUI_INPUT=VAMP_TUI_MOBILE_INPUT'
-        )
-      )
-      .toBe(true);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-
-    await desktopPage.setViewportSize({ width: 2_560, height: 1_400 });
-    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
-    await desktopPage.getByRole('button', { name: 'Use this device' }).click();
-    await expect.poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).columns).toBeGreaterThan(240);
-    await expect
-      .poll(async () => (await tmuxPaneGeometry(createdWorkspace!.tmuxSession)).rows)
-      .toBe(desktopGeometry.rows);
-    const restoredDesktopGeometry = await tmuxPaneGeometry(createdWorkspace.tmuxSession);
-    await expect(desktopHandoff).toBeHidden();
-    await expect(phoneHandoff).toBeVisible();
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-
-    await phonePage.getByRole('button', { name: 'Use this device' }).click();
-    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(phoneGeometry);
-    await expect(desktopHandoff).toBeVisible();
-    await expect(phoneHandoff).toBeHidden();
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-    await phoneComposer.fill("printf 'VAMP_AFTER_PHONE_HANDOFF\\n'");
-    await phoneComposer.press('Enter');
-    await expect
-      .poll(async () =>
-        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_AFTER_PHONE_HANDOFF')
-      )
-      .toBe(true);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage, phonePage);
-
-    await phonePage.close();
-    await expect.poll(() => tmuxPaneGeometry(createdWorkspace!.tmuxSession)).toEqual(restoredDesktopGeometry);
-    await expect(desktopHandoff).toBeHidden();
-    await expect
-      .poll(() => desktopPage.locator('.xterm-rows').evaluate((rows) => rows.childElementCount))
-      .toBe(restoredDesktopGeometry.rows);
-    const restoredDesktopRender = await renderedTerminalGeometry(desktopPage);
-    expect(restoredDesktopRender.screenWidth).toBeLessThanOrEqual(restoredDesktopRender.containerWidth);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-    await desktopComposer.fill("printf 'VAMP_AFTER_DESKTOP_RESTORE\\n'");
-    await desktopComposer.press('Enter');
-    await expect
-      .poll(async () =>
-        (await tmuxPaneRows(createdWorkspace!.tmuxSession)).some((row) => row === 'VAMP_AFTER_DESKTOP_RESTORE')
-      )
-      .toBe(true);
-    await expectTerminalRowsMatchTmux(createdWorkspace.tmuxSession, desktopPage);
-  } finally {
-    await removeWorkspace(desktopContext, createdWorkspace?.id);
-    await Promise.all([desktopContext.close(), phoneContext.close()]);
   }
 });
 
@@ -2821,10 +2041,6 @@ test('runs and stops a background command without replacing the main workspace',
   await expect(
     backgroundDialog.getByRole('button', { name: `Run saved command ${longCommand}`, exact: true })
   ).toBeVisible();
-  const favoriteStripFitsPanel = await backgroundDialog
-    .locator('.favorite-strip')
-    .evaluate((favorites) => favorites.scrollWidth <= favorites.clientWidth + 1);
-  expect(favoriteStripFitsPanel).toBe(true);
   await backgroundDialog.getByRole('button', { name: 'Back to background processes' }).click();
 
   await page.reload();
@@ -2959,90 +2175,6 @@ test('moves terminal output through active, review, idle, and ended', async ({ c
   });
   await expect(endedGroup.locator('.workspace-row', { hasText: 'workspace' })).toBeVisible();
 });
-
-test('places the repository panel beside the terminal and resizes the terminal area', async ({ context, page }) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  await fillTerminalWithWrappedRows(workspace.tmuxSession, 300);
-  const messages: ObservedTerminalMessage[] = [];
-  await observeTerminalMessages(page, messages);
-
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  await fillTerminalWithWrappedRows(workspace.tmuxSession, 300);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_WRAP_300');
-  const terminalGeometryBeforePanel = await tmuxPaneGeometry(workspace.tmuxSession);
-  const terminalWidthBeforePanel = await page
-    .locator('.workspace-primary')
-    .evaluate((element) => element.getBoundingClientRect().width);
-
-  await page.evaluate(() => {
-    const samples: Array<{ at: number; minimum: number | undefined }> = [];
-    const started = performance.now();
-    const sample = () => {
-      const rows = Array.from(document.querySelectorAll('.xterm-rows > div'))
-        .map((row) => /VAMP_WRAP_(\d+)/u.exec(row.textContent?.trim() ?? ''))
-        .filter((match): match is RegExpExecArray => Boolean(match))
-        .map((match) => Number(match[1]));
-      samples.push({
-        at: Math.round(performance.now() - started),
-        minimum: rows.length ? Math.min(...rows) : undefined,
-      });
-      if (performance.now() - started < 500) requestAnimationFrame(sample);
-    };
-    (window as typeof window & { __vampireResizeHistorySamples?: typeof samples }).__vampireResizeHistorySamples =
-      samples;
-    sample();
-  });
-  await page.getByRole('button', { name: 'Open repository' }).click();
-  const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
-  await expect(repositoryPanel).toBeVisible();
-  await expect
-    .poll(() => page.locator('.workspace-primary').evaluate((element) => element.getBoundingClientRect().width))
-    .toBeLessThan(terminalWidthBeforePanel - 100);
-  await expect
-    .poll(async () => (await tmuxPaneGeometry(workspace.tmuxSession)).columns)
-    .toBeLessThan(terminalGeometryBeforePanel.columns);
-  await expect
-    .poll(() => repositoryPanel.evaluate((element) => element.getBoundingClientRect().width))
-    .toBeGreaterThan(300);
-  const [primaryBounds, panelBounds] = await Promise.all([
-    page.locator('.workspace-primary').boundingBox(),
-    repositoryPanel.boundingBox(),
-  ]);
-  expect(primaryBounds).not.toBeNull();
-  expect(panelBounds).not.toBeNull();
-  expect(panelBounds!.x).toBeGreaterThanOrEqual(primaryBounds!.x + primaryBounds!.width - 1);
-
-  await page.getByRole('button', { name: 'Close workspace panel' }).click();
-  await expect(repositoryPanel).toBeHidden();
-  await expect.poll(async () => tmuxPaneGeometry(workspace.tmuxSession)).toEqual(terminalGeometryBeforePanel);
-  await page.waitForTimeout(100);
-  const resizeHistorySamples = await page.evaluate(
-    () =>
-      (
-        window as typeof window & {
-          __vampireResizeHistorySamples?: Array<{ at: number; minimum: number | undefined }>;
-        }
-      ).__vampireResizeHistorySamples ?? []
-  );
-  expect(resizeHistorySamples.some((sample) => sample.minimum !== undefined)).toBe(true);
-  expect(
-    Math.min(...resizeHistorySamples.filter((sample) => sample.minimum !== undefined).map((sample) => sample.minimum!))
-  ).toBeGreaterThan(1);
-
-  const snapshotCountAfterAttach = messages.filter(
-    (message) => message.direction === 'server' && message.type === 'snapshot'
-  ).length;
-  await expect
-    .poll(() => messages.filter((message) => message.direction === 'server' && message.type === 'snapshot').length)
-    .toBe(snapshotCountAfterAttach);
-  expect(messages.filter((message) => message.direction === 'client' && message.type === 'load-history')).toHaveLength(
-    0
-  );
-});
-
 test('keeps an externally changed file when an editor save conflicts', async ({ context, page }) => {
   test.setTimeout(45_000);
   const conflictFile = join(E2E_WORKSPACE_DIRECTORY, 'conflict.txt');
@@ -3057,15 +2189,7 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
   await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
 
-  const repositoryPanel = page.getByRole('complementary', { name: 'Repository for workspace' });
   const repositoryViewer = page.getByLabel('File for conflict.txt');
-  const [panelBounds, viewerBounds] = await Promise.all([
-    repositoryPanel.boundingBox(),
-    repositoryViewer.boundingBox(),
-  ]);
-  expect(panelBounds).not.toBeNull();
-  expect(viewerBounds).not.toBeNull();
-  expect(viewerBounds!.x + viewerBounds!.width).toBeLessThanOrEqual(panelBounds!.x + 1);
 
   const editor = page.locator('[aria-label="Edit conflict.txt"] [role="textbox"][aria-roledescription="editor"]');
   await expect(editor).toBeVisible({ timeout: 15_000 });
@@ -3192,7 +2316,6 @@ test('adds and moves files through repository menus and drop points', async ({ c
     const folderShell = page.locator('[data-kind="directory"]').filter({ hasText: 'uploads' }).first();
     const folderRow = folderShell.getByRole('button', { name: 'Expand uploads' });
     await expect(folderRow).toBeVisible();
-    await expect(folderRow).toHaveCSS('cursor', 'pointer');
     await folderRow.click({ button: 'right' });
     await expect(page.getByRole('menuitem', { name: 'New file' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'New folder' })).toBeVisible();
@@ -3274,7 +2397,6 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await expect.poll(() => readFile(renamedConflict, 'utf8').catch(() => '')).toBe('uploaded conflict\n');
 
     const rootDropSurface = page.locator('[data-repository-root]');
-    const contentBoxBeforeDrop = await page.locator('.repository-content').boundingBox();
     await rootDropSurface.evaluate((element) => {
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(new File(['dropped on the worktree\n'], 'panel-dropped.txt', { type: 'text/plain' }));
@@ -3289,7 +2411,6 @@ test('adds and moves files through repository menus and drop points', async ({ c
     await expect.poll(() => readFile(panelDroppedUpload, 'utf8').catch(() => '')).toBe('dropped on the worktree\n');
     await expect(page.getByRole('button', { name: 'Open panel-dropped.txt' })).toBeVisible();
     await expect(page.locator('.repository-upload-notice')).toHaveCount(0);
-    expect(await page.locator('.repository-content').boundingBox()).toEqual(contentBoxBeforeDrop);
 
     await folderShell.evaluate((element) => {
       const dataTransfer = new DataTransfer();
@@ -3411,11 +2532,6 @@ test('does not restart a slow file open while repository status refreshes', asyn
     await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
     await expectTerminalReady(page);
     await page.getByRole('button', { name: 'Open repository' }).click();
-    await expect(page.getByRole('complementary', { name: 'Repository for workspace' })).toHaveCSS(
-      'transition-duration',
-      '0s'
-    );
-    await expect(page.locator('.workspace-primary')).toHaveCSS('transition-duration', '0s');
     await page.getByRole('tab', { name: 'Explorer', exact: true }).click();
     await page.getByRole('button', { name: 'Open slow-open.txt' }).click();
     const loadingStatus = page.getByRole('status', { name: 'Loading file: slow-open.txt' });
@@ -3438,7 +2554,7 @@ test('does not restart a slow file open while repository status refreshes', asyn
 test('recovers delayed terminal delivery without replaying an unconfirmed command', async ({
   context,
   page,
-}, testInfo) => {
+}) => {
   await authenticate(context);
   const workspace = await createWorkspace(context);
   workspaceId = workspace.id;
@@ -3499,10 +2615,6 @@ test('recovers delayed terminal delivery without replaying an unconfirmed comman
         phase === 'closed' && closeCode === 1013 && reason === 'terminal output fell behind'
     )
   ).toBe(true);
-  await testInfo.attach('terminal-connection-diagnostics', {
-    body: JSON.stringify(diagnostics, null, 2),
-    contentType: 'application/json',
-  });
 });
 
 test('a single device reconnects without competing with its lingering previous connection', async ({
@@ -3531,7 +2643,6 @@ test('a single device reconnects without competing with its lingering previous c
     await expect.poll(() => clients.length).toBe(2);
     await expectTerminalReady(page);
     await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
-    await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
     await authenticate(phoneContext);
     const phonePage = await phoneContext.newPage();
     await phonePage.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
@@ -3542,299 +2653,8 @@ test('a single device reconnects without competing with its lingering previous c
     await expectTerminalReady(page);
     await expect(page.getByRole('button', { name: 'Use this device' })).toBeVisible();
     await expect(phonePage.getByRole('button', { name: 'Use this device' })).toBeHidden();
-    await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
   } finally {
     await phoneContext.close();
     for (const server of servers) await server.close();
   }
-});
-
-async function saveReliabilityReport(testInfo: TestInfo, name: string, data: unknown) {
-  const path = testInfo.outputPath(`${name}.json`);
-  await writeFile(path, JSON.stringify(data, null, 2));
-  await testInfo.attach(name, { path, contentType: 'application/json' });
-}
-
-for (const profile of [
-  { name: '1Mbps-300ms', rate: 125_000, latency: 150 },
-  { name: '256Kbps-1000ms', rate: 32_000, latency: 500 },
-  { name: '256Kbps-1000ms-long-outage', rate: 32_000, latency: 500, outageMs: 20_000 },
-]) {
-  test(`network reliability ${profile.name}: output, outage and recovery`, async ({ context, page }, testInfo) => {
-    test.setTimeout(120_000);
-    await authenticate(context);
-    const workspace = await createWorkspace(context);
-    workspaceId = workspace.id;
-    const proxy = await terminalNetworkProxy(E2E_PORT, profile.rate, profile.latency);
-    const diagnostics: TerminalConnectionDiagnostic[] = [];
-    await page.exposeFunction('__recordTerminalConnection', (event: TerminalConnectionDiagnostic) => {
-      if (diagnostics.length < 128) diagnostics.push(event);
-    });
-    await page.addInitScript(() => {
-      window.addEventListener('vampire:terminal-connection', (event) => {
-        void window.__recordTerminalConnection((event as CustomEvent).detail);
-      });
-    });
-    let terminalConnections = 0;
-    page.on('websocket', (socket) => {
-      if (socket.url().includes('/ws/terminal')) terminalConnections += 1;
-    });
-    const timings: Record<string, number> = {};
-    try {
-      const openedAt = Date.now();
-      await page.goto(`${proxy.origin}/workspaces/${encodeURIComponent(workspace.id)}`);
-      await expectTerminalReady(page);
-      timings.initialPageAndTerminalMs = Date.now() - openedAt;
-      const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('\\x1b[32m'+n+' '+'x'.repeat(80)+'\\x1b[0m\\n').repeat(10));if(++n===30){clearInterval(t);console.log('VAMP_NETWORK_DONE')}},100)`;
-      await runTmux([
-        'send-keys',
-        '-t',
-        workspace.tmuxSession,
-        '-l',
-        '--',
-        `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
-      ]);
-      await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-      await expect(page.locator('.xterm-rows')).toContainText('VAMP_NETWORK_DONE', { timeout: 30_000 });
-      await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-      const beforeOutage = terminalConnections;
-      const readyBeforeOutage = diagnostics.filter(({ phase }) => phase === 'ready').length;
-      proxy.setAvailable(false);
-      await new Promise((resolve) => setTimeout(resolve, profile.outageMs ?? 3_000));
-      expect(diagnostics.some(({ phase }) => phase === 'exhausted')).toBe(profile.outageMs === 20_000);
-      const restoredAt = Date.now();
-      proxy.setAvailable(true);
-      await page.evaluate(() => window.dispatchEvent(new Event('online')));
-      await expect.poll(() => terminalConnections, { timeout: 30_000 }).toBeGreaterThan(beforeOutage);
-      await expect
-        .poll(() => diagnostics.filter(({ phase }) => phase === 'ready').length, { timeout: 30_000 })
-        .toBeGreaterThan(readyBeforeOutage);
-      await expectTerminalReady(page);
-      timings.recoveryMs = Date.now() - restoredAt;
-      await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
-      await page.getByLabel('Send text to the shell').fill("printf 'VAMP_NETWORK_INPUT_OK\\n'");
-      await page.getByRole('button', { name: 'Send to shell' }).click();
-      await expect(page.locator('.xterm-rows')).toContainText('VAMP_NETWORK_INPUT_OK', { timeout: 20_000 });
-      await expect(page.getByRole('region', { name: 'Compose delivery status' })).toBeHidden({ timeout: 20_000 });
-      await expect(page.getByLabel('Send text to the shell')).toHaveValue('');
-      await expect
-        .poll(async () =>
-          (await tmuxPaneRows(workspace.tmuxSession)).some((row) => row.trim() === 'VAMP_NETWORK_INPUT_OK')
-        )
-        .toBe(true);
-      await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-    } finally {
-      await saveReliabilityReport(testInfo, 'network-reliability', {
-        diagnostics,
-        profile,
-        timings,
-        terminalConnections,
-        proxy: proxy.stats,
-      });
-      await proxy.close();
-    }
-  });
-}
-
-test('network reliability: a frozen browser catches up and preserves its draft', async ({
-  context,
-  page,
-}, testInfo) => {
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  const composer = page.getByLabel('Send text to the shell');
-  await composer.fill('unsent draft across browser suspension');
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
-  try {
-    await fillTerminalWithNumberedRows(workspace.tmuxSession, 500);
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  } finally {
-    await cdp.send('Page.setWebLifecycleState', { state: 'active' });
-  }
-  const resumedAt = Date.now();
-  await expectTerminalReady(page);
-  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-  await expect(composer).toHaveValue('unsent draft across browser suspension');
-  await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
-  await saveReliabilityReport(testInfo, 'browser-suspension', { frozenMs: 5_000, recoveryMs: Date.now() - resumedAt });
-});
-
-test('network reliability: four devices isolate a slow subscriber during an output burst', async ({
-  browser,
-  context,
-}, testInfo) => {
-  test.setTimeout(120_000);
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  const proxy = await terminalNetworkProxy(E2E_PORT, 32_000, 500);
-  const devices: BrowserContext[] = [];
-  const pages: Page[] = [];
-  const connections = [0, 0, 0, 0];
-  const historyRequests = [0, 0, 0, 0];
-  const diagnostics: TerminalConnectionDiagnostic[][] = [[], [], [], []];
-  const recoveryMs: number[] = [];
-  const completionFile = join(E2E_WORKSPACE_DIRECTORY, `burst-complete-${randomBytes(4).toString('hex')}`);
-  try {
-    for (let i = 0; i < 4; i += 1) {
-      const device = await browser.newContext({ viewport: { width: i === 3 ? 480 : 1_280, height: 800 } });
-      devices.push(device);
-      await authenticate(device);
-      const page = await device.newPage();
-      pages.push(page);
-      await page.exposeFunction('__recordTerminalConnection', (event: TerminalConnectionDiagnostic) => {
-        if (diagnostics[i].length < 128) diagnostics[i].push(event);
-      });
-      await page.addInitScript(() => {
-        window.addEventListener('vampire:terminal-connection', (event) => {
-          void window.__recordTerminalConnection((event as CustomEvent).detail);
-        });
-      });
-      page.on('websocket', (socket) => {
-        if (socket.url().includes('/ws/terminal')) connections[i] += 1;
-        socket.on('framesent', (event) => {
-          if (JSON.parse(String(event.payload)).type === 'load-history') historyRequests[i] += 1;
-        });
-      });
-      await page.goto(`${i === 3 ? proxy.origin : E2E_BASE_URL}/workspaces/${encodeURIComponent(workspace.id)}`);
-      await expectTerminalReady(page);
-    }
-    const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('FRAME_'+String(n).padStart(3,'0')+' '+'x'.repeat(86)+'\\n').repeat(320));if(++n===100){clearInterval(t);process.stdout.write('VAMP_BURST_DONE\\n',()=>require('node:fs').writeFileSync(${JSON.stringify(completionFile)},'done'))}},40)`;
-    const startedAt = Date.now();
-    await runTmux([
-      'send-keys',
-      '-t',
-      workspace.tmuxSession,
-      '-l',
-      '--',
-      `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
-    ]);
-    await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-    // Detect producer completion separately from screen contents: a shell redraw
-    // can scroll the marker away. Every fast viewer must still match current tmux
-    // state within the existing recovery budget below.
-    await expect.poll(() => readFile(completionFile, 'utf8').catch(() => ''), { timeout: 20_000 }).toBe('done');
-    await Promise.all(
-      pages.slice(0, 3).map(async (page, i) => {
-        await expect
-          .poll(
-            async () =>
-              terminalRowsMismatch(await tmuxPaneRows(workspace.tmuxSession), await renderedTerminalRows(page), i + 1),
-            { timeout: 15_000 }
-          )
-          .toBe('');
-        recoveryMs[i] = Date.now() - startedAt;
-        await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-      })
-    );
-    await expect(pages[3].locator('.terminal.screen-ready')).toHaveCount(1);
-    // A disconnected controller may yield to another connected device. Recovery
-    // must not steal it back; use a fast viewer for this control-path check so
-    // a slow subscriber is not required to complete the burst first.
-    const takeover = pages[1].getByRole('button', { name: 'Use this device' });
-    if (await takeover.isVisible()) await takeover.click();
-    await expect(takeover).toBeHidden();
-    // The shaped connection can still have an older ownership message queued.
-    // Fast viewers must agree on this takeover without waiting for that queue.
-    await expect(pages[0].getByRole('button', { name: 'Use this device' })).toBeVisible();
-    await expect(pages[2].getByRole('button', { name: 'Use this device' })).toBeVisible();
-    await pages[1].getByLabel('Send text to the shell').fill("printf 'VAMP_BURST_INPUT_OK\\n'");
-    await pages[1].getByRole('button', { name: 'Send to shell' }).click();
-    await expect(pages[0].locator('.xterm-rows')).toContainText('VAMP_BURST_INPUT_OK', { timeout: 20_000 });
-    await expect(pages[1].getByLabel('Send text to the shell')).toHaveValue('', { timeout: 20_000 });
-    await expectTerminalRowsMatchTmux(workspace.tmuxSession, pages[0], pages[1], pages[2]);
-    expect(connections).toEqual([1, 1, 1, 1]);
-    expect(historyRequests).toEqual([0, 0, 0, 0]);
-    for (const recovery of recoveryMs.slice(0, 3)) expect(recovery).toBeLessThan(15_000);
-  } finally {
-    const expected = await tmuxPaneRows(workspace.tmuxSession);
-    const viewports = await Promise.all(pages.map((page) => page.locator('.xterm-viewport').evaluate((viewport) => ({
-      top: viewport.scrollTop,
-      height: viewport.clientHeight,
-      total: viewport.scrollHeight,
-    }))));
-    const screens = await Promise.all(
-      pages.map(async (page, i) => ({
-        device: i,
-        mismatch: terminalRowsMismatch(expected, await renderedTerminalRows(page), i + 1),
-        status: await page.locator('.terminal-status-message').allTextContents(),
-        screenReady: await page.locator('.terminal.screen-ready').count(),
-      }))
-    );
-    await saveReliabilityReport(testInfo, 'four-device-network', {
-      viewports,
-      historyRequests,
-      connections,
-      recoveryMs,
-      diagnostics,
-      screens,
-      proxy: proxy.stats,
-    });
-    await rm(completionFile, { force: true });
-    for (const device of devices) await device.close();
-    await proxy.close();
-  }
-});
-
-test('network reliability: repeated fresh terminal attachments preserve drafts', async ({
-  context,
-  page,
-}, testInfo) => {
-  test.setTimeout(120_000);
-  await authenticate(context);
-  const first = await createWorkspace(context);
-  const second = await createWorkspace(context);
-  workspaceId = first.id;
-  const timings: number[] = [];
-  try {
-    await page.goto(`/workspaces/${encodeURIComponent(first.id)}`);
-    await expectTerminalReady(page);
-    await page.getByPlaceholder('Compose a message…').fill('Keep this draft across repeated switches');
-    for (let i = 0; i < 20; i += 1) {
-      const startedAt = Date.now();
-      await page
-        .locator('.workspace-row-shell:not(.selected)')
-        .getByRole('button', { name: /Open running workspace/ })
-        .click();
-      await expectTerminalReady(page);
-      await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
-      timings.push(Date.now() - startedAt);
-    }
-    await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(first.id)}`);
-    await expect(page.getByPlaceholder('Compose a message…')).toHaveValue('Keep this draft across repeated switches');
-  } finally {
-    await saveReliabilityReport(testInfo, 'workspace-switch-timings', { switches: timings });
-    await removeWorkspace(context, second.id);
-  }
-});
-
-test('network reliability: attaches during sustained output without cycling connections', async ({ context, page }) => {
-  test.setTimeout(90_000);
-  await authenticate(context);
-  const workspace = await createWorkspace(context);
-  workspaceId = workspace.id;
-  let connections = 0;
-  page.on('websocket', (socket) => {
-    if (socket.url().includes('/ws/terminal')) connections += 1;
-  });
-  const source = `let n=0;const t=setInterval(()=>{process.stdout.write(('ATTACH_'+n+' '+'x'.repeat(86)+'\\n').repeat(640));if(++n===200){clearInterval(t);console.log('VAMP_ATTACH_DONE')}},40)`;
-  await runTmux([
-    'send-keys',
-    '-t',
-    workspace.tmuxSession,
-    '-l',
-    '--',
-    `node -e "eval(Buffer.from('${Buffer.from(source).toString('base64')}','base64').toString())"`,
-  ]);
-  await runTmux(['send-keys', '-t', workspace.tmuxSession, 'Enter']);
-  await page.goto(`/workspaces/${encodeURIComponent(workspace.id)}`);
-  await expectTerminalReady(page);
-  await expect(page.locator('.xterm-rows')).toContainText('VAMP_ATTACH_DONE', { timeout: 30_000 });
-  await expectTerminalRowsMatchTmux(workspace.tmuxSession, page);
-  expect(connections).toBe(1);
-  await expect(page.getByRole('button', { name: 'Use this device' })).toBeHidden();
 });

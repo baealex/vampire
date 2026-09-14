@@ -21,7 +21,7 @@ async function protectedApiRequests(): Promise<Array<{ path: string; method: str
   return requests;
 }
 
-test('security: every protected HTTP handler rejects requests without a session', async ({ request }) => {
+test('@release security: every protected HTTP handler rejects requests without a session', async ({ request }) => {
   const endpoints = await protectedApiRequests();
   expect(endpoints.length).toBeGreaterThan(40);
   for (const { path, method } of endpoints) {
@@ -37,7 +37,7 @@ test('security: every protected HTTP handler rejects requests without a session'
   expect((await request.get('/events/workspaces')).status()).toBe(401);
 });
 
-test('security: hostile hosts, origins, and unauthenticated websocket upgrades are rejected', async ({ request }) => {
+test('@release security: hostile hosts, origins, and unauthenticated websocket upgrades are rejected', async ({ request }) => {
   const wrongHost = await request.get('/api/status', { headers: { host: 'attacker.example' } });
   expect(wrongHost.status()).toBe(421);
   const spoofedForwarding = await request.post('/api/login', {
@@ -65,7 +65,7 @@ test('security: hostile hosts, origins, and unauthenticated websocket upgrades a
   }
 });
 
-test('security: authenticated writes reject foreign origins and logout revokes the session', async ({ request }) => {
+test('@release security: authenticated writes reject foreign origins and logout revokes the session', async ({ request }) => {
   const login = await request.post('/api/login', { data: { token: E2E_TOKEN } });
   expect(login.ok()).toBe(true);
   const cookie = login.headers()['set-cookie'];

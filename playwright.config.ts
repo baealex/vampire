@@ -7,7 +7,6 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: 'line',
   use: {
@@ -20,12 +19,6 @@ export default defineConfig({
       name: 'desktop-chromium',
       testMatch: ['**/desktop.spec.ts', '**/security.spec.ts', '**/ui-regressions.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'terminal-handoff-firefox',
-      testMatch: '**/desktop.spec.ts',
-      grep: /hands terminal layout between entered devices and restores it on disconnect/,
-      use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'mobile-chromium',

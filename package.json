@@ -57,6 +57,7 @@
     "check:react": "pnpm --filter @vampire/client type-check",
     "test:component:watch": "vitest --config vitest.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:release": "playwright test --project=desktop-chromium --grep @release",
     "prepack": "pnpm build"
   },
   "dependencies": {
