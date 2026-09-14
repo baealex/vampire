@@ -65,10 +65,12 @@ Widget 화면은 대상 선택과 Ask Agent를 비활성화하고 실행 중인 
 ## 검증과 리뷰
 
 - `pnpm check`: 아키텍처, 디자인 시스템, React/TypeScript 진단 통과.
-- `pnpm test:node`: 293개 통과.
-- `pnpm test:component`: 73개 통과.
+- 위 수치는 관리 화면 변경 당시의 테스트 구성에 대한 기록이다. 현재 통합 검증은 아래 릴리즈 기준을 따른다.
+- `pnpm test:node`: 392개 통과.
+- `pnpm test:react`: 9개 파일, 22개 통과.
 - `pnpm build`: 프로덕션 빌드 통과.
-- `pnpm test:e2e`: 데스크톱 Chromium, 터미널 인계 Firefox, 모바일 Chromium/Firefox의 47개 시나리오 통과.
+- `pnpm test:e2e:release`: Chromium에서 설정·자동화·보안 핵심 흐름 5개 통과.
+- 전체 `pnpm test:e2e`는 5개 파일 88개 시나리오의 수동 품질 점검이며 릴리즈 게이트가 아니다.
 - 별도 회귀 검증: Note 저장 지연·실패 후 workspace 이동/방문 기록 보존, Widget 미저장 X·뒤로가기·숫자 단축키, 모바일 관리 화면·포커스, Git discard 갱신 경합.
 - 팀 에이전트 리뷰: UI, 릴리즈, 서버 관점에서 여러 차례 재검토했다. 최종 Blocker/Important가 없는 상태에서 release-ready 판정을 받았다.
 

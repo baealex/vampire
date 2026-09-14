@@ -7,7 +7,7 @@
 | 흐름 | 보호할 동작 |
 | --- | --- |
 | 입력·전송 | 높이가 고정된 입력창, 한글 조합과 여러 줄 작성, 명확한 입력 전환, 전송 상태와 초안 복구 |
-| 출력 확인 | 메시지 전송이 pane 크기를 바꾸지 않음, 연속 출력이 전달됨, 최종 웹 화면이 tmux와 일치함 |
+| 출력 확인 | 메시지 전송이 pane 크기를 바꾸지 않음, 연속 출력이 전달됨, 최종 출력이 사용자 화면에 보임 |
 | 전환·복귀 | 워크스페이스별 초안·입력 포커스 유지, 기기 간 제어권과 화면 크기 복구 |
 | 보조 작업 | 저장소 패널과 백그라운드 작업이 메인 터미널을 불필요하게 변경하지 않음 |
 | 작은 화면 | 입력창과 모드 전환 접근 가능, 최소 출력 행 확보, 가로 넘침 없음 |
@@ -32,7 +32,7 @@
 
 입력창 예약 높이는 약 48px로 줄었다. 여러 줄을 작성해도 입력 영역은 40px 높이를 유지하고 가운데 한 줄의 textarea 안에서 스크롤한다. 세로 여백을 스크롤 영역 밖에 두어 현재 줄이 위아래로 치우치지 않게 했다. 위로 늘어나 터미널 출력을 덮지 않는다. Shift+Enter는 브라우저의 기본 줄바꿈을 사용하므로 커서가 새 줄로 이동할 때 스크롤도 따라간다. 작은 화면에서는 모드 버튼의 아이콘과 접근성 이름을 유지하며, 화면 높이를 이유로 모드 전환을 숨기지 않는다.
 
-폭 512px 이하에서는 기록·이미지를 `More message actions`로 묶어 입력 폭을 확보한다. 320px 화면에서도 입력칸 폭이 150px 이상이고, 빈 입력창의 실제 높이가 52px 이하인지 검증한다. 기록은 입력창의 동작 버튼 위에 배치하고 닫을 때 포커스를 복원한다. 입력칸을 다시 누르면 팝업이 닫혀 편집을 이어갈 수 있다.
+폭 512px 이하에서는 기록·이미지를 `More message actions`로 묶어 입력 폭을 확보한다. 320px 화면에서도 입력칸과 주요 동작을 사용할 수 있게 한다. 기록은 입력창의 동작 버튼 위에 배치하고 닫을 때 포커스를 복원한다. 입력칸을 다시 누르면 팝업이 닫혀 편집을 이어갈 수 있다.
 
 ### 데스크톱 보조 키와 표시 설정
 
@@ -46,9 +46,11 @@ Compose에는 일반 UI 글꼴을 사용하고, 줄 높이를 기준으로 위�
 
 노트·백그라운드·오토메이션·위젯의 진입 버튼을 상단 작업 영역의 아이콘과 `Ask agent…` 텍스트로 맞췄다. 네 화면은 기존 `AskAgentDialog`를 계속 사용한다. 노트의 저장 후 전달, 위젯의 대상 워크스페이스 선택, 실행 중인 프로세스가 없을 때의 비활성화 등 작업별 조건은 유지한다.
 
-## 출력 측정 방법과 관측 결과
+## 출력 측정 방법과 관측 결과 (과거 조사 기록)
 
 2026-09-06, Node 24.19.0, tmux 3.7c, Playwright 1.62.0의 로컬 Chromium 환경에서 측정했다.
+
+아래 수치는 당시 출력 전달 병목을 조사하기 위해 실행한 부하 시험의 기록이다. 해당 시험은 브라우저 렌더러와 네트워크 중계기의 내부 동작에 의존해 현재 자동화 스위트에서 제거했으며, 릴리즈 합격 기준으로 사용하지 않는다.
 
 실제 tmux 안의 프로세스가 20ms 간격으로 100회 출력한다. 매회 한글·ANSI 색상이 포함된 20행과 생성 시각 표식을 출력한다. WebSocket 수신 시각과 브라우저의 화면 갱신 주기에서 처음 관측한 DOM 시각을 기록한다. 출력 후 실제 tmux 화면과 웹의 모든 표시 행을 비교하고, 다음 입력의 결과도 확인한다.
 
@@ -63,26 +65,30 @@ Compose에는 일반 UI 글꼴을 사용하고, 줄 높이를 기준으로 위�
 
 이 수치는 해당 부하와 로컬 연결에서의 관측값이다. DOM 관측은 중간 프레임을 건너뛸 수 있으며, 수신 콜백과 입력 결과 확인에는 테스트 도구의 관측 비용이 포함된다. 별도 서버 파서만의 지연, 원격 네트워크 성능, 최대 처리량을 나타내지는 않는다. 시간 수치는 진단 자료로 기록하고, CI의 고정 속도 합격선으로 사용하지 않는다.
 
-## 재현과 회귀 검증
+## 현재 회귀 검증
 
-출력 전달 진단:
+릴리즈에서 유지하는 브라우저 검증은 사용자 핵심 흐름과 보안 계약으로 한정한다.
 
 ```sh
-pnpm exec playwright test --project=desktop-chromium -g 'measures sustained tmux'
+pnpm test:e2e:release
 ```
 
-해당 테스트 결과 폴더에 `terminal-output-latency.json`과 `terminal-deliveries.json`이 생성된다. 전달 기록에는 메시지 종류, 크기 변경, 출력 표식과 관측 시각이 포함된다. 테스트 서버와 tmux 소켓은 E2E 전용 환경을 사용한다.
-
-전송 상태·초안 복구·입력창 높이:
+전송 상태·초안 복구·입력창 동작을 수동으로 확인할 때는 다음 흐름을 사용한다.
 
 ```sh
-pnpm exec playwright test --project=desktop-chromium -g 'keeps Compose drafts until|keeps Composer fixed'
+pnpm exec playwright test --project=desktop-chromium -g 'keeps Compose drafts until|keeps Composer fixed|recovers delayed terminal|lingering previous'
 ```
 
 작은 화면과 모바일 입력:
 
 ```sh
-pnpm exec playwright test --project=mobile-chromium --project=mobile-firefox --project=mobile-webkit -g 'extreme keyboard-height|keeps direct terminal input|keeps a Compose draft focused|preserves mobile composition'
+pnpm exec playwright test --project=mobile-chromium --project=mobile-firefox --project=mobile-webkit -g 'keeps direct terminal input|keeps a Compose draft focused|preserves mobile composition'
+```
+
+전체 브라우저 스위트는 릴리즈 게이트가 아닌 수동 품질 점검으로 실행한다.
+
+```sh
+pnpm test:e2e
 ```
 
 코드 검증:

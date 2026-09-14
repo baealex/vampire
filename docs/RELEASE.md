@@ -11,7 +11,7 @@ PRs or version inputs.
 - An annotated release tag must point to a commit already on main and contain
   the release notes.
 - Pushing a vX.Y.Z tag starts one publish workflow:
-  CI -> E2E -> Release.
+  CI -> focused Release E2E -> Release.
 - The tag is a release candidate until the final Release step succeeds.
 - npm publish and the GitHub Release happen only after all earlier steps pass.
 
@@ -32,11 +32,13 @@ release succeeds.
 ## Release gate
 
 When vX.Y.Z is pushed, Publish checks that the tag points to main and matches
-package.json. CI runs type checks, unit tests, and the build. E2E starts only
-after CI succeeds and tests the exact tag commit. Release then packs and
-smoke-tests the exact npm artifact, requests approval from the npm
-environment, publishes it, verifies the npm registry, and creates the GitHub
-Release last.
+package.json. CI runs type checks, unit tests, and the build. Release E2E starts
+only after CI succeeds, uses Chromium, and runs the small `@release`-tagged
+user/security flow suite against the exact tag commit. The complete
+`pnpm test:e2e` suite remains a manual quality run and is not a publish gate.
+Release then packs and smoke-tests the exact npm artifact, requests approval
+from the npm environment, publishes it, verifies the npm registry, and creates
+the GitHub Release last.
 
 The package smoke test also installs the previous published version in an
 isolated state directory and tmux server, creates workspace data, and verifies
