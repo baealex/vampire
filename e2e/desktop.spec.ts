@@ -339,7 +339,7 @@ test('switches input focus directly and keeps Shift+Enter distinct in the termin
   const inputMessagesBeforeComposeShortcut = messages.filter(
     (message) => message.direction === 'client' && message.type === 'input'
   ).length;
-  await terminalInput.press('Meta+Slash');
+  await terminalInput.press('Control+Backquote');
   await expect(composer).toBeFocused();
   expect(messages.filter((message) => message.direction === 'client' && message.type === 'input')).toHaveLength(
     inputMessagesBeforeComposeShortcut
@@ -385,6 +385,14 @@ test('persists terminal text size from settings and keeps shortcuts readable', a
     .getByRole('button', { name: 'Terminal', exact: true })
     .click();
   const shortcuts = page.locator('.shortcut-list');
+  await expect(shortcuts.locator('.shortcut-row').filter({ hasText: 'Switch input' }).locator('kbd')).toHaveText([
+    'Ctrl',
+    '`',
+  ]);
+  await expect(shortcuts.locator('.shortcut-row').filter({ hasText: 'Switch workspace' }).locator('kbd')).toHaveText([
+    'Ctrl',
+    '1–0',
+  ]);
   await page.setViewportSize({ width: 320, height: 700 });
   await expect(page.getByRole('button', { name: 'Close workspace navigator' })).toBeHidden();
   for (const key of await shortcuts.locator('kbd').all()) {
@@ -452,7 +460,7 @@ test('keeps each workspace input focus and Composer draft across workspace switc
     await expectTerminalReady(page);
     await expect(page.getByPlaceholder('Compose a message…')).toBeFocused();
 
-    await page.getByPlaceholder('Compose a message…').press('Meta+Slash');
+    await page.getByPlaceholder('Compose a message…').press('Control+Backquote');
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
     await page
@@ -464,7 +472,7 @@ test('keeps each workspace input focus and Composer draft across workspace switc
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
 
     const restoredComposer = page.getByPlaceholder('Compose a message…');
-    await page.locator('.xterm-helper-textarea').press('Meta+Slash');
+    await page.locator('.xterm-helper-textarea').press('Control+Backquote');
     await expect(restoredComposer).toBeFocused();
     await restoredComposer.fill('Keep this unfinished prompt');
 
@@ -508,10 +516,7 @@ test('previews, persists, and applies a workspace Compose template', async ({ co
   const template = '# Read AGENTS.md before working.\n{{ prompts }}\n# Verify the result before replying.';
   const templateEditor = settingsPage.getByRole('textbox', { name: 'Template source' });
   await settingsPage.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click();
-  await settingsPage.locator('.monaco-editor .view-lines').click();
-  // Monaco follows the emulated Windows user agent, not the test runner's macOS host.
-  await templateEditor.press('Control+a');
-  await page.keyboard.insertText(template);
+  await templateEditor.fill(template);
   await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
   await settingsPage.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(settingsPage.getByRole('textbox', { name: 'Compose message' })).toHaveCount(0);
@@ -1167,7 +1172,7 @@ test('manages server-wide status plugins and shares their ordered output across 
       .getByRole('button', { name: 'Status widgets', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('dialog', { name: 'Status widgets' })).toHaveCount(0);
-  await page.keyboard.press('Meta+1');
+  await page.keyboard.press('Control+1');
   await expect(page).toHaveURL(`/workspaces/${encodeURIComponent(workspace.id)}`);
   await page.evaluate(() => history.back());
   await expect(page).toHaveURL(new RegExp(`/settings\\?workspace=${encodeURIComponent(workspace.id)}&section=widgets$`));
@@ -1180,11 +1185,9 @@ test('manages server-wide status plugins and shares their ordered output across 
   await page.getByRole('menuitem', { name: 'Command', exact: true }).click();
   const custom = settings;
   await custom.getByLabel('Name').fill('Build');
-  await custom.locator('.monaco-editor .view-lines').click();
   const commandEditor = custom.getByRole('textbox', { name: 'Command', exact: true });
   const command = "printf 'ready\\nShared result\\n'";
-  await commandEditor.press('Control+a');
-  await page.keyboard.insertText(command);
+  await commandEditor.fill(command);
   await custom.getByRole('spinbutton', { name: 'Every' }).fill('60');
   await page.evaluate(() => history.forward());
   const discardPrompt = page.getByRole('heading', { name: 'Discard unsaved widget changes?' });
@@ -1196,7 +1199,7 @@ test('manages server-wide status plugins and shares their ordered output across 
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(settings).toBeVisible();
-  await page.keyboard.press('Meta+1');
+  await page.keyboard.press('Control+1');
   await expect(discardPrompt).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(settings).toBeVisible();
@@ -1572,12 +1575,12 @@ test('shares workspace aliases and manual order across devices', async ({ browse
     await expect(firstPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha']);
     await expect(secondPage.locator('.workspace-title strong')).toHaveText(['Beta', 'Alpha'], { timeout: 12_000 });
 
-    await firstPage.keyboard.press('Meta+1');
+    await firstPage.keyboard.press('Control+1');
     await expect(firstPage).toHaveURL(`/workspaces/${encodeURIComponent(secondWorkspace.id)}`);
     await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Beta');
     await expectTerminalReady(firstPage);
 
-    await firstPage.keyboard.press('Meta+2');
+    await firstPage.keyboard.press('Control+2');
     await expect(firstPage).toHaveURL(`/workspaces/${encodeURIComponent(firstWorkspace.id)}`);
     await expect(firstPage.locator('.terminal-identity-title strong')).toHaveText('Alpha');
     await expectTerminalReady(firstPage);
@@ -2191,9 +2194,9 @@ test('keeps an externally changed file when an editor save conflicts', async ({ 
 
   const repositoryViewer = page.getByLabel('File for conflict.txt');
 
-  const editor = page.locator('[aria-label="Edit conflict.txt"] [role="textbox"][aria-roledescription="editor"]');
+  const editor = repositoryViewer.getByRole('textbox', { name: 'Editor for conflict.txt' });
   await expect(editor).toBeVisible({ timeout: 15_000 });
-  await repositoryViewer.locator('.monaco-editor .view-lines').click();
+  await editor.click();
   await writeFile(conflictFile, 'external process content\n', 'utf8');
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
@@ -2246,9 +2249,9 @@ test('keeps edits made while a file save is pending unsaved and protected', asyn
     await page.getByRole('button', { name: 'Open pending-save.txt' }).click();
 
     const codeEditor = page.locator('[aria-label="Edit pending-save.txt"]');
-    const editor = codeEditor.locator('[role="textbox"][aria-roledescription="editor"]');
+    const editor = codeEditor.getByRole('textbox', { name: 'Editor for pending-save.txt' });
     await expect(editor).toBeVisible({ timeout: 15_000 });
-    await codeEditor.locator('.monaco-editor .view-lines').click();
+    await editor.click();
     await page.keyboard.press('End');
     await page.keyboard.type(' first edit');
     await firstSaveStarted;
@@ -2544,7 +2547,7 @@ test('does not restart a slow file open while repository status refreshes', asyn
       await page.waitForTimeout(500);
     }
 
-    await expect(page.locator('[aria-label="Edit slow-open.txt"] [role="textbox"][aria-roledescription="editor"]')).toBeVisible({ timeout: 6_000 });
+    await expect(page.getByRole('textbox', { name: 'Editor for slow-open.txt' })).toBeVisible({ timeout: 6_000 });
     expect(targetRequests).toBe(1);
   } finally {
     await Promise.all([rm(targetFile, { force: true }), rm(churnFile, { force: true })]);

@@ -475,7 +475,6 @@ function RepositoryViewer({
           <Suspense fallback={<PanelState loading>Loading editor…</PanelState>}>
             <CodeEditor
               label={`Editor for ${file.path}`}
-              path={file.path}
               value={content}
               onChange={(next) => {
                 setContent(next);

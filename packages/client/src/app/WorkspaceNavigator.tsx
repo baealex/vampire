@@ -41,6 +41,8 @@ import '../features/workspace/workspace-navigator.css';
 
 const SHOW_NOTES_KEY = 'vampire:sidebar-show-notes';
 const SHOW_LAST_MESSAGE_KEY = 'vampire:sidebar-show-last-message';
+const orderMenuKey = '__workspace-order-menu__';
+const viewMenuKey = '__workspace-view-menu__';
 const DEFAULT_POINTER_ACTIVATION = PointerSensor.defaults.activationConstraints;
 const WORKSPACE_SENSORS = [
   PointerSensor.configure({
@@ -74,7 +76,7 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
 }) {
   const [now, setNow] = useState(Date.now());
   const [endedOpen, setEndedOpen] = useState(false);
-  const [actionMenuId, setActionMenuId] = useState<string>();
+  const [openMenuKey, setOpenMenuKey] = useState<string>();
   const [showNotes, setShowNotes] = useState(() => {
     try {
       return localStorage.getItem(SHOW_NOTES_KEY) !== 'false';
@@ -97,6 +99,8 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
       // Keep the control usable when browser storage is unavailable.
     }
   }, [showNotes, showLastMessage]);
+  const setMenuOpen = (key: string, open: boolean) =>
+    setOpenMenuKey((current) => (open ? key : current === key ? undefined : current));
   useEffect(() => {
     const update = () => {
       if (!document.hidden) setNow(Date.now());
@@ -214,8 +218,8 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
           </button>
           <div className="workspace-actions-menu">
             <WorkspaceActionsMenu
-              open={actionMenuId === workspace.id}
-              onOpenChange={(open) => setActionMenuId(open ? workspace.id : undefined)}
+              open={openMenuKey === workspace.id}
+              onOpenChange={(open) => setMenuOpen(workspace.id, open)}
               state={state}
               workspace={workspace}
               onNewWorktree={() => {
@@ -247,6 +251,8 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
         <header className="workspace-navigator-heading">
           <strong>Workspaces</strong>
           <DropdownMenu
+            open={openMenuKey === orderMenuKey}
+            onOpenChange={(open) => setMenuOpen(orderMenuKey, open)}
             label="Order by"
             title={`Order by: ${state.workspaceOrderMode === 'manual' ? 'Manual' : 'Activity'}`}
             align="end"
@@ -261,6 +267,8 @@ export const WorkspaceNavigator = observer(function WorkspaceNavigator({
             </DropdownMenuRadioGroup>
           </DropdownMenu>
           <DropdownMenu
+            open={openMenuKey === viewMenuKey}
+            onOpenChange={(open) => setMenuOpen(viewMenuKey, open)}
             label="Workspace view options"
             title="View options"
             align="end"

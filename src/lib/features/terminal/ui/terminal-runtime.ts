@@ -13,6 +13,7 @@ import {
   type TerminalServerMessage,
   type TerminalSubmissionResult,
 } from '~/lib/shared/contracts/terminal-protocol.ts';
+import { usesCommandKeyForShortcuts } from '~/lib/shared/ui/keyboard.ts';
 import { hasFinePointer } from '~/lib/shared/ui/layout.ts';
 import { TerminalConnection, type TerminalConnectionContext } from '../api/connection.ts';
 import {
@@ -372,7 +373,7 @@ export class TerminalRuntime {
         }
         return false;
       }
-      if (isInputSurfaceToggleShortcut(event)) {
+      if (isInputSurfaceToggleShortcut(event, usesCommandKeyForShortcuts())) {
         event.preventDefault();
         event.stopPropagation();
         if (event.type === 'keydown') this.#options.onComposeShortcut();

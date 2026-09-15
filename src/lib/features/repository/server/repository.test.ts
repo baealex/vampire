@@ -167,19 +167,28 @@ test('reports local branches, recent commits, upstream distance, and linked work
   );
 });
 
-test('reports an unborn branch without inventing commits or an upstream', async (t) => {
+test('reports an unborn branch without treating configured tracking as an upstream', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vampire-unborn-details-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await git(directory, 'init', '--quiet');
+  const branch = (await git(directory, 'branch', '--show-current')).trim();
+  const emptyTree = (await git(directory, 'hash-object', '-w', '-t', 'tree', '/dev/null')).trim();
+  const remoteCommit = (await git(directory, 'commit-tree', emptyTree, '-m', 'remote initial')).trim();
+  await git(directory, 'remote', 'add', 'origin', 'https://example.invalid/vampire.git');
+  await git(directory, 'update-ref', `refs/remotes/origin/${branch}`, remoteCommit);
+  await git(directory, 'config', `branch.${branch}.remote`, 'origin');
+  await git(directory, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`);
 
   const snapshot = await readRepositorySnapshot(directory);
-  assert.equal(snapshot.git?.branch, (await git(directory, 'branch', '--show-current')).trim());
+  assert.equal(snapshot.isGitRepository, true);
+  assert.equal(snapshot.gitError, undefined);
+  assert.equal(snapshot.git?.branch, branch);
   assert.equal(snapshot.git?.detached, false);
   assert.equal(snapshot.git?.upstream, undefined);
   const canonicalDirectory = await realpath(directory);
   assert.deepEqual(snapshot.git?.branches, [
     {
-      name: (await git(directory, 'branch', '--show-current')).trim(),
+      name: branch,
       current: true,
       worktreePath: canonicalDirectory,
     },

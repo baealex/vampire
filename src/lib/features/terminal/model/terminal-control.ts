@@ -56,12 +56,14 @@ export function terminalControlData(control: TerminalControlKey, applicationCurs
   return `\u001b${applicationCursorKeysMode ? 'O' : '['}${suffix}`;
 }
 
-export function isInputSurfaceToggleShortcut(event: TerminalShortcutEvent): boolean {
-  if (event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.shiftKey) return false;
-  return event.code === 'Slash' && event.metaKey;
+export function isInputSurfaceToggleShortcut(event: TerminalShortcutEvent, commandKey: boolean): boolean {
+  if (event.repeat || event.isComposing || event.altKey || event.shiftKey) return false;
+  return commandKey
+    ? event.code === 'Slash' && event.metaKey && !event.ctrlKey
+    : event.code === 'Backquote' && event.ctrlKey && !event.metaKey;
 }
 
 /** @deprecated Use isInputSurfaceToggleShortcut for the bidirectional input switch. */
-export function isComposeFocusShortcut(event: TerminalShortcutEvent): boolean {
-  return isInputSurfaceToggleShortcut(event);
+export function isComposeFocusShortcut(event: TerminalShortcutEvent, commandKey: boolean): boolean {
+  return isInputSurfaceToggleShortcut(event, commandKey);
 }

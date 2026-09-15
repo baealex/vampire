@@ -1,6 +1,2 @@
 packages:
   - packages/*
-
-# Keep Monaco's HTML sanitizer patched while its dependency is pinned upstream.
-overrides:
-  monaco-editor>dompurify: 3.4.13

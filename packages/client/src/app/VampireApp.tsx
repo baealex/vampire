@@ -1,3 +1,4 @@
+import { hasPrimaryShortcutModifier } from '@vampire/lib/shared/ui/keyboard.ts';
 import { observer } from 'mobx-react-lite';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { LoginScreen } from '~/features/auth/LoginScreen.tsx';
@@ -85,6 +86,7 @@ const VampireApp = observer(function VampireApp() {
   const [worktreeSourceId, setWorktreeSourceId] = useState<string>();
   const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string>();
   const [mobileNavigatorOpen, setMobileNavigatorOpen] = useState(false);
+  const [acceptedSearch, setAcceptedSearch] = useState(location.search);
   const acceptedLocationRef = useRef(`${location.pathname}${location.search}`);
   const acceptedNavigationIndexRef = useRef(0);
   const restoringHistoryRef = useRef(false);
@@ -123,14 +125,16 @@ const VampireApp = observer(function VampireApp() {
         restoringHistoryRef.current = false;
         return;
       }
-      const targetLocation = `${location.pathname}${location.search}`;
+      const targetPathname = location.pathname;
+      const targetSearch = location.search;
+      const targetLocation = `${targetPathname}${targetSearch}`;
       const targetNavigationIndex =
         typeof history.state?.vampireNavigationIndex === 'number'
           ? history.state.vampireNavigationIndex
           : acceptedNavigationIndexRef.current;
-      const workspaceSettings = /^\/workspaces\/([^/]+)\/settings\/?$/.exec(location.pathname);
-      const queryWorkspace = new URLSearchParams(location.search).get('workspace') ?? undefined;
-      const canonicalPath = legacyManagementPath(location.pathname, location.search);
+      const workspaceSettings = /^\/workspaces\/([^/]+)\/settings\/?$/.exec(targetPathname);
+      const queryWorkspace = new URLSearchParams(targetSearch).get('workspace') ?? undefined;
+      const canonicalPath = legacyManagementPath(targetPathname, targetSearch);
       const activeGuard = navigationGuard();
       if (
         activeGuard &&
@@ -156,12 +160,13 @@ const VampireApp = observer(function VampireApp() {
       }
       acceptedLocationRef.current = targetLocation;
       acceptedNavigationIndexRef.current = targetNavigationIndex;
-      setSettingsOpen(/^\/settings\/?$/.test(location.pathname));
+      setAcceptedSearch(targetSearch);
+      setSettingsOpen(/^\/settings\/?$/.test(targetPathname));
       setWorkspaceSettingsId(workspaceSettings ? decodeURIComponent(workspaceSettings[1]!) : undefined);
       if (workspaceSettings) workspaceState.syncLocation(`/workspaces/${workspaceSettings[1]}`);
-      else if (/^\/settings(?:\/|$)/.test(location.pathname))
+      else if (/^\/settings(?:\/|$)/.test(targetPathname))
         workspaceState.syncLocation(queryWorkspace ? `/workspaces/${encodeURIComponent(queryWorkspace)}` : '/');
-      else workspaceState.syncLocation(location.pathname);
+      else workspaceState.syncLocation(targetPathname);
     };
     window.addEventListener('popstate', syncRoute);
     window.addEventListener('vampire:navigation', syncRoute);
@@ -173,8 +178,7 @@ const VampireApp = observer(function VampireApp() {
         event.isComposing ||
         event.shiftKey ||
         event.altKey ||
-        event.ctrlKey ||
-        !event.metaKey ||
+        !hasPrimaryShortcutModifier(event) ||
         !digitMatch
       )
         return;
@@ -250,6 +254,7 @@ const VampireApp = observer(function VampireApp() {
   };
   const worktreeSource = workspaceState.workspaces.find((workspace) => workspace.id === worktreeSourceId);
   const settingsWorkspace = workspaceState.workspaces.find((workspace) => workspace.id === workspaceSettingsId);
+  const settingsParameters = new URLSearchParams(acceptedSearch);
   return (
     <main className={terminalOpen ? 'terminal-open' : undefined} data-client-runtime="react">
       <div
@@ -275,15 +280,15 @@ const VampireApp = observer(function VampireApp() {
         {settingsOpen ? (
           <Suspense fallback={null}>
             <AppSettingsDialog
-              initialAutomationId={new URLSearchParams(location.search).get('edit') ?? undefined}
+              initialAutomationId={settingsParameters.get('edit') ?? undefined}
               initialSection={
-                new URLSearchParams(location.search).get('section') === 'profiles'
+                settingsParameters.get('section') === 'profiles'
                   ? 'profiles'
-                  : new URLSearchParams(location.search).get('section') === 'terminal'
+                  : settingsParameters.get('section') === 'terminal'
                     ? 'terminal'
-                    : new URLSearchParams(location.search).get('section') === 'automations'
+                    : settingsParameters.get('section') === 'automations'
                       ? 'automations'
-                      : new URLSearchParams(location.search).get('section') === 'widgets'
+                      : settingsParameters.get('section') === 'widgets'
                         ? 'widgets'
                         : 'general'
               }

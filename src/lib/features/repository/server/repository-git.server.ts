@@ -198,6 +198,7 @@ export async function readGitBranch(cwd: string): Promise<string | undefined> {
 }
 
 async function readGitUpstream(cwd: string): Promise<RepositoryUpstream | undefined> {
+  if (!(await gitHeadExists(cwd))) return undefined;
   const { stdout } = await runGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], {
     acceptedExitCodes: [0, 128],
   });

@@ -10,6 +10,7 @@ import {
   MAX_WORKSPACE_COMPOSER_PROMPTS,
   MIN_WORKSPACE_COMPOSER_PROMPTS,
 } from '@vampire/lib/shared/contracts/workspace-composer-history.ts';
+import { usesCommandKeyForShortcuts } from '@vampire/lib/shared/ui/keyboard.ts';
 import { LogOut, Plus, Save, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
@@ -422,7 +423,7 @@ function Dialog({
   dirty: boolean;
   busy: boolean;
 }>) {
-  const meta = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  const commandKeyShortcuts = usesCommandKeyForShortcuts();
   return (
     <ManagementSurface
       title="Settings"
@@ -448,7 +449,12 @@ function Dialog({
             <Shortcut
               title="Switch input"
               description="Move between Compose and direct terminal input."
-              keys={meta ? ['⌘', '/'] : ['Ctrl', '`']}
+              keys={commandKeyShortcuts ? ['⌘', '/'] : ['Ctrl', '`']}
+            />
+            <Shortcut
+              title="Switch workspace"
+              description="Open a running workspace by its displayed order."
+              keys={commandKeyShortcuts ? ['⌘', '1–0'] : ['Ctrl', '1–0']}
             />
             <Shortcut
               title="Composer history"

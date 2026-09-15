@@ -32,6 +32,8 @@ import {
 import styles from './status-plugin-settings-dialog.module.css';
 
 type Response = { plugins: StatusPlugin[]; presets: StatusPluginPreset[] };
+const addWidgetMenuKey = '__status-widget-add-menu__';
+
 function command(): StatusPlugin {
   return {
     id: crypto.randomUUID(),
@@ -66,6 +68,7 @@ export function StatusPluginSettingsDialog({
   const [selectedId, setSelectedId] = useState<string>();
   const [askingAgent, setAskingAgent] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [menuKey, setMenuKey] = useState<string>();
   const discardResolver = useRef<((discard: boolean) => void) | null>(null);
   const agentTargets = useMemo(
     () =>
@@ -130,6 +133,8 @@ export function StatusPluginSettingsDialog({
     setPlugins((current) => current.filter((plugin) => plugin.id !== id));
     if (selectedId === id) setSelectedId(undefined);
   };
+  const setMenuOpen = (key: string, open: boolean) =>
+    setMenuKey((current) => (open ? key : current === key ? undefined : current));
   const save = async () => {
     const normalized = cloneStatusPlugins(plugins).map((plugin) => ({
       ...plugin,
@@ -248,7 +253,6 @@ export function StatusPluginSettingsDialog({
             Command
             <CodeEditor
               label="Command"
-              language="shell"
               value={selected.source.command}
               onChange={(value) =>
                 update(selected.id, (plugin) => ({ ...plugin, source: { type: 'command', command: value } }))
@@ -272,6 +276,8 @@ export function StatusPluginSettingsDialog({
             </Button>
             <DropdownMenu
               align="end"
+              open={menuKey === addWidgetMenuKey}
+              onOpenChange={(open) => setMenuOpen(addWidgetMenuKey, open)}
               label="Add widget"
               triggerClassName={styles.addButton}
               trigger={
@@ -315,7 +321,13 @@ export function StatusPluginSettingsDialog({
                   </span>
                   <ChevronRight className={styles.chevron} size={16} />
                 </button>
-                <DropdownMenu align="end" label={`Actions for ${plugin.name}`} trigger={<Ellipsis size={17} />}>
+                <DropdownMenu
+                  align="end"
+                  open={menuKey === plugin.id}
+                  onOpenChange={(open) => setMenuOpen(plugin.id, open)}
+                  label={`Actions for ${plugin.name}`}
+                  trigger={<Ellipsis size={17} />}
+                >
                   <DropdownMenuItem
                     disabled={index === 0}
                     aria-label={`Move ${plugin.name} up`}

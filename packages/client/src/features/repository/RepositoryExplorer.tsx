@@ -3,16 +3,45 @@ import {
   parseWorkspaceEntryDragEntries,
   WORKSPACE_ENTRY_DRAG_TYPE,
 } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
-import { ChevronDown, ChevronRight, Ellipsis, File, Folder, FolderOpen, Plus } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  File,
+  FileAudio,
+  FileCode,
+  FileImage,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  Plus,
+} from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from '~/shared/ui/index.ts';
 import type { RepositoryWorkspaceState } from './model/repository-workspace-state.ts';
 import { RepositoryVirtualList } from './RepositoryVirtualList.tsx';
 import styles from './repository-explorer.module.css';
-import { type RepositoryEntry, repositoryBasename, repositoryParentPath } from './repository-path.ts';
+import {
+  type RepositoryEntry,
+  repositoryBasename,
+  repositoryFileCategory,
+  repositoryParentPath,
+} from './repository-path.ts';
 
 const entryKey = (entry: RepositoryEntry) => `${entry.kind}:${entry.path}`;
+const rootMenuKey = '__repository-root-menu__';
+
+function RepositoryFileIcon({ path }: { path: string }) {
+  const category = repositoryFileCategory(path);
+  if (category === 'image') return <FileImage size={15} aria-hidden="true" />;
+  if (category === 'code') return <FileCode size={15} aria-hidden="true" />;
+  if (category === 'document') return <FileText size={15} aria-hidden="true" />;
+  if (category === 'audio') return <FileAudio size={15} aria-hidden="true" />;
+  if (category === 'video') return <FileVideo size={15} aria-hidden="true" />;
+  return <File size={15} aria-hidden="true" />;
+}
 
 export const RepositoryExplorer = observer(function RepositoryExplorer({
   expanded,
@@ -94,7 +123,7 @@ export const RepositoryExplorer = observer(function RepositoryExplorer({
       <DropdownMenu
         align="end"
         open
-        onOpenChange={(open) => setMenuKey(open ? key : undefined)}
+        onOpenChange={(open) => setMenuKey((current) => (open ? key : current === key ? undefined : current))}
         label={label}
         trigger={<Ellipsis size={15} />}
       >
@@ -151,7 +180,15 @@ export const RepositoryExplorer = observer(function RepositoryExplorer({
           <span title={projectPath}>{projectName}</span>
         </button>
         <div className={`${styles.actions} ${styles.rootActions}`}>
-          <DropdownMenu align="end" label="Add inside workspace root" trigger={<Plus size={16} />}>
+          <DropdownMenu
+            align="end"
+            open={menuKey === rootMenuKey}
+            onOpenChange={(open) =>
+              setMenuKey((current) => (open ? rootMenuKey : current === rootMenuKey ? undefined : current))
+            }
+            label="Add inside workspace root"
+            trigger={<Plus size={16} />}
+          >
             <DropdownMenuItem onSelect={() => onCreate('file', '')}>New file</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onCreate('directory', '')}>New folder</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onUpload('')}>Upload files…</DropdownMenuItem>
@@ -249,7 +286,7 @@ export const RepositoryExplorer = observer(function RepositoryExplorer({
                       <Folder size={15} />
                     )
                   ) : (
-                    <File size={15} />
+                    <RepositoryFileIcon path={entry.path} />
                   )}
                   <span>{repositoryBasename(entry.path)}</span>
                 </button>

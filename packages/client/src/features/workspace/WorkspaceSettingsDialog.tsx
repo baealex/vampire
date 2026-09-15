@@ -127,7 +127,6 @@ export function WorkspaceSettingsDialog({
             </div>
             <CodeEditor
               label="Template source"
-              language="plaintext"
               value={template}
               onChange={(value) => {
                 setTemplate(value);

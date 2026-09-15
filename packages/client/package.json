@@ -15,7 +15,9 @@
     "@baejino/react-ui": "^0.2.0",
     "@dnd-kit/abstract": "0.5.0",
     "@dnd-kit/react": "0.5.0",
-    "@monaco-editor/react": "^4.7.0",
+    "@codemirror/commands": "6.10.4",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.6",
     "@radix-ui/react-popover": "^1.1.23",
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-router": "^1.166.3",
@@ -25,7 +27,6 @@
     "lucide-react": "^0.544.0",
     "mobx": "^6.16.1",
     "mobx-react-lite": "^4.1.1",
-    "monaco-editor": "^0.56.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zustand": "^5.0.11"

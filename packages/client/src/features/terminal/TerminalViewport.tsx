@@ -24,6 +24,7 @@ import {
   type WorkspaceEntryDragData,
   workspaceEntryDragText,
 } from '@vampire/lib/shared/lib/workspace-entry-drag.ts';
+import { usesCommandKeyForShortcuts } from '@vampire/lib/shared/ui/keyboard.ts';
 import { ArrowLeftRight, CircleAlert, Ellipsis, ImagePlus, MonitorSmartphone, RefreshCw, Send } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -109,7 +110,8 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
     () => loadLastFocusedInputSurface(workspaceId, terminalId).value ?? 'compose',
   );
   const loadPrompts = useCallback(() => onLoadComposerPrompts(workspaceId), [onLoadComposerPrompts, workspaceId]);
-  const inputShortcut = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘ /' : 'Ctrl `';
+  const commandKeyShortcuts = usesCommandKeyForShortcuts();
+  const inputShortcut = commandKeyShortcuts ? '⌘ /' : 'Ctrl `';
 
   useEffect(() => {
     let active = true;
@@ -193,6 +195,10 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
   const chooseInputSurface = (surface: TerminalInputSurface) => {
     setInputSurface(surface);
     saveLastFocusedInputSurface(workspaceId, terminalId, surface);
+  };
+  const focusTerminal = () => {
+    chooseInputSurface('terminal');
+    runtime.current?.focus();
   };
   const toggleInput = () => {
     const surface = inputSurface === 'compose' ? 'terminal' : 'compose';
@@ -345,7 +351,7 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
     <div
       className="terminal-body"
       onKeyDownCapture={(event) => {
-        if (!isInputSurfaceToggleShortcut(event.nativeEvent)) return;
+        if (!isInputSurfaceToggleShortcut(event.nativeEvent, commandKeyShortcuts)) return;
         event.preventDefault();
         event.stopPropagation();
         toggleInput();
@@ -381,10 +387,7 @@ export const TerminalViewport = observer(function TerminalViewport(props: Props)
           }}
           onDragLeave={() => setTerminalDropKind('')}
           onDrop={(event) => void handleTerminalDrop(event)}
-          onClick={() => {
-            chooseInputSurface('terminal');
-            runtime.current?.focus();
-          }}
+          onClick={focusTerminal}
         />
         {terminalDropKind ? (
           <div className="terminal-drop-prompt" aria-hidden="true">

@@ -570,9 +570,10 @@ test('keeps the core workspace flow usable in a narrow viewport', async ({ conte
   await page.getByRole('button', { name: 'Open repository' }).click();
   await page.getByRole('button', { name: 'Open conflict.txt' }).click();
   const fileEditor = page.getByLabel('File for conflict.txt');
-  await expect(fileEditor.locator('.monaco-editor .view-lines')).toBeVisible({ timeout: 15_000 });
-  await fileEditor.locator('.monaco-editor .view-lines').click();
-  await expect(fileEditor.getByRole('textbox', { name: 'Editor for conflict.txt' })).toBeFocused();
+  const editor = fileEditor.getByRole('textbox', { name: 'Editor for conflict.txt' });
+  await expect(editor).toBeVisible({ timeout: 15_000 });
+  await editor.click();
+  await expect(editor).toBeFocused();
   await page.getByRole('button', { name: 'Close file and return to terminal' }).click();
   await expect(page.getByPlaceholder('Compose a message…')).toBeVisible();
 
